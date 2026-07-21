@@ -1,7 +1,10 @@
 """
-RV TechTrack v3.0
+RV TechTrack v3.1
 Technician Competency Tracking System
 + Quiz System (Sub-Module quizzes required for "Demonstrated")
++ Certificate Uploader + PDF Viewer
++ Database Backup / Restore
++ Mobile-friendly UI
 Built with Streamlit + SQLAlchemy
 """
 
@@ -13,13 +16,65 @@ from datetime import datetime
 from pathlib import Path
 import os
 import json
+import shutil
+import base64
 
-st.set_page_config(page_title="RV TechTrack v3.0", page_icon="🔧", layout="wide")
+# ---------------- PAGE CONFIG (Mobile Friendly) ----------------
+st.set_page_config(
+    page_title="RV TechTrack v3.1",
+    page_icon="🔧",
+    layout="wide",
+    initial_sidebar_state="collapsed"  # Better on phones
+)
+
+# Custom CSS for mobile + polish
+st.markdown("""
+<style>
+    /* Larger touch targets */
+    .stButton > button {
+        min-height: 3rem;
+        font-size: 1.05rem;
+        border-radius: 10px;
+    }
+    /* Better selectboxes on mobile */
+    .stSelectbox, .stTextInput, .stTextArea {
+        font-size: 1.05rem;
+    }
+    /* Card-like containers */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-radius: 12px;
+        padding: 0.5rem;
+    }
+    /* Progress bars nicer */
+    .stProgress > div > div {
+        border-radius: 8px;
+    }
+    /* Sidebar cleaner */
+    section[data-testid="stSidebar"] {
+        background-color: #0f172a;
+    }
+    /* Hide Streamlit branding a bit */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    /* Better mobile spacing */
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+    }
+    /* Make tabs easier to tap */
+    button[data-baseweb="tab"] {
+        font-size: 1.1rem !important;
+        padding: 0.75rem 1rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------- CONFIG ----------------
 DB_PATH = "rv_techtrack.db"
 TRAINING_DIR = Path("training_materials")
+CERT_DIR = Path("certificates")
 TRAINING_DIR.mkdir(exist_ok=True)
+CERT_DIR.mkdir(exist_ok=True)
 
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 Base = declarative_base()
@@ -79,7 +134,7 @@ class Quiz(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
     submodule_id = Column(Integer, ForeignKey("sub_modules.id"), nullable=False)
-    pass_score = Column(Float, default=80.0)  # percent
+    pass_score = Column(Float, default=80.0)
     created_by = Column(Integer, ForeignKey("technicians.id"))
     created_date = Column(DateTime, default=func.now())
 
@@ -102,10 +157,23 @@ class QuizAttempt(Base):
     id = Column(Integer, primary_key=True)
     technician_id = Column(Integer, ForeignKey("technicians.id"), nullable=False)
     quiz_id = Column(Integer, ForeignKey("quizzes.id"), nullable=False)
-    score = Column(Float)          # percentage
+    score = Column(Float)
     passed = Column(Boolean, default=False)
     completed_date = Column(DateTime, default=func.now())
-    answers_json = Column(Text)    # store selected choice ids for review
+    answers_json = Column(Text)
+
+# -------- NEW: CERTIFICATE MODEL --------
+class Certificate(Base):
+    __tablename__ = "certificates"
+    id = Column(Integer, primary_key=True)
+    technician_id = Column(Integer, ForeignKey("technicians.id"), nullable=False)
+    title = Column(String(250), nullable=False)
+    issuer = Column(String(150))  # e.g. Lippert, RVTI, Airexcel
+    file_path = Column(String(400), nullable=False)
+    issued_date = Column(String(50))  # free text for flexibility
+    notes = Column(Text)
+    uploaded_by = Column(Integer, ForeignKey("technicians.id"))
+    created_date = Column(DateTime, default=func.now())
 
 Base.metadata.create_all(engine)
 session = Session()
@@ -122,7 +190,7 @@ def seed_data():
             session.add(SkillModule(name=m))
         session.commit()
 
-        # Create example sub-modules for Water Heater so quizzes can attach
+        # Water Heater subs
         wh = session.query(SkillModule).filter_by(name="Water Heater").first()
         if wh:
             for s in ["General", "Atwood/Dometic", "Suburban", "Girard (Tankless)"]:
@@ -130,7 +198,7 @@ def seed_data():
                     session.add(SubModule(skill_module_id=wh.id, name=s))
             session.commit()
 
-        # Create example sub-modules for Air Conditioner
+        # Air Conditioner subs
         ac = session.query(SkillModule).filter_by(name="Air Conditioner").first()
         if ac:
             for s in ["General", "Coleman", "Dometic/Furrion", "Installation & Commissioning"]:
@@ -138,7 +206,7 @@ def seed_data():
                     session.add(SubModule(skill_module_id=ac.id, name=s))
             session.commit()
 
-        # Create example sub-modules for Furnace
+        # Furnace subs
         fur = session.query(SkillModule).filter_by(name="Furnace").first()
         if fur:
             for s in ["General", "Atwood/Dometic", "Suburban"]:
@@ -168,10 +236,9 @@ def get_progress(tech_id, module_id=None, sub_id=None):
     return round(approved / total * 100, 1)
 
 def has_passed_quiz(tech_id, submodule_id):
-    """Return True if the technician has at least one passing attempt on any quiz for this sub-module."""
     quizzes = session.query(Quiz).filter_by(submodule_id=submodule_id).all()
     if not quizzes:
-        return True  # no quiz required
+        return True
     for quiz in quizzes:
         attempt = session.query(QuizAttempt).filter_by(
             technician_id=tech_id, quiz_id=quiz.id, passed=True
@@ -183,32 +250,111 @@ def has_passed_quiz(tech_id, submodule_id):
 def get_quiz_for_submodule(submodule_id):
     return session.query(Quiz).filter_by(submodule_id=submodule_id).first()
 
+def show_pdf(file_path: str):
+    """Display a PDF inline using base64."""
+    try:
+        with open(file_path, "rb") as f:
+            base64_pdf = base64.b64encode(f.read()).decode("utf-8")
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Could not display PDF: {e}")
+
 # ---------------- SIDEBAR ----------------
-st.title("RV TechTrack v3.0")
-st.sidebar.header("Current User")
+st.title("🔧 RV TechTrack v3.1")
+st.caption("Mobile-friendly • Certificates • Quizzes • Backups")
+
+st.sidebar.header("👤 Current User")
 role = st.sidebar.selectbox("Role", ["Technician", "Manager"], key="role")
 name = st.sidebar.selectbox("Name", ["Alex Rivera", "Jordan Hale", "Sam Patel"], key="name")
 tech = session.query(Technician).filter_by(name=name).first()
 
-tab1, tab2, tab3 = st.tabs(["My Dashboard", "Manager Tools", "Team Overview"])
+# Only show Manager tab content if Manager
+if role == "Manager":
+    tab1, tab2, tab3 = st.tabs(["📱 My Dashboard", "🛠️ Manager Tools", "👥 Team Overview"])
+else:
+    tab1, tab3 = st.tabs(["📱 My Dashboard", "👥 Team Overview"])
+    tab2 = None  # prevent errors
 
 # =========================================================
 # TAB 1 - MY DASHBOARD
 # =========================================================
 with tab1:
-    st.header(f"My Dashboard - {name}")
+    st.header(f"My Dashboard — {name}")
 
+    # ---------- CERTIFICATES SECTION (New) ----------
+    st.subheader("📜 My Certificates")
+    my_certs = session.query(Certificate).filter_by(technician_id=tech.id).order_by(Certificate.created_date.desc()).all()
+
+    if my_certs:
+        for cert in my_certs:
+            with st.container(border=True):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{cert.title}**")
+                    st.caption(f"Issuer: {cert.issuer or '—'} • Issued: {cert.issued_date or '—'}")
+                    if cert.notes:
+                        st.caption(cert.notes)
+                with col2:
+                    if st.button("View", key=f"view_cert_{cert.id}"):
+                        st.session_state["viewing_cert"] = cert.id
+        if st.session_state.get("viewing_cert"):
+            cert = session.query(Certificate).get(st.session_state["viewing_cert"])
+            if cert and Path(cert.file_path).exists():
+                st.markdown(f"#### Viewing: {cert.title}")
+                show_pdf(cert.file_path)
+                with open(cert.file_path, "rb") as f:
+                    st.download_button("⬇️ Download PDF", f, file_name=Path(cert.file_path).name, key=f"dl_{cert.id}")
+                if st.button("Close Viewer"):
+                    del st.session_state["viewing_cert"]
+                    st.rerun()
+    else:
+        st.info("No certificates uploaded yet.")
+
+    # Upload new certificate (available to everyone)
+    with st.expander("⬆️ Upload New Certificate", expanded=False):
+        cert_title = st.text_input("Certificate Title", key="cert_title")
+        cert_issuer = st.text_input("Issuer (Lippert, RVTI, Airexcel, etc.)", key="cert_issuer")
+        cert_date = st.text_input("Issued Date (optional)", key="cert_date")
+        cert_notes = st.text_area("Notes (optional)", key="cert_notes")
+        cert_file = st.file_uploader("Upload PDF Certificate", type=["pdf"], key="cert_upload")
+
+        if st.button("Save Certificate", type="primary", key="save_cert"):
+            if cert_title and cert_file:
+                # Save file
+                safe_name = f"{tech.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{cert_file.name}"
+                file_path = CERT_DIR / safe_name
+                with open(file_path, "wb") as f:
+                    f.write(cert_file.getbuffer())
+
+                new_cert = Certificate(
+                    technician_id=tech.id,
+                    title=cert_title,
+                    issuer=cert_issuer or None,
+                    file_path=str(file_path),
+                    issued_date=cert_date or None,
+                    notes=cert_notes or None,
+                    uploaded_by=tech.id
+                )
+                session.add(new_cert)
+                session.commit()
+                st.success("✅ Certificate saved!")
+                st.rerun()
+            else:
+                st.error("Title and PDF file are required.")
+
+    st.divider()
+
+    # ---------- MODULE SELECTOR ----------
     mains = session.query(SkillModule).all()
     if not mains:
         st.warning("No Main Modules yet. Ask a Manager to create some.")
     else:
         main = st.selectbox("Main Module", [m.name for m in mains], key="main")
         mod = session.query(SkillModule).filter_by(name=main).first()
-
         subs = session.query(SubModule).filter_by(skill_module_id=mod.id).all()
         sub_names = ["All"] + [s.name for s in subs]
         sub_choice = st.selectbox("Sub-Module", sub_names, key="sub")
-
         active_sub = None
         if sub_choice != "All":
             active_sub = session.query(SubModule).filter_by(name=sub_choice, skill_module_id=mod.id).first()
@@ -237,7 +383,6 @@ with tab1:
                 st.markdown("---")
                 st.subheader(f"Taking Quiz: {quiz.title}")
                 st.caption(f"Pass score required: {quiz.pass_score}%")
-
                 questions = session.query(QuizQuestion).filter_by(quiz_id=quiz.id).order_by(QuizQuestion.order).all()
                 if not questions:
                     st.error("This quiz has no questions yet.")
@@ -247,11 +392,9 @@ with tab1:
                         choices = session.query(QuizChoice).filter_by(question_id=q.id).all()
                         options = [c.choice_text for c in choices]
                         selected = st.radio(q.question_text, options, key=f"q_{q.id}")
-                        # store the choice object
                         for c in choices:
                             if c.choice_text == selected:
                                 answers[q.id] = c.id
-
                     if st.button("Submit Quiz", type="primary"):
                         correct = 0
                         total = len(questions)
@@ -261,7 +404,6 @@ with tab1:
                                 correct += 1
                         score = round((correct / total) * 100, 1) if total > 0 else 0
                         passed = score >= quiz.pass_score
-
                         attempt = QuizAttempt(
                             technician_id=tech.id,
                             quiz_id=quiz.id,
@@ -271,18 +413,14 @@ with tab1:
                         )
                         session.add(attempt)
                         session.commit()
-
                         if passed:
                             st.success(f"🎉 PASSED! Score: {score}%")
                             st.balloons()
                         else:
                             st.error(f"❌ Not passed. Score: {score}% (Need {quiz.pass_score}%)")
-                        
-                        # clear quiz mode
                         del st.session_state["quiz_mode"]
                         del st.session_state["active_quiz_id"]
                         st.rerun()
-
                 if st.button("Cancel Quiz"):
                     del st.session_state["quiz_mode"]
                     del st.session_state["active_quiz_id"]
@@ -338,10 +476,8 @@ with tab1:
                     if comp.description:
                         st.caption(comp.description)
 
-                    # Build status options - remove "demonstrated" if quiz not passed
                     status_options = ["not_started", "practicing", "demonstrated", "approved"]
                     if not quiz_passed and active_sub:
-                        # Remove demonstrated if they haven't passed the quiz
                         if "demonstrated" in status_options:
                             status_options.remove("demonstrated")
                         st.caption("🔒 Pass the Sub-Module quiz to unlock **Demonstrated**")
@@ -356,7 +492,6 @@ with tab1:
 
                     if new_status != tc.status:
                         if new_status == "demonstrated":
-                            # Extra safety check
                             if not quiz_passed:
                                 st.error("You must pass the Sub-Module quiz first.")
                             else:
@@ -383,310 +518,352 @@ with tab1:
 # =========================================================
 # TAB 2 - MANAGER TOOLS
 # =========================================================
-with tab2:
-    st.header("Manager Tools")
-    if role != "Manager":
-        st.info("Switch to Manager role in the sidebar to access these tools.")
-    else:
-        # ---------- ADD MAIN MODULE ----------
-        with st.expander("➕ Add New Main Module"):
-            nm = st.text_input("Module Name", key="new_main_module")
-            if st.button("Create Main Module", key="btn_create_main"):
-                if nm:
-                    if not session.query(SkillModule).filter_by(name=nm).first():
-                        session.add(SkillModule(name=nm))
-                        session.commit()
-                        st.success(f"✅ Added Main Module: {nm}")
-                        st.rerun()
-                    else:
-                        st.error("A Main Module with that name already exists.")
+if tab2 is not None:
+    with tab2:
+        st.header("🛠️ Manager Tools")
 
-        # ---------- ADD / EDIT MAIN MODULE + TRAINING MATERIALS ----------
-        with st.expander("➕ Add / Edit Main Module & Training Materials"):
-            main_modules = session.query(SkillModule).all()
-            if main_modules:
-                selected_main = st.selectbox("Select Main Module", [m.name for m in main_modules], key="main_select")
-                main_obj = session.query(SkillModule).filter_by(name=selected_main).first()
+        if role != "Manager":
+            st.info("Switch to Manager role in the sidebar to access these tools.")
+        else:
+            # ========== DATABASE BACKUP / RESTORE ==========
+            with st.expander("💾 Database Backup & Restore", expanded=True):
+                st.markdown("**Important:** Streamlit Cloud resets the database on restart. Use these tools regularly.")
 
-                if main_obj:
-                    new_main_name = st.text_input("Main Module Name", value=main_obj.name, key="edit_main_name")
-                    if st.button("Update Main Module Name", key="update_main"):
-                        main_obj.name = new_main_name
-                        session.commit()
-                        st.success("Main Module updated!")
-                        st.rerun()
+                col_a, col_b = st.columns(2)
 
-                    st.write("**Training Materials attached to this Main Module:**")
-                    main_materials = session.query(TrainingMaterial).filter_by(module_id=main_obj.id).all()
-                    for mat in main_materials:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.write(f"• {mat.title}")
-                        with col2:
-                            if st.button("Remove", key=f"remove_main_{mat.id}"):
-                                if os.path.exists(mat.file_path):
-                                    os.remove(mat.file_path)
-                                session.delete(mat)
-                                session.commit()
-                                st.rerun()
-
-                    st.write("**Upload Training Material to this Main Module:**")
-                    uploaded = st.file_uploader("Upload PDF or PPTX", type=["pdf", "pptx"], key="main_upload")
-                    mat_title = st.text_input("Material Title", key="main_mat_title")
-                    if st.button("Upload to Main Module", key="upload_main_mat"):
-                        if uploaded and mat_title:
-                            file_path = TRAINING_DIR / uploaded.name
-                            with open(file_path, "wb") as f:
-                                f.write(uploaded.getbuffer())
-                            new_mat = TrainingMaterial(
-                                title=mat_title,
-                                file_path=str(file_path),
-                                file_type=uploaded.name.split(".")[-1].lower(),
-                                module_id=main_obj.id,
-                                uploaded_by=tech.id
+                with col_a:
+                    st.subheader("⬇️ Download Current Database")
+                    if Path(DB_PATH).exists():
+                        with open(DB_PATH, "rb") as f:
+                            st.download_button(
+                                label="Download rv_techtrack.db",
+                                data=f,
+                                file_name=f"rv_techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                                mime="application/octet-stream",
+                                type="primary"
                             )
-                            session.add(new_mat)
+                        st.caption("Save this file somewhere safe (phone, Google Drive, etc.)")
+                    else:
+                        st.warning("No database file found.")
+
+                with col_b:
+                    st.subheader("⬆️ Upload / Restore Database")
+                    uploaded_db = st.file_uploader("Upload a .db backup file", type=["db"], key="db_upload")
+                    if uploaded_db and st.button("Restore This Database", type="primary"):
+                        # Backup current just in case
+                        if Path(DB_PATH).exists():
+                            shutil.copy(DB_PATH, DB_PATH + ".before_restore")
+                        # Write the new one
+                        with open(DB_PATH, "wb") as f:
+                            f.write(uploaded_db.getbuffer())
+                        st.success("✅ Database restored! The app will now use the uploaded data.")
+                        st.info("You may need to refresh the page.")
+                        st.rerun()
+
+            st.divider()
+
+            # ========== CERTIFICATE MANAGEMENT (Manager view) ==========
+            with st.expander("📜 All Certificates (Team)", expanded=False):
+                all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()
+                if all_certs:
+                    for cert in all_certs:
+                        tech_name = session.query(Technician).get(cert.technician_id).name
+                        with st.container(border=True):
+                            st.markdown(f"**{cert.title}** — {tech_name}")
+                            st.caption(f"Issuer: {cert.issuer or '—'} • {cert.issued_date or '—'} • Uploaded {cert.created_date.strftime('%Y-%m-%d') if cert.created_date else ''}")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if Path(cert.file_path).exists():
+                                    with open(cert.file_path, "rb") as f:
+                                        st.download_button("Download", f, file_name=Path(cert.file_path).name, key=f"mgr_dl_{cert.id}")
+                            with c2:
+                                if st.button("Delete", key=f"del_cert_{cert.id}"):
+                                    if Path(cert.file_path).exists():
+                                        os.remove(cert.file_path)
+                                    session.delete(cert)
+                                    session.commit()
+                                    st.rerun()
+                else:
+                    st.info("No certificates uploaded by anyone yet.")
+
+            # ---------- ADD MAIN MODULE ----------
+            with st.expander("➕ Add New Main Module"):
+                nm = st.text_input("Module Name", key="new_main_module")
+                if st.button("Create Main Module", key="btn_create_main"):
+                    if nm:
+                        if not session.query(SkillModule).filter_by(name=nm).first():
+                            session.add(SkillModule(name=nm))
                             session.commit()
-                            st.success("Training material added!")
+                            st.success(f"✅ Added Main Module: {nm}")
+                            st.rerun()
+                        else:
+                            st.error("A Main Module with that name already exists.")
+
+            # ---------- ADD / EDIT MAIN MODULE + TRAINING MATERIALS ----------
+            with st.expander("➕ Add / Edit Main Module & Training Materials"):
+                main_modules = session.query(SkillModule).all()
+                if main_modules:
+                    selected_main = st.selectbox("Select Main Module", [m.name for m in main_modules], key="main_select")
+                    main_obj = session.query(SkillModule).filter_by(name=selected_main).first()
+                    if main_obj:
+                        new_main_name = st.text_input("Main Module Name", value=main_obj.name, key="edit_main_name")
+                        if st.button("Update Main Module Name", key="update_main"):
+                            main_obj.name = new_main_name
+                            session.commit()
+                            st.success("Main Module updated!")
                             st.rerun()
 
-        # ---------- ADD SUB-MODULE ----------
-        with st.expander("➕ Add New Sub-Module"):
-            pm = st.selectbox("Parent Main Module", [m.name for m in session.query(SkillModule).all()], key="parent_main")
-            ns = st.text_input("Sub-Module Name", key="new_sub_name")
-            if st.button("Create Sub-Module", key="btn_add_sub"):
-                if ns and pm:
-                    p = session.query(SkillModule).filter_by(name=pm).first()
-                    if not session.query(SubModule).filter_by(name=ns, skill_module_id=p.id).first():
-                        session.add(SubModule(skill_module_id=p.id, name=ns))
+                        st.write("**Training Materials attached to this Main Module:**")
+                        main_materials = session.query(TrainingMaterial).filter_by(module_id=main_obj.id).all()
+                        for mat in main_materials:
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                st.write(f"• {mat.title}")
+                            with col2:
+                                if st.button("Remove", key=f"remove_main_{mat.id}"):
+                                    if os.path.exists(mat.file_path):
+                                        os.remove(mat.file_path)
+                                    session.delete(mat)
+                                    session.commit()
+                                    st.rerun()
+
+                        st.write("**Upload Training Material to this Main Module:**")
+                        uploaded = st.file_uploader("Upload PDF or PPTX", type=["pdf", "pptx"], key="main_upload")
+                        mat_title = st.text_input("Material Title", key="main_mat_title")
+                        if st.button("Upload to Main Module", key="upload_main_mat"):
+                            if uploaded and mat_title:
+                                file_path = TRAINING_DIR / uploaded.name
+                                with open(file_path, "wb") as f:
+                                    f.write(uploaded.getbuffer())
+                                new_mat = TrainingMaterial(
+                                    title=mat_title,
+                                    file_path=str(file_path),
+                                    file_type=uploaded.name.split(".")[-1].lower(),
+                                    module_id=main_obj.id,
+                                    uploaded_by=tech.id
+                                )
+                                session.add(new_mat)
+                                session.commit()
+                                st.success("Training material added!")
+                                st.rerun()
+
+            # ---------- ADD SUB-MODULE ----------
+            with st.expander("➕ Add New Sub-Module"):
+                pm = st.selectbox("Parent Main Module", [m.name for m in session.query(SkillModule).all()], key="parent_main")
+                ns = st.text_input("Sub-Module Name", key="new_sub_name")
+                if st.button("Create Sub-Module", key="btn_add_sub"):
+                    if ns and pm:
+                        p = session.query(SkillModule).filter_by(name=pm).first()
+                        if not session.query(SubModule).filter_by(name=ns, skill_module_id=p.id).first():
+                            session.add(SubModule(skill_module_id=p.id, name=ns))
+                            session.commit()
+                            st.success(f"Added '{ns}' under {pm}")
+                            st.rerun()
+                        else:
+                            st.error("Already exists under this module")
+
+            # ---------- EDIT / DELETE SUB-MODULE ----------
+            with st.expander("✏️ Edit / Delete Sub-Module"):
+                sub_list = session.query(SubModule).all()
+                if sub_list:
+                    sub_to_edit = st.selectbox("Select Sub-Module", [f"{s.name} (ID:{s.id})" for s in sub_list], key="sub_edit")
+                    sub_id = int(sub_to_edit.split("ID:")[1].replace(")", ""))
+                    sub = session.query(SubModule).get(sub_id)
+                    if sub:
+                        new_name = st.text_input("New Name", value=sub.name, key="edit_sub_name")
+                        if st.button("Update Name", key="update_sub"):
+                            sub.name = new_name
+                            session.commit()
+                            st.success("Updated!")
+                            st.rerun()
+                        if st.button("🗑️ Delete Sub-Module + All Data Under It", key="delete_sub"):
+                            session.query(Competency).filter_by(submodule_id=sub.id).delete()
+                            session.query(TrainingMaterial).filter_by(submodule_id=sub.id).delete()
+                            quizzes = session.query(Quiz).filter_by(submodule_id=sub.id).all()
+                            for qz in quizzes:
+                                qs = session.query(QuizQuestion).filter_by(quiz_id=qz.id).all()
+                                for q in qs:
+                                    session.query(QuizChoice).filter_by(question_id=q.id).delete()
+                                session.query(QuizQuestion).filter_by(quiz_id=qz.id).delete()
+                                session.query(QuizAttempt).filter_by(quiz_id=qz.id).delete()
+                                session.delete(qz)
+                            session.delete(sub)
+                            session.commit()
+                            st.success("Deleted Sub-Module and all related data.")
+                            st.rerun()
+
+            # ---------- ADD COMPETENCY ----------
+            with st.expander("➕ Add New Competency"):
+                cm = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="cmod")
+                cmod = session.query(SkillModule).filter_by(name=cm).first()
+                subs_for_mod = ["None"] + [s.name for s in session.query(SubModule).filter_by(skill_module_id=cmod.id).all()]
+                cs = st.selectbox("Sub-Module (optional)", subs_for_mod, key="csub")
+                cc = st.text_input("Code", key="ccode")
+                ct = st.text_input("Title", key="ctitle")
+                cd = st.text_area("Description (optional)", key="cdesc")
+                if st.button("Create Competency", key="btn_comp"):
+                    if cc and ct:
+                        subid = None
+                        if cs != "None":
+                            subobj = session.query(SubModule).filter_by(name=cs, skill_module_id=cmod.id).first()
+                            if subobj:
+                                subid = subobj.id
+                        session.add(Competency(
+                            module_id=cmod.id, submodule_id=subid,
+                            code=cc, title=ct, description=cd or None
+                        ))
                         session.commit()
-                        st.success(f"Added '{ns}' under {pm}")
+                        st.success(f"Added: {cc} — {ct}")
                         st.rerun()
                     else:
-                        st.error("Already exists under this module")
+                        st.error("Code and Title required")
 
-        # ---------- EDIT / DELETE SUB-MODULE ----------
-        with st.expander("✏️ Edit / Delete Sub-Module"):
-            sub_list = session.query(SubModule).all()
-            if sub_list:
-                sub_to_edit = st.selectbox("Select Sub-Module", [f"{s.name} (ID:{s.id})" for s in sub_list], key="sub_edit")
-                sub_id = int(sub_to_edit.split("ID:")[1].replace(")", ""))
-                sub = session.query(SubModule).get(sub_id)
-
-                if sub:
-                    new_name = st.text_input("New Name", value=sub.name, key="edit_sub_name")
-                    if st.button("Update Name", key="update_sub"):
-                        sub.name = new_name
-                        session.commit()
-                        st.success("Updated!")
-                        st.rerun()
-
-                    if st.button("🗑️ Delete Sub-Module + All Data Under It", key="delete_sub"):
-                        # cascade delete
-                        session.query(Competency).filter_by(submodule_id=sub.id).delete()
-                        session.query(TrainingMaterial).filter_by(submodule_id=sub.id).delete()
-                        # also delete quizzes for this sub
-                        quizzes = session.query(Quiz).filter_by(submodule_id=sub.id).all()
-                        for qz in quizzes:
-                            qs = session.query(QuizQuestion).filter_by(quiz_id=qz.id).all()
-                            for q in qs:
-                                session.query(QuizChoice).filter_by(question_id=q.id).delete()
-                            session.query(QuizQuestion).filter_by(quiz_id=qz.id).delete()
-                            session.query(QuizAttempt).filter_by(quiz_id=qz.id).delete()
-                            session.delete(qz)
-                        session.delete(sub)
-                        session.commit()
-                        st.success("Deleted Sub-Module and all related data.")
-                        st.rerun()
-
-        # ---------- ADD COMPETENCY ----------
-        with st.expander("➕ Add New Competency"):
-            cm = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="cmod")
-            cmod = session.query(SkillModule).filter_by(name=cm).first()
-            subs_for_mod = ["None"] + [s.name for s in session.query(SubModule).filter_by(skill_module_id=cmod.id).all()]
-            cs = st.selectbox("Sub-Module (optional)", subs_for_mod, key="csub")
-            cc = st.text_input("Code", key="ccode")
-            ct = st.text_input("Title", key="ctitle")
-            cd = st.text_area("Description (optional)", key="cdesc")
-            if st.button("Create Competency", key="btn_comp"):
-                if cc and ct:
-                    subid = None
-                    if cs != "None":
-                        subobj = session.query(SubModule).filter_by(name=cs, skill_module_id=cmod.id).first()
-                        if subobj:
-                            subid = subobj.id
-                    session.add(Competency(
-                        module_id=cmod.id, submodule_id=subid,
-                        code=cc, title=ct, description=cd or None
-                    ))
-                    session.commit()
-                    st.success(f"Added: {cc} — {ct}")
-                    st.rerun()
-                else:
-                    st.error("Code and Title required")
-
-        # ---------- BULK IMPORT COMPETENCIES ----------
-        with st.expander("🚀 Bulk Import Competencies"):
-            st.write("**Paste competencies (one per line)**  \nFormat: `CODE | Title | Description` (description optional)")
-            bulk_text = st.text_area("Competencies", height=180, key="bulk_text")
-
-            col1, col2 = st.columns(2)
-            with col1:
-                bulk_main = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="bulk_main")
-            with col2:
-                bulk_mod = session.query(SkillModule).filter_by(name=bulk_main).first()
-                bulk_sub_opts = ["None"] + [s.name for s in session.query(SubModule).filter_by(skill_module_id=bulk_mod.id).all()]
-                bulk_sub_name = st.selectbox("Sub-Module (optional)", bulk_sub_opts, key="bulk_sub")
-
-            if st.button("Import Competencies", key="bulk_import_btn"):
-                if bulk_text.strip():
-                    lines = [line.strip() for line in bulk_text.strip().split("\n") if line.strip()]
-                    imported = 0
-                    for line in lines:
-                        parts = [p.strip() for p in line.split("|")]
-                        if len(parts) >= 2:
-                            code, title = parts[0], parts[1]
-                            desc = parts[2] if len(parts) > 2 else None
-                            sub_id = None
-                            if bulk_sub_name != "None":
-                                sub = session.query(SubModule).filter_by(
-                                    name=bulk_sub_name, skill_module_id=bulk_mod.id
+            # ---------- BULK IMPORT COMPETENCIES ----------
+            with st.expander("🚀 Bulk Import Competencies"):
+                st.write("**Paste competencies (one per line)**  \nFormat: `CODE | Title | Description` (description optional)")
+                bulk_text = st.text_area("Competencies", height=180, key="bulk_text")
+                col1, col2 = st.columns(2)
+                with col1:
+                    bulk_main = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="bulk_main")
+                with col2:
+                    bulk_mod = session.query(SkillModule).filter_by(name=bulk_main).first()
+                    bulk_sub_opts = ["None"] + [s.name for s in session.query(SubModule).filter_by(skill_module_id=bulk_mod.id).all()]
+                    bulk_sub_name = st.selectbox("Sub-Module (optional)", bulk_sub_opts, key="bulk_sub")
+                if st.button("Import Competencies", key="bulk_import_btn"):
+                    if bulk_text.strip():
+                        lines = [line.strip() for line in bulk_text.strip().split("\n") if line.strip()]
+                        imported = 0
+                        for line in lines:
+                            parts = [p.strip() for p in line.split("|")]
+                            if len(parts) >= 2:
+                                code, title = parts[0], parts[1]
+                                desc = parts[2] if len(parts) > 2 else None
+                                sub_id = None
+                                if bulk_sub_name != "None":
+                                    sub = session.query(SubModule).filter_by(
+                                        name=bulk_sub_name, skill_module_id=bulk_mod.id
+                                    ).first()
+                                    if sub:
+                                        sub_id = sub.id
+                                existing = session.query(Competency).filter_by(
+                                    module_id=bulk_mod.id, code=code
                                 ).first()
-                                if sub:
-                                    sub_id = sub.id
-                            existing = session.query(Competency).filter_by(
-                                module_id=bulk_mod.id, code=code
-                            ).first()
-                            if not existing:
-                                session.add(Competency(
-                                    module_id=bulk_mod.id, submodule_id=sub_id,
-                                    code=code, title=title, description=desc
-                                ))
-                                imported += 1
-                    session.commit()
-                    st.success(f"✅ Imported {imported} competencies")
-                    st.rerun()
-
-# ---------- CREATE / MANAGE QUIZZES (Manager) ----------
-with st.expander("📝 Create / Manage Quizzes", expanded=True):
-    
-    # === CREATE NEW QUIZ ===
-    st.subheader("Create New Quiz")
-    q_title = st.text_input("Quiz Title", key="q_title")
-    q_main = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="q_main")
-    q_mod = session.query(SkillModule).filter_by(name=q_main).first()
-    
-    if q_mod:
-        q_subs = session.query(SubModule).filter_by(skill_module_id=q_mod.id).all()
-        if q_subs:
-            q_sub_name = st.selectbox("Sub-Module (required)", [s.name for s in q_subs], key="q_sub")
-            q_sub = session.query(SubModule).filter_by(name=q_sub_name, skill_module_id=q_mod.id).first()
-            q_pass = st.number_input("Pass Score (%)", min_value=50.0, max_value=100.0, value=80.0, step=5.0, key="q_pass")
-            
-            if st.button("Create Quiz", key="create_quiz_btn"):
-                if q_title and q_sub:
-                    existing = session.query(Quiz).filter_by(submodule_id=q_sub.id).first()
-                    if existing:
-                        st.error("A quiz already exists for this Sub-Module. Delete it first.")
-                    else:
-                        new_quiz = Quiz(
-                            title=q_title,
-                            submodule_id=q_sub.id,
-                            pass_score=q_pass,
-                            created_by=tech.id
-                        )
-                        session.add(new_quiz)
+                                if not existing:
+                                    session.add(Competency(
+                                        module_id=bulk_mod.id, submodule_id=sub_id,
+                                        code=code, title=title, description=desc
+                                    ))
+                                    imported += 1
                         session.commit()
-                        st.success(f"Quiz created: {q_title}")
+                        st.success(f"✅ Imported {imported} competencies")
                         st.rerun()
-        else:
-            st.info("Create Sub-Modules first.")
 
-    st.markdown("---")
+            # ---------- CREATE / MANAGE QUIZZES ----------
+            with st.expander("📝 Create / Manage Quizzes", expanded=False):
+                st.subheader("Create New Quiz")
+                q_title = st.text_input("Quiz Title", key="q_title")
+                q_main = st.selectbox("Main Module", [m.name for m in session.query(SkillModule).all()], key="q_main")
+                q_mod = session.query(SkillModule).filter_by(name=q_main).first()
 
-    # === ADD QUESTIONS TO EXISTING QUIZ ===
-    st.subheader("Add Questions to a Quiz")
-    all_quizzes = session.query(Quiz).all()
-    if all_quizzes:
-        quiz_options = {f"{q.title} (ID:{q.id})": q.id for q in all_quizzes}
-        selected_q = st.selectbox("Select Quiz", list(quiz_options.keys()), key="select_quiz_for_q")
-        selected_quiz_id = quiz_options[selected_q]
+                if q_mod:
+                    q_subs = session.query(SubModule).filter_by(skill_module_id=q_mod.id).all()
+                    if q_subs:
+                        q_sub_name = st.selectbox("Sub-Module (required)", [s.name for s in q_subs], key="q_sub")
+                        q_sub = session.query(SubModule).filter_by(name=q_sub_name, skill_module_id=q_mod.id).first()
+                        q_pass = st.number_input("Pass Score (%)", min_value=50.0, max_value=100.0, value=80.0, step=5.0, key="q_pass")
 
-        st.write("**Add a new question:**")
-        q_text = st.text_area("Question Text", key="new_q_text")
-        c1 = st.text_input("Choice A", key="cA")
-        c2 = st.text_input("Choice B", key="cB")
-        c3 = st.text_input("Choice C", key="cC")
-        c4 = st.text_input("Choice D", key="cD")
-        correct = st.selectbox("Correct Answer", ["A", "B", "C", "D"], key="correct_choice")
+                        if st.button("Create Quiz", key="create_quiz_btn"):
+                            if q_title and q_sub:
+                                existing = session.query(Quiz).filter_by(submodule_id=q_sub.id).first()
+                                if existing:
+                                    st.error("A quiz already exists for this Sub-Module. Delete it first.")
+                                else:
+                                    new_quiz = Quiz(
+                                        title=q_title,
+                                        submodule_id=q_sub.id,
+                                        pass_score=q_pass,
+                                        created_by=tech.id
+                                    )
+                                    session.add(new_quiz)
+                                    session.commit()
+                                    st.success(f"Quiz created: {q_title}")
+                                    st.rerun()
+                    else:
+                        st.info("Create Sub-Modules first.")
 
-        if st.button("Add Question", key="add_question_btn"):
-            if q_text and c1 and c2 and c3 and c4:
-                new_question = QuizQuestion(
-                    quiz_id=selected_quiz_id,
-                    question_text=q_text
-                )
-                session.add(new_question)
-                session.commit()
+                st.markdown("---")
+                st.subheader("Add Questions to a Quiz")
+                all_quizzes = session.query(Quiz).all()
+                if all_quizzes:
+                    quiz_options = {f"{q.title} (ID:{q.id})": q.id for q in all_quizzes}
+                    selected_q = st.selectbox("Select Quiz", list(quiz_options.keys()), key="select_quiz_for_q")
+                    selected_quiz_id = quiz_options[selected_q]
+                    st.write("**Add a new question:**")
+                    q_text = st.text_area("Question Text", key="new_q_text")
+                    c1 = st.text_input("Choice A", key="cA")
+                    c2 = st.text_input("Choice B", key="cB")
+                    c3 = st.text_input("Choice C", key="cC")
+                    c4 = st.text_input("Choice D", key="cD")
+                    correct = st.selectbox("Correct Answer", ["A", "B", "C", "D"], key="correct_choice")
+                    if st.button("Add Question", key="add_question_btn"):
+                        if q_text and c1 and c2 and c3 and c4:
+                            new_question = QuizQuestion(
+                                quiz_id=selected_quiz_id,
+                                question_text=q_text
+                            )
+                            session.add(new_question)
+                            session.commit()
+                            choices = [
+                                QuizChoice(question_id=new_question.id, choice_text=c1, is_correct=(correct == "A")),
+                                QuizChoice(question_id=new_question.id, choice_text=c2, is_correct=(correct == "B")),
+                                QuizChoice(question_id=new_question.id, choice_text=c3, is_correct=(correct == "C")),
+                                QuizChoice(question_id=new_question.id, choice_text=c4, is_correct=(correct == "D")),
+                            ]
+                            session.add_all(choices)
+                            session.commit()
+                            st.success("Question added successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Please fill in all fields.")
+                else:
+                    st.info("Create a quiz first before adding questions.")
 
-                choices = [
-                    QuizChoice(question_id=new_question.id, choice_text=c1, is_correct=(correct == "A")),
-                    QuizChoice(question_id=new_question.id, choice_text=c2, is_correct=(correct == "B")),
-                    QuizChoice(question_id=new_question.id, choice_text=c3, is_correct=(correct == "C")),
-                    QuizChoice(question_id=new_question.id, choice_text=c4, is_correct=(correct == "D")),
-                ]
-                session.add_all(choices)
-                session.commit()
-                st.success("Question added successfully!")
-                st.rerun()
-            else:
-                st.error("Please fill in all fields.")
-    else:
-        st.info("Create a quiz first before adding questions.")
-
-    st.markdown("---")
-
-    # ========== NEW: DELETE QUIZ ==========
-    st.subheader("🗑️ Delete a Quiz")
-    quizzes = session.query(Quiz).order_by(Quiz.title).all()
-    if quizzes:
-        quiz_options = {f"{q.title} (ID:{q.id})": q for q in quizzes}
-        selected_title = st.selectbox(
-            "Select quiz to delete",
-            list(quiz_options.keys()),
-            key="delete_quiz_select"
-        )
-        quiz_to_delete = quiz_options[selected_title]
-
-        st.warning(f"⚠️ This will permanently delete **{quiz_to_delete.title}** and all its questions + attempts.")
-
-        if st.button("Delete Quiz", type="primary", key="delete_quiz_btn"):
-            try:
-                # Delete attempts first
-                session.query(QuizAttempt).filter_by(quiz_id=quiz_to_delete.id).delete()
-                # Delete choices
-                session.query(QuizChoice).filter(
-                    QuizChoice.question_id.in_(
-                        session.query(QuizQuestion.id).filter_by(quiz_id=quiz_to_delete.id)
+                st.markdown("---")
+                st.subheader("🗑️ Delete a Quiz")
+                quizzes = session.query(Quiz).order_by(Quiz.title).all()
+                if quizzes:
+                    quiz_options = {f"{q.title} (ID:{q.id})": q for q in quizzes}
+                    selected_title = st.selectbox(
+                        "Select quiz to delete",
+                        list(quiz_options.keys()),
+                        key="delete_quiz_select"
                     )
-                ).delete(synchronize_session=False)
-                # Delete questions
-                session.query(QuizQuestion).filter_by(quiz_id=quiz_to_delete.id).delete()
-                # Delete quiz
-                session.delete(quiz_to_delete)
-                session.commit()
-                st.success(f"✅ Quiz '{quiz_to_delete.title}' deleted.")
-                st.rerun()
-            except Exception as e:
-                session.rollback()
-                st.error(f"Error deleting quiz: {e}")
-    else:
-        st.info("No quizzes to delete.")
+                    quiz_to_delete = quiz_options[selected_title]
+                    st.warning(f"⚠️ This will permanently delete **{quiz_to_delete.title}** and all its questions + attempts.")
+                    if st.button("Delete Quiz", type="primary", key="delete_quiz_btn"):
+                        try:
+                            session.query(QuizAttempt).filter_by(quiz_id=quiz_to_delete.id).delete()
+                            session.query(QuizChoice).filter(
+                                QuizChoice.question_id.in_(
+                                    session.query(QuizQuestion.id).filter_by(quiz_id=quiz_to_delete.id)
+                                )
+                            ).delete(synchronize_session=False)
+                            session.query(QuizQuestion).filter_by(quiz_id=quiz_to_delete.id).delete()
+                            session.delete(quiz_to_delete)
+                            session.commit()
+                            st.success(f"✅ Quiz '{quiz_to_delete.title}' deleted.")
+                            st.rerun()
+                        except Exception as e:
+                            session.rollback()
+                            st.error(f"Error deleting quiz: {e}")
+                else:
+                    st.info("No quizzes to delete.")
+
 # =========================================================
 # TAB 3 - TEAM OVERVIEW
 # =========================================================
 with tab3:
-    st.header("Team Skills Matrix")
+    st.header("👥 Team Skills Matrix")
     data = []
     for t in session.query(Technician).all():
         row = {"Name": t.name, "Role": t.role}
@@ -702,8 +879,8 @@ with tab3:
             tech_name = session.query(Technician).get(att.technician_id).name
             quiz = session.query(Quiz).get(att.quiz_id)
             status = "✅ PASS" if att.passed else "❌ FAIL"
-            st.write(f"{status}  {tech_name}  —  {quiz.title}  ({att.score}%)")
+            st.write(f"{status}  {tech_name} — {quiz.title} ({att.score}%)")
     else:
         st.info("No quiz attempts recorded yet.")
 
-st.sidebar.caption("v3.0 • Quizzes + Demonstrated Gate + Full Manager Quiz Builder")
+st.sidebar.caption("v3.1 • Certificates + Mobile + DB Backup")
