@@ -53,7 +53,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------- CONFIG ----------------
-DB_PATH = DB_PATH = "rv_techtrack_v4.db"
+DB_PATH = "rv_techtrack.db"
 DOC_DIR = Path("documents")
 CERT_DIR = Path("certificates")
 SAFETY_DIR = Path("safety")
@@ -229,16 +229,31 @@ if st.sidebar.button("Sign Out"):
     st.session_state.user = None
     st.rerun()
 
+# Top navigation buttons (clear and always visible)
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
+
+nav_cols = st.columns(3 if is_manager else 2)
+with nav_cols[0]:
+    if st.button("📱 My Dashboard", use_container_width=True, type="primary" if st.session_state.page == "Dashboard" else "secondary"):
+        st.session_state.page = "Dashboard"
+        st.rerun()
+with nav_cols[1]:
+    if st.button("👥 Team Overview", use_container_width=True, type="primary" if st.session_state.page == "Overview" else "secondary"):
+        st.session_state.page = "Overview"
+        st.rerun()
 if is_manager:
-    tab1, tab2, tab3 = st.tabs(["📱 My Dashboard", "👥 Team Overview", "🛠️ Manager Tools"])
-else:
-    tab1, tab2 = st.tabs(["📱 My Dashboard", "👥 Team Overview"])
-    tab3 = None
+    with nav_cols[2]:
+        if st.button("🛠️ Manager Tools", use_container_width=True, type="primary" if st.session_state.page == "Manager" else "secondary"):
+            st.session_state.page = "Manager"
+            st.rerun()
+
+st.divider()
 
 # =========================================================
-# TAB 1 - MY DASHBOARD
+# PAGE: MY DASHBOARD
 # =========================================================
-with tab1:
+if st.session_state.page == "Dashboard":
     st.header(f"Welcome, {user['full_name']}")
 
     # CERTIFICATES
@@ -371,9 +386,9 @@ with tab1:
             st.warning("Please paste a story first.")
 
 # =========================================================
-# TAB 2 - TEAM OVERVIEW
+# PAGE: TEAM OVERVIEW
 # =========================================================
-with tab2:
+elif st.session_state.page == "Overview":
     st.header("👥 Team Overview")
     users = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
     st.subheader("Certificate & Safety Summary")
@@ -400,165 +415,164 @@ with tab2:
                         st.write(f"• **{c.title}** ({c.issuer or 'No issuer'}) – {c.issued_date or 'no date'}")
 
 # =========================================================
-# TAB 3 - MANAGER TOOLS
+# PAGE: MANAGER TOOLS
 # =========================================================
-if tab3 is not None:
-    with tab3:
-        st.header("🛠️ Manager Tools")
+elif st.session_state.page == "Manager" and is_manager:
+    st.header("🛠️ Manager Tools")
 
-        with st.expander("👤 User Management", expanded=True):
-            st.subheader("Add New User")
-            nu_user = st.text_input("Username", key="new_username")
-            nu_name = st.text_input("Full Name", key="new_fullname")
-            nu_pass = st.text_input("Temporary Password", type="password", key="new_pass")
-            nu_role = st.selectbox("Role", ["Technician", "Manager"], key="new_role")
-            if st.button("Create User", type="primary"):
-                if nu_user and nu_name and nu_pass:
-                    if session.query(User).filter_by(username=nu_user).first():
-                        st.error("Username already exists.")
-                    else:
-                        session.add(User(username=nu_user, password_hash=hash_password(nu_pass), full_name=nu_name, role=nu_role))
-                        session.commit()
-                        st.success(f"User {nu_user} created.")
-                        st.rerun()
+    with st.expander("👤 User Management", expanded=True):
+        st.subheader("Add New User")
+        nu_user = st.text_input("Username", key="new_username")
+        nu_name = st.text_input("Full Name", key="new_fullname")
+        nu_pass = st.text_input("Temporary Password", type="password", key="new_pass")
+        nu_role = st.selectbox("Role", ["Technician", "Manager"], key="new_role")
+        if st.button("Create User", type="primary"):
+            if nu_user and nu_name and nu_pass:
+                if session.query(User).filter_by(username=nu_user).first():
+                    st.error("Username already exists.")
                 else:
-                    st.error("All fields required.")
-
-            st.markdown("---")
-            st.subheader("Existing Users")
-            for u in session.query(User).order_by(User.full_name).all():
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 2])
-                    with c1:
-                        st.write(f"**{u.full_name}** (@{u.username})")
-                        st.caption(f"Role: {u.role} • Active: {u.is_active}")
-                    with c2:
-                        new_role = st.selectbox("Role", ["Technician", "Manager"], index=0 if u.role == "Technician" else 1, key=f"role_{u.id}")
-                        if new_role != u.role and st.button("Update Role", key=f"updrole_{u.id}"):
-                            u.role = new_role
-                            session.commit()
-                            st.rerun()
-                    with c3:
-                        if st.button("Reset Password", key=f"rp_{u.id}"):
-                            u.password_hash = hash_password("temp123")
-                            session.commit()
-                            st.success(f"Password for {u.username} reset to: temp123")
-                        if u.id != user["id"] and st.button("Deactivate", key=f"deact_{u.id}"):
-                            u.is_active = False
-                            session.commit()
-                            st.rerun()
-
-        with st.expander("📁 Manage Categories"):
-            st.subheader("Add Category")
-            new_cat = st.text_input("Category Name", key="add_cat")
-            if st.button("Create Category"):
-                if new_cat and not session.query(Category).filter_by(name=new_cat).first():
-                    session.add(Category(name=new_cat))
+                    session.add(User(username=nu_user, password_hash=hash_password(nu_pass), full_name=nu_name, role=nu_role))
                     session.commit()
-                    st.success("Category created.")
+                    st.success(f"User {nu_user} created.")
                     st.rerun()
-                else:
-                    st.error("Name required or already exists.")
-            st.markdown("---")
-            for cat in session.query(Category).order_by(Category.name).all():
-                c1, c2, c3 = st.columns([4, 2, 1])
+            else:
+                st.error("All fields required.")
+
+        st.markdown("---")
+        st.subheader("Existing Users")
+        for u in session.query(User).order_by(User.full_name).all():
+            with st.container(border=True):
+                c1, c2, c3 = st.columns([3, 2, 2])
                 with c1:
-                    new_name = st.text_input("Name", value=cat.name, key=f"catname_{cat.id}")
+                    st.write(f"**{u.full_name}** (@{u.username})")
+                    st.caption(f"Role: {u.role} • Active: {u.is_active}")
                 with c2:
-                    if st.button("Rename", key=f"rencat_{cat.id}"):
-                        cat.name = new_name
+                    new_role = st.selectbox("Role", ["Technician", "Manager"], index=0 if u.role == "Technician" else 1, key=f"role_{u.id}")
+                    if new_role != u.role and st.button("Update Role", key=f"updrole_{u.id}"):
+                        u.role = new_role
                         session.commit()
                         st.rerun()
                 with c3:
-                    if st.button("🗑️", key=f"delcat_{cat.id}"):
-                        docs = session.query(Document).filter_by(category_id=cat.id).all()
-                        for d in docs:
-                            if Path(d.file_path).exists():
-                                os.remove(d.file_path)
-                            session.delete(d)
-                        session.delete(cat)
+                    if st.button("Reset Password", key=f"rp_{u.id}"):
+                        u.password_hash = hash_password("temp123")
+                        session.commit()
+                        st.success(f"Password for {u.username} reset to: temp123")
+                    if u.id != user["id"] and st.button("Deactivate", key=f"deact_{u.id}"):
+                        u.is_active = False
                         session.commit()
                         st.rerun()
 
-        with st.expander("📤 Upload Documents to Categories"):
-            cats = session.query(Category).order_by(Category.name).all()
-            if cats:
-                sel_cat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
-                cat_obj = session.query(Category).filter_by(name=sel_cat).first()
-                doc_title = st.text_input("Document Title", key="up_title")
-                doc_keywords = st.text_input("Keywords (optional, helps search)", key="up_keys")
-                doc_file = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
-                if st.button("Upload Document", type="primary"):
-                    if doc_title and doc_file:
-                        fname = f"{cat_obj.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{doc_file.name}"
-                        fpath = DOC_DIR / fname
-                        with open(fpath, "wb") as f:
-                            f.write(doc_file.getbuffer())
-                        session.add(Document(category_id=cat_obj.id, title=doc_title, file_path=str(fpath), file_type=doc_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=doc_keywords or None))
-                        session.commit()
-                        st.success("Document uploaded.")
-                        st.rerun()
-                    else:
-                        st.error("Title and file required.")
-
-        with st.expander("🛡️ Safety Documents & Meetings"):
-            st.subheader("Upload Safety Document")
-            sd_title = st.text_input("Safety Document Title", key="sd_title")
-            sd_keys = st.text_input("Keywords", key="sd_keys")
-            sd_file = st.file_uploader("File", type=["pdf", "pptx", "docx"], key="sd_file")
-            if st.button("Upload Safety Document"):
-                if sd_title and sd_file:
-                    fname = f"safety_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sd_file.name}"
-                    fpath = SAFETY_DIR / fname
-                    with open(fpath, "wb") as f:
-                        f.write(sd_file.getbuffer())
-                    session.add(SafetyDocument(title=sd_title, file_path=str(fpath), file_type=sd_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=sd_keys or None))
+    with st.expander("📁 Manage Categories"):
+        st.subheader("Add Category")
+        new_cat = st.text_input("Category Name", key="add_cat")
+        if st.button("Create Category"):
+            if new_cat and not session.query(Category).filter_by(name=new_cat).first():
+                session.add(Category(name=new_cat))
+                session.commit()
+                st.success("Category created.")
+                st.rerun()
+            else:
+                st.error("Name required or already exists.")
+        st.markdown("---")
+        for cat in session.query(Category).order_by(Category.name).all():
+            c1, c2, c3 = st.columns([4, 2, 1])
+            with c1:
+                new_name = st.text_input("Name", value=cat.name, key=f"catname_{cat.id}")
+            with c2:
+                if st.button("Rename", key=f"rencat_{cat.id}"):
+                    cat.name = new_name
                     session.commit()
-                    st.success("Safety document uploaded.")
+                    st.rerun()
+            with c3:
+                if st.button("🗑️", key=f"delcat_{cat.id}"):
+                    docs = session.query(Document).filter_by(category_id=cat.id).all()
+                    for d in docs:
+                        if Path(d.file_path).exists():
+                            os.remove(d.file_path)
+                        session.delete(d)
+                    session.delete(cat)
+                    session.commit()
                     st.rerun()
 
-            st.markdown("---")
-            st.subheader("Create Safety Meeting")
-            sm_title = st.text_input("Meeting Title", key="sm_title")
-            sm_date = st.text_input("Meeting Date", key="sm_date")
-            sm_notes = st.text_area("Notes / Agenda", key="sm_notes")
-            sm_file = st.file_uploader("PowerPoint or PDF of the training", type=["pdf", "pptx"], key="sm_file")
-            if st.button("Create Safety Meeting", type="primary"):
-                if sm_title:
-                    fpath = None
-                    if sm_file:
-                        fname = f"meeting_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sm_file.name}"
-                        fpath = str(SAFETY_DIR / fname)
-                        with open(fpath, "wb") as f:
-                            f.write(sm_file.getbuffer())
-                    session.add(SafetyMeeting(title=sm_title, meeting_date=sm_date or None, file_path=fpath, notes=sm_notes or None, created_by=user["id"]))
+    with st.expander("📤 Upload Documents to Categories"):
+        cats = session.query(Category).order_by(Category.name).all()
+        if cats:
+            sel_cat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
+            cat_obj = session.query(Category).filter_by(name=sel_cat).first()
+            doc_title = st.text_input("Document Title", key="up_title")
+            doc_keywords = st.text_input("Keywords (optional, helps search)", key="up_keys")
+            doc_file = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
+            if st.button("Upload Document", type="primary"):
+                if doc_title and doc_file:
+                    fname = f"{cat_obj.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{doc_file.name}"
+                    fpath = DOC_DIR / fname
+                    with open(fpath, "wb") as f:
+                        f.write(doc_file.getbuffer())
+                    session.add(Document(category_id=cat_obj.id, title=doc_title, file_path=str(fpath), file_type=doc_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=doc_keywords or None))
                     session.commit()
-                    st.success("Safety meeting created. Technicians can now acknowledge it.")
+                    st.success("Document uploaded.")
                     st.rerun()
                 else:
-                    st.error("Title is required.")
+                    st.error("Title and file required.")
 
-        with st.expander("💾 Database Backup & Restore"):
-            st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
-            c1, c2 = st.columns(2)
-            with c1:
+    with st.expander("🛡️ Safety Documents & Meetings"):
+        st.subheader("Upload Safety Document")
+        sd_title = st.text_input("Safety Document Title", key="sd_title")
+        sd_keys = st.text_input("Keywords", key="sd_keys")
+        sd_file = st.file_uploader("File", type=["pdf", "pptx", "docx"], key="sd_file")
+        if st.button("Upload Safety Document"):
+            if sd_title and sd_file:
+                fname = f"safety_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sd_file.name}"
+                fpath = SAFETY_DIR / fname
+                with open(fpath, "wb") as f:
+                    f.write(sd_file.getbuffer())
+                session.add(SafetyDocument(title=sd_title, file_path=str(fpath), file_type=sd_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=sd_keys or None))
+                session.commit()
+                st.success("Safety document uploaded.")
+                st.rerun()
+
+        st.markdown("---")
+        st.subheader("Create Safety Meeting")
+        sm_title = st.text_input("Meeting Title", key="sm_title")
+        sm_date = st.text_input("Meeting Date", key="sm_date")
+        sm_notes = st.text_area("Notes / Agenda", key="sm_notes")
+        sm_file = st.file_uploader("PowerPoint or PDF of the training", type=["pdf", "pptx"], key="sm_file")
+        if st.button("Create Safety Meeting", type="primary"):
+            if sm_title:
+                fpath = None
+                if sm_file:
+                    fname = f"meeting_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sm_file.name}"
+                    fpath = str(SAFETY_DIR / fname)
+                    with open(fpath, "wb") as f:
+                        f.write(sm_file.getbuffer())
+                session.add(SafetyMeeting(title=sm_title, meeting_date=sm_date or None, file_path=fpath, notes=sm_notes or None, created_by=user["id"]))
+                session.commit()
+                st.success("Safety meeting created. Technicians can now acknowledge it.")
+                st.rerun()
+            else:
+                st.error("Title is required.")
+
+    with st.expander("💾 Database Backup & Restore"):
+        st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
+        c1, c2 = st.columns(2)
+        with c1:
+            if Path(DB_PATH).exists():
+                with open(DB_PATH, "rb") as f:
+                    st.download_button("⬇️ Download Current Database", f, file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db", mime="application/octet-stream", type="primary")
+        with c2:
+            up_db = st.file_uploader("Upload .db backup to restore", type=["db"], key="restore_db")
+            if up_db and st.button("Restore Database"):
                 if Path(DB_PATH).exists():
-                    with open(DB_PATH, "rb") as f:
-                        st.download_button("⬇️ Download Current Database", f, file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db", mime="application/octet-stream", type="primary")
-            with c2:
-                up_db = st.file_uploader("Upload .db backup to restore", type=["db"], key="restore_db")
-                if up_db and st.button("Restore Database"):
-                    if Path(DB_PATH).exists():
-                        shutil.copy(DB_PATH, DB_PATH + ".bak")
-                    with open(DB_PATH, "wb") as f:
-                        f.write(up_db.getbuffer())
-                    st.success("Database restored. Refresh the page.")
-                    st.rerun()
+                    shutil.copy(DB_PATH, DB_PATH + ".bak")
+                with open(DB_PATH, "wb") as f:
+                    f.write(up_db.getbuffer())
+                st.success("Database restored. Refresh the page.")
+                st.rerun()
 
-        with st.expander("📜 All Team Certificates"):
-            all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()
-            for cert in all_certs:
-                u = session.query(User).get(cert.user_id)
-                st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
+    with st.expander("📜 All Team Certificates"):
+        all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()
+        for cert in all_certs:
+            u = session.query(User).get(cert.user_id)
+            st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 st.sidebar.caption("v4.0 • Login • Categories • Safety • Story Improver")
