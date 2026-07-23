@@ -53,7 +53,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------- CONFIG ----------------
-DB_PATH = "rv_techtrack.db"
+DB_PATH = DB_PATH = "rv_techtrack_v4.db"
 DOC_DIR = Path("documents")
 CERT_DIR = Path("certificates")
 SAFETY_DIR = Path("safety")
