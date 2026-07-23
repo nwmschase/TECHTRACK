@@ -40,15 +40,16 @@ st.markdown("""
         border-radius: 12px;
     }
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 4rem !important;
         padding-bottom: 2rem;
     }
-    button[data-baseweb="tab"] {
-        font-size: 1.05rem !important;
-        padding: 0.6rem 0.9rem !important;
+    div[data-testid="stHorizontalBlock"] {
+        margin-top: 0.8rem;
+        margin-bottom: 0.8rem;
     }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
