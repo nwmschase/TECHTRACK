@@ -1,0 +1,26 @@
+# Database
+rv_techtrack.db
+*.db
+*.db-journal
+*.db.bak
+
+# Uploaded files
+certificates/
+documents/
+safety/
+training_materials/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS files
+.DS_Store
+Thumbs.db
