@@ -1,11 +1,11 @@
 """
-RV TechTrack v4.0
+RV TechTrack v4.1
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
-- AI Tech Story Improver (Placeholder - upgradeable later)
+- AI Tech Story Improver (Groq)
 - Mobile-friendly
 """
 
@@ -20,6 +20,12 @@ import shutil
 import base64
 import hashlib
 import secrets
+
+try:
+    from groq import Groq
+    GROQ_AVAILABLE = True
+except ImportError:
+    GROQ_AVAILABLE = False
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -150,32 +156,63 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 def improve_tech_story(raw: str) -> str:
-    """Placeholder AI Story Improver - easy to upgrade later to real AI."""
+    """Improve a technician's warranty story using Groq AI."""
     raw = raw.strip()
     if not raw:
         return ""
-    lower = raw.lower()
-    has_cause = any(w in lower for w in ["cause", "caused by", "due to", "because", "root"])
-    has_correction = any(w in lower for w in ["repair", "replaced", "adjusted", "corrected", "fixed", "installed"])
 
-    parts = []
-    parts.append("**CAUSE**")
-    if has_cause:
-        parts.append(raw)
-    else:
-        parts.append(f"The root cause of the issue was identified during diagnostic testing. Original notes: {raw}")
+    # Fallback if Groq is not available or key is missing
+    if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
+        return (
+            "**CAUSE**\n"
+            f"The root cause was identified during diagnostic testing. Original notes: {raw}\n\n"
+            "**CONCERN**\n"
+            "Customer reported the symptom which required thorough diagnosis to determine the failed component and prevent recurrence.\n\n"
+            "**CORRECTION**\n"
+            f"Corrective action performed: {raw}\n\n"
+            "All related systems were inspected and tested. Unit returned to service in fully functional condition."
+        )
 
-    parts.append("\n**CONCERN**")
-    parts.append("Customer reported the symptom which required thorough diagnosis to determine the failed component and prevent recurrence. Proper diagnosis ensures the correct repair is performed the first time.")
+    try:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-    parts.append("\n**CORRECTION**")
-    if has_correction:
-        parts.append(f"The following corrective action was performed: {raw}\n\nAll related systems were inspected, tested, and verified for proper operation after the repair. Unit was returned to service in fully functional condition.")
-    else:
-        parts.append(f"Corrective action performed based on diagnostic findings: {raw}\n\nComponents were replaced/repaired as required. System was thoroughly tested under load conditions to confirm the repair resolved the reported concern. Unit is now operating within manufacturer specifications.")
+        system_prompt = """You are an expert RV service writer helping technicians create strong warranty claim narratives.
 
-    parts.append("\n\nAdditional notes: All work was performed in accordance with manufacturer service guidelines. Diagnostic time and repair procedures were documented for warranty purposes.")
-    return "\n".join(parts)
+Your job is to take a short, rough technician note and turn it into a clear, professional warranty story using this exact structure:
+
+CAUSE
+(Explain the root cause of the failure)
+
+CONCERN
+(Explain what the customer reported / why the repair was needed)
+
+CORRECTION
+(Detail the diagnostic and repair steps performed)
+
+Rules:
+- Keep the facts the technician provided. Do not invent a completely different repair.
+- You MAY add logical, commonly performed diagnostic and repair steps that would normally be done for this type of job (system recovery, vacuum, leak check, testing under load, etc.) if the tech omitted them.
+- Use professional but straightforward language that warranty reviewers expect.
+- Make the story longer and more complete so it supports the labor time claimed.
+- Do not use bullet points. Write in short paragraphs under each heading.
+- Output ONLY the three sections (CAUSE, CONCERN, CORRECTION). No extra commentary."""
+
+        user_prompt = f"Here is the technician's original note:\n\n{raw}\n\nRewrite it following the rules above."
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.4,
+            max_tokens=800
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        return f"Error contacting AI: {e}\n\nOriginal note:\n{raw}"
 
 def get_safety_progress(user_id: int) -> float:
     total = session.query(SafetyMeeting).count()
@@ -374,8 +411,8 @@ if st.session_state.page == "Dashboard":
     st.divider()
 
     # AI TECH STORY IMPROVER
-    st.subheader("✍️ AI Tech Story Improver (Placeholder)")
-    st.caption("Paste your original tech story. The system restructures it into Cause → Concern → Correction format and expands the language to help maximize warranty time. Real AI can be added later.")
+    st.subheader("✍️ AI Tech Story Improver")
+    st.caption("Paste your original tech story. The AI will restructure it into Cause → Concern → Correction format, improve the language, and add logical missing steps to help maximize warranty time.")
     original = st.text_area("Paste your original tech story here", height=150, key="story_raw")
     if st.button("Improve Story", type="primary"):
         if original.strip():
@@ -576,4 +613,4 @@ elif st.session_state.page == "Manager" and is_manager:
             u = session.query(User).get(cert.user_id)
             st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.0 • Login • Categories • Safety • Story Improver")
+st.sidebar.caption("v4.1 • Login • Categories • Safety • Groq Story Improver")
