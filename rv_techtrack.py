@@ -1,11 +1,12 @@
 """
-RV TechTrack v4.1
+RV TechTrack v4.2
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq)
+- Permanent file storage via Cloudflare R2
 - Mobile-friendly
 """
 
@@ -20,6 +21,7 @@ import shutil
 import base64
 import hashlib
 import secrets
+import io
 
 try:
     from groq import Groq
@@ -27,9 +29,16 @@ try:
 except ImportError:
     GROQ_AVAILABLE = False
 
+try:
+    import boto3
+    from botocore.client import Config
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="RV TechTrack v4.0",
+    page_title="RV TechTrack v4.2",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -61,16 +70,60 @@ st.markdown("""
 
 # ---------------- CONFIG ----------------
 DB_PATH = "rv_techtrack_v4.db"
-DOC_DIR = Path("documents")
-CERT_DIR = Path("certificates")
-SAFETY_DIR = Path("safety")
-DOC_DIR.mkdir(exist_ok=True)
-CERT_DIR.mkdir(exist_ok=True)
-SAFETY_DIR.mkdir(exist_ok=True)
 
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
+
+# ---------------- R2 (Cloudflare) HELPERS ----------------
+def get_r2_client():
+    """Create an S3-compatible client for Cloudflare R2."""
+    if not BOTO3_AVAILABLE:
+        return None
+    required = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL", "R2_BUCKET_NAME"]
+    if not all(k in st.secrets for k in required):
+        return None
+    return boto3.client(
+        "s3",
+        endpoint_url=st.secrets["R2_ENDPOINT_URL"],
+        aws_access_key_id=st.secrets["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=st.secrets["R2_SECRET_ACCESS_KEY"],
+        config=Config(signature_version="s3v4"),
+        region_name="auto"
+    )
+
+def r2_upload(file_obj, key: str, content_type: str = "application/octet-stream") -> bool:
+    """Upload a file-like object to R2. Returns True on success."""
+    client = get_r2_client()
+    if client is None:
+        return False
+    try:
+        client.upload_fileobj(
+            file_obj,
+            st.secrets["R2_BUCKET_NAME"],
+            key,
+            ExtraArgs={"ContentType": content_type}
+        )
+        return True
+    except Exception as e:
+        st.error(f"Upload to storage failed: {e}")
+        return False
+
+def r2_download_button(label: str, key: str, filename: str, button_key: str):
+    """Create a Streamlit download button that pulls the file from R2."""
+    client = get_r2_client()
+    if client is None:
+        st.warning("Storage not configured")
+        return
+    try:
+        obj = client.get_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=key)
+        data = obj["Body"].read()
+        st.download_button(label, data=data, file_name=filename, key=button_key)
+    except Exception as e:
+        st.error(f"Could not download file: {e}")
+
+def r2_available() -> bool:
+    return get_r2_client() is not None
 
 # ---------------- DATABASE MODELS ----------------
 class User(Base):
@@ -305,30 +358,29 @@ if st.session_state.page == "Dashboard":
                     st.markdown(f"**{cert.title}**")
                     st.caption(f"Issuer: {cert.issuer or '—'} • Issued: {cert.issued_date or '—'}")
                 with c2:
-                    if Path(cert.file_path).exists():
-                        with open(cert.file_path, "rb") as f:
-                            st.download_button("⬇️", f, file_name=Path(cert.file_path).name, key=f"dlc_{cert.id}")
+                    r2_download_button("⬇️", cert.file_path, Path(cert.file_path).name, f"dlc_{cert.id}")
     else:
         st.info("No certificates uploaded yet.")
 
     with st.expander("⬆️ Upload Certificate", expanded=False):
-        ct = st.text_input("Certificate Title", key="cert_title")
-        ci = st.text_input("Issuer (Lippert, RVTI, Airexcel, etc.)", key="cert_issuer")
-        cd = st.text_input("Issued Date (optional)", key="cert_date")
-        cn = st.text_area("Notes (optional)", key="cert_notes")
-        cf = st.file_uploader("PDF Certificate", type=["pdf"], key="cert_file")
-        if st.button("Save Certificate", type="primary"):
-            if ct and cf:
-                fname = f"{user['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{cf.name}"
-                fpath = CERT_DIR / fname
-                with open(fpath, "wb") as f:
-                    f.write(cf.getbuffer())
-                session.add(Certificate(user_id=user["id"], title=ct, issuer=ci or None, file_path=str(fpath), issued_date=cd or None, notes=cn or None, uploaded_by=user["id"]))
-                session.commit()
-                st.success("Certificate saved!")
-                st.rerun()
-            else:
-                st.error("Title and PDF are required.")
+        if not r2_available():
+            st.warning("File storage is not configured yet. Contact a manager.")
+        else:
+            ct = st.text_input("Certificate Title", key="cert_title")
+            ci = st.text_input("Issuer (Lippert, RVTI, Airexcel, etc.)", key="cert_issuer")
+            cd = st.text_input("Issued Date (optional)", key="cert_date")
+            cn = st.text_area("Notes (optional)", key="cert_notes")
+            cf = st.file_uploader("PDF Certificate", type=["pdf"], key="cert_file")
+            if st.button("Save Certificate", type="primary"):
+                if ct and cf:
+                    key = f"certificates/{user['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{cf.name}"
+                    if r2_upload(io.BytesIO(cf.getvalue()), key, "application/pdf"):
+                        session.add(Certificate(user_id=user["id"], title=ct, issuer=ci or None, file_path=key, issued_date=cd or None, notes=cn or None, uploaded_by=user["id"]))
+                        session.commit()
+                        st.success("Certificate saved permanently!")
+                        st.rerun()
+                else:
+                    st.error("Title and PDF are required.")
 
     st.divider()
 
@@ -356,9 +408,7 @@ if st.session_state.page == "Dashboard":
                             st.markdown(f"**{doc.title}**")
                             st.caption(f"Type: {doc.file_type or 'file'}")
                         with c2:
-                            if Path(doc.file_path).exists():
-                                with open(doc.file_path, "rb") as f:
-                                    st.download_button("⬇️", f, file_name=Path(doc.file_path).name, key=f"dld_{doc.id}")
+                            r2_download_button("⬇️", doc.file_path, Path(doc.file_path).name, f"dld_{doc.id}")
             else:
                 st.info("No documents matched your search.")
 
@@ -377,9 +427,7 @@ if st.session_state.page == "Dashboard":
                 with c1:
                     st.write(f"📄 **{doc.title}**")
                 with c2:
-                    if Path(doc.file_path).exists():
-                        with open(doc.file_path, "rb") as f:
-                            st.download_button("⬇️", f, file_name=Path(doc.file_path).name, key=f"sdoc_{doc.id}")
+                    r2_download_button("⬇️", doc.file_path, Path(doc.file_path).name, f"sdoc_{doc.id}")
         else:
             st.info("No safety documents available.")
 
@@ -395,9 +443,8 @@ if st.session_state.page == "Dashboard":
                 st.caption(f"Meeting Date: {m.meeting_date or '—'} • Created: {m.created_date.strftime('%Y-%m-%d') if m.created_date else ''}")
                 if m.notes:
                     st.caption(m.notes)
-                if m.file_path and Path(m.file_path).exists():
-                    with open(m.file_path, "rb") as f:
-                        st.download_button("Download Presentation", f, file_name=Path(m.file_path).name, key=f"meet_{m.id}")
+                if m.file_path:
+                    r2_download_button("Download Presentation", m.file_path, Path(m.file_path).name, f"meet_{m.id}")
                 if already:
                     st.success(f"✅ You acknowledged this meeting on {already.signed_at.strftime('%Y-%m-%d %H:%M')}")
                 else:
@@ -525,70 +572,72 @@ elif st.session_state.page == "Manager" and is_manager:
                 if st.button("🗑️", key=f"delcat_{cat.id}"):
                     docs = session.query(Document).filter_by(category_id=cat.id).all()
                     for d in docs:
-                        if Path(d.file_path).exists():
-                            os.remove(d.file_path)
+                        # Note: files remain in R2; only DB records are removed
                         session.delete(d)
                     session.delete(cat)
                     session.commit()
                     st.rerun()
 
     with st.expander("📤 Upload Documents to Categories"):
-        cats = session.query(Category).order_by(Category.name).all()
-        if cats:
-            sel_cat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
-            cat_obj = session.query(Category).filter_by(name=sel_cat).first()
-            doc_title = st.text_input("Document Title", key="up_title")
-            doc_keywords = st.text_input("Keywords (optional, helps search)", key="up_keys")
-            doc_file = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
-            if st.button("Upload Document", type="primary"):
-                if doc_title and doc_file:
-                    fname = f"{cat_obj.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{doc_file.name}"
-                    fpath = DOC_DIR / fname
-                    with open(fpath, "wb") as f:
-                        f.write(doc_file.getbuffer())
-                    session.add(Document(category_id=cat_obj.id, title=doc_title, file_path=str(fpath), file_type=doc_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=doc_keywords or None))
-                    session.commit()
-                    st.success("Document uploaded.")
-                    st.rerun()
-                else:
-                    st.error("Title and file required.")
+        if not r2_available():
+            st.warning("R2 storage is not configured. Check Streamlit Secrets.")
+        else:
+            cats = session.query(Category).order_by(Category.name).all()
+            if cats:
+                sel_cat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
+                cat_obj = session.query(Category).filter_by(name=sel_cat).first()
+                doc_title = st.text_input("Document Title", key="up_title")
+                doc_keywords = st.text_input("Keywords (optional, helps search)", key="up_keys")
+                doc_file = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
+                if st.button("Upload Document", type="primary"):
+                    if doc_title and doc_file:
+                        key = f"documents/{cat_obj.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{doc_file.name}"
+                        content_type = doc_file.type or "application/octet-stream"
+                        if r2_upload(io.BytesIO(doc_file.getvalue()), key, content_type):
+                            session.add(Document(category_id=cat_obj.id, title=doc_title, file_path=key, file_type=doc_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=doc_keywords or None))
+                            session.commit()
+                            st.success("Document uploaded permanently to storage!")
+                            st.rerun()
+                    else:
+                        st.error("Title and file required.")
 
     with st.expander("🛡️ Safety Documents & Meetings"):
-        st.subheader("Upload Safety Document")
-        sd_title = st.text_input("Safety Document Title", key="sd_title")
-        sd_keys = st.text_input("Keywords", key="sd_keys")
-        sd_file = st.file_uploader("File", type=["pdf", "pptx", "docx"], key="sd_file")
-        if st.button("Upload Safety Document"):
-            if sd_title and sd_file:
-                fname = f"safety_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sd_file.name}"
-                fpath = SAFETY_DIR / fname
-                with open(fpath, "wb") as f:
-                    f.write(sd_file.getbuffer())
-                session.add(SafetyDocument(title=sd_title, file_path=str(fpath), file_type=sd_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=sd_keys or None))
-                session.commit()
-                st.success("Safety document uploaded.")
-                st.rerun()
+        if not r2_available():
+            st.warning("R2 storage is not configured. Check Streamlit Secrets.")
+        else:
+            st.subheader("Upload Safety Document")
+            sd_title = st.text_input("Safety Document Title", key="sd_title")
+            sd_keys = st.text_input("Keywords", key="sd_keys")
+            sd_file = st.file_uploader("File", type=["pdf", "pptx", "docx"], key="sd_file")
+            if st.button("Upload Safety Document"):
+                if sd_title and sd_file:
+                    key = f"safety/docs/{datetime.now().strftime('%Y%m%d%H%M%S')}_{sd_file.name}"
+                    if r2_upload(io.BytesIO(sd_file.getvalue()), key, sd_file.type or "application/octet-stream"):
+                        session.add(SafetyDocument(title=sd_title, file_path=key, file_type=sd_file.name.split(".")[-1].lower(), uploaded_by=user["id"], keywords=sd_keys or None))
+                        session.commit()
+                        st.success("Safety document uploaded permanently!")
+                        st.rerun()
 
-        st.markdown("---")
-        st.subheader("Create Safety Meeting")
-        sm_title = st.text_input("Meeting Title", key="sm_title")
-        sm_date = st.text_input("Meeting Date", key="sm_date")
-        sm_notes = st.text_area("Notes / Agenda", key="sm_notes")
-        sm_file = st.file_uploader("PowerPoint or PDF of the training", type=["pdf", "pptx"], key="sm_file")
-        if st.button("Create Safety Meeting", type="primary"):
-            if sm_title:
-                fpath = None
-                if sm_file:
-                    fname = f"meeting_{datetime.now().strftime('%Y%m%d%H%M%S')}_{sm_file.name}"
-                    fpath = str(SAFETY_DIR / fname)
-                    with open(fpath, "wb") as f:
-                        f.write(sm_file.getbuffer())
-                session.add(SafetyMeeting(title=sm_title, meeting_date=sm_date or None, file_path=fpath, notes=sm_notes or None, created_by=user["id"]))
-                session.commit()
-                st.success("Safety meeting created. Technicians can now acknowledge it.")
-                st.rerun()
-            else:
-                st.error("Title is required.")
+            st.markdown("---")
+            st.subheader("Create Safety Meeting")
+            sm_title = st.text_input("Meeting Title", key="sm_title")
+            sm_date = st.text_input("Meeting Date", key="sm_date")
+            sm_notes = st.text_area("Notes / Agenda", key="sm_notes")
+            sm_file = st.file_uploader("PowerPoint or PDF of the training", type=["pdf", "pptx"], key="sm_file")
+            if st.button("Create Safety Meeting", type="primary"):
+                if sm_title:
+                    key = None
+                    if sm_file:
+                        key = f"safety/meetings/{datetime.now().strftime('%Y%m%d%H%M%S')}_{sm_file.name}"
+                        if not r2_upload(io.BytesIO(sm_file.getvalue()), key, sm_file.type or "application/octet-stream"):
+                            st.error("Failed to upload the presentation file.")
+                            st.stop()
+                    session.add(SafetyMeeting(title=sm_title, meeting_date=sm_date or None, file_path=key, notes=sm_notes or None, created_by=user["id"]))
+                    session.commit()
+                    st.success("Safety meeting created. Technicians can now acknowledge it.")
+                    st.rerun()
+                else:
+                    st.error("Title is required.")
 
     with st.expander("💾 Database Backup & Restore"):
         st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
@@ -613,4 +662,4 @@ elif st.session_state.page == "Manager" and is_manager:
             u = session.query(User).get(cert.user_id)
             st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.1 • Login • Categories • Safety • Groq Story Improver")
+st.sidebar.caption("v4.2 • R2 Storage • Groq • Safety")
