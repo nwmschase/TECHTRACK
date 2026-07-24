@@ -208,49 +208,64 @@ def verify_password(password: str, stored: str) -> bool:
     except Exception:
         return False
 
-def improve_tech_story(raw: str) -> str:
-    """Improve a technician's warranty story using Groq AI."""
-    raw = raw.strip()
-    if not raw:
+def improve_tech_story(concern: str, tech_notes: str) -> str:
+    """Improve a technician's warranty story using Groq AI.
+    Structure is always: CONCERN → CAUSE → CORRECTION
+    """
+    concern = (concern or "").strip()
+    tech_notes = (tech_notes or "").strip()
+    if not concern and not tech_notes:
         return ""
 
     # Fallback if Groq is not available or key is missing
     if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
         return (
-            "**CAUSE**\n"
-            f"The root cause was identified during diagnostic testing. Original notes: {raw}\n\n"
             "**CONCERN**\n"
-            "Customer reported the symptom which required thorough diagnosis to determine the failed component and prevent recurrence.\n\n"
+            f"{concern or 'Customer reported an issue requiring diagnosis and repair.'}\n\n"
+            "**CAUSE**\n"
+            f"The root cause was identified during diagnostic testing. Technician notes: {tech_notes}\n\n"
             "**CORRECTION**\n"
-            f"Corrective action performed: {raw}\n\n"
+            f"Corrective action performed based on findings: {tech_notes}\n\n"
             "All related systems were inspected and tested. Unit returned to service in fully functional condition."
         )
 
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-        system_prompt = """You are an expert RV service writer helping technicians create strong warranty claim narratives.
+        system_prompt = """You are an expert RV service writer who creates strong, professional warranty claim narratives for RV manufacturers (Lippert, Dometic, etc.).
 
-Your job is to take a short, rough technician note and turn it into a clear, professional warranty story using this exact structure:
+You will be given two pieces of information:
+1. CUSTOMER CONCERN – what the customer reported
+2. TECHNICIAN NOTES – what the tech observed and did
 
-CAUSE
-(Explain the root cause of the failure)
+Your job is to write a clear warranty story using this EXACT structure and order:
 
 CONCERN
-(Explain what the customer reported / why the repair was needed)
+(Clearly restate and slightly expand the customer's reported problem)
+
+CAUSE
+(Explain the root cause that was found. Base this on the technician notes. You may add logical diagnostic reasoning that would normally be performed.)
 
 CORRECTION
-(Detail the diagnostic and repair steps performed)
+(Detail the repair steps performed. You may add commonly performed related steps such as system recovery, evacuation, leak check, recharge, operational testing under load, verification of related systems, etc., when they would reasonably be part of this repair.)
 
 Rules:
-- Keep the facts the technician provided. Do not invent a completely different repair.
-- You MAY add logical, commonly performed diagnostic and repair steps that would normally be done for this type of job (system recovery, vacuum, leak check, testing under load, etc.) if the tech omitted them.
-- Use professional but straightforward language that warranty reviewers expect.
-- Make the story longer and more complete so it supports the labor time claimed.
-- Do not use bullet points. Write in short paragraphs under each heading.
-- Output ONLY the three sections (CAUSE, CONCERN, CORRECTION). No extra commentary."""
+- Always start with CONCERN, then CAUSE, then CORRECTION. Never change this order.
+- Stay faithful to the facts the technician provided. Do not invent a completely different failure or repair.
+- It is acceptable and encouraged to expand short notes into complete professional sentences.
+- Add logical missing steps that a competent RV technician would normally perform for this type of job.
+- Use professional but plain language that warranty reviewers expect.
+- Make the story complete enough to support the labor time claimed.
+- Write in short paragraphs under each heading. Do not use bullet points.
+- Output ONLY the three sections (CONCERN, CAUSE, CORRECTION). No introduction or extra commentary."""
 
-        user_prompt = f"Here is the technician's original note:\n\n{raw}\n\nRewrite it following the rules above."
+        user_prompt = f"""CUSTOMER CONCERN:
+{concern or "(not provided)"}
+
+TECHNICIAN NOTES:
+{tech_notes or "(not provided)"}
+
+Write the warranty story now following the rules above."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -258,14 +273,14 @@ Rules:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.4,
-            max_tokens=800
+            temperature=0.35,
+            max_tokens=900
         )
 
         return response.choices[0].message.content.strip()
 
     except Exception as e:
-        return f"Error contacting AI: {e}\n\nOriginal note:\n{raw}"
+        return f"Error contacting AI: {e}\n\nConcern: {concern}\nNotes: {tech_notes}"
 
 def get_safety_progress(user_id: int) -> float:
     total = session.query(SafetyMeeting).count()
@@ -459,16 +474,30 @@ if st.session_state.page == "Dashboard":
 
     # AI TECH STORY IMPROVER
     st.subheader("✍️ AI Tech Story Improver")
-    st.caption("Paste your original tech story. The AI will restructure it into Cause → Concern → Correction format, improve the language, and add logical missing steps to help maximize warranty time.")
-    original = st.text_area("Paste your original tech story here", height=150, key="story_raw")
+    st.caption("Enter the customer concern and what you found/did. The AI will write a professional CONCERN → CAUSE → CORRECTION story to help maximize warranty time.")
+
+    concern = st.text_area(
+        "1. Customer Concern (what the customer reported)",
+        height=100,
+        key="story_concern",
+        placeholder="Example: Customer states the air conditioner is not cooling and the unit is making a loud rattling noise."
+    )
+    tech_notes = st.text_area(
+        "2. What you found and what you did",
+        height=150,
+        key="story_notes",
+        placeholder="Example: Found bad compressor. Recovered refrigerant, replaced compressor, evacuated system, recharged, tested under load."
+    )
+
     if st.button("Improve Story", type="primary"):
-        if original.strip():
-            improved = improve_tech_story(original)
+        if concern.strip() or tech_notes.strip():
+            with st.spinner("Writing improved warranty story..."):
+                improved = improve_tech_story(concern, tech_notes)
             st.markdown("### Improved Version")
-            st.text_area("Copy this improved story", value=improved, height=300, key="story_improved")
-            st.info("Copy the improved text above and paste it into the warranty claim.")
+            st.text_area("Copy this improved story", value=improved, height=350, key="story_improved")
+            st.info("Copy the text above and paste it into the warranty claim.")
         else:
-            st.warning("Please paste a story first.")
+            st.warning("Please enter at least the customer concern or your notes.")
 
 # =========================================================
 # PAGE: TEAM OVERVIEW
