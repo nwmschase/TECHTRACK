@@ -630,6 +630,45 @@ elif st.session_state.page == "Manager" and is_manager:
                     else:
                         st.error("Title and file required.")
 
+    with st.expander("✏️ Manage Documents (Rename / Edit / Delete)"):
+        cats = session.query(Category).order_by(Category.name).all()
+        if not cats:
+            st.info("No categories yet.")
+        else:
+            manage_cat_name = st.selectbox("Select Category", [c.name for c in cats], key="manage_doc_cat")
+            manage_cat = session.query(Category).filter_by(name=manage_cat_name).first()
+            docs = session.query(Document).filter_by(category_id=manage_cat.id).order_by(Document.title).all()
+
+            if not docs:
+                st.info("No documents in this category.")
+            else:
+                st.write(f"**{len(docs)} document(s) in {manage_cat_name}**")
+                for doc in docs:
+                    with st.container(border=True):
+                        st.markdown(f"**Current title:** {doc.title}")
+                        st.caption(f"File: {Path(doc.file_path).name} • Type: {doc.file_type or '—'}")
+
+                        new_title = st.text_input("New Title", value=doc.title, key=f"edit_title_{doc.id}")
+                        new_keywords = st.text_input("Keywords", value=doc.keywords or "", key=f"edit_keys_{doc.id}")
+
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            if st.button("💾 Save Changes", key=f"save_doc_{doc.id}"):
+                                doc.title = new_title.strip() or doc.title
+                                doc.keywords = new_keywords.strip() or None
+                                session.commit()
+                                st.success("Updated.")
+                                st.rerun()
+                        with c2:
+                            r2_download_button("⬇️ Download", doc.file_path, Path(doc.file_path).name, f"mgr_dl_{doc.id}")
+                        with c3:
+                            if st.button("🗑️ Delete", key=f"del_doc_{doc.id}"):
+                                # Remove DB record (file remains in R2)
+                                session.delete(doc)
+                                session.commit()
+                                st.success("Document deleted from library.")
+                                st.rerun()
+
     with st.expander("🛡️ Safety Documents & Meetings"):
         if not r2_available():
             st.warning("R2 storage is not configured. Check Streamlit Secrets.")
