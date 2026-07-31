@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.5
+RV TechTrack v4.6
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -10,6 +10,7 @@ RV TechTrack v4.5
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
+- Source page viewer (see manual pages / figures)
 - Mobile-friendly
 """
 import streamlit as st
@@ -45,9 +46,15 @@ try:
 except ImportError:
     PYPDF_AVAILABLE = False
 
+try:
+    import fitz  # PyMuPDF — render PDF pages so techs can see figures
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="RV TechTrack v4.5",
+    page_title="RV TechTrack v4.6",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -319,6 +326,7 @@ class DiagnosticJob(Base):
     findings = Column(Text)
     step_log = Column(Text)  # JSON list of {step, result, notes, at}
     sources_text = Column(Text)
+    sources_json = Column(Text)  # structured sources for page viewer
     final_story = Column(Text)
     status = Column(String(30), default="in_progress")  # in_progress | complete
     created_date = Column(DateTime, default=func.now())
@@ -338,6 +346,10 @@ def _ensure_schema_upgrades():
                 conn.commit()
             if "index_note" not in cols:
                 conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN index_note VARCHAR(250)")
+                conn.commit()
+            job_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(diagnostic_jobs)").fetchall()]
+            if job_cols and "sources_json" not in job_cols:
+                conn.exec_driver_sql("ALTER TABLE diagnostic_jobs ADD COLUMN sources_json TEXT")
                 conn.commit()
     except Exception:
         pass
@@ -588,8 +600,68 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
     return [c for _, c in scored[:limit]]
 
 
-def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple[str, str]:
-    """Returns (plan_text, sources_text)."""
+
+def build_sources_payload(chunks) -> tuple[str, str]:
+    """Build human text + JSON list of unique document/page sources with excerpts."""
+    sources_lines = []
+    payload = []
+    seen = set()
+    for ch in chunks:
+        doc = session.query(Document).get(ch.document_id)
+        file_path = doc.file_path if doc else None
+        key = (ch.document_id, ch.page)
+        sources_lines.append(f"- {ch.title} (page {ch.page})")
+        if key in seen:
+            # still keep extra excerpt text on first entry only
+            continue
+        seen.add(key)
+        payload.append({
+            "document_id": ch.document_id,
+            "title": ch.title,
+            "page": ch.page,
+            "file_path": file_path,
+            "file_type": (doc.file_type if doc else "pdf") or "pdf",
+            "excerpt": (ch.chunk_text or "")[:1800],
+        })
+    # Attach additional chunk text for same page if useful
+    by_key = {(p["document_id"], p["page"]): p for p in payload}
+    for ch in chunks:
+        k = (ch.document_id, ch.page)
+        if k in by_key:
+            ex = by_key[k].get("excerpt") or ""
+            more = ch.chunk_text or ""
+            if more and more not in ex:
+                by_key[k]["excerpt"] = (ex + "\n\n" + more)[:2500]
+    return "\n".join(sources_lines), json.dumps(payload)
+
+
+def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
+    """Return PNG bytes for a 1-based page number, or None."""
+    if not PYMUPDF_AVAILABLE:
+        return None
+    try:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        idx = max(0, min(page_num - 1, doc.page_count - 1))
+        page = doc.load_page(idx)
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat, alpha=False)
+        return pix.tobytes("png")
+    except Exception:
+        return None
+
+
+def load_job_sources(job: DiagnosticJob) -> list:
+    if not getattr(job, "sources_json", None):
+        return []
+    try:
+        data = json.loads(job.sources_json)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple[str, str, str]:
+    """Returns (plan_text, sources_text, sources_json)."""
     if not chunks:
         msg = (
             "No matching manual text was found in TechTrack.\n\n"
@@ -598,17 +670,15 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
             "- Ask a manager to upload/index the service manual\n"
             "- Scanned PDFs with no text cannot be searched until OCR is added"
         )
-        return msg, ""
+        return msg, "", "[]"
 
-    sources = []
+    sources_text, sources_json = build_sources_payload(chunks)
     context_parts = []
     for i, ch in enumerate(chunks, 1):
-        sources.append(f"- {ch.title} (page {ch.page})")
         context_parts.append(
             f"[EXCERPT {i}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
         )
     context = "\n\n".join(context_parts)
-    sources_text = "\n".join(sources)
 
     if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
         body = [
@@ -626,7 +696,11 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
             body.append(f"**Excerpt {i} — {ch.title} p.{ch.page}**")
             body.append(ch.chunk_text[:700] + ("..." if len(ch.chunk_text) > 700 else ""))
             body.append("")
-        return "\n".join(body), sources_text
+        body.append(
+            "\nOpen the **Source pages** panel in TechTrack to view/download the actual manual pages "
+            "(figures, diagrams, LCD layouts)."
+        )
+        return "\n".join(body), sources_text, sources_json
 
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -642,9 +716,11 @@ Rules:
 3. Start with SAFETY notes when relevant (power, propane, crushing hazards, high voltage, hydraulic pressure).
 4. Give a numbered GUIDED TEST sequence a tech can follow on the shop floor.
 5. For each test: what to do, what result means, and what to do next (pass/fail branching when possible).
-6. End with SOURCES listing the manual titles and page numbers you used.
-7. Keep language plain and practical. Short sentences. No fluff.
-8. Prefer manufacturer troubleshooting order when the excerpts show one."""
+6. When a figure, diagram, LCD layout, or button label matters, tell the tech to open **Source pages** in TechTrack and view that manual page (give manual title + page number). Do not assume they can see Fig. references without that.
+7. When the excerpt text itself describes the figure or button, quote the useful part so the tech can work even before opening the page.
+8. End with SOURCES listing the manual titles and page numbers you used.
+9. Keep language plain and practical. Short sentences. No fluff.
+10. Prefer manufacturer troubleshooting order when the excerpts show one."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
@@ -653,7 +729,7 @@ SYMPTOM: {symptom}
 MANUAL EXCERPTS:
 {context}
 
-Write the guided diagnostic plan now."""
+Write the guided diagnostic plan now. Remember: techs can open the exact source pages (with figures) in TechTrack's Source pages panel."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -667,9 +743,14 @@ Write the guided diagnostic plan now."""
         answer = response.choices[0].message.content.strip()
         if "source" not in answer.lower():
             answer += "\n\n**Sources used**\n" + sources_text
-        return answer, sources_text
+        answer += (
+            "\n\n---\n"
+            "**How to see figures / diagrams:** In this job, open **📷 Source pages (figures & full page)** "
+            "below the plan. Download the manual or tap **Show this page** to view the exact page from the PDF."
+        )
+        return answer, sources_text, sources_json
     except Exception as e:
-        return f"Error contacting AI: {e}", sources_text
+        return f"Error contacting AI: {e}", sources_text, sources_json
 
 
 def load_step_log(job: DiagnosticJob) -> list:
@@ -847,7 +928,7 @@ if st.session_state.page == "Dashboard":
                                 nj_concern,
                                 limit=8
                             )
-                            plan, sources = run_guided_diagnostics(nj_cat, nj_model, nj_concern, hits)
+                            plan, sources, sources_json = run_guided_diagnostics(nj_cat, nj_model, nj_concern, hits)
                         job = DiagnosticJob(
                             wo_number=nj_wo.strip(),
                             user_id=user["id"],
@@ -858,6 +939,7 @@ if st.session_state.page == "Dashboard":
                             findings="",
                             step_log="[]",
                             sources_text=sources,
+                            sources_json=sources_json,
                             status="in_progress"
                         )
                         session.add(job)
@@ -916,8 +998,76 @@ if st.session_state.page == "Dashboard":
             with st.expander("📋 Guided test plan (from manuals)", expanded=True):
                 st.markdown(job.plan_text or "_No plan saved._")
                 if job.sources_text:
-                    st.caption("Sources")
+                    st.caption("Sources (text list)")
                     st.text(job.sources_text)
+
+            # ---- SOURCE PAGES / FIGURES ----
+            with st.expander("📷 Source pages (figures & full page view)", expanded=True):
+                st.caption(
+                    "When the plan says Fig. 1F / LCD / diagram — open that page here. "
+                    "This is the actual PDF page from your uploaded manual."
+                )
+                srcs = load_job_sources(job)
+                if not srcs:
+                    st.warning(
+                        "No structured source pages saved on this job. "
+                        "Click **Rebuild test plan** to attach manuals/pages (needs v4.6+)."
+                    )
+                    if job.sources_text:
+                        st.text(job.sources_text)
+                else:
+                    if not PYMUPDF_AVAILABLE:
+                        st.info(
+                            "Page images need `pymupdf` in requirements.txt (download still works)."
+                        )
+                    for si, src in enumerate(srcs):
+                        title = src.get("title") or "Manual"
+                        page = int(src.get("page") or 1)
+                        fpath = src.get("file_path")
+                        excerpt = src.get("excerpt") or ""
+                        with st.container(border=True):
+                            st.markdown(f"**{title}** — page **{page}**")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if fpath:
+                                    r2_download_button(
+                                        "⬇️ Download full PDF",
+                                        fpath,
+                                        Path(fpath).name,
+                                        f"src_dl_{job.id}_{si}",
+                                    )
+                                else:
+                                    st.caption("No file path on record")
+                            with c2:
+                                show = st.button(
+                                    f"Show page {page}",
+                                    key=f"src_show_{job.id}_{si}",
+                                    use_container_width=True,
+                                )
+                            if show:
+                                if not fpath:
+                                    st.error("Missing storage path for this manual.")
+                                else:
+                                    with st.spinner(f"Loading page {page}…"):
+                                        raw = r2_download_bytes(fpath)
+                                    if not raw:
+                                        st.error("Could not download PDF from storage.")
+                                    else:
+                                        png = render_pdf_page_png(raw, page)
+                                        if png:
+                                            st.image(
+                                                png,
+                                                caption=f"{title} — page {page}",
+                                                use_container_width=True,
+                                            )
+                                        else:
+                                            st.warning(
+                                                "Could not render page image. Download the PDF and jump to this page."
+                                            )
+                                            # still offer text
+                            if excerpt:
+                                with st.expander("Text excerpt from this page"):
+                                    st.write(excerpt)
 
             st.markdown("#### Log tests as you go")
             st.caption("Record each test result so you can stop and resume later. This also feeds the warranty story.")
@@ -974,11 +1124,12 @@ if st.session_state.page == "Dashboard":
                             job.concern,
                             limit=8
                         )
-                        plan, sources = run_guided_diagnostics(
+                        plan, sources, sources_json = run_guided_diagnostics(
                             job.category_name, job.model_text or "", job.concern, hits
                         )
                     job.plan_text = plan
                     job.sources_text = sources
+                    job.sources_json = sources_json
                     job.findings = findings_val
                     job.updated_date = datetime.now()
                     session.commit()
@@ -1673,4 +1824,4 @@ elif st.session_state.page == "Manager" and is_manager:
             u = session.query(User).get(cert.user_id)
             st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.5 • R2 Re-link • WO Jobs • Backup Protect • Groq")
+st.sidebar.caption("v4.6 • Source page viewer • WO Jobs • R2 • Groq")
