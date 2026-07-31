@@ -3,3 +3,4 @@ sqlalchemy
 groq
 boto3
 pypdf
+pymupdf
