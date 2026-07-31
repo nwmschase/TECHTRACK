@@ -1,4 +1,5 @@
-streamlit>=1.28.0
-sqlalchemy>=2.0.0
+streamlit
+sqlalchemy
 groq
 boto3
+pypdf
