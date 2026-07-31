@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.4
+RV TechTrack v4.5
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -8,6 +8,8 @@ RV TechTrack v4.4
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
 - Permanent file storage via Cloudflare R2
+- R2 re-link (recover library without re-upload)
+- Library catalog export + manager backup warning
 - Mobile-friendly
 """
 import streamlit as st
@@ -45,7 +47,7 @@ except ImportError:
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="RV TechTrack v4.4",
+    page_title="RV TechTrack v4.5",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -141,6 +143,80 @@ def r2_download_button(label: str, key: str, filename: str, button_key: str):
 
 def r2_available() -> bool:
     return get_r2_client() is not None
+
+
+def r2_list_keys(prefix: str = "", max_keys: int = 500) -> list[str]:
+    """List object keys in the R2 bucket under prefix."""
+    client = get_r2_client()
+    if client is None:
+        return []
+    keys = []
+    try:
+        token = None
+        while len(keys) < max_keys:
+            kwargs = {"Bucket": st.secrets["R2_BUCKET_NAME"], "MaxKeys": min(200, max_keys - len(keys))}
+            if prefix:
+                kwargs["Prefix"] = prefix
+            if token:
+                kwargs["ContinuationToken"] = token
+            resp = client.list_objects_v2(**kwargs)
+            for obj in resp.get("Contents") or []:
+                k = obj.get("Key") or ""
+                if k and not k.endswith("/"):
+                    keys.append(k)
+            if not resp.get("IsTruncated"):
+                break
+            token = resp.get("NextContinuationToken")
+            if not token:
+                break
+    except Exception as e:
+        st.error(f"Could not list storage: {e}")
+        return []
+    return keys
+
+
+def r2_key_already_registered(key: str) -> bool:
+    if session.query(Document).filter_by(file_path=key).first():
+        return True
+    if session.query(Certificate).filter_by(file_path=key).first():
+        return True
+    if session.query(SafetyDocument).filter_by(file_path=key).first():
+        return True
+    if session.query(SafetyMeeting).filter_by(file_path=key).first():
+        return True
+    return False
+
+
+def guess_title_from_key(key: str) -> str:
+    name = Path(key).name
+    # strip leading catid_timestamp_ if present
+    parts = name.split("_", 2)
+    if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+        name = parts[2]
+    # remove extension
+    stem = Path(name).stem
+    stem = stem.replace("-", " ").replace("_", " ")
+    return stem.strip() or name
+
+
+def export_library_catalog() -> str:
+    """JSON catalog of documents so titles/keywords survive even if DB is lost."""
+    import json as _json
+    cats = {c.id: c.name for c in session.query(Category).all()}
+    rows = []
+    for d in session.query(Document).order_by(Document.id).all():
+        rows.append({
+            "id": d.id,
+            "category": cats.get(d.category_id, ""),
+            "title": d.title,
+            "keywords": d.keywords or "",
+            "file_path": d.file_path,
+            "file_type": d.file_type or "",
+            "indexed": bool(d.indexed),
+        })
+    return _json.dumps({"exported_at": datetime.now().isoformat(), "documents": rows}, indent=2)
+
+
 
 
 # ---------------- DATABASE MODELS ----------------
@@ -1159,6 +1235,15 @@ elif st.session_state.page == "Overview":
 elif st.session_state.page == "Manager" and is_manager:
     st.header("🛠️ Manager Tools")
 
+    st.error(
+        "⚠️ BEFORE any app update or if the library looks empty: "
+        "scroll to **Database Backup & Restore** and click **Download Current Database**. "
+        "That file holds titles, keywords, WO jobs, and stories. R2 alone does not."
+    )
+    doc_n = session.query(Document).count()
+    st.info(f"Library right now: **{doc_n}** document record(s) in the database.")
+
+
     with st.expander("👤 User Management", expanded=True):
         st.subheader("Add New User")
         nu_user = st.text_input("Username", key="new_username")
@@ -1432,6 +1517,135 @@ elif st.session_state.page == "Manager" and is_manager:
                 else:
                     st.error("Title is required.")
 
+
+    with st.expander("🔗 Re-link files already in R2 (no re-upload)", expanded=True):
+        st.caption(
+            "Your PDFs may still be in cloud storage even if the app library shows 0. "
+            "List them here, set title/category/keywords once, and register — no upload from your PC."
+        )
+        if not r2_available():
+            st.warning("R2 storage is not configured.")
+        else:
+            prefix = st.selectbox(
+                "Folder to scan",
+                ["documents/", "certificates/", "safety/", ""],
+                format_func=lambda p: {
+                    "documents/": "documents/ (manuals)",
+                    "certificates/": "certificates/",
+                    "safety/": "safety/",
+                    "": "(entire bucket — can be slow)",
+                }.get(p, p),
+                key="r2_prefix",
+            )
+            if st.button("List files in R2", key="r2_list_btn"):
+                with st.spinner("Listing storage..."):
+                    st.session_state["r2_keys"] = r2_list_keys(prefix or "", max_keys=400)
+            keys = st.session_state.get("r2_keys") or []
+            if keys:
+                free = [k for k in keys if not r2_key_already_registered(k)]
+                used = [k for k in keys if r2_key_already_registered(k)]
+                st.write(f"Found **{len(keys)}** file(s) · **{len(free)}** not in library · **{len(used)}** already linked")
+                if used:
+                    with st.expander("Already linked (skip)"):
+                        for k in used[:50]:
+                            st.caption(k)
+                if not free:
+                    st.success("All listed files are already linked in the database.")
+                else:
+                    cats = session.query(Category).order_by(Category.name).all()
+                    if not cats and prefix.startswith("documents"):
+                        st.warning("Create at least one category before linking manuals.")
+                    for i, key in enumerate(free[:40]):
+                        with st.container(border=True):
+                            st.code(key, language=None)
+                            default_title = guess_title_from_key(key)
+                            if key.startswith("documents/") or (prefix == "documents/"):
+                                if not cats:
+                                    continue
+                                t = st.text_input("Title", value=default_title, key=f"r2t_{i}")
+                                kw = st.text_input("Keywords", value="", key=f"r2k_{i}", placeholder="Schwintek, model numbers…")
+                                cat_name = st.selectbox("Category", [c.name for c in cats], key=f"r2c_{i}")
+                                if st.button("Link into library + index", key=f"r2link_{i}"):
+                                    cat_obj = session.query(Category).filter_by(name=cat_name).first()
+                                    ftype = Path(key).suffix.lstrip(".").lower() or "pdf"
+                                    doc = Document(
+                                        category_id=cat_obj.id,
+                                        title=(t or default_title).strip(),
+                                        file_path=key,
+                                        file_type=ftype,
+                                        uploaded_by=user["id"],
+                                        keywords=kw.strip() or None,
+                                    )
+                                    session.add(doc)
+                                    session.commit()
+                                    if ftype == "pdf":
+                                        ok, note = index_document_from_r2(doc)
+                                        if ok:
+                                            st.success(f"Linked and indexed: {note}")
+                                        else:
+                                            st.warning(f"Linked, index issue: {note}")
+                                    else:
+                                        st.success("Linked (non-PDF, not indexed).")
+                                    st.rerun()
+                            elif key.startswith("certificates/"):
+                                t = st.text_input("Certificate title", value=default_title, key=f"r2ct_{i}")
+                                issuer = st.text_input("Issuer", value="", key=f"r2ci_{i}")
+                                # pick tech owner
+                                techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
+                                owner = st.selectbox(
+                                    "Assign to tech",
+                                    techs,
+                                    format_func=lambda u: u.full_name,
+                                    key=f"r2co_{i}",
+                                )
+                                if st.button("Link certificate", key=f"r2clink_{i}"):
+                                    session.add(Certificate(
+                                        user_id=owner.id,
+                                        title=(t or default_title).strip(),
+                                        issuer=issuer.strip() or None,
+                                        file_path=key,
+                                        uploaded_by=user["id"],
+                                    ))
+                                    session.commit()
+                                    st.success("Certificate linked.")
+                                    st.rerun()
+                            elif key.startswith("safety/docs") or key.startswith("safety/"):
+                                t = st.text_input("Safety doc / meeting title", value=default_title, key=f"r2st_{i}")
+                                if st.button("Link as safety document", key=f"r2slink_{i}"):
+                                    ftype = Path(key).suffix.lstrip(".").lower()
+                                    session.add(SafetyDocument(
+                                        title=(t or default_title).strip(),
+                                        file_path=key,
+                                        file_type=ftype,
+                                        uploaded_by=user["id"],
+                                    ))
+                                    session.commit()
+                                    st.success("Safety document linked.")
+                                    st.rerun()
+                            else:
+                                st.caption("Unknown folder — open documents/ certificates/ or safety/ for guided linking.")
+                    if len(free) > 40:
+                        st.warning(f"Showing first 40 of {len(free)} unlinked files. Link some, then list again.")
+
+    with st.expander("📦 Export library catalog (titles & keywords)"):
+        st.caption(
+            "Download a JSON list of every manual title, keywords, category, and R2 path. "
+            "Keep this with your DB backup — it is the naming work."
+        )
+        if session.query(Document).count() == 0:
+            st.info("No documents in the database to export yet.")
+        else:
+            catalog = export_library_catalog()
+            st.download_button(
+                "⬇️ Download library_catalog.json",
+                data=catalog,
+                file_name=f"techtrack_library_catalog_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                mime="application/json",
+                type="primary",
+                key="dl_catalog",
+            )
+
+
     with st.expander("💾 Database Backup & Restore"):
         st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
         c1, c2 = st.columns(2)
@@ -1459,4 +1673,4 @@ elif st.session_state.page == "Manager" and is_manager:
             u = session.query(User).get(cert.user_id)
             st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.4 • WO Jobs • Guided Diagnostics • Story • R2 • Groq")
+st.sidebar.caption("v4.5 • R2 Re-link • WO Jobs • Backup Protect • Groq")
