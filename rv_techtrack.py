@@ -1,9 +1,10 @@
 """
-RV TechTrack v4.6
+RV TechTrack v4.7
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
 - Guided Diagnostics Jobs (WO #) + interactive findings + warranty story
+- Diagnostic INDEX charts expand into real PROCEDURE section-page tests
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
@@ -47,19 +48,18 @@ except ImportError:
     PYPDF_AVAILABLE = False
 
 try:
-    import fitz  # PyMuPDF — render PDF pages so techs can see figures
+    import fitz  # pymupdf
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
-    page_title="RV TechTrack v4.6",
+    page_title="RV TechTrack v4.7",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
 st.markdown("""
 <style>
     .stButton > button {
@@ -76,11 +76,16 @@ st.markdown("""
     }
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0.8rem;
-        margin-bottom: 0.8rem;
+        margin-bottom: 0.4rem;
     }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    [data-testid="stTabs"] button {
+        font-size: 1rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    section[data-testid="stSidebar"] {
+        min-width: 220px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -90,33 +95,36 @@ engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 
-# ---------------- R2 HELPERS ----------------
+# ---------------- R2 STORAGE ----------------
 def get_r2_client():
     if not BOTO3_AVAILABLE:
         return None
-    required = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL", "R2_BUCKET_NAME"]
-    if not all(k in st.secrets for k in required):
+    try:
+        needed = ["R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]
+        if any(k not in st.secrets for k in needed):
+            return None
+        return boto3.client(
+            "s3",
+            endpoint_url=st.secrets["R2_ENDPOINT_URL"],
+            aws_access_key_id=st.secrets["R2_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["R2_SECRET_ACCESS_KEY"],
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+    except Exception:
         return None
-    return boto3.client(
-        "s3",
-        endpoint_url=st.secrets["R2_ENDPOINT_URL"],
-        aws_access_key_id=st.secrets["R2_ACCESS_KEY_ID"],
-        aws_secret_access_key=st.secrets["R2_SECRET_ACCESS_KEY"],
-        config=Config(signature_version="s3v4"),
-        region_name="auto"
-    )
 
 
 def r2_upload(file_obj, key: str, content_type: str = "application/octet-stream") -> bool:
     client = get_r2_client()
-    if client is None:
+    if not client:
         return False
     try:
-        client.upload_fileobj(
-            file_obj,
-            st.secrets["R2_BUCKET_NAME"],
-            key,
-            ExtraArgs={"ContentType": content_type}
+        client.put_object(
+            Bucket=st.secrets["R2_BUCKET_NAME"],
+            Key=key,
+            Body=file_obj,
+            ContentType=content_type,
         )
         return True
     except Exception as e:
@@ -126,7 +134,7 @@ def r2_upload(file_obj, key: str, content_type: str = "application/octet-stream"
 
 def r2_download_bytes(key: str):
     client = get_r2_client()
-    if client is None:
+    if not client or not key:
         return None
     try:
         obj = client.get_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=key)
@@ -136,50 +144,44 @@ def r2_download_bytes(key: str):
 
 
 def r2_download_button(label: str, key: str, filename: str, button_key: str):
-    client = get_r2_client()
-    if client is None:
-        st.warning("Storage not configured")
+    data = r2_download_bytes(key)
+    if data is None:
+        st.caption("Storage not configured" if not get_r2_client() else "Could not download file")
         return
-    try:
-        obj = client.get_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=key)
-        data = obj["Body"].read()
-        st.download_button(label, data=data, file_name=filename, key=button_key)
-    except Exception as e:
-        st.error(f"Could not download file: {e}")
+    st.download_button(label, data=data, file_name=filename, key=button_key)
 
 
 def r2_available() -> bool:
-    return get_r2_client() is not None
+    return get_r2_client() is not None and "R2_BUCKET_NAME" in st.secrets
 
 
-def r2_list_keys(prefix: str = "", max_keys: int = 500) -> list[str]:
+def r2_list_keys(prefix: str = "", max_keys: int = 500):
     """List object keys in the R2 bucket under prefix."""
     client = get_r2_client()
-    if client is None:
-        return []
+    if not client:
+        return [], "Storage not configured"
     keys = []
     try:
         token = None
         while len(keys) < max_keys:
-            kwargs = {"Bucket": st.secrets["R2_BUCKET_NAME"], "MaxKeys": min(200, max_keys - len(keys))}
-            if prefix:
-                kwargs["Prefix"] = prefix
+            kwargs = {
+                "Bucket": st.secrets["R2_BUCKET_NAME"],
+                "Prefix": prefix or "",
+                "MaxKeys": min(1000, max_keys - len(keys)),
+            }
             if token:
                 kwargs["ContinuationToken"] = token
             resp = client.list_objects_v2(**kwargs)
-            for obj in resp.get("Contents") or []:
-                k = obj.get("Key") or ""
+            for item in resp.get("Contents") or []:
+                k = item.get("Key") or ""
                 if k and not k.endswith("/"):
                     keys.append(k)
             if not resp.get("IsTruncated"):
                 break
             token = resp.get("NextContinuationToken")
-            if not token:
-                break
+        return keys, ""
     except Exception as e:
-        st.error(f"Could not list storage: {e}")
-        return []
-    return keys
+        return [], f"Could not list storage: {e}"
 
 
 def r2_key_already_registered(key: str) -> bool:
@@ -195,36 +197,30 @@ def r2_key_already_registered(key: str) -> bool:
 
 
 def guess_title_from_key(key: str) -> str:
-    name = Path(key).name
-    # strip leading catid_timestamp_ if present
-    parts = name.split("_", 2)
-    if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-        name = parts[2]
-    # remove extension
-    stem = Path(name).stem
-    stem = stem.replace("-", " ").replace("_", " ")
-    return stem.strip() or name
+    name = key.split("/")[-1]
+    name = re.sub(r"^\d+_\d+_", "", name)
+    name = re.sub(r"^[a-f0-9]{8,}_", "", name, flags=re.I)
+    name = re.sub(r"\.[^.]+$", "", name)
+    name = name.replace("_", " ").replace("-", " ").strip()
+    return name or key
 
 
 def export_library_catalog() -> str:
     """JSON catalog of documents so titles/keywords survive even if DB is lost."""
-    import json as _json
     cats = {c.id: c.name for c in session.query(Category).all()}
     rows = []
     for d in session.query(Document).order_by(Document.id).all():
         rows.append({
             "id": d.id,
-            "category": cats.get(d.category_id, ""),
             "title": d.title,
-            "keywords": d.keywords or "",
+            "keywords": d.keywords,
+            "category": cats.get(d.category_id, ""),
+            "category_id": d.category_id,
             "file_path": d.file_path,
-            "file_type": d.file_type or "",
+            "file_type": d.file_type,
             "indexed": bool(d.indexed),
         })
-    return _json.dumps({"exported_at": datetime.now().isoformat(), "documents": rows}, indent=2)
-
-
-
+    return json.dumps({"exported_at": datetime.now().isoformat(), "documents": rows}, indent=2)
 
 # ---------------- DATABASE MODELS ----------------
 class User(Base):
@@ -250,12 +246,12 @@ class Document(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
     title = Column(String(250), nullable=False)
     file_path = Column(String(400), nullable=False)
-    file_type = Column(String(20))
+    file_type = Column(String(20), default="pdf")
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_date = Column(DateTime, default=func.now())
-    keywords = Column(Text)
+    keywords = Column(Text, default="")
     indexed = Column(Boolean, default=False)
-    index_note = Column(String(250))
+    index_note = Column(String(250), default="")
 
 
 class DocChunk(Base):
@@ -263,10 +259,10 @@ class DocChunk(Base):
     id = Column(Integer, primary_key=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
-    title = Column(String(250))
+    title = Column(String(250), default="")
     page = Column(Integer, default=1)
     chunk_text = Column(Text, nullable=False)
-    keywords = Column(Text)
+    keywords = Column(Text, default="")
 
 
 class Certificate(Base):
@@ -274,10 +270,10 @@ class Certificate(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String(250), nullable=False)
-    issuer = Column(String(150))
+    issuer = Column(String(150), default="")
     file_path = Column(String(400), nullable=False)
-    issued_date = Column(String(50))
-    notes = Column(Text)
+    issued_date = Column(String(50), default="")
+    notes = Column(Text, default="")
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_date = Column(DateTime, default=func.now())
 
@@ -287,19 +283,19 @@ class SafetyDocument(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(250), nullable=False)
     file_path = Column(String(400), nullable=False)
-    file_type = Column(String(20))
+    file_type = Column(String(20), default="pdf")
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_date = Column(DateTime, default=func.now())
-    keywords = Column(Text)
+    keywords = Column(Text, default="")
 
 
 class SafetyMeeting(Base):
     __tablename__ = "safety_meetings"
     id = Column(Integer, primary_key=True)
     title = Column(String(250), nullable=False)
-    meeting_date = Column(String(50))
-    file_path = Column(String(400))
-    notes = Column(Text)
+    meeting_date = Column(String(50), default="")
+    file_path = Column(String(400), default="")
+    notes = Column(Text, default="")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_date = Column(DateTime, default=func.now())
 
@@ -319,16 +315,16 @@ class DiagnosticJob(Base):
     id = Column(Integer, primary_key=True)
     wo_number = Column(String(80), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    category_name = Column(String(150), nullable=False)
-    model_text = Column(String(250))
-    concern = Column(Text, nullable=False)
-    plan_text = Column(Text)
-    findings = Column(Text)
-    step_log = Column(Text)  # JSON list of {step, result, notes, at}
-    sources_text = Column(Text)
-    sources_json = Column(Text)  # structured sources for page viewer
-    final_story = Column(Text)
-    status = Column(String(30), default="in_progress")  # in_progress | complete
+    category_name = Column(String(150), default="")
+    model_text = Column(String(250), default="")
+    concern = Column(Text, default="")
+    plan_text = Column(Text, default="")
+    findings = Column(Text, default="")
+    step_log = Column(Text, default="[]")
+    sources_text = Column(Text, default="")
+    sources_json = Column(Text, default="[]")
+    final_story = Column(Text, default="")
+    status = Column(String(30), default="in_progress")
     created_date = Column(DateTime, default=func.now())
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -343,62 +339,55 @@ def _ensure_schema_upgrades():
             cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(documents)").fetchall()]
             if "indexed" not in cols:
                 conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN indexed BOOLEAN DEFAULT 0")
-                conn.commit()
             if "index_note" not in cols:
                 conn.exec_driver_sql("ALTER TABLE documents ADD COLUMN index_note VARCHAR(250)")
-                conn.commit()
             job_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(diagnostic_jobs)").fetchall()]
-            if job_cols and "sources_json" not in job_cols:
+            if "sources_json" not in job_cols:
                 conn.exec_driver_sql("ALTER TABLE diagnostic_jobs ADD COLUMN sources_json TEXT")
-                conn.commit()
+            conn.commit()
     except Exception:
         pass
 
 
 _ensure_schema_upgrades()
 
-
 # ---------------- AUTH HELPERS ----------------
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
-    pwd_hash = hashlib.sha256((salt + password).encode()).hexdigest()
-    return f"{salt}${pwd_hash}"
+    h = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}${h}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        salt, pwd_hash = stored.split("$", 1)
-        return hashlib.sha256((salt + password).encode()).hexdigest() == pwd_hash
+        salt, h = stored.split("$", 1)
+        return hashlib.sha256((salt + password).encode()).hexdigest() == h
     except Exception:
         return False
 
 
 def get_safety_progress(user_id: int) -> float:
-    total = session.query(SafetyMeeting).count()
-    if total == 0:
+    meetings = session.query(SafetyMeeting).count()
+    if meetings == 0:
         return 100.0
-    signed = session.query(SafetyAcknowledgement.meeting_id).filter_by(user_id=user_id).distinct().count()
-    return round((signed / total) * 100, 1)
+    signed = (
+        session.query(SafetyAcknowledgement)
+        .filter_by(user_id=user_id)
+        .count()
+    )
+    return round(100.0 * signed / meetings, 1)
 
-
-# ---------------- STORY + DIAGNOSTICS AI ----------------
+# ---------------- AI STORY ----------------
 def improve_tech_story(concern: str, tech_notes: str) -> str:
     concern = (concern or "").strip()
     tech_notes = (tech_notes or "").strip()
-    if not concern and not tech_notes:
-        return ""
-
     if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
         return (
-            "**CONCERN**\n"
-            f"{concern or 'Customer reported an issue requiring diagnosis and repair.'}\n\n"
-            "**CAUSE**\n"
-            f"The root cause was identified during diagnostic testing. Technician notes: {tech_notes}\n\n"
-            "**CORRECTION**\n"
-            f"Corrective action performed based on findings: {tech_notes}\n\n"
+            f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis and repair.'}\n\n"
+            f"**CAUSE**\nThe root cause was identified during diagnostic testing. Technician notes: {tech_notes}\n\n"
+            f"**CORRECTION**\nCorrective action performed based on findings: {tech_notes}\n\n"
             "All related systems were inspected and tested. Unit returned to service in fully functional condition."
         )
-
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         system_prompt = """You are an expert RV service writer who creates strong, professional warranty claim narratives for RV manufacturers (Lippert, Dometic, etc.).
@@ -416,23 +405,19 @@ CAUSE
 (Explain the root cause that was found. Base this on the technician notes. You may add logical diagnostic reasoning that would normally be performed.)
 
 CORRECTION
-(Detail the repair steps performed. You may add commonly performed related steps such as system recovery, evacuation, leak check, recharge, operational testing under load, verification of related systems, etc., when they would reasonably be part of this repair.)
+(Detail the repair steps performed. You may add commonly performed related steps such as system recovery, evacuation, leak check, recharge, operational testing under load, verification of related systems, when they fit the repair type. Do not invent parts that were not implied.)
 
 Rules:
-- Always start with CONCERN, then CAUSE, then CORRECTION. Never change this order.
-- Stay faithful to the facts the technician provided. Do not invent a completely different failure or repair.
-- It is acceptable and encouraged to expand short notes into complete professional sentences.
-- Add logical missing steps that a competent RV technician would normally perform for this type of job.
-- Use professional but plain language that warranty reviewers expect.
-- Make the story complete enough to support the labor time claimed.
-- Write in short paragraphs under each heading. Do not use bullet points.
-- Output ONLY the three sections (CONCERN, CAUSE, CORRECTION). No introduction or extra commentary."""
+- Always use CONCERN / CAUSE / CORRECTION headers
+- Write for warranty auditors — clear, complete, professional
+- Expand short tech notes into full payable narrative without inventing a different failure
+- Short sentences, plain English, no fluff"""
 
         user_prompt = f"""CUSTOMER CONCERN:
-{concern or "(not provided)"}
+{concern or '(not provided)'}
 
 TECHNICIAN NOTES:
-{tech_notes or "(not provided)"}
+{tech_notes or '(not provided)'}
 
 Write the warranty story now following the rules above."""
 
@@ -440,10 +425,10 @@ Write the warranty story now following the rules above."""
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            temperature=0.35,
-            max_tokens=900
+            temperature=0.3,
+            max_tokens=1200,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -454,52 +439,48 @@ def story_from_diagnostic_job(job: "DiagnosticJob") -> str:
     """Merge concern + diagnostic plan context + findings into warranty story."""
     notes_parts = []
     if job.model_text:
-        notes_parts.append(f"System/model: {job.model_text}")
+        notes_parts.append(f"Model/System: {job.model_text}")
     if job.category_name:
         notes_parts.append(f"Category: {job.category_name}")
     if job.findings:
-        notes_parts.append(f"Technician findings and work performed:\n{job.findings}")
-    if job.step_log:
-        try:
-            steps = json.loads(job.step_log)
-            if steps:
-                lines = []
-                for s in steps:
-                    lines.append(
-                        f"- {s.get('step', 'Step')}: {s.get('result', '')} "
-                        f"{('— ' + s['notes']) if s.get('notes') else ''}".strip()
-                    )
-                notes_parts.append("Diagnostic step log:\n" + "\n".join(lines))
-        except Exception:
-            notes_parts.append(f"Step log:\n{job.step_log}")
+        notes_parts.append("Technician findings and work performed:\n" + job.findings)
+    try:
+        steps = json.loads(job.step_log or "[]")
+        if steps:
+            lines = []
+            for s in steps:
+                line = f"- {s.get('test','')}: {s.get('result','')}"
+                if s.get("notes"):
+                    line += f" ({s.get('notes')})"
+                lines.append(line)
+            notes_parts.append("Diagnostic step log:\n" + "\n".join(lines))
+    except Exception:
+        pass
     if job.plan_text:
-        # Light context only — story should favor actual findings
         notes_parts.append(
             "Reference (guided test plan used during diagnosis — use only where it matches actual work):\n"
-            + job.plan_text[:1500]
+            + (job.plan_text or "")[:2500]
         )
-    tech_notes = "\n\n".join(notes_parts)
-    return improve_tech_story(job.concern, tech_notes)
+    tech_notes = "\n\n".join(notes_parts).strip()
+    return improve_tech_story(job.concern or "", tech_notes)
 
-
-# ---------------- DOCUMENT INDEX + SEARCH ----------------
+# ---------------- PDF INDEXING ----------------
 def extract_pdf_pages(file_bytes: bytes):
     if not PYPDF_AVAILABLE:
         return []
-    pages = []
     try:
         reader = PdfReader(io.BytesIO(file_bytes))
-        for i, page in enumerate(reader.pages):
+        pages = []
+        for i, page in enumerate(reader.pages, 1):
             try:
                 text = page.extract_text() or ""
             except Exception:
                 text = ""
-            text = re.sub(r"\s+", " ", text).strip()
-            if text:
-                pages.append((i + 1, text))
+            if text.strip():
+                pages.append((i, text))
+        return pages
     except Exception:
         return []
-    return pages
 
 
 def chunk_page_text(page_num: int, text: str, chunk_size: int = 900, overlap: int = 120):
@@ -550,7 +531,7 @@ def index_document_from_bytes(doc: Document, file_bytes: bytes):
                 title=doc.title,
                 page=p,
                 chunk_text=chunk,
-                keywords=doc.keywords
+                keywords=doc.keywords or "",
             ))
             count += 1
     doc.indexed = True
@@ -568,40 +549,197 @@ def index_document_from_r2(doc: Document):
         return False, doc.index_note
     return index_document_from_bytes(doc, data)
 
-
+# ---------------- MANUAL SEARCH + INDEX EXPANSION ----------------
 def tokenize(text: str):
     return [t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2]
 
 
-def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 8):
+PAGE_REF_RE = re.compile(r"page\s*0*(\d+)", re.I)
+
+PROCEDURE_TOPIC_TERMS = [
+    "ventilation", "leveling", "level", "ambient", "air leak", "thermistor",
+    "cooling unit", "heating element", "heater", "igniter", "electrode",
+    "high voltage", "solenoid", "orifice", "flue baffle", "flue tube", "burner",
+    "upper circuit board", "lower circuit board", "control board", "fuse",
+    "wiring", "dc volt", "ac volt", "lp gas", "propane", "manual gas",
+    "door seal", "frame heater", "climate control", "diagnostic mode",
+    "error code", "fault code", "sequence of operation", "ohms", "voltage",
+]
+
+
+def is_diagnostic_index_text(text: str) -> bool:
+    t = (text or "").lower()
+    if not t or len(t) < 80:
+        return False
+    page_hits = len(PAGE_REF_RE.findall(t))
+    if "section & page" in t or "section and page" in t:
+        return True
+    if "symptom" in t and "cause" in t and page_hits >= 2:
+        return True
+    if page_hits >= 4 and any(
+        s in t for s in ("no operation", "insufficient cooling", "no gas", "no ac", "freezes")
+    ):
+        return True
+    return False
+
+
+def extract_page_refs(text: str):
+    return {int(m) for m in PAGE_REF_RE.findall(text or "")}
+
+
+def symptom_matched_pages_from_index(index_text: str, symptom: str):
+    t_sym = (symptom or "").lower()
+    terms = set(tokenize(symptom))
+    want_gas = any(w in t_sym for w in ("gas", "lp", "propane", "flame", "igniter", "burner"))
+    want_ac = any(w in t_sym for w in ("ac", "electric", "120", "element", "shore"))
+    want_cool = any(w in t_sym for w in ("cool", "cold", "warm", "temp", "freeze", "freezing"))
+    want_dead = any(w in t_sym for w in ("dead", "light", "panel", "display", "power", "no operation"))
+    want_freeze = any(w in t_sym for w in ("freeze", "freezing", "frozen", "too cold"))
+
+    pages = set()
+    lines = re.split(r"[\n\r]+|(?=\d+\.\s)", index_text or "")
+    for line in lines:
+        ll = line.lower().strip()
+        if len(ll) < 8:
+            continue
+        line_pages = extract_page_refs(line)
+        if not line_pages:
+            continue
+        score = sum(1 for term in terms if term in ll)
+        if want_dead and ("no operation" in ll or "panel light" in ll or "no panel" in ll):
+            score += 4
+        if want_ac and ("no ac" in ll or "on ac" in ll or "electric" in ll or "heating element" in ll):
+            score += 3
+        if want_gas and ("no gas" in ll or "on gas" in ll or "lp gas" in ll or "igniter" in ll or "burner" in ll):
+            score += 3
+        if want_cool and "insufficient cooling" in ll:
+            score += 4
+        if want_freeze and "freeze" in ll:
+            score += 4
+        if "all modes" in ll and want_cool and not (want_gas ^ want_ac):
+            score += 2
+        if want_cool and any(k in ll for k in ("ventilation", "leveling", "cooling unit", "air leak")):
+            score += 1
+        if score >= 2:
+            pages |= line_pages
+    if not pages:
+        pages = extract_page_refs(index_text)
+    return pages
+
+
+def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) -> int:
+    hay = f"{ch.title or ''} {ch.keywords or ''} {ch.chunk_text or ''}".lower()
+    if not query_terms:
+        return 1
+    score = 0
+    for term in query_terms:
+        if term in hay:
+            title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
+            score += 4 if term in title_kw else 1
+            score += min(hay.count(term), 3)
+    if model_text.strip() and model_text.strip().lower() in hay:
+        score += 6
+    if procedure_boost:
+        proc_signals = (
+            "check ", "measure", "volt", "ohm", "if ", "disconnect", "replace",
+            "inspect", "amp", "continuity", "resistance", "should be", "spec"
+        )
+        score += sum(1 for s in proc_signals if s in hay)
+        if is_diagnostic_index_text(ch.chunk_text or ""):
+            score -= 2
+    return score
+
+
+def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 16):
+    """Keyword search + expand diagnostic INDEX charts into real SECTION pages."""
     q = session.query(DocChunk)
     if category_id:
         q = q.filter(DocChunk.category_id == category_id)
-    chunks = q.all()
-    if not chunks:
+    all_chunks = q.all()
+    if not all_chunks:
         return []
+
     query_terms = set(tokenize(f"{model_text} {symptom}"))
-    if not query_terms:
-        return chunks[:limit]
+    for topic in PROCEDURE_TOPIC_TERMS:
+        if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
+            query_terms |= set(tokenize(topic))
+    if any(k in (symptom or "").lower() for k in (
+        "cool", "gas", "ac", "electric", "heat", "flame", "freeze", "light", "board", "panel"
+    )):
+        for topic in PROCEDURE_TOPIC_TERMS:
+            query_terms |= set(tokenize(topic))
+
     scored = []
-    for ch in chunks:
-        hay = f"{ch.title or ''} {ch.keywords or ''} {ch.chunk_text or ''}".lower()
-        score = 0
-        for term in query_terms:
-            if term in hay:
-                title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
-                score += 4 if term in title_kw else 1
-                score += min(hay.count(term), 3)
-        if model_text.strip() and model_text.strip().lower() in hay:
-            score += 6
-        if score > 0:
-            scored.append((score, ch))
+    for ch in all_chunks:
+        sc = score_chunk(ch, query_terms, model_text or "")
+        if sc > 0:
+            scored.append((sc, ch))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [c for _, c in scored[:limit]]
+    if not scored:
+        return all_chunks[:limit]
+
+    seed = [c for _, c in scored[: max(limit, 10)]]
+    by_key = {}
+
+    def add_chunk(ch):
+        key = (ch.document_id, ch.page, (ch.chunk_text or "")[:60])
+        if key not in by_key:
+            by_key[key] = ch
+
+    for ch in seed:
+        add_chunk(ch)
+
+    target_doc_ids = set()
+    target_pages = set()
+    for ch in seed[:6]:
+        target_doc_ids.add(ch.document_id)
+        if is_diagnostic_index_text(ch.chunk_text or ""):
+            target_pages |= symptom_matched_pages_from_index(ch.chunk_text or "", symptom)
+            if ch.page:
+                target_pages.add(int(ch.page))
+
+    for ch in seed[:4]:
+        if ch.page and not is_diagnostic_index_text(ch.chunk_text or ""):
+            p = int(ch.page)
+            target_pages.update({max(1, p - 1), p, p + 1, p + 2})
+            target_doc_ids.add(ch.document_id)
+
+    topic_terms = set()
+    for topic in PROCEDURE_TOPIC_TERMS:
+        topic_terms |= set(tokenize(topic))
+
+    if target_doc_ids:
+        for ch in all_chunks:
+            if ch.document_id not in target_doc_ids:
+                continue
+            if target_pages and ch.page and int(ch.page) in target_pages:
+                add_chunk(ch)
+                continue
+            hay = (ch.chunk_text or "").lower()
+            if topic_terms and sum(1 for t in topic_terms if t in hay) >= 2:
+                if not is_diagnostic_index_text(ch.chunk_text or ""):
+                    add_chunk(ch)
+
+    merged = list(by_key.values())
+    rescored = [(score_chunk(ch, query_terms | topic_terms, model_text or ""), ch) for ch in merged]
+    rescored.sort(
+        key=lambda x: (x[0], 0 if not is_diagnostic_index_text(x[1].chunk_text or "") else -1),
+        reverse=True,
+    )
+    out = []
+    index_kept = False
+    for sc, ch in rescored:
+        if is_diagnostic_index_text(ch.chunk_text or ""):
+            if index_kept and sc < 8:
+                continue
+            index_kept = True
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
 
 
-
-def build_sources_payload(chunks) -> tuple[str, str]:
+def build_sources_payload(chunks) -> tuple:
     """Build human text + JSON list of unique document/page sources with excerpts."""
     sources_lines = []
     payload = []
@@ -612,7 +750,6 @@ def build_sources_payload(chunks) -> tuple[str, str]:
         key = (ch.document_id, ch.page)
         sources_lines.append(f"- {ch.title} (page {ch.page})")
         if key in seen:
-            # still keep extra excerpt text on first entry only
             continue
         seen.add(key)
         payload.append({
@@ -623,7 +760,6 @@ def build_sources_payload(chunks) -> tuple[str, str]:
             "file_type": (doc.file_type if doc else "pdf") or "pdf",
             "excerpt": (ch.chunk_text or "")[:1800],
         })
-    # Attach additional chunk text for same page if useful
     by_key = {(p["document_id"], p["page"]): p for p in payload}
     for ch in chunks:
         k = (ch.document_id, ch.page)
@@ -660,7 +796,7 @@ def load_job_sources(job: DiagnosticJob) -> list:
         return []
 
 
-def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple[str, str, str]:
+def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple:
     """Returns (plan_text, sources_text, sources_json)."""
     if not chunks:
         msg = (
@@ -675,8 +811,9 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
     sources_text, sources_json = build_sources_payload(chunks)
     context_parts = []
     for i, ch in enumerate(chunks, 1):
+        label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"
         context_parts.append(
-            f"[EXCERPT {i}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
+            f"[EXCERPT {i} | {label}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
         )
     context = "\n\n".join(context_parts)
 
@@ -690,10 +827,11 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
             "",
             "**Sources:**",
             sources_text,
-            ""
+            "",
         ]
-        for i, ch in enumerate(chunks[:5], 1):
-            body.append(f"**Excerpt {i} — {ch.title} p.{ch.page}**")
+        for i, ch in enumerate(chunks[:8], 1):
+            kind = "INDEX" if is_diagnostic_index_text(ch.chunk_text or "") else "PROC"
+            body.append(f"**Excerpt {i} [{kind}] — {ch.title} p.{ch.page}**")
             body.append(ch.chunk_text[:700] + ("..." if len(ch.chunk_text) > 700 else ""))
             body.append("")
         body.append(
@@ -704,41 +842,47 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
 
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        system_prompt = """You are an expert RV technician coach helping shop techs diagnose and repair units.
+        system_prompt = """You are an expert RV technician coach helping shop techs diagnose and repair units on the floor.
 
 You will receive:
 - Category, optional model/system, and the reported symptom
 - EXCERPTS from the shop's uploaded service manuals only
+- Some excerpts may be labeled INDEX CHART (symptom → cause → section/page tables)
+- Others are labeled PROCEDURE (actual tests, specs, wiring, measurements)
 
-Rules:
+CRITICAL RULES:
 1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps.
-2. If the excerpts do not cover the issue, say clearly what is missing. Do NOT invent OEM procedures.
-3. Start with SAFETY notes when relevant (power, propane, crushing hazards, high voltage, hydraulic pressure).
-4. Give a numbered GUIDED TEST sequence a tech can follow on the shop floor.
-5. For each test: what to do, what result means, and what to do next (pass/fail branching when possible).
-6. When a figure, diagram, LCD layout, or button label matters, tell the tech to open **Source pages** in TechTrack and view that manual page (give manual title + page number). Do not assume they can see Fig. references without that.
-7. When the excerpt text itself describes the figure or button, quote the useful part so the tech can work even before opening the page.
-8. End with SOURCES listing the manual titles and page numbers you used.
-9. Keep language plain and practical. Short sentences. No fluff.
-10. Prefer manufacturer troubleshooting order when the excerpts show one."""
+2. If an INDEX CHART is present: match the tech's symptom to the correct row(s), list the causes in manufacturer order, then expand EACH cause into real shop-floor test steps using the PROCEDURE excerpts for those topics/pages. Do not stop at the chart.
+3. NEVER end a step with only "refer to page X", "see the manual", "consult the manual", or "contact support" if any PROCEDURE excerpt covers that check. Write the actual check (what to measure, inspect, disconnect, expected reading, pass/fail branch).
+4. If a chart points to a topic but no PROCEDURE excerpt for it was provided, write one short step that names the exact check and says "open Source pages for manual page N", then continue with every other cause you CAN flesh out from PROCEDURE text.
+5. Start with SAFETY notes when relevant (12V/120V, propane, sealed cooling unit, hot surfaces).
+6. Give a numbered GUIDED TEST sequence in logical OEM order (power/operation first, then mode-specific heat source, then shared items like vent/level/thermistor/cooling unit as applicable).
+7. For each test: action → what good looks like → what fail means → next step.
+8. When a figure, diagram, LCD layout, or button label matters, tell the tech to open **Source pages** in TechTrack and view that manual page (give manual title + page number).
+9. Prefer manufacturer troubleshooting order when excerpts show one.
+10. End with SOURCES listing manual titles and page numbers used.
+11. Plain shop language. Short sentences. No fluff. Do not invent OEM procedures not supported by excerpts."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 
-MANUAL EXCERPTS:
+MANUAL EXCERPTS (INDEX CHART = roadmap only; PROCEDURE = do these tests):
 {context}
 
-Write the guided diagnostic plan now. Remember: techs can open the exact source pages (with figures) in TechTrack's Source pages panel."""
+Write the full guided diagnostic plan now.
+Match the symptom on any INDEX CHART, then walk the tech through the PROCEDURE tests for every listed cause you have procedure text for.
+Do not stop after naming the chart.
+Techs can open exact source pages (with figures) in TechTrack's Source pages panel."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            temperature=0.2,
-            max_tokens=1400
+            temperature=0.15,
+            max_tokens=2400,
         )
         answer = response.choices[0].message.content.strip()
         if "source" not in answer.lower():
@@ -769,19 +913,14 @@ def save_step_log(job: DiagnosticJob, steps: list):
     session.commit()
 
 
-# ---------------- SEED ----------------
 def seed_data():
     if session.query(User).count() == 0:
         session.add(User(username="manager", password_hash=hash_password("manager123"), full_name="Shop Manager", role="Manager"))
-        session.add(User(username="alex", password_hash=hash_password("tech123"), full_name="Alex Rivera", role="Technician"))
-        session.add(User(username="jordan", password_hash=hash_password("tech123"), full_name="Jordan Hale", role="Technician"))
+        session.add(User(username="alex", password_hash=hash_password("tech123"), full_name="Alex Tech", role="Technician"))
+        session.add(User(username="jordan", password_hash=hash_password("tech123"), full_name="Jordan Tech", role="Technician"))
         session.commit()
     if session.query(Category).count() == 0:
-        for name in [
-            "Air Conditioner", "Furnace", "Water Heater", "Electrical Systems",
-            "Refrigeration Systems", "Slide-Outs & Leveling", "Plumbing",
-            "Generators", "Converters & Power Centers", "Solar"
-        ]:
+        for name in ["Refrigerators", "Furnaces", "Water Heaters", "Air Conditioning", "Slideouts", "Leveling", "Electrical", "ID & Reference", "Warranty Forms", "Solar"]:
             session.add(Category(name=name))
         session.commit()
 
@@ -796,19 +935,18 @@ if "active_job_id" not in st.session_state:
 
 if st.session_state.user is None:
     st.title("🔧 RV TechTrack")
-    st.subheader("Sign In")
+    st.caption("Technician competency, manuals, safety, and guided diagnostics")
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign In", type="primary")
-        if submitted:
-            u = session.query(User).filter_by(username=username, is_active=True).first()
-            if u and verify_password(password, u.password_hash):
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.form_submit_button("Sign In", type="primary"):
+            user = session.query(User).filter_by(username=u.strip().lower(), is_active=True).first()
+            if user and verify_password(p, user.password_hash):
                 st.session_state.user = {
-                    "id": u.id,
-                    "username": u.username,
-                    "full_name": u.full_name,
-                    "role": u.role
+                    "id": user.id,
+                    "username": user.username,
+                    "full_name": user.full_name,
+                    "role": user.role,
                 }
                 st.rerun()
             else:
@@ -816,83 +954,130 @@ if st.session_state.user is None:
     st.info("Default accounts (change after first login):\n- Manager: `manager` / `manager123`\n- Tech: `alex` or `jordan` / `tech123`")
     st.stop()
 
-# ---------------- LOGGED IN ----------------
 user = st.session_state.user
 is_manager = user["role"] == "Manager"
 
-st.sidebar.title("🔧 TechTrack")
-st.sidebar.write(f"**{user['full_name']}**")
-st.sidebar.caption(f"Role: {user['role']}")
-if st.sidebar.button("Sign Out"):
+# ---------------- HEADER / NAV ----------------
+st.title("🔧 TechTrack")
+st.caption(f"Signed in as **{user['full_name']}** ({user['role']})")
+if st.sidebar.button("Log out"):
     st.session_state.user = None
     st.session_state.active_job_id = None
     st.rerun()
+st.sidebar.caption(f"Role: {user['role']}")
 
-if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
-
-nav_cols = st.columns(3 if is_manager else 2)
-with nav_cols[0]:
-    if st.button("📱 My Dashboard", use_container_width=True, type="primary" if st.session_state.page == "Dashboard" else "secondary"):
-        st.session_state.page = "Dashboard"
-        st.rerun()
-with nav_cols[1]:
-    if st.button("👥 Team Overview", use_container_width=True, type="primary" if st.session_state.page == "Overview" else "secondary"):
-        st.session_state.page = "Overview"
-        st.rerun()
+tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
-    with nav_cols[2]:
-        if st.button("🛠️ Manager Tools", use_container_width=True, type="primary" if st.session_state.page == "Manager" else "secondary"):
-            st.session_state.page = "Manager"
-            st.rerun()
-
-st.divider()
+    tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
+tab_objs = st.tabs(tabs)
+tab_dash = tab_objs[0]
+tab_jobs = tab_objs[1]
+tab_lib = tab_objs[2]
+tab_safety = tab_objs[3]
+tab_team = tab_objs[4] if is_manager else None
+tab_mgr = tab_objs[5] if is_manager else None
 
 # =========================================================
-# PAGE: MY DASHBOARD
+# MY DASHBOARD
 # =========================================================
-if st.session_state.page == "Dashboard":
-    st.header(f"Welcome, {user['full_name']}")
+with tab_dash:
+    st.subheader("📱 My Dashboard")
+    c1, c2, c3 = st.columns(3)
+    my_certs = session.query(Certificate).filter_by(user_id=user["id"]).count()
+    safety_pct = get_safety_progress(user["id"])
+    my_open = session.query(DiagnosticJob).filter_by(user_id=user["id"], status="in_progress").count()
+    c1.metric("Certificates", my_certs)
+    c2.metric("Safety Progress", f"{safety_pct}%")
+    c3.metric("Open WO Jobs", my_open)
 
-    # -------- DIAGNOSTIC JOBS (WO-based) --------
+    st.markdown("#### 📜 My Certificates")
+    certs = session.query(Certificate).filter_by(user_id=user["id"]).order_by(Certificate.created_date.desc()).all()
+    if certs:
+        for cert in certs:
+            with st.container(border=True):
+                st.write(f"**{cert.title}** — {cert.issuer or '—'}")
+                if cert.issued_date:
+                    st.caption(f"Issued: {cert.issued_date}")
+                if cert.notes:
+                    st.caption(cert.notes)
+                r2_download_button("⬇️ Download", cert.file_path, f"{cert.title}.pdf", f"dl_cert_{cert.id}")
+    else:
+        st.info("No certificates uploaded yet.")
+
+    with st.expander("⬆️ Upload Certificate", expanded=False):
+        if not r2_available():
+            st.warning("File storage is not configured yet. Contact a manager.")
+        else:
+            ct = st.text_input("Certificate Title", key="cert_title")
+            ci = st.text_input("Issuer (Lippert, RVTI, Airexcel, etc.)", key="cert_issuer")
+            cd = st.text_input("Issued Date (optional)", key="cert_date")
+            cn = st.text_area("Notes (optional)", key="cert_notes")
+            cf = st.file_uploader("PDF Certificate", type=["pdf"], key="cert_file")
+            if st.button("Save Certificate", type="primary", key="save_cert"):
+                if ct and cf:
+                    key = f"certificates/{user['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{cf.name}"
+                    if r2_upload(cf.getvalue(), key, "application/pdf"):
+                        session.add(Certificate(
+                            user_id=user["id"],
+                            title=ct.strip(),
+                            issuer=ci.strip(),
+                            file_path=key,
+                            issued_date=cd.strip(),
+                            notes=cn.strip(),
+                            uploaded_by=user["id"],
+                        ))
+                        session.commit()
+                        st.success("Certificate saved permanently!")
+                        st.rerun()
+                else:
+                    st.warning("Title and PDF are required.")
+
+    st.markdown("#### ✍️ Quick Story Improver (no WO)")
+    st.caption("For one-off claims. For full jobs with saved progress, use Diagnostic Jobs above.")
+    sc = st.text_area("1. Customer Concern", key="story_concern", placeholder="Customer states the air conditioner is not cooling…")
+    sn = st.text_area("2. What you found and did", key="story_notes", placeholder="Found bad compressor. Recovered, replaced, evacuated, recharged, tested.")
+    if st.button("Improve Story", type="primary", key="improve_story_btn"):
+        if sc.strip() or sn.strip():
+            with st.spinner("Writing improved warranty story..."):
+                improved = improve_tech_story(sc, sn)
+            st.markdown("### Improved Version")
+            st.text_area("Copy this improved story", value=improved, height=320, key="story_improved")
+        else:
+            st.warning("Please enter at least the customer concern or your notes.")
+
+# =========================================================
+# DIAGNOSTIC JOBS
+# =========================================================
+with tab_jobs:
     st.subheader("🔍 Diagnostic Jobs (Work Order)")
     st.caption(
         "Start or resume a job by work order number. TechTrack searches your manuals, "
         "guides testing, saves progress, and can write the warranty story when you're done."
     )
 
-    categories = session.query(Category).order_by(Category.name).all()
-    cat_names = [c.name for c in categories] if categories else []
+    tab_start, tab_list, tab_active = st.tabs(["Start / Resume", "My Jobs", "Active Job"])
 
-    tab_active, tab_new, tab_list = st.tabs(["Active Job", "Start / Resume", "My Jobs"])
-
-    # --- Start / Resume ---
-    with tab_new:
+    with tab_start:
         st.markdown("#### Start a new job or resume by WO #")
-        wo_in = st.text_input("Work Order Number", key="wo_start", placeholder="e.g. 4521 or WO-4521")
-        c_resume, c_new = st.columns(2)
-        with c_resume:
-            if st.button("Resume this WO", use_container_width=True):
-                if not wo_in.strip():
-                    st.warning("Enter a work order number.")
+        resume_wo = st.text_input("Work Order Number", key="resume_wo", placeholder="e.g. 4521 or WO-4521")
+        if st.button("Resume this WO", key="btn_resume"):
+            if not resume_wo.strip():
+                st.warning("Enter a work order number.")
+            else:
+                q = session.query(DiagnosticJob).filter_by(wo_number=resume_wo.strip())
+                if not is_manager:
+                    q = q.filter_by(user_id=user["id"])
+                job = q.order_by(DiagnosticJob.updated_date.desc()).first()
+                if not job:
+                    st.warning("No job found for that WO #. Start a new one below.")
                 else:
-                    job = (
-                        session.query(DiagnosticJob)
-                        .filter(DiagnosticJob.wo_number == wo_in.strip())
-                        .order_by(DiagnosticJob.updated_date.desc())
-                        .first()
-                    )
-                    if not job:
-                        st.error("No job found for that WO #. Start a new one below.")
-                    else:
-                        st.session_state.active_job_id = job.id
-                        st.success(f"Resumed WO {job.wo_number}")
-                        st.rerun()
-        with c_new:
-            pass
+                    st.session_state.active_job_id = job.id
+                    st.success(f"Resumed WO {job.wo_number}")
+                    st.rerun()
 
-        st.markdown("---")
         st.markdown("#### New diagnostic job")
+        cats = session.query(Category).order_by(Category.name).all()
+        cat_names = [c.name for c in cats]
         if not cat_names:
             st.warning("No categories yet. Ask a manager to create categories and upload manuals.")
         else:
@@ -903,7 +1088,7 @@ if st.session_state.page == "Dashboard":
                 "Customer concern / symptom",
                 key="nj_concern",
                 height=100,
-                placeholder="Customer states slide only moves ~2 inches then one side stops."
+                placeholder="Customer states slide only moves ~2 inches then one side stops.",
             )
             if st.button("Start Job + Build Test Plan", type="primary", key="nj_start"):
                 if not nj_wo.strip() or not nj_concern.strip():
@@ -914,7 +1099,7 @@ if st.session_state.page == "Dashboard":
                         .filter_by(wo_number=nj_wo.strip(), status="in_progress")
                         .first()
                     )
-                    if existing:
+                    if existing and existing.user_id == user["id"]:
                         st.warning(
                             f"Open job already exists for WO {nj_wo.strip()} "
                             f"(id {existing.id}). Use Resume, or complete that job first."
@@ -926,9 +1111,11 @@ if st.session_state.page == "Dashboard":
                                 cat_obj.id if cat_obj else None,
                                 nj_model,
                                 nj_concern,
-                                limit=8
+                                limit=16,
                             )
-                            plan, sources, sources_json = run_guided_diagnostics(nj_cat, nj_model, nj_concern, hits)
+                            plan, sources, sources_json = run_guided_diagnostics(
+                                nj_cat, nj_model, nj_concern, hits
+                            )
                         job = DiagnosticJob(
                             wo_number=nj_wo.strip(),
                             user_id=user["id"],
@@ -940,7 +1127,7 @@ if st.session_state.page == "Dashboard":
                             step_log="[]",
                             sources_text=sources,
                             sources_json=sources_json,
-                            status="in_progress"
+                            status="in_progress",
                         )
                         session.add(job)
                         session.commit()
@@ -948,156 +1135,127 @@ if st.session_state.page == "Dashboard":
                         st.success(f"Job started for WO {job.wo_number}")
                         st.rerun()
 
-    # --- My Jobs list ---
     with tab_list:
-        my_jobs = (
-            session.query(DiagnosticJob)
-            .filter_by(user_id=user["id"])
-            .order_by(DiagnosticJob.updated_date.desc())
-            .limit(40)
-            .all()
-        )
+        q = session.query(DiagnosticJob)
+        if not is_manager:
+            q = q.filter_by(user_id=user["id"])
+        my_jobs = q.order_by(DiagnosticJob.updated_date.desc()).limit(40).all()
         if is_manager:
-            st.caption("Showing your jobs. Managers can open any WO via Resume.")
+            st.caption("Showing all jobs. Managers can open any WO via Resume.")
         if not my_jobs:
             st.info("No diagnostic jobs yet.")
         else:
             for j in my_jobs:
-                with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 1])
-                    with c1:
-                        st.markdown(f"**WO {j.wo_number}** — {j.category_name}")
-                        st.caption((j.concern or "")[:120] + ("…" if j.concern and len(j.concern) > 120 else ""))
-                    with c2:
-                        st.caption(f"Status: **{j.status}**")
-                        st.caption(f"Updated: {j.updated_date.strftime('%Y-%m-%d %H:%M') if j.updated_date else '—'}")
-                    with c3:
-                        if st.button("Open", key=f"open_job_{j.id}"):
-                            st.session_state.active_job_id = j.id
-                            st.rerun()
+                owner = session.query(User).get(j.user_id)
+                label = f"WO {j.wo_number} · {j.status} · {j.category_name or '—'} · {(j.updated_date or j.created_date).strftime('%Y-%m-%d %H:%M') if (j.updated_date or j.created_date) else ''}"
+                if is_manager and owner:
+                    label += f" · {owner.full_name}"
+                cols = st.columns([4, 1])
+                cols[0].write(label)
+                if cols[1].button("Open", key=f"open_job_{j.id}"):
+                    st.session_state.active_job_id = j.id
+                    st.rerun()
 
-    # --- Active Job workspace ---
     with tab_active:
-        job = None
-        if st.session_state.active_job_id:
-            job = session.query(DiagnosticJob).get(st.session_state.active_job_id)
-
+        jid = st.session_state.active_job_id
+        job = session.query(DiagnosticJob).get(jid) if jid else None
         if not job:
             st.info("No active job. Use **Start / Resume** to open a work order.")
         else:
+            owner = session.query(User).get(job.user_id)
             st.markdown(f"### WO **{job.wo_number}** · {job.status}")
-            st.caption(
-                f"{job.category_name}"
-                + (f" · {job.model_text}" if job.model_text else "")
-                + f" · Tech user id {job.user_id}"
-            )
-
+            st.caption(f"{job.category_name or '—'} · {job.model_text or '—'} · Tech: {owner.full_name if owner else job.user_id}")
             st.markdown("**Customer concern**")
             st.write(job.concern)
 
             with st.expander("📋 Guided test plan (from manuals)", expanded=True):
                 st.markdown(job.plan_text or "_No plan saved._")
                 if job.sources_text:
-                    st.caption("Sources (text list)")
+                    st.markdown("**Sources (text list)**")
                     st.text(job.sources_text)
 
-            # ---- SOURCE PAGES / FIGURES ----
-            with st.expander("📷 Source pages (figures & full page view)", expanded=True):
+            with st.expander("📷 Source pages (figures & full page view)", expanded=False):
                 st.caption(
                     "When the plan says Fig. 1F / LCD / diagram — open that page here. "
                     "This is the actual PDF page from your uploaded manual."
                 )
-                srcs = load_job_sources(job)
-                if not srcs:
+                sources = load_job_sources(job)
+                if not sources:
                     st.warning(
                         "No structured source pages saved on this job. "
                         "Click **Rebuild test plan** to attach manuals/pages (needs v4.6+)."
                     )
-                    if job.sources_text:
-                        st.text(job.sources_text)
                 else:
-                    if not PYMUPDF_AVAILABLE:
-                        st.info(
-                            "Page images need `pymupdf` in requirements.txt (download still works)."
-                        )
-                    for si, src in enumerate(srcs):
+                    for i, src in enumerate(sources):
                         title = src.get("title") or "Manual"
                         page = int(src.get("page") or 1)
                         fpath = src.get("file_path")
-                        excerpt = src.get("excerpt") or ""
-                        with st.container(border=True):
-                            st.markdown(f"**{title}** — page **{page}**")
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                if fpath:
-                                    r2_download_button(
-                                        "⬇️ Download full PDF",
-                                        fpath,
-                                        Path(fpath).name,
-                                        f"src_dl_{job.id}_{si}",
-                                    )
-                                else:
-                                    st.caption("No file path on record")
-                            with c2:
-                                show = st.button(
-                                    f"Show page {page}",
-                                    key=f"src_show_{job.id}_{si}",
-                                    use_container_width=True,
+                        st.markdown(f"**{title}** — page **{page}**")
+                        bcols = st.columns(3)
+                        with bcols[0]:
+                            if fpath:
+                                r2_download_button(
+                                    "⬇️ Download full PDF",
+                                    fpath,
+                                    f"{title}.pdf",
+                                    f"src_dl_{job.id}_{i}",
                                 )
-                            if show:
-                                if not fpath:
-                                    st.error("Missing storage path for this manual.")
+                            else:
+                                st.caption("No file path on record")
+                        with bcols[1]:
+                            show = st.button("Show this page", key=f"src_show_{job.id}_{i}")
+                        if show:
+                            if not fpath:
+                                st.error("Missing storage path for this manual.")
+                            else:
+                                with st.spinner(f"Loading page {page}…"):
+                                    data = r2_download_bytes(fpath)
+                                if not data:
+                                    st.error("Could not download PDF from storage.")
                                 else:
-                                    with st.spinner(f"Loading page {page}…"):
-                                        raw = r2_download_bytes(fpath)
-                                    if not raw:
-                                        st.error("Could not download PDF from storage.")
+                                    png = render_pdf_page_png(data, page)
+                                    if png:
+                                        st.image(png, caption=f"{title} — page {page}", use_container_width=True)
                                     else:
-                                        png = render_pdf_page_png(raw, page)
-                                        if png:
-                                            st.image(
-                                                png,
-                                                caption=f"{title} — page {page}",
-                                                use_container_width=True,
-                                            )
+                                        if not PYMUPDF_AVAILABLE:
+                                            st.warning("Page images need `pymupdf` in requirements.txt (download still works).")
                                         else:
-                                            st.warning(
-                                                "Could not render page image. Download the PDF and jump to this page."
+                                            st.warning("Could not render page image. Download the PDF and jump to this page.")
+                                        if src.get("excerpt"):
+                                            st.text_area(
+                                                "Text excerpt from this page",
+                                                value=src.get("excerpt"),
+                                                height=200,
+                                                key=f"ex_{job.id}_{i}",
                                             )
-                                            # still offer text
-                            if excerpt:
-                                with st.expander("Text excerpt from this page"):
-                                    st.write(excerpt)
 
             st.markdown("#### Log tests as you go")
             st.caption("Record each test result so you can stop and resume later. This also feeds the warranty story.")
-
             steps = load_step_log(job)
             if steps:
                 st.markdown("**Progress so far**")
-                for i, s in enumerate(steps):
-                    st.write(
-                        f"{i+1}. **{s.get('step', 'Step')}** — {s.get('result', '')}"
-                        + (f" — {s.get('notes')}" if s.get('notes') else "")
-                    )
+                for s in steps:
+                    st.write(f"- **{s.get('test','')}** → {s.get('result','')} {('· ' + s['notes']) if s.get('notes') else ''}")
 
-            with st.form(f"add_step_{job.id}", clear_on_submit=True):
-                step_name = st.text_input("What test / step did you do?", placeholder="e.g. Checked 30A fuse / battery voltage")
-                step_result = st.selectbox("Result", ["Pass", "Fail", "Inconclusive", "Info"])
-                step_notes = st.text_input("Notes (readings, LED codes, etc.)", placeholder="e.g. 12.4V, motor LED red")
-                if st.form_submit_button("Add to job log", type="primary"):
-                    if step_name.strip():
-                        steps.append({
-                            "step": step_name.strip(),
-                            "result": step_result,
-                            "notes": step_notes.strip(),
-                            "at": datetime.now().isoformat(timespec="minutes")
-                        })
-                        save_step_log(job, steps)
-                        st.success("Step saved.")
-                        st.rerun()
-                    else:
-                        st.warning("Enter what you tested.")
+            t1, t2 = st.columns(2)
+            with t1:
+                step_test = st.text_input("What test / step did you do?", key=f"step_test_{job.id}", placeholder="e.g. Checked 30A fuse / battery voltage")
+            with t2:
+                step_result = st.selectbox("Result", ["Pass", "Fail", "Inconclusive", "Info"], key=f"step_res_{job.id}")
+            step_notes = st.text_input("Notes (readings, LED codes, etc.)", key=f"step_notes_{job.id}", placeholder="e.g. 12.4V, motor LED red")
+            if st.button("Add to job log", key=f"add_step_{job.id}"):
+                if step_test.strip():
+                    steps.append({
+                        "test": step_test.strip(),
+                        "result": step_result,
+                        "notes": step_notes.strip(),
+                        "at": datetime.now().isoformat(timespec="minutes"),
+                    })
+                    save_step_log(job, steps)
+                    st.success("Step saved.")
+                    st.rerun()
+                else:
+                    st.warning("Enter what you tested.")
 
             st.markdown("#### Findings / work performed (running notes)")
             findings_val = st.text_area(
@@ -1105,7 +1263,7 @@ if st.session_state.page == "Dashboard":
                 value=job.findings or "",
                 height=160,
                 key=f"findings_{job.id}",
-                placeholder="Found left Schwintek motor open circuit. Replaced motor, synced system, cycled room 3x OK."
+                placeholder="Found left Schwintek motor open circuit. Replaced motor, synced system, cycled room 3x OK.",
             )
             b1, b2, b3, b4 = st.columns(4)
             with b1:
@@ -1122,7 +1280,7 @@ if st.session_state.page == "Dashboard":
                             cat_obj.id if cat_obj else None,
                             job.model_text or "",
                             job.concern,
-                            limit=8
+                            limit=16,
                         )
                         plan, sources, sources_json = run_guided_diagnostics(
                             job.category_name, job.model_text or "", job.concern, hits
@@ -1147,627 +1305,448 @@ if st.session_state.page == "Dashboard":
                     st.success("Story generated and saved on this WO.")
                     st.rerun()
             with b4:
-                if job.status != "complete":
-                    if st.button("✅ Mark complete", key=f"done_{job.id}", use_container_width=True):
-                        job.findings = findings_val
-                        job.status = "complete"
-                        job.updated_date = datetime.now()
-                        session.commit()
-                        st.success("Job marked complete.")
-                        st.rerun()
-                else:
-                    if st.button("Reopen job", key=f"reopen_{job.id}", use_container_width=True):
-                        job.status = "in_progress"
-                        job.updated_date = datetime.now()
-                        session.commit()
-                        st.rerun()
+                if st.button("✅ Mark complete", key=f"done_{job.id}", use_container_width=True):
+                    job.findings = findings_val
+                    job.status = "complete"
+                    job.updated_date = datetime.now()
+                    session.commit()
+                    st.success("Job marked complete.")
+                    st.rerun()
 
             if job.final_story:
                 st.markdown("### Warranty story (saved on this WO)")
-                st.text_area(
-                    "Copy into the warranty claim",
-                    value=job.final_story,
-                    height=320,
-                    key=f"final_story_{job.id}"
-                )
-                st.info("This story is stored on the work order. Resume the same WO later and it will still be here.")
+                st.text_area("Copy into the warranty claim", value=job.final_story, height=280, key=f"final_story_{job.id}")
+                st.caption("This story is stored on the work order. Resume the same WO later and it will still be here.")
 
             if st.button("Close active job view", key="clear_active"):
                 st.session_state.active_job_id = None
                 st.rerun()
 
-    st.divider()
-
-    # CERTIFICATES
-    st.subheader("📜 My Certificates")
-    my_certs = session.query(Certificate).filter_by(user_id=user["id"]).order_by(Certificate.created_date.desc()).all()
-    if my_certs:
-        for cert in my_certs:
-            with st.container(border=True):
-                c1, c2 = st.columns([5, 1])
-                with c1:
-                    st.markdown(f"**{cert.title}**")
-                    st.caption(f"Issuer: {cert.issuer or '—'} • Issued: {cert.issued_date or '—'}")
-                with c2:
-                    r2_download_button("⬇️", cert.file_path, Path(cert.file_path).name, f"dlc_{cert.id}")
-    else:
-        st.info("No certificates uploaded yet.")
-
-    with st.expander("⬆️ Upload Certificate", expanded=False):
-        if not r2_available():
-            st.warning("File storage is not configured yet. Contact a manager.")
-        else:
-            ct = st.text_input("Certificate Title", key="cert_title")
-            ci = st.text_input("Issuer (Lippert, RVTI, Airexcel, etc.)", key="cert_issuer")
-            cd = st.text_input("Issued Date (optional)", key="cert_date")
-            cn = st.text_area("Notes (optional)", key="cert_notes")
-            cf = st.file_uploader("PDF Certificate", type=["pdf"], key="cert_file")
-            if st.button("Save Certificate", type="primary"):
-                if ct and cf:
-                    key = f"certificates/{user['id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{cf.name}"
-                    if r2_upload(io.BytesIO(cf.getvalue()), key, "application/pdf"):
-                        session.add(Certificate(
-                            user_id=user["id"], title=ct, issuer=ci or None,
-                            file_path=key, issued_date=cd or None, notes=cn or None,
-                            uploaded_by=user["id"]
-                        ))
-                        session.commit()
-                        st.success("Certificate saved permanently!")
-                        st.rerun()
-                else:
-                    st.error("Title and PDF are required.")
-
-    st.divider()
-
-    # DOCUMENT LIBRARY
+# =========================================================
+# DOCUMENT LIBRARY
+# =========================================================
+with tab_lib:
     st.subheader("📚 Document Library (Manuals & Troubleshooting)")
-    categories = session.query(Category).order_by(Category.name).all()
-    if not categories:
+    cats = session.query(Category).order_by(Category.name).all()
+    if not cats:
         st.warning("No categories yet. Ask a manager to create some.")
     else:
-        cat_name = st.selectbox("Select Category", [c.name for c in categories], key="doc_cat")
-        cat = session.query(Category).filter_by(name=cat_name).first()
-        search_term = st.text_input("Search documents by title or keyword", key="doc_search")
-        if st.button("Search", type="primary") or search_term:
-            q = session.query(Document).filter_by(category_id=cat.id)
-            if search_term.strip():
-                term = f"%{search_term.strip()}%"
-                q = q.filter((Document.title.ilike(term)) | (Document.keywords.ilike(term)))
-            results = q.order_by(Document.title).all()
-            if results:
-                st.write(f"**{len(results)} document(s) found**")
-                for doc in results:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([5, 1])
-                        with c1:
-                            st.markdown(f"**{doc.title}**")
-                            idx = "✅ indexed" if doc.indexed else "⚠️ not indexed"
-                            st.caption(f"Type: {doc.file_type or 'file'} • {idx}")
-                        with c2:
-                            r2_download_button("⬇️", doc.file_path, Path(doc.file_path).name, f"dld_{doc.id}")
-            else:
-                st.info("No documents matched your search.")
-
-    st.divider()
-
-    # SAFETY
-    st.subheader("🛡️ Safety / Compliance")
-    with st.expander("Safety Documents", expanded=False):
-        safety_docs = session.query(SafetyDocument).order_by(SafetyDocument.title).all()
-        s_search = st.text_input("Search safety documents", key="safety_doc_search")
-        if s_search:
-            safety_docs = [
-                d for d in safety_docs
-                if s_search.lower() in d.title.lower()
-                or (d.keywords and s_search.lower() in (d.keywords or "").lower())
+        cat_name = st.selectbox("Select Category", [c.name for c in cats], key="lib_cat")
+        cat = next(c for c in cats if c.name == cat_name)
+        q = st.text_input("Search documents by title or keyword", key="lib_search")
+        docs = session.query(Document).filter_by(category_id=cat.id).order_by(Document.title).all()
+        if q.strip():
+            terms = q.lower().split()
+            docs = [
+                d for d in docs
+                if all(t in f"{d.title} {d.keywords or ''}".lower() for t in terms)
             ]
-        if safety_docs:
-            for doc in safety_docs:
-                c1, c2 = st.columns([5, 1])
-                with c1:
-                    st.write(f"📄 **{doc.title}**")
-                with c2:
-                    r2_download_button("⬇️", doc.file_path, Path(doc.file_path).name, f"sdoc_{doc.id}")
-        else:
-            st.info("No safety documents available.")
+        st.write(f"**{len(docs)} document(s) found**")
+        if not docs:
+            st.info("No documents matched your search.")
+        for d in docs:
+            with st.container(border=True):
+                idx = "✅" if d.indexed else "⚠️ not indexed"
+                st.write(f"**{d.title}** · {idx}")
+                if d.keywords:
+                    st.caption(d.keywords)
+                r2_download_button("⬇️ Download", d.file_path, f"{d.title}.pdf", f"lib_dl_{d.id}")
+
+# =========================================================
+# SAFETY
+# =========================================================
+with tab_safety:
+    st.subheader("🛡️ Safety / Compliance")
+    st.markdown("#### Safety Documents")
+    sq = st.text_input("Search safety documents", key="safety_doc_search")
+    sdocs = session.query(SafetyDocument).order_by(SafetyDocument.title).all()
+    if sq.strip():
+        terms = sq.lower().split()
+        sdocs = [d for d in sdocs if all(t in f"{d.title} {d.keywords or ''}".lower() for t in terms)]
+    if not sdocs:
+        st.info("No safety documents available.")
+    for d in sdocs:
+        with st.container(border=True):
+            st.write(f"**{d.title}**")
+            r2_download_button("⬇️ Download", d.file_path, f"{d.title}.pdf", f"saf_dl_{d.id}")
 
     st.markdown("#### Safety Meetings – Acknowledgement Required")
     meetings = session.query(SafetyMeeting).order_by(SafetyMeeting.created_date.desc()).all()
     if not meetings:
         st.info("No safety meetings have been created yet.")
-    else:
-        for m in meetings:
-            already = session.query(SafetyAcknowledgement).filter_by(meeting_id=m.id, user_id=user["id"]).first()
-            with st.container(border=True):
-                st.markdown(f"**{m.title}**")
-                st.caption(
-                    f"Meeting Date: {m.meeting_date or '—'} • Created: "
-                    f"{m.created_date.strftime('%Y-%m-%d') if m.created_date else ''}"
-                )
-                if m.notes:
-                    st.caption(m.notes)
-                if m.file_path:
-                    r2_download_button(
-                        "Download Presentation", m.file_path,
-                        Path(m.file_path).name, f"meet_{m.id}"
-                    )
-                if already:
-                    st.success(
-                        f"✅ You acknowledged this meeting on {already.signed_at.strftime('%Y-%m-%d %H:%M')}"
-                    )
-                else:
-                    if st.checkbox(
-                        "I attended this safety meeting, received the training, and understand the material.",
-                        key=f"ack_{m.id}"
-                    ):
-                        if st.button("Sign Acknowledgement", key=f"sign_{m.id}", type="primary"):
-                            session.add(SafetyAcknowledgement(
-                                meeting_id=m.id, user_id=user["id"], understood=True
-                            ))
-                            session.commit()
-                            st.success("Acknowledgement recorded. Thank you.")
-                            st.rerun()
-
-    st.divider()
-
-    # STANDALONE STORY IMPROVER (quick claims without full job)
-    st.subheader("✍️ Quick Story Improver (no WO)")
-    st.caption("For one-off claims. For full jobs with saved progress, use Diagnostic Jobs above.")
-    concern = st.text_area(
-        "1. Customer Concern",
-        height=90,
-        key="story_concern",
-        placeholder="Customer states the air conditioner is not cooling…"
-    )
-    tech_notes = st.text_area(
-        "2. What you found and did",
-        height=120,
-        key="story_notes",
-        placeholder="Found bad compressor. Recovered, replaced, evacuated, recharged, tested."
-    )
-    if st.button("Improve Story", type="primary"):
-        if concern.strip() or tech_notes.strip():
-            with st.spinner("Writing improved warranty story..."):
-                improved = improve_tech_story(concern, tech_notes)
-            st.markdown("### Improved Version")
-            st.text_area("Copy this improved story", value=improved, height=320, key="story_improved")
-        else:
-            st.warning("Please enter at least the customer concern or your notes.")
-
-# =========================================================
-# PAGE: TEAM OVERVIEW
-# =========================================================
-elif st.session_state.page == "Overview":
-    st.header("👥 Team Overview")
-    users = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
-    st.subheader("Certificate & Safety Summary")
-    for u in users:
-        certs = session.query(Certificate).filter_by(user_id=u.id).all()
-        safety_pct = get_safety_progress(u.id)
-        open_jobs = session.query(DiagnosticJob).filter_by(user_id=u.id, status="in_progress").count()
-        issuers = list(set([c.issuer for c in certs if c.issuer]))
+    for m in meetings:
         with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-            with c1:
-                st.markdown(f"**{u.full_name}**")
-                st.caption(f"{u.role} • @{u.username}")
-            with c2:
-                st.metric("Certificates", len(certs))
-                if issuers:
-                    st.caption(", ".join(issuers[:4]) + ("..." if len(issuers) > 4 else ""))
-            with c3:
-                st.metric("Safety Progress", f"{safety_pct}%")
-                if safety_pct < 100:
-                    st.caption("⚠️ Missing acknowledgements")
-            with c4:
-                st.metric("Open WO Jobs", open_jobs)
-            if certs:
-                with st.expander(f"View {u.full_name}'s certificates"):
-                    for c in certs:
-                        st.write(f"• **{c.title}** ({c.issuer or 'No issuer'}) – {c.issued_date or 'no date'}")
-
-    if is_manager:
-        st.subheader("Recent Diagnostic Jobs (all techs)")
-        recent = session.query(DiagnosticJob).order_by(DiagnosticJob.updated_date.desc()).limit(25).all()
-        if not recent:
-            st.info("No diagnostic jobs yet.")
-        else:
-            for j in recent:
-                tech = session.query(User).get(j.user_id)
-                st.write(
-                    f"**WO {j.wo_number}** — {j.category_name} — {j.status} — "
-                    f"{tech.full_name if tech else '—'} — "
-                    f"{j.updated_date.strftime('%Y-%m-%d %H:%M') if j.updated_date else ''}"
-                )
-
-# =========================================================
-# PAGE: MANAGER TOOLS
-# =========================================================
-elif st.session_state.page == "Manager" and is_manager:
-    st.header("🛠️ Manager Tools")
-
-    st.error(
-        "⚠️ BEFORE any app update or if the library looks empty: "
-        "scroll to **Database Backup & Restore** and click **Download Current Database**. "
-        "That file holds titles, keywords, WO jobs, and stories. R2 alone does not."
-    )
-    doc_n = session.query(Document).count()
-    st.info(f"Library right now: **{doc_n}** document record(s) in the database.")
-
-
-    with st.expander("👤 User Management", expanded=True):
-        st.subheader("Add New User")
-        nu_user = st.text_input("Username", key="new_username")
-        nu_name = st.text_input("Full Name", key="new_fullname")
-        nu_pass = st.text_input("Temporary Password", type="password", key="new_pass")
-        nu_role = st.selectbox("Role", ["Technician", "Manager"], key="new_role")
-        if st.button("Create User", type="primary"):
-            if nu_user and nu_name and nu_pass:
-                if session.query(User).filter_by(username=nu_user).first():
-                    st.error("Username already exists.")
-                else:
-                    session.add(User(
-                        username=nu_user,
-                        password_hash=hash_password(nu_pass),
-                        full_name=nu_name,
-                        role=nu_role
-                    ))
-                    session.commit()
-                    st.success(f"User {nu_user} created.")
-                    st.rerun()
+            st.write(f"**{m.title}**")
+            st.caption(f"Meeting Date: {m.meeting_date or '—'} · Created: {m.created_date}")
+            if m.notes:
+                st.write(m.notes)
+            if m.file_path:
+                r2_download_button("Download Presentation", m.file_path, f"{m.title}.pdf", f"meet_dl_{m.id}")
+            ack = session.query(SafetyAcknowledgement).filter_by(meeting_id=m.id, user_id=user["id"]).first()
+            if ack:
+                st.success(f"✅ You acknowledged this meeting on {ack.signed_at}")
             else:
-                st.error("All fields required.")
-        st.markdown("---")
-        st.subheader("Existing Users")
-        for u in session.query(User).order_by(User.full_name).all():
+                if st.checkbox(
+                    "I attended this safety meeting, received the training, and understand the material.",
+                    key=f"ack_chk_{m.id}",
+                ):
+                    if st.button("Sign Acknowledgement", key=f"ack_btn_{m.id}", type="primary"):
+                        session.add(SafetyAcknowledgement(meeting_id=m.id, user_id=user["id"], understood=True))
+                        session.commit()
+                        st.success("Acknowledgement recorded. Thank you.")
+                        st.rerun()
+
+# =========================================================
+# TEAM OVERVIEW (manager)
+# =========================================================
+if is_manager and tab_team is not None:
+    with tab_team:
+        st.subheader("Certificate & Safety Summary")
+        techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
+        for t in techs:
+            cert_n = session.query(Certificate).filter_by(user_id=t.id).count()
+            sp = get_safety_progress(t.id)
             with st.container(border=True):
-                c1, c2, c3 = st.columns([3, 2, 2])
-                with c1:
-                    st.write(f"**{u.full_name}** (@{u.username})")
-                    st.caption(f"Role: {u.role} • Active: {u.is_active}")
-                with c2:
-                    new_role = st.selectbox(
-                        "Role", ["Technician", "Manager"],
-                        index=0 if u.role == "Technician" else 1,
-                        key=f"role_{u.id}"
-                    )
-                    if new_role != u.role and st.button("Update Role", key=f"updrole_{u.id}"):
-                        u.role = new_role
-                        session.commit()
-                        st.rerun()
-                with c3:
-                    if st.button("Reset Password", key=f"rp_{u.id}"):
-                        u.password_hash = hash_password("temp123")
-                        session.commit()
-                        st.success(f"Password for {u.username} reset to: temp123")
-                    if u.id != user["id"] and st.button("Deactivate", key=f"deact_{u.id}"):
-                        u.is_active = False
-                        session.commit()
-                        st.rerun()
+                st.write(f"**{t.full_name}** ({t.role})")
+                c1, c2 = st.columns(2)
+                c1.metric("Certificates", cert_n)
+                c2.metric("Safety Progress", f"{sp}%")
+                if sp < 100:
+                    meetings = session.query(SafetyMeeting).all()
+                    missing = []
+                    for m in meetings:
+                        if not session.query(SafetyAcknowledgement).filter_by(meeting_id=m.id, user_id=t.id).first():
+                            missing.append(m.title)
+                    if missing:
+                        st.warning("⚠️ Missing acknowledgements: " + ", ".join(missing))
+                with st.expander(f"{t.full_name}'s certificates"):
+                    for cert in session.query(Certificate).filter_by(user_id=t.id).all():
+                        st.write(f"- **{cert.title}** ({cert.issuer or '—'})")
 
-    with st.expander("📁 Manage Categories"):
-        st.subheader("Add Category")
-        new_cat = st.text_input("Category Name", key="add_cat")
-        if st.button("Create Category"):
-            if new_cat and not session.query(Category).filter_by(name=new_cat).first():
-                session.add(Category(name=new_cat))
-                session.commit()
-                st.success("Category created.")
-                st.rerun()
-            else:
-                st.error("Name required or already exists.")
-        st.markdown("---")
-        for cat in session.query(Category).order_by(Category.name).all():
-            c1, c2, c3 = st.columns([4, 2, 1])
-            with c1:
-                new_name = st.text_input("Name", value=cat.name, key=f"catname_{cat.id}")
-            with c2:
-                if st.button("Rename", key=f"rencat_{cat.id}"):
-                    cat.name = new_name
-                    session.commit()
-                    st.rerun()
-            with c3:
-                if st.button("🗑️", key=f"delcat_{cat.id}"):
-                    docs = session.query(Document).filter_by(category_id=cat.id).all()
-                    for d in docs:
-                        clear_document_chunks(d.id)
-                        session.delete(d)
-                    session.delete(cat)
-                    session.commit()
-                    st.rerun()
+        st.markdown("#### Recent Diagnostic Jobs (all techs)")
+        jobs = session.query(DiagnosticJob).order_by(DiagnosticJob.updated_date.desc()).limit(25).all()
+        for j in jobs:
+            u = session.query(User).get(j.user_id)
+            st.write(f"**WO {j.wo_number}** · {j.status} · {u.full_name if u else '?'} · {j.category_name} · {(j.concern or '')[:80]}")
 
-    with st.expander("📤 Upload Documents to Categories"):
-        if not r2_available():
-            st.warning("R2 storage is not configured. Check Streamlit Secrets.")
-        else:
-            cats = session.query(Category).order_by(Category.name).all()
-            if cats:
-                sel_cat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
-                cat_obj = session.query(Category).filter_by(name=sel_cat).first()
-                doc_title = st.text_input("Document Title", key="up_title")
-                doc_keywords = st.text_input(
-                    "Keywords (models, brand names — helps search)",
-                    key="up_keys",
-                    placeholder="Schwintek, In-Wall, Lippert, error codes"
-                )
-                doc_file = st.file_uploader(
-                    "PDF / PPTX / Image",
-                    type=["pdf", "pptx", "png", "jpg", "jpeg"],
-                    key="up_file"
-                )
-                if st.button("Upload Document", type="primary"):
-                    if doc_title and doc_file:
-                        key = f"documents/{cat_obj.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{doc_file.name}"
-                        content_type = doc_file.type or "application/octet-stream"
-                        raw = doc_file.getvalue()
-                        if r2_upload(io.BytesIO(raw), key, content_type):
-                            ftype = doc_file.name.split(".")[-1].lower()
-                            doc = Document(
-                                category_id=cat_obj.id,
-                                title=doc_title,
-                                file_path=key,
-                                file_type=ftype,
-                                uploaded_by=user["id"],
-                                keywords=doc_keywords or None
-                            )
-                            session.add(doc)
-                            session.commit()
-                            if ftype == "pdf":
-                                ok, note = index_document_from_bytes(doc, raw)
-                                if ok:
-                                    st.success(f"Document uploaded and indexed. {note}")
-                                else:
-                                    st.warning(f"Uploaded, but not indexed: {note}")
-                            else:
-                                st.success("Document uploaded (non-PDF — not indexed for guided diagnostics).")
-                            st.rerun()
-                    else:
-                        st.error("Title and file required.")
-
-    with st.expander("🧠 Re-index Manuals for Guided Diagnostics"):
-        st.caption(
-            "Pulls each PDF from storage, extracts text, and stores searchable chunks. "
-            "Run this after restoring a database or if older uploads were never indexed."
+# =========================================================
+# MANAGER TOOLS
+# =========================================================
+if is_manager and tab_mgr is not None:
+    with tab_mgr:
+        st.subheader("🛠️ Manager Tools")
+        st.warning(
+            "⚠️ BEFORE any app update or if the library looks empty: scroll to **Database Backup & Restore** "
+            "and click **Download Current Database**. That file holds titles, keywords, WO jobs, and stories. "
+            "R2 alone does not keep your titles/keywords."
         )
-        if not PYPDF_AVAILABLE:
-            st.error("Add `pypdf` to requirements.txt and reboot the app.")
-        total_docs = session.query(Document).count()
-        indexed_docs = session.query(Document).filter_by(indexed=True).count()
-        chunk_count = session.query(DocChunk).count()
-        st.write(f"Documents: **{total_docs}** • Indexed: **{indexed_docs}** • Text chunks: **{chunk_count}**")
-        if st.button("Re-index All PDFs", type="primary"):
-            docs = session.query(Document).order_by(Document.id).all()
-            ok_n = fail_n = 0
-            prog = st.progress(0.0)
-            status = st.empty()
-            for i, doc in enumerate(docs):
-                status.write(f"Indexing: {doc.title}")
-                if (doc.file_type or "").lower() != "pdf":
-                    doc.indexed = False
-                    doc.index_note = "Not a PDF"
-                    session.commit()
-                    fail_n += 1
+        doc_count = session.query(Document).count()
+        st.info(f"Library right now: **{doc_count}** document record(s) in the database.")
+
+        with st.expander("👤 User Management", expanded=False):
+            st.markdown("#### Add New User")
+            nu = st.text_input("Username", key="new_username")
+            nn = st.text_input("Full Name", key="new_fullname")
+            np = st.text_input("Temporary Password", key="new_pass")
+            nr = st.selectbox("Role", ["Technician", "Manager"], key="new_role")
+            if st.button("Create User"):
+                if nu and nn and np:
+                    if session.query(User).filter_by(username=nu.strip().lower()).first():
+                        st.error("Username already exists.")
+                    else:
+                        session.add(User(
+                            username=nu.strip().lower(),
+                            password_hash=hash_password(np),
+                            full_name=nn.strip(),
+                            role=nr,
+                        ))
+                        session.commit()
+                        st.success(f"Created {nu}")
+                        st.rerun()
                 else:
-                    success, note = index_document_from_r2(doc)
-                    if success:
+                    st.warning("All fields required.")
+
+            st.markdown("#### Existing Users")
+            for u in session.query(User).order_by(User.full_name).all():
+                with st.container(border=True):
+                    st.write(f"**{u.full_name}** (@{u.username}) · {u.role} · Active: {u.is_active}")
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        new_role = st.selectbox("Role", ["Technician", "Manager"], index=0 if u.role != "Manager" else 1, key=f"role_{u.id}")
+                        if st.button("Update Role", key=f"upd_role_{u.id}"):
+                            u.role = new_role
+                            session.commit()
+                            st.success("Role updated")
+                            st.rerun()
+                    with c2:
+                        if st.button("Reset Password", key=f"reset_{u.id}"):
+                            u.password_hash = hash_password("temp123")
+                            session.commit()
+                            st.success(f"Password for {u.username} reset to: temp123")
+                    with c3:
+                        if st.button("Deactivate" if u.is_active else "Activate", key=f"act_{u.id}"):
+                            u.is_active = not u.is_active
+                            session.commit()
+                            st.rerun()
+
+        with st.expander("📁 Manage Categories", expanded=False):
+            st.markdown("#### Add Category")
+            cn = st.text_input("Category Name", key="cat_new")
+            if st.button("Create Category"):
+                if cn.strip() and not session.query(Category).filter_by(name=cn.strip()).first():
+                    session.add(Category(name=cn.strip()))
+                    session.commit()
+                    st.success("Category created.")
+                    st.rerun()
+                else:
+                    st.warning("Name required or already exists.")
+            for c in session.query(Category).order_by(Category.name).all():
+                cols = st.columns([3, 1])
+                cols[0].write(f"**{c.name}**")
+                if cols[1].button("Delete", key=f"del_cat_{c.id}"):
+                    if session.query(Document).filter_by(category_id=c.id).count() == 0:
+                        session.delete(c)
+                        session.commit()
+                        st.rerun()
+                    else:
+                        st.error("Category has documents — move or delete them first.")
+
+        with st.expander("📤 Upload Documents to Categories", expanded=False):
+            if not r2_available():
+                st.error("R2 storage is not configured. Check Streamlit Secrets.")
+            else:
+                cats = session.query(Category).order_by(Category.name).all()
+                if cats:
+                    ucat = st.selectbox("Category", [c.name for c in cats], key="up_cat")
+                    utitle = st.text_input("Document Title", key="up_title")
+                    ukw = st.text_input("Keywords (models, brand names — helps search)", key="up_kw", placeholder="Schwintek, In-Wall, Lippert, error codes")
+                    ufile = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
+                    if st.button("Upload Document", type="primary"):
+                        if utitle and ufile:
+                            cat = session.query(Category).filter_by(name=ucat).first()
+                            ext = (ufile.name.split(".")[-1] or "pdf").lower()
+                            key = f"documents/{cat.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{ufile.name}"
+                            ctype = "application/pdf" if ext == "pdf" else "application/octet-stream"
+                            if r2_upload(ufile.getvalue(), key, ctype):
+                                doc = Document(
+                                    category_id=cat.id,
+                                    title=utitle.strip(),
+                                    file_path=key,
+                                    file_type=ext,
+                                    uploaded_by=user["id"],
+                                    keywords=ukw.strip(),
+                                )
+                                session.add(doc)
+                                session.commit()
+                                if ext == "pdf":
+                                    ok, note = index_document_from_bytes(doc, ufile.getvalue())
+                                    if ok:
+                                        st.success(f"Document uploaded and indexed. {note}")
+                                    else:
+                                        st.warning(f"Uploaded, but not indexed: {note}")
+                                else:
+                                    st.success("Document uploaded (non-PDF — not indexed for guided diagnostics).")
+                                st.rerun()
+                        else:
+                            st.warning("Title and file required.")
+
+        with st.expander("🧠 Re-index Manuals for Guided Diagnostics", expanded=False):
+            st.caption(
+                "Pulls each PDF from storage, extracts text, and stores searchable chunks. "
+                "Run this after restoring a database or if older uploads were never indexed."
+            )
+            if not PYPDF_AVAILABLE:
+                st.error("Add `pypdf` to requirements.txt and reboot the app.")
+            total_docs = session.query(Document).count()
+            indexed_docs = session.query(Document).filter_by(indexed=True).count()
+            chunk_count = session.query(DocChunk).count()
+            st.write(f"Documents: **{total_docs}** • Indexed: **{indexed_docs}** • Text chunks: **{chunk_count}**")
+            if st.button("Re-index All PDFs", type="primary"):
+                ok_n = fail_n = 0
+                prog = st.progress(0.0)
+                docs = session.query(Document).all()
+                for i, doc in enumerate(docs):
+                    ok, note = index_document_from_r2(doc)
+                    if ok:
                         ok_n += 1
                     else:
                         fail_n += 1
-                prog.progress((i + 1) / max(len(docs), 1))
-            status.write("Done.")
-            st.success(f"Indexed OK: {ok_n} • Skipped/failed: {fail_n}")
-            st.rerun()
-        st.markdown("---")
-        st.subheader("Index status by document")
-        for doc in session.query(Document).order_by(Document.title).all():
-            flag = "✅" if doc.indexed else "⚠️"
-            st.write(f"{flag} **{doc.title}** — {doc.index_note or ('indexed' if doc.indexed else 'not indexed')}")
+                    st.write(f"{'✅' if ok else '⚠️'} {doc.title} — {note}")
+                    prog.progress((i + 1) / max(len(docs), 1))
+                st.success(f"Indexed OK: {ok_n} · Skipped/failed: {fail_n}")
 
-    with st.expander("✏️ Manage Documents (Rename / Edit / Delete)"):
-        cats = session.query(Category).order_by(Category.name).all()
-        if not cats:
-            st.info("No categories yet.")
-        else:
-            manage_cat_name = st.selectbox("Select Category", [c.name for c in cats], key="manage_doc_cat")
-            manage_cat = session.query(Category).filter_by(name=manage_cat_name).first()
-            docs = session.query(Document).filter_by(category_id=manage_cat.id).order_by(Document.title).all()
-            if not docs:
-                st.info("No documents in this category.")
+            st.markdown("#### Index status by document")
+            for d in session.query(Document).order_by(Document.title).all():
+                st.write(f"{'✅' if d.indexed else '⚠️'} **{d.title}** — {d.index_note or ('indexed' if d.indexed else 'not indexed')}")
+
+        with st.expander("✏️ Manage Documents (Rename / Edit / Delete)", expanded=False):
+            cats = session.query(Category).order_by(Category.name).all()
+            if not cats:
+                st.info("No categories yet.")
             else:
-                st.write(f"**{len(docs)} document(s) in {manage_cat_name}**")
-                for doc in docs:
+                mcat = st.selectbox("Category", [c.name for c in cats], key="manage_doc_cat")
+                cat = session.query(Category).filter_by(name=mcat).first()
+                docs = session.query(Document).filter_by(category_id=cat.id).order_by(Document.title).all()
+                st.write(f"**{len(docs)} document(s) in {mcat}**")
+                if not docs:
+                    st.info("No documents in this category.")
+                for d in docs:
                     with st.container(border=True):
-                        st.markdown(f"**Current title:** {doc.title}")
-                        st.caption(
-                            f"File: {Path(doc.file_path).name} • Type: {doc.file_type or '—'} • "
-                            f"{'Indexed' if doc.indexed else 'Not indexed'}"
-                        )
-                        new_title = st.text_input("New Title", value=doc.title, key=f"edit_title_{doc.id}")
-                        new_keywords = st.text_input(
-                            "Keywords", value=doc.keywords or "", key=f"edit_keys_{doc.id}"
-                        )
-                        c1, c2, c3, c4 = st.columns(4)
+                        st.write(f"**Current title:** {d.title}")
+                        st.caption("Indexed" if d.indexed else "Not indexed")
+                        nt = st.text_input("Title", value=d.title, key=f"edit_title_{d.id}")
+                        nk = st.text_input("Keywords", value=d.keywords or "", key=f"edit_kw_{d.id}")
+                        c1, c2, c3 = st.columns(3)
                         with c1:
-                            if st.button("💾 Save Changes", key=f"save_doc_{doc.id}"):
-                                doc.title = new_title.strip() or doc.title
-                                doc.keywords = new_keywords.strip() or None
-                                session.query(DocChunk).filter_by(document_id=doc.id).update({
-                                    "title": doc.title,
-                                    "keywords": doc.keywords
-                                })
+                            if st.button("💾 Save Changes", key=f"save_doc_{d.id}"):
+                                d.title = nt.strip()
+                                d.keywords = nk.strip()
+                                session.query(DocChunk).filter_by(document_id=d.id).update(
+                                    {"title": d.title, "keywords": d.keywords}
+                                )
                                 session.commit()
-                                st.success("Updated.")
+                                st.success("Saved")
                                 st.rerun()
                         with c2:
-                            r2_download_button(
-                                "⬇️ Download", doc.file_path,
-                                Path(doc.file_path).name, f"mgr_dl_{doc.id}"
-                            )
+                            r2_download_button("⬇️ Download", d.file_path, f"{d.title}.pdf", f"mgr_dl_{d.id}")
                         with c3:
-                            if st.button("🧠 Re-index", key=f"reidx_{doc.id}"):
-                                success, note = index_document_from_r2(doc)
-                                if success:
-                                    st.success(note)
-                                else:
-                                    st.warning(note)
-                                st.rerun()
-                        with c4:
-                            if st.button("🗑️ Delete", key=f"del_doc_{doc.id}"):
-                                clear_document_chunks(doc.id)
-                                session.delete(doc)
+                            if st.button("🗑️ Delete", key=f"del_doc_{d.id}"):
+                                clear_document_chunks(d.id)
+                                session.delete(d)
                                 session.commit()
                                 st.success("Document deleted from library.")
                                 st.rerun()
 
-    with st.expander("🛡️ Safety Documents & Meetings"):
-        if not r2_available():
-            st.warning("R2 storage is not configured. Check Streamlit Secrets.")
-        else:
-            st.subheader("Upload Safety Document")
-            sd_title = st.text_input("Safety Document Title", key="sd_title")
-            sd_keys = st.text_input("Keywords", key="sd_keys")
-            sd_file = st.file_uploader("File", type=["pdf", "pptx", "docx"], key="sd_file")
-            if st.button("Upload Safety Document"):
-                if sd_title and sd_file:
-                    key = f"safety/docs/{datetime.now().strftime('%Y%m%d%H%M%S')}_{sd_file.name}"
-                    if r2_upload(io.BytesIO(sd_file.getvalue()), key, sd_file.type or "application/octet-stream"):
-                        session.add(SafetyDocument(
-                            title=sd_title, file_path=key,
-                            file_type=sd_file.name.split(".")[-1].lower(),
-                            uploaded_by=user["id"], keywords=sd_keys or None
-                        ))
-                        session.commit()
-                        st.success("Safety document uploaded permanently!")
-                        st.rerun()
-            st.markdown("---")
-            st.subheader("Create Safety Meeting")
-            sm_title = st.text_input("Meeting Title", key="sm_title")
-            sm_date = st.text_input("Meeting Date", key="sm_date")
-            sm_notes = st.text_area("Notes / Agenda", key="sm_notes")
-            sm_file = st.file_uploader(
-                "PowerPoint or PDF of the training", type=["pdf", "pptx"], key="sm_file"
-            )
-            if st.button("Create Safety Meeting", type="primary"):
-                if sm_title:
-                    key = None
-                    if sm_file:
-                        key = f"safety/meetings/{datetime.now().strftime('%Y%m%d%H%M%S')}_{sm_file.name}"
-                        if not r2_upload(
-                            io.BytesIO(sm_file.getvalue()), key,
-                            sm_file.type or "application/octet-stream"
-                        ):
-                            st.error("Failed to upload the presentation file.")
-                            st.stop()
-                    session.add(SafetyMeeting(
-                        title=sm_title, meeting_date=sm_date or None,
-                        file_path=key, notes=sm_notes or None, created_by=user["id"]
-                    ))
-                    session.commit()
-                    st.success("Safety meeting created. Technicians can now acknowledge it.")
-                    st.rerun()
-                else:
-                    st.error("Title is required.")
+        with st.expander("🛡️ Safety Documents & Meetings", expanded=False):
+            if r2_available():
+                st.markdown("#### Upload Safety Document")
+                stitle = st.text_input("Safety Document Title", key="saf_up_title")
+                skw = st.text_input("Keywords", key="saf_up_kw")
+                sfile = st.file_uploader("File", type=["pdf", "pptx", "png", "jpg"], key="saf_up_file")
+                if st.button("Upload Safety Document"):
+                    if stitle and sfile:
+                        key = f"safety/docs/{datetime.now().strftime('%Y%m%d%H%M%S')}_{sfile.name}"
+                        if r2_upload(sfile.getvalue(), key, "application/pdf"):
+                            session.add(SafetyDocument(
+                                title=stitle.strip(),
+                                file_path=key,
+                                file_type=(sfile.name.split(".")[-1] or "pdf").lower(),
+                                uploaded_by=user["id"],
+                                keywords=skw.strip(),
+                            ))
+                            session.commit()
+                            st.success("Safety document uploaded permanently!")
+                            st.rerun()
 
+                st.markdown("#### Create Safety Meeting")
+                mt = st.text_input("Meeting Title", key="meet_title")
+                md = st.text_input("Meeting Date", key="meet_date")
+                mn = st.text_area("Notes / Agenda", key="meet_notes")
+                mf = st.file_uploader("PowerPoint or PDF of the training", type=["pdf", "pptx"], key="meet_file")
+                if st.button("Create Safety Meeting", type="primary"):
+                    if mt.strip():
+                        fpath = ""
+                        if mf:
+                            key = f"safety/meetings/{datetime.now().strftime('%Y%m%d%H%M%S')}_{mf.name}"
+                            if r2_upload(mf.getvalue(), key, "application/pdf"):
+                                fpath = key
+                            else:
+                                st.error("Failed to upload the presentation file.")
+                                fpath = None
+                        if fpath is not None:
+                            session.add(SafetyMeeting(
+                                title=mt.strip(),
+                                meeting_date=md.strip(),
+                                file_path=fpath,
+                                notes=mn.strip(),
+                                created_by=user["id"],
+                            ))
+                            session.commit()
+                            st.success("Safety meeting created. Technicians can now acknowledge it.")
+                            st.rerun()
+                    else:
+                        st.error("Title is required.")
+            else:
+                st.error("R2 storage is not configured.")
 
-    with st.expander("🔗 Re-link files already in R2 (no re-upload)", expanded=True):
-        st.caption(
-            "Your PDFs may still be in cloud storage even if the app library shows 0. "
-            "List them here, set title/category/keywords once, and register — no upload from your PC."
-        )
-        if not r2_available():
-            st.warning("R2 storage is not configured.")
-        else:
-            prefix = st.selectbox(
-                "Folder to scan",
-                ["documents/", "certificates/", "safety/", ""],
-                format_func=lambda p: {
-                    "documents/": "documents/ (manuals)",
-                    "certificates/": "certificates/",
-                    "safety/": "safety/",
-                    "": "(entire bucket — can be slow)",
-                }.get(p, p),
-                key="r2_prefix",
+        with st.expander("🔗 Re-link files already in R2 (no re-upload)", expanded=False):
+            st.caption(
+                "Your PDFs may still be in cloud storage even if the app library shows 0. "
+                "List them here, set title/category/keywords once, and register — no upload from your PC."
             )
-            if st.button("List files in R2", key="r2_list_btn"):
-                with st.spinner("Listing storage..."):
-                    st.session_state["r2_keys"] = r2_list_keys(prefix or "", max_keys=400)
-            keys = st.session_state.get("r2_keys") or []
-            if keys:
-                free = [k for k in keys if not r2_key_already_registered(k)]
-                used = [k for k in keys if r2_key_already_registered(k)]
-                st.write(f"Found **{len(keys)}** file(s) · **{len(free)}** not in library · **{len(used)}** already linked")
-                if used:
-                    with st.expander("Already linked (skip)"):
-                        for k in used[:50]:
-                            st.caption(k)
-                if not free:
-                    st.success("All listed files are already linked in the database.")
-                else:
+            if not r2_available():
+                st.error("R2 storage is not configured.")
+            else:
+                folder = st.selectbox(
+                    "Folder to scan",
+                    ["documents/", "certificates/", "safety/docs/", "safety/meetings/"],
+                    key="r2_folder",
+                )
+                if st.button("List files in R2", key="r2_list_btn"):
+                    with st.spinner("Listing storage..."):
+                        keys, err = r2_list_keys(folder, max_keys=300)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["r2_keys"] = keys
+                keys = st.session_state.get("r2_keys") or []
+                if keys:
+                    unlinked = [k for k in keys if not r2_key_already_registered(k)]
+                    linked_n = len(keys) - len(unlinked)
+                    st.write(f"**{len(keys)}** file(s) · **{len(unlinked)}** not in library · **{linked_n}** already linked")
                     cats = session.query(Category).order_by(Category.name).all()
-                    if not cats and prefix.startswith("documents"):
-                        st.warning("Create at least one category before linking manuals.")
-                    for i, key in enumerate(free[:40]):
+                    techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
+                    show = unlinked[:40]
+                    for i, key in enumerate(show):
                         with st.container(border=True):
-                            st.code(key, language=None)
+                            st.caption(key)
                             default_title = guess_title_from_key(key)
-                            if key.startswith("documents/") or (prefix == "documents/"):
+                            if key.startswith("documents/"):
                                 if not cats:
+                                    st.warning("Create at least one category before linking manuals.")
                                     continue
                                 t = st.text_input("Title", value=default_title, key=f"r2t_{i}")
-                                kw = st.text_input("Keywords", value="", key=f"r2k_{i}", placeholder="Schwintek, model numbers…")
                                 cat_name = st.selectbox("Category", [c.name for c in cats], key=f"r2c_{i}")
-                                if st.button("Link into library + index", key=f"r2link_{i}"):
-                                    cat_obj = session.query(Category).filter_by(name=cat_name).first()
-                                    ftype = Path(key).suffix.lstrip(".").lower() or "pdf"
+                                kw = st.text_input("Keywords", key=f"r2k_{i}", placeholder="Schwintek, model numbers…")
+                                if st.button("Link into library + index", key=f"r2l_{i}"):
+                                    cat = session.query(Category).filter_by(name=cat_name).first()
                                     doc = Document(
-                                        category_id=cat_obj.id,
-                                        title=(t or default_title).strip(),
+                                        category_id=cat.id,
+                                        title=t.strip() or default_title,
                                         file_path=key,
-                                        file_type=ftype,
+                                        file_type="pdf" if key.lower().endswith(".pdf") else "bin",
                                         uploaded_by=user["id"],
-                                        keywords=kw.strip() or None,
+                                        keywords=kw.strip(),
                                     )
                                     session.add(doc)
                                     session.commit()
-                                    if ftype == "pdf":
+                                    if doc.file_type == "pdf":
                                         ok, note = index_document_from_r2(doc)
-                                        if ok:
-                                            st.success(f"Linked and indexed: {note}")
-                                        else:
-                                            st.warning(f"Linked, index issue: {note}")
+                                        st.success(f"Linked and indexed: {note}" if ok else f"Linked, index issue: {note}")
                                     else:
                                         st.success("Linked (non-PDF, not indexed).")
                                     st.rerun()
                             elif key.startswith("certificates/"):
                                 t = st.text_input("Certificate title", value=default_title, key=f"r2ct_{i}")
-                                issuer = st.text_input("Issuer", value="", key=f"r2ci_{i}")
-                                # pick tech owner
-                                techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
-                                owner = st.selectbox(
-                                    "Assign to tech",
-                                    techs,
-                                    format_func=lambda u: u.full_name,
-                                    key=f"r2co_{i}",
-                                )
-                                if st.button("Link certificate", key=f"r2clink_{i}"):
+                                tech_names = [u.full_name for u in techs]
+                                tn = st.selectbox("Assign to tech", tech_names, key=f"r2cu_{i}")
+                                if st.button("Link certificate", key=f"r2cl_{i}"):
+                                    tech = next(u for u in techs if u.full_name == tn)
                                     session.add(Certificate(
-                                        user_id=owner.id,
-                                        title=(t or default_title).strip(),
-                                        issuer=issuer.strip() or None,
+                                        user_id=tech.id,
+                                        title=t.strip() or default_title,
                                         file_path=key,
                                         uploaded_by=user["id"],
                                     ))
                                     session.commit()
                                     st.success("Certificate linked.")
                                     st.rerun()
-                            elif key.startswith("safety/docs") or key.startswith("safety/"):
+                            elif key.startswith("safety/"):
                                 t = st.text_input("Safety doc / meeting title", value=default_title, key=f"r2st_{i}")
-                                if st.button("Link as safety document", key=f"r2slink_{i}"):
-                                    ftype = Path(key).suffix.lstrip(".").lower()
+                                if st.button("Link as safety document", key=f"r2sl_{i}"):
                                     session.add(SafetyDocument(
-                                        title=(t or default_title).strip(),
+                                        title=t.strip() or default_title,
                                         file_path=key,
-                                        file_type=ftype,
                                         uploaded_by=user["id"],
                                     ))
                                     session.commit()
@@ -1775,53 +1754,55 @@ elif st.session_state.page == "Manager" and is_manager:
                                     st.rerun()
                             else:
                                 st.caption("Unknown folder — open documents/ certificates/ or safety/ for guided linking.")
-                    if len(free) > 40:
-                        st.warning(f"Showing first 40 of {len(free)} unlinked files. Link some, then list again.")
+                    if len(unlinked) > 40:
+                        st.info(f"Showing first 40 of {len(unlinked)} unlinked files. Link some, then list again.")
+                    if not unlinked:
+                        st.success("All listed files are already linked in the database.")
 
-    with st.expander("📦 Export library catalog (titles & keywords)"):
-        st.caption(
-            "Download a JSON list of every manual title, keywords, category, and R2 path. "
-            "Keep this with your DB backup — it is the naming work."
-        )
-        if session.query(Document).count() == 0:
-            st.info("No documents in the database to export yet.")
-        else:
-            catalog = export_library_catalog()
-            st.download_button(
-                "⬇️ Download library_catalog.json",
-                data=catalog,
-                file_name=f"techtrack_library_catalog_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
-                mime="application/json",
-                type="primary",
-                key="dl_catalog",
+        with st.expander("📦 Export library catalog (titles & keywords)", expanded=False):
+            st.caption(
+                "Download a JSON list of every manual title, keywords, category, and R2 path. "
+                "Keep this with your DB backup — it is the naming work."
             )
+            if session.query(Document).count() == 0:
+                st.info("No documents in the database to export yet.")
+            else:
+                catalog = export_library_catalog()
+                st.download_button(
+                    "⬇️ Download library_catalog.json",
+                    catalog,
+                    file_name=f"techtrack_library_catalog_{datetime.now().strftime('%Y%m%d_%H%M')}.json",
+                    mime="application/json",
+                    type="primary",
+                )
 
-
-    with st.expander("💾 Database Backup & Restore"):
-        st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
-        c1, c2 = st.columns(2)
-        with c1:
-            if Path(DB_PATH).exists():
-                with open(DB_PATH, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download Current Database", f,
-                        file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
-                        mime="application/octet-stream", type="primary"
-                    )
-        with c2:
-            up_db = st.file_uploader("Upload .db backup to restore", type=["db"], key="restore_db")
-            if up_db and st.button("Restore Database"):
+        with st.expander("💾 Database Backup & Restore", expanded=True):
+            st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
+            c1, c2 = st.columns(2)
+            with c1:
                 if Path(DB_PATH).exists():
-                    shutil.copy(DB_PATH, DB_PATH + ".bak")
-                with open(DB_PATH, "wb") as f:
-                    f.write(up_db.getbuffer())
-                st.success("Database restored. Refresh the page, then run Re-index All PDFs.")
-                st.rerun()
+                    with open(DB_PATH, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download Current Database",
+                            f,
+                            file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                            mime="application/octet-stream",
+                            type="primary",
+                        )
+            with c2:
+                up_db = st.file_uploader("Upload .db backup to restore", type=["db"], key="restore_db")
+                if up_db and st.button("Restore Database"):
+                    if Path(DB_PATH).exists():
+                        shutil.copy(DB_PATH, DB_PATH + ".bak")
+                    with open(DB_PATH, "wb") as f:
+                        f.write(up_db.getbuffer())
+                    st.success("Database restored. Refresh the page, then run Re-index All PDFs.")
+                    st.rerun()
 
-    with st.expander("📜 All Team Certificates"):
-        all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()
-        for cert in all_certs:
-            u = session.query(User).get(cert.user_id)
-            st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
+        with st.expander("📜 All Team Certificates"):
+            all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()
+            for cert in all_certs:
+                u = session.query(User).get(cert.user_id)
+                st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.6 • Source page viewer • WO Jobs • R2 • Groq")
+st.sidebar.caption("v4.7 • Index→Procedure tests • Source pages • WO Jobs • Groq")
