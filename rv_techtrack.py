@@ -1,17 +1,17 @@
 """
-RV TechTrack v4.7
+RV TechTrack v4.7.1
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
 - Guided Diagnostics Jobs (WO #) + interactive findings + warranty story
-- Diagnostic INDEX charts expand into real PROCEDURE section-page tests
+- Diagnostic INDEX charts: match ONE symptom row, expand real PROCEDURE tests in OEM order
+- Source page viewer (dropdown + Show page + excerpts)
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
-- Source page viewer (see manual pages / figures)
 - Mobile-friendly
 """
 import streamlit as st
@@ -588,15 +588,29 @@ def extract_page_refs(text: str):
 
 
 def symptom_matched_pages_from_index(index_text: str, symptom: str):
+    """
+    From a diagnostic index chart, pick ONLY page numbers on rows that match the concern.
+    Does NOT dump every page on the chart.
+    """
     t_sym = (symptom or "").lower()
     terms = set(tokenize(symptom))
     want_gas = any(w in t_sym for w in ("gas", "lp", "propane", "flame", "igniter", "burner"))
-    want_ac = any(w in t_sym for w in ("ac", "electric", "120", "element", "shore"))
-    want_cool = any(w in t_sym for w in ("cool", "cold", "warm", "temp", "freeze", "freezing"))
-    want_dead = any(w in t_sym for w in ("dead", "light", "panel", "display", "power", "no operation"))
+    want_ac = any(w in t_sym for w in ("ac", "electric", "120", "element", "shore", "electric"))
+    want_cool = any(w in t_sym for w in ("cool", "cold", "warm", "temp", "not cooling", "won't cool", "wont cool"))
+    want_dead = any(w in t_sym for w in ("dead", "no power", "no operation", "won't turn", "wont turn", "blank"))
+    want_lights_off = any(w in t_sym for w in ("no light", "no panel", "dark", "blank display"))
+    want_lights_on = any(w in t_sym for w in ("display is on", "lights on", "panel on", "display on"))
     want_freeze = any(w in t_sym for w in ("freeze", "freezing", "frozen", "too cold"))
+    both_modes = (
+        (want_gas and want_ac)
+        or ("gas" in t_sym and "electric" in t_sym)
+        or ("gas or electric" in t_sym)
+        or ("gas and electric" in t_sym)
+        or ("neither" in t_sym)
+        or ("all mode" in t_sym)
+    )
 
-    pages = set()
+    scored_lines = []
     lines = re.split(r"[\n\r]+|(?=\d+\.\s)", index_text or "")
     for line in lines:
         ll = line.lower().strip()
@@ -605,25 +619,60 @@ def symptom_matched_pages_from_index(index_text: str, symptom: str):
         line_pages = extract_page_refs(line)
         if not line_pages:
             continue
-        score = sum(1 for term in terms if term in ll)
-        if want_dead and ("no operation" in ll or "panel light" in ll or "no panel" in ll):
-            score += 4
-        if want_ac and ("no ac" in ll or "on ac" in ll or "electric" in ll or "heating element" in ll):
-            score += 3
-        if want_gas and ("no gas" in ll or "on gas" in ll or "lp gas" in ll or "igniter" in ll or "burner" in ll):
-            score += 3
-        if want_cool and "insufficient cooling" in ll:
-            score += 4
+        score = 0
+        # Primary symptom rows
         if want_freeze and "freeze" in ll:
-            score += 4
-        if "all modes" in ll and want_cool and not (want_gas ^ want_ac):
-            score += 2
-        if want_cool and any(k in ll for k in ("ventilation", "leveling", "cooling unit", "air leak")):
-            score += 1
-        if score >= 2:
-            pages |= line_pages
-    if not pages:
-        pages = extract_page_refs(index_text)
+            score += 10
+        if want_cool and "insufficient cooling" in ll:
+            if both_modes and "all mode" in ll:
+                score += 12
+            elif want_ac and not want_gas and ("on ac" in ll or "ac -" in ll or "ac mode" in ll):
+                score += 10
+            elif want_gas and not want_ac and ("on gas" in ll or "gas -" in ll or "gas mode" in ll):
+                score += 10
+            elif "all mode" in ll:
+                score += 9
+            else:
+                score += 6
+        if want_dead or want_lights_off:
+            if "no operation" in ll and "no panel" in ll:
+                score += 10
+            elif "no operation" in ll and "has panel" in ll:
+                score += 8 if want_lights_on else 6
+        if want_lights_on and "has panel" in ll:
+            score += 5
+        if want_ac and not both_modes and ("no ac" in ll or "operates on gas" in ll):
+            score += 8
+        if want_gas and not both_modes and ("no gas" in ll or "operates on ac" in ll):
+            score += 8
+        # Weak keyword overlap
+        score += min(2, sum(1 for term in terms if term in ll and term not in ("the", "and", "for")))
+        # Penalize clearly wrong rows
+        if want_cool and not want_freeze and "freeze" in ll and "insufficient" not in ll:
+            score -= 6
+        if want_lights_on and "no panel" in ll:
+            score -= 4
+        if score >= 6:
+            scored_lines.append((score, line_pages, ll[:80]))
+
+    scored_lines.sort(key=lambda x: x[0], reverse=True)
+    pages = set()
+    if scored_lines:
+        # Take top-scoring rows only (same band as best)
+        best = scored_lines[0][0]
+        for sc, lp, _ in scored_lines:
+            if sc >= best - 2:
+                pages |= lp
+    else:
+        # Narrow fallback: only insufficient-cooling / no-operation rows, never whole chart
+        for line in lines:
+            ll = line.lower()
+            if "insufficient cooling" in ll or "no operation" in ll or "no gas" in ll or "no ac" in ll:
+                pages |= extract_page_refs(line)
+    # Always include a couple of early procedure pages often needed first
+    if pages:
+        pages.update({6, 7, 9, 10})  # operation / voltage common early pages in Americana-style books
+        # but drop junk if we only wanted freeze etc. — keep simple
     return pages
 
 
@@ -638,20 +687,21 @@ def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) 
             score += 4 if term in title_kw else 1
             score += min(hay.count(term), 3)
     if model_text.strip() and model_text.strip().lower() in hay:
-        score += 6
+        score += 8
     if procedure_boost:
         proc_signals = (
             "check ", "measure", "volt", "ohm", "if ", "disconnect", "replace",
-            "inspect", "amp", "continuity", "resistance", "should be", "spec"
+            "inspect", "amp", "continuity", "resistance", "should be", "spec",
+            "heating element", "thermistor", "cooling unit", "ventilation", "burner"
         )
         score += sum(1 for s in proc_signals if s in hay)
         if is_diagnostic_index_text(ch.chunk_text or ""):
-            score -= 2
+            score -= 3
     return score
 
 
-def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 16):
-    """Keyword search + expand diagnostic INDEX charts into real SECTION pages."""
+def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 14):
+    """Keyword search + expand matching INDEX chart rows into real SECTION pages."""
     q = session.query(DocChunk)
     if category_id:
         q = q.filter(DocChunk.category_id == category_id)
@@ -660,14 +710,15 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
         return []
 
     query_terms = set(tokenize(f"{model_text} {symptom}"))
+    # Light topic boost from symptom only (do NOT dump every OEM topic every time)
     for topic in PROCEDURE_TOPIC_TERMS:
         if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
             query_terms |= set(tokenize(topic))
-    if any(k in (symptom or "").lower() for k in (
-        "cool", "gas", "ac", "electric", "heat", "flame", "freeze", "light", "board", "panel"
-    )):
-        for topic in PROCEDURE_TOPIC_TERMS:
-            query_terms |= set(tokenize(topic))
+    # Core path terms for reefer no-cool
+    if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger")):
+        for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
+                  "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
+            query_terms.add(t)
 
     scored = []
     for ch in all_chunks:
@@ -678,7 +729,7 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
     if not scored:
         return all_chunks[:limit]
 
-    seed = [c for _, c in scored[: max(limit, 10)]]
+    seed = [c for _, c in scored[: max(limit, 8)]]
     by_key = {}
 
     def add_chunk(ch):
@@ -691,37 +742,40 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
 
     target_doc_ids = set()
     target_pages = set()
-    for ch in seed[:6]:
+    for ch in seed[:5]:
         target_doc_ids.add(ch.document_id)
         if is_diagnostic_index_text(ch.chunk_text or ""):
             target_pages |= symptom_matched_pages_from_index(ch.chunk_text or "", symptom)
             if ch.page:
                 target_pages.add(int(ch.page))
 
-    for ch in seed[:4]:
+    # Neighbors of top non-index hits only
+    for ch in seed[:3]:
         if ch.page and not is_diagnostic_index_text(ch.chunk_text or ""):
             p = int(ch.page)
-            target_pages.update({max(1, p - 1), p, p + 1, p + 2})
+            target_pages.update({max(1, p - 1), p, p + 1})
             target_doc_ids.add(ch.document_id)
 
-    topic_terms = set()
-    for topic in PROCEDURE_TOPIC_TERMS:
-        topic_terms |= set(tokenize(topic))
-
-    if target_doc_ids:
+    if target_doc_ids and target_pages:
         for ch in all_chunks:
             if ch.document_id not in target_doc_ids:
                 continue
-            if target_pages and ch.page and int(ch.page) in target_pages:
+            if ch.page and int(ch.page) in target_pages:
                 add_chunk(ch)
-                continue
-            hay = (ch.chunk_text or "").lower()
-            if topic_terms and sum(1 for t in topic_terms if t in hay) >= 2:
-                if not is_diagnostic_index_text(ch.chunk_text or ""):
-                    add_chunk(ch)
+
+    # Prefer same-title manuals as top seed (e.g. Americana)
+    top_titles = {((seed[0].title or "").lower())} if seed else set()
+    for ch in seed[:3]:
+        if ch.title:
+            top_titles.add(ch.title.lower())
 
     merged = list(by_key.values())
-    rescored = [(score_chunk(ch, query_terms | topic_terms, model_text or ""), ch) for ch in merged]
+    rescored = []
+    for ch in merged:
+        sc = score_chunk(ch, query_terms, model_text or "")
+        if (ch.title or "").lower() in top_titles:
+            sc += 3
+        rescored.append((sc, ch))
     rescored.sort(
         key=lambda x: (x[0], 0 if not is_diagnostic_index_text(x[1].chunk_text or "") else -1),
         reverse=True,
@@ -730,7 +784,7 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
     index_kept = False
     for sc, ch in rescored:
         if is_diagnostic_index_text(ch.chunk_text or ""):
-            if index_kept and sc < 8:
+            if index_kept:
                 continue
             index_kept = True
         out.append(ch)
@@ -852,28 +906,37 @@ You will receive:
 
 CRITICAL RULES:
 1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps.
-2. If an INDEX CHART is present: match the tech's symptom to the correct row(s), list the causes in manufacturer order, then expand EACH cause into real shop-floor test steps using the PROCEDURE excerpts for those topics/pages. Do not stop at the chart.
-3. NEVER end a step with only "refer to page X", "see the manual", "consult the manual", or "contact support" if any PROCEDURE excerpt covers that check. Write the actual check (what to measure, inspect, disconnect, expected reading, pass/fail branch).
-4. If a chart points to a topic but no PROCEDURE excerpt for it was provided, write one short step that names the exact check and says "open Source pages for manual page N", then continue with every other cause you CAN flesh out from PROCEDURE text.
-5. Start with SAFETY notes when relevant (12V/120V, propane, sealed cooling unit, hot surfaces).
-6. Give a numbered GUIDED TEST sequence in logical OEM order (power/operation first, then mode-specific heat source, then shared items like vent/level/thermistor/cooling unit as applicable).
-7. For each test: action → what good looks like → what fail means → next step.
-8. When a figure, diagram, LCD layout, or button label matters, tell the tech to open **Source pages** in TechTrack and view that manual page (give manual title + page number).
-9. Prefer manufacturer troubleshooting order when excerpts show one.
-10. End with SOURCES listing manual titles and page numbers used.
-11. Plain shop language. Short sentences. No fluff. Do not invent OEM procedures not supported by excerpts."""
+2. If an INDEX CHART is present: pick ONLY the single best matching symptom row for THIS concern (not every row on the chart). Name that row once. Then expand ITS causes only into shop-floor tests using PROCEDURE excerpts.
+3. NEVER paste the whole index chart as the plan. NEVER list 15+ causes as step 1. Max about 10–12 guided steps.
+4. NEVER end a step with only "refer to page X", "see the manual", or "contact support" if any PROCEDURE excerpt covers that check. Write the actual check (measure/inspect/expected reading/pass-fail).
+5. OEM ORDER for refrigerator "not cooling" (when relevant):
+   a) Confirm operation / display / mode
+   b) DC power / fuses / supply voltage
+   c) Heat source path — AC/electric (element, AC volts, board) AND/OR gas (LP, valve, igniter/solenoid, burner, orifice) as the concern requires
+   d) Shared: ventilation, level (skip if already confirmed), door seals/air leaks
+   e) Thermistor / controls
+   f) Cooling unit performance LAST (only after heat source proven)
+6. Start with brief SAFETY notes when relevant.
+7. Output format:
+   - SAFETY (short)
+   - MATCHED SYMPTOM ROW (one line from index if used)
+   - GUIDED TEST SEQUENCE (numbered). Each step: Action / Expected / If fail → next
+   - Do NOT duplicate a long cause list before the sequence
+8. When a figure/diagram matters, say: open Source pages → [manual title] page N.
+9. End with SOURCES (manual titles + page numbers).
+10. Plain shop language. Do not invent OEM procedures not in the excerpts."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 
-MANUAL EXCERPTS (INDEX CHART = roadmap only; PROCEDURE = do these tests):
+MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these):
 {context}
 
-Write the full guided diagnostic plan now.
-Match the symptom on any INDEX CHART, then walk the tech through the PROCEDURE tests for every listed cause you have procedure text for.
-Do not stop after naming the chart.
-Techs can open exact source pages (with figures) in TechTrack's Source pages panel."""
+Write the guided diagnostic plan now.
+Pick the ONE best index symptom row if a chart is present.
+Then give a tight GUIDED TEST SEQUENCE in OEM order using PROCEDURE text.
+Do not dump the entire chart. Do not stop at "see page 5"."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -1174,60 +1237,73 @@ with tab_jobs:
                     st.markdown("**Sources (text list)**")
                     st.text(job.sources_text)
 
-            with st.expander("📷 Source pages (figures & full page view)", expanded=False):
+            sources = load_job_sources(job)
+            # Rebuild sources_json from sources_text is not possible; offer rebuild if empty
+            with st.expander(
+                "📷 Source pages (figures & full page view)",
+                expanded=bool(sources),
+            ):
                 st.caption(
                     "When the plan says Fig. 1F / LCD / diagram — open that page here. "
                     "This is the actual PDF page from your uploaded manual."
                 )
-                sources = load_job_sources(job)
                 if not sources:
                     st.warning(
-                        "No structured source pages saved on this job. "
-                        "Click **Rebuild test plan** to attach manuals/pages (needs v4.6+)."
+                        "No structured source pages on this job yet. "
+                        "Click **🔄 Rebuild test plan** below — that re-attaches manuals and pages."
                     )
                 else:
-                    for i, src in enumerate(sources):
-                        title = src.get("title") or "Manual"
-                        page = int(src.get("page") or 1)
-                        fpath = src.get("file_path")
-                        st.markdown(f"**{title}** — page **{page}**")
-                        bcols = st.columns(3)
-                        with bcols[0]:
-                            if fpath:
-                                r2_download_button(
-                                    "⬇️ Download full PDF",
-                                    fpath,
-                                    f"{title}.pdf",
-                                    f"src_dl_{job.id}_{i}",
-                                )
+                    st.success(f"{len(sources)} source page(s) linked to this plan.")
+                    labels = [
+                        f"{(s.get('title') or 'Manual')[:60]} — p.{s.get('page') or '?'}"
+                        for s in sources
+                    ]
+                    pick = st.selectbox("Choose a source page", labels, key=f"src_pick_{job.id}")
+                    idx = labels.index(pick) if pick in labels else 0
+                    src = sources[idx]
+                    title = src.get("title") or "Manual"
+                    page = int(src.get("page") or 1)
+                    fpath = src.get("file_path")
+                    st.markdown(f"**{title}** — page **{page}**")
+                    bcols = st.columns(2)
+                    with bcols[0]:
+                        if fpath:
+                            r2_download_button(
+                                "⬇️ Download full PDF",
+                                fpath,
+                                f"{title[:40]}.pdf",
+                                f"src_dl_{job.id}_{idx}",
+                            )
+                        else:
+                            st.caption("No file path on record for this source.")
+                    with bcols[1]:
+                        show = st.button("📷 Show this page", type="primary", key=f"src_show_{job.id}_{idx}")
+                    if show:
+                        if not fpath:
+                            st.error("Missing storage path for this manual.")
+                        else:
+                            with st.spinner(f"Loading page {page}…"):
+                                data = r2_download_bytes(fpath)
+                            if not data:
+                                st.error("Could not download PDF from storage. Check R2 secrets / file still in bucket.")
                             else:
-                                st.caption("No file path on record")
-                        with bcols[1]:
-                            show = st.button("Show this page", key=f"src_show_{job.id}_{i}")
-                        if show:
-                            if not fpath:
-                                st.error("Missing storage path for this manual.")
-                            else:
-                                with st.spinner(f"Loading page {page}…"):
-                                    data = r2_download_bytes(fpath)
-                                if not data:
-                                    st.error("Could not download PDF from storage.")
+                                png = render_pdf_page_png(data, page)
+                                if png:
+                                    st.image(png, caption=f"{title} — page {page}", use_container_width=True)
                                 else:
-                                    png = render_pdf_page_png(data, page)
-                                    if png:
-                                        st.image(png, caption=f"{title} — page {page}", use_container_width=True)
+                                    if not PYMUPDF_AVAILABLE:
+                                        st.warning(
+                                            "Page images need `pymupdf` in requirements.txt. "
+                                            "Download the PDF and jump to this page. Showing text excerpt below."
+                                        )
                                     else:
-                                        if not PYMUPDF_AVAILABLE:
-                                            st.warning("Page images need `pymupdf` in requirements.txt (download still works).")
-                                        else:
-                                            st.warning("Could not render page image. Download the PDF and jump to this page.")
-                                        if src.get("excerpt"):
-                                            st.text_area(
-                                                "Text excerpt from this page",
-                                                value=src.get("excerpt"),
-                                                height=200,
-                                                key=f"ex_{job.id}_{i}",
-                                            )
+                                        st.warning("Could not render page image. Download the PDF and jump to this page.")
+                    if src.get("excerpt"):
+                        with st.expander("Text excerpt from this page", expanded=not show):
+                            st.text(src.get("excerpt"))
+                    st.markdown("**All linked pages**")
+                    for i, s in enumerate(sources):
+                        st.caption(f"{i+1}. {(s.get('title') or 'Manual')[:50]} — p.{s.get('page')}")
 
             st.markdown("#### Log tests as you go")
             st.caption("Record each test result so you can stop and resume later. This also feeds the warranty story.")
@@ -1235,7 +1311,13 @@ with tab_jobs:
             if steps:
                 st.markdown("**Progress so far**")
                 for s in steps:
-                    st.write(f"- **{s.get('test','')}** → {s.get('result','')} {('· ' + s['notes']) if s.get('notes') else ''}")
+                    test = (s.get("test") or s.get("step") or s.get("what") or s.get("action") or "").strip() or "(unnamed step)"
+                    result = s.get("result") or s.get("outcome") or "—"
+                    notes = (s.get("notes") or s.get("note") or "").strip()
+                    line = f"- **{test}** → {result}"
+                    if notes:
+                        line += f" · {notes}"
+                    st.write(line)
 
             t1, t2 = st.columns(2)
             with t1:
@@ -1805,4 +1887,4 @@ if is_manager and tab_mgr is not None:
                 u = session.query(User).get(cert.user_id)
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.7 • Index→Procedure tests • Source pages • WO Jobs • Groq")
+st.sidebar.caption("v4.7.1 • OEM-order tests • Source viewer • WO Jobs • Groq")
