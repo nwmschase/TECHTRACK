@@ -903,6 +903,7 @@ You will receive:
 - EXCERPTS from the shop's uploaded service manuals only
 - Some excerpts may be labeled INDEX CHART (symptom → cause → section/page tables)
 - Others are labeled PROCEDURE (actual tests, specs, wiring, measurements)
+- Each PROCEDURE excerpt includes Manual title and Page number — you MUST use those on every step
 
 CRITICAL RULES:
 1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps.
@@ -920,23 +921,36 @@ CRITICAL RULES:
 7. Output format:
    - SAFETY (short)
    - MATCHED SYMPTOM ROW (one line from index if used)
-   - GUIDED TEST SEQUENCE (numbered). Each step: Action / Expected / If fail → next
-   - Do NOT duplicate a long cause list before the sequence
-8. When a figure/diagram matters, say: open Source pages → [manual title] page N.
-9. End with SOURCES (manual titles + page numbers).
+   - GUIDED TEST SEQUENCE (numbered)
+8. REQUIRED — cite source INLINE on EVERY numbered step (not only at the bottom).
+   Use this exact pattern so techs can pick the same page in the Source pages dropdown:
+
+   N. [Action]. Expected: [result]. If fail: [next].
+      📖 Source: [Exact manual title from excerpt] — page [N]
+      📷 Open Source pages dropdown → choose this title + page to view figures.
+
+   - The page number MUST match the PROCEDURE excerpt page you used for that step.
+   - If two pages apply, list both on that step: page 11, page 12.
+   - Do NOT leave any step without a 📖 Source line.
+9. After all steps, add a short SOURCES list (optional recap). The inline citations are the primary requirement.
 10. Plain shop language. Do not invent OEM procedures not in the excerpts."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 
-MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these):
+MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
+Each excerpt header has Manual + Page — copy those into every step's 📖 Source line:
+
 {context}
 
 Write the guided diagnostic plan now.
 Pick the ONE best index symptom row if a chart is present.
-Then give a tight GUIDED TEST SEQUENCE in OEM order using PROCEDURE text.
-Do not dump the entire chart. Do not stop at "see page 5"."""
+Give a tight GUIDED TEST SEQUENCE in OEM order.
+EVERY step must end with:
+📖 Source: [manual title] — page [N]
+📷 Open Source pages dropdown → choose this title + page to view figures.
+Do not put sources only at the bottom. Do not dump the entire chart."""
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -952,8 +966,8 @@ Do not dump the entire chart. Do not stop at "see page 5"."""
             answer += "\n\n**Sources used**\n" + sources_text
         answer += (
             "\n\n---\n"
-            "**How to see figures / diagrams:** In this job, open **📷 Source pages (figures & full page)** "
-            "below the plan. Download the manual or tap **Show this page** to view the exact page from the PDF."
+            "**How to open a cited page:** For any step with 📖 Source / page #, open "
+            "**📷 Source pages** below → pick that **title — p.#** in the dropdown → **Show this page**."
         )
         return answer, sources_text, sources_json
     except Exception as e:
@@ -1887,4 +1901,4 @@ if is_manager and tab_mgr is not None:
                 u = session.query(User).get(cert.user_id)
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.7.1 • OEM-order tests • Source viewer • WO Jobs • Groq")
+st.sidebar.caption("v4.7.2 • Per-step source cites • OEM order • Source viewer • Groq")
