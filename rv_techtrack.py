@@ -9,6 +9,7 @@ RV TechTrack v4.7.1
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
+- Ask TechTrack chat-diagnose (manuals + Groq)
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
@@ -974,6 +975,141 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
         return f"Error contacting AI: {e}", sources_text, sources_json
 
 
+
+# ---------------- ASK TECHTRACK (chat diagnose) ----------------
+ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
+
+You have access to excerpts from THIS SHOP's uploaded service manuals. Use them.
+
+Rules:
+1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps. If excerpts are missing or do not cover the issue, say so and ask a clarifying question — do not invent OEM procedures.
+2. Ask 1–2 clarifying questions OR give 1–2 tests at a time. Never dump a full flowchart or the whole diagnostic index.
+3. Cite sources inline when you use an excerpt:
+   📖 Source: [Exact manual title from excerpt] — page [N]
+4. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
+5. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
+6. Plain shop language. Short sentences. No fluff.
+7. After the tech reports a result, interpret it and give the next 1–2 checks."""
+
+
+def _ask_chat_transcript(history: list) -> str:
+    lines = []
+    for m in history or []:
+        role = (m.get("role") or "user").strip()
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        label = "Tech" if role == "user" else "TechTrack"
+        lines.append(f"{label}: {content}")
+    return "\n\n".join(lines)
+
+
+def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit: int = 8):
+    """Search uploaded manuals when category and/or symptom is known. Returns (chunks, context_text)."""
+    category_name = (category_name or "").strip()
+    model_text = (model_text or "").strip()
+    symptom = (symptom or "").strip()
+    if not category_name and not symptom:
+        return [], ""
+    cat_obj = None
+    if category_name:
+        cat_obj = session.query(Category).filter_by(name=category_name).first()
+    category_id = cat_obj.id if cat_obj else None
+    chunks = search_manual_chunks(category_id, model_text, symptom, limit=limit)
+    if not chunks:
+        return [], ""
+    parts = []
+    for i, ch in enumerate(chunks, 1):
+        label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"
+        parts.append(
+            f"[EXCERPT {i} | {label}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
+        )
+    return chunks, "\n\n".join(parts)
+
+
+def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list) -> str:
+    """One chat turn: optional manual search + Groq coach reply (openai/gpt-oss-120b)."""
+    user_msg = (user_msg or "").strip()
+    if not user_msg:
+        return "Type a symptom or question first."
+
+    prior_user = " ".join(
+        (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
+    )
+    search_symptom = f"{prior_user} {user_msg}".strip()
+    chunks, context = _ask_manual_context(category_name, model_text, search_symptom, limit=8)
+
+    system_prompt = ASK_TECHTRACK_SYSTEM
+    if category_name:
+        system_prompt += f"\n\nCategory selected: {category_name}"
+    if model_text:
+        system_prompt += f"\nModel/system: {model_text}"
+    if context:
+        system_prompt += (
+            "\n\nMANUAL EXCERPTS from this shop's library "
+            "(INDEX CHART = pick one matching row only; PROCEDURE = write real tests). "
+            "Each header has Manual + Page — copy those into 📖 Source lines:\n\n"
+            + context
+        )
+    else:
+        system_prompt += (
+            "\n\nNo matching manual excerpts were found for this turn. "
+            "Ask 1–2 questions to narrow category/model/symptom, or give safe general next checks. "
+            "Do not invent OEM page numbers."
+        )
+
+    if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
+        fallback = ["AI is offline (Groq not configured). Matching manual excerpts:", ""]
+        if chunks:
+            for i, ch in enumerate(chunks[:6], 1):
+                fallback.append(f"**{ch.title}** p.{ch.page}")
+                fallback.append((ch.chunk_text or "")[:500])
+                fallback.append("")
+        else:
+            fallback.append(
+                "No matching manual text found. Check category / try different wording, "
+                "or ask a manager to index the manual."
+            )
+        return "\n".join(fallback)
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for m in history or []:
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_msg})
+
+    try:
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=messages,
+            temperature=0.2,
+            max_tokens=1400,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error contacting AI: {e}"
+
+
+def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
+    """Feed the Ask TechTrack transcript into improve_tech_story."""
+    transcript = _ask_chat_transcript(history)
+    first_user = ""
+    for m in history or []:
+        if m.get("role") == "user" and (m.get("content") or "").strip():
+            first_user = m["content"].strip()
+            break
+    notes_parts = []
+    if category_name:
+        notes_parts.append(f"Category: {category_name}")
+    if model_text:
+        notes_parts.append(f"Model/System: {model_text}")
+    notes_parts.append("Ask TechTrack conversation (tech + coach):\n" + (transcript or "(empty)"))
+    return improve_tech_story(first_user, "\n\n".join(notes_parts))
+
+
 def load_step_log(job: DiagnosticJob) -> list:
     if not job.step_log:
         return []
@@ -1009,6 +1145,8 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "active_job_id" not in st.session_state:
     st.session_state.active_job_id = None
+if "ask_chat" not in st.session_state:
+    st.session_state["ask_chat"] = []
 
 if st.session_state.user is None:
     st.title("🔧 RV TechTrack")
@@ -1040,19 +1178,22 @@ st.caption(f"Signed in as **{user['full_name']}** ({user['role']})")
 if st.sidebar.button("Log out"):
     st.session_state.user = None
     st.session_state.active_job_id = None
+    st.session_state["ask_chat"] = []
+    st.session_state.pop("ask_story_out", None)
     st.rerun()
 st.sidebar.caption(f"Role: {user['role']}")
 
-tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "📚 Document Library", "🛡️ Safety / Compliance"]
+tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "💬 Ask TechTrack", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
     tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
 tab_objs = st.tabs(tabs)
 tab_dash = tab_objs[0]
 tab_jobs = tab_objs[1]
-tab_lib = tab_objs[2]
-tab_safety = tab_objs[3]
-tab_team = tab_objs[4] if is_manager else None
-tab_mgr = tab_objs[5] if is_manager else None
+tab_ask = tab_objs[2]
+tab_lib = tab_objs[3]
+tab_safety = tab_objs[4]
+tab_team = tab_objs[5] if is_manager else None
+tab_mgr = tab_objs[6] if is_manager else None
 
 # =========================================================
 # MY DASHBOARD
@@ -1417,6 +1558,102 @@ with tab_jobs:
             if st.button("Close active job view", key="clear_active"):
                 st.session_state.active_job_id = None
                 st.rerun()
+
+
+# =========================================================
+# ASK TECHTRACK
+# =========================================================
+with tab_ask:
+    st.subheader("💬 Ask TechTrack")
+    st.caption(
+        "Chat diagnose with your uploaded manuals. TechTrack asks 1–2 questions or gives "
+        "1–2 tests at a time. For a saved work-order job with a test plan, use Diagnostic Jobs."
+    )
+
+    if "ask_chat" not in st.session_state:
+        st.session_state["ask_chat"] = []
+
+    cats = session.query(Category).order_by(Category.name).all()
+    cat_names = ["(any)"] + [c.name for c in cats]
+    c1, c2 = st.columns(2)
+    with c1:
+        ask_cat = st.selectbox("Category (optional)", cat_names, key="ask_cat")
+    with c2:
+        ask_model = st.text_input(
+            "Model / System (optional)",
+            key="ask_model",
+            placeholder="RM2652, Schwintek, Hydro-Hot…",
+        )
+    category_name = "" if ask_cat == "(any)" else ask_cat
+
+    history = st.session_state.get("ask_chat") or []
+    if history:
+        st.markdown("#### Conversation")
+        for m in history:
+            role = m.get("role") or "user"
+            content = m.get("content") or ""
+            label = "You" if role == "user" else "TechTrack"
+            with st.container(border=True):
+                st.caption(label)
+                st.markdown(content)
+    else:
+        st.info("Describe the symptom, what you have already checked, or paste an error code.")
+
+    st.text_area(
+        "Your message",
+        key="ask_input",
+        height=100,
+        placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
+    )
+
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        send = st.button("Send", type="primary", key="ask_send", use_container_width=True)
+    with b2:
+        new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
+    with b3:
+        write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
+
+    if send:
+        msg = (st.session_state.get("ask_input") or "").strip()
+        if not msg:
+            st.warning("Type a message first.")
+        else:
+            with st.spinner("Searching manuals and thinking…"):
+                reply = ask_techtrack_reply(msg, category_name, ask_model or "", history)
+            history = list(history)
+            history.append({"role": "user", "content": msg})
+            history.append({"role": "assistant", "content": reply})
+            st.session_state["ask_chat"] = history
+            st.session_state["ask_input"] = ""
+            st.rerun()
+
+    if new_chat:
+        st.session_state["ask_chat"] = []
+        st.session_state.pop("ask_story_out", None)
+        st.session_state["ask_input"] = ""
+        st.rerun()
+
+    if write_story:
+        if not history:
+            st.warning("Chat is empty. Diagnose first, then write the story.")
+        else:
+            with st.spinner("Writing CONCERN → CAUSE → CORRECTION from this chat…"):
+                story = ask_chat_to_warranty_story(history, category_name, ask_model or "")
+            st.session_state["ask_story_out"] = story
+
+    if st.session_state.get("ask_story_out"):
+        st.markdown("### Warranty story (from this chat)")
+        st.text_area(
+            "Copy into the warranty claim",
+            value=st.session_state["ask_story_out"],
+            height=280,
+            key="ask_story_area",
+        )
+        st.caption(
+            "This is from the current Ask TechTrack conversation. "
+            "Start a new chat to begin a different job."
+        )
 
 # =========================================================
 # DOCUMENT LIBRARY
@@ -1901,4 +2138,4 @@ if is_manager and tab_mgr is not None:
                 u = session.query(User).get(cert.user_id)
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.7.2 • Per-step source cites • OEM order • Source viewer • Groq")
+st.sidebar.caption("v4.7.3 • Ask TechTrack chat • Per-step source cites • OEM order • Source viewer • Groq")
