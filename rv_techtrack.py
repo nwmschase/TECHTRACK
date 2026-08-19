@@ -422,7 +422,7 @@ TECHNICIAN NOTES:
 Write the warranty story now following the rules above."""
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -953,7 +953,7 @@ EVERY step must end with:
 Do not put sources only at the bottom. Do not dump the entire chart."""
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
