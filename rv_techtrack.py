@@ -9,13 +9,13 @@ RV TechTrack v4.7.1
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
-- Ask TechTrack chat-diagnose (manuals + Groq)
+- Guided Diagnostics chat (manuals + Groq)
 - Tacoma RV Center shop branding (logo + colors)
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
 - Auto SQLite backup/restore to R2 (survives Streamlit wipes)
-- Ask TechTrack chats saved 30 days
+- Guided Diagnostics chats saved 30 days
 - Mobile-friendly
 """
 import streamlit as st
@@ -586,12 +586,12 @@ def persist_ask_turn(user_id: int, chat_id, category_name: str, model_text: str,
     """Create or update a saved Ask TechTrack chat and append this turn."""
     chat = session.query(AskChat).get(chat_id) if chat_id else None
     if not chat:
-        title = (user_msg or "Ask TechTrack").strip().replace("\n", " ")[:80]
+        title = (user_msg or "Guided Diagnostics").strip().replace("\n", " ")[:80]
         chat = AskChat(
             user_id=user_id,
             category_name=category_name or "",
             model_text=model_text or "",
-            title=title or "Ask TechTrack",
+            title=title or "Guided Diagnostics",
         )
         session.add(chat)
         session.commit()
@@ -634,48 +634,82 @@ def get_safety_progress(user_id: int) -> float:
     return round(100.0 * signed / meetings, 1)
 
 # ---------------- AI STORY ----------------
+def _notes_say_incomplete(text: str) -> bool:
+    t = (text or "").lower()
+    markers = (
+        "no fix yet", "not repaired", "not repaired yet", "unit not repaired",
+        "not fixed", "no repair", "still open", "handoff", "hold this info",
+        "not finished", "incomplete", "left off", "pick up", "will press button",
+        "need warranty story",
+    )
+    return any(m in t for m in markers)
+
+
 def improve_tech_story(concern: str, tech_notes: str) -> str:
+    """Write a warranty narrative or an open-job handoff. Never invent tests or a completed repair."""
     concern = (concern or "").strip()
     tech_notes = (tech_notes or "").strip()
+    incomplete = _notes_say_incomplete(tech_notes)
     if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
+        if incomplete:
+            return (
+                f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis.'}\n\n"
+                f"**TESTING PERFORMED**\n{tech_notes or 'See technician notes.'}\n\n"
+                "**STATUS**\nOpen. No repair completed. Next tech: resume from testing performed. "
+                "Do not treat recommended checks as done."
+            )
         return (
             f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis and repair.'}\n\n"
-            f"**CAUSE**\nThe root cause was identified during diagnostic testing. Technician notes: {tech_notes}\n\n"
-            f"**CORRECTION**\nCorrective action performed based on findings: {tech_notes}\n\n"
-            "All related systems were inspected and tested. Unit returned to service in fully functional condition."
+            f"**TESTING / FINDINGS**\n{tech_notes or 'See technician notes.'}\n\n"
+            "**CAUSE**\nOnly as stated in the technician notes. If no root cause was recorded, leave unknown.\n\n"
+            "**CORRECTION**\nOnly repairs the technician recorded. If none were recorded, none were performed."
         )
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        system_prompt = """You are an expert RV service writer who creates strong, professional warranty claim narratives for RV manufacturers (Lippert, Dometic, etc.).
+        system_prompt = """You write shop documentation for RV warranty claims (Lippert, Dometic, etc.).
 
-You will be given two pieces of information:
-1. CUSTOMER CONCERN – what the customer reported
-2. TECHNICIAN NOTES – what the tech observed and did
+HARD RULES — violating any of these is a failed write-up:
+1. Use ONLY facts the TECHNICIAN recorded as already done or measured. Coach/AI recommended tests are NOT performed work unless the tech later said they did that exact test and reported a result.
+2. NEVER invent voltages, ohm readings, parts, corrosion, failed fuses, connector damage, reset buttons pressed, photos taken, or a completed repair.
+3. NEVER write that the unit was repaired, corrected, restored, returned to service, or fully functional unless the tech explicitly said the repair was done and the unit works.
+4. If the notes say the job is open / not repaired / no fix yet / hold this info / handoff: do NOT write a completed CAUSE or CORRECTION. Write a handoff log instead.
+5. Do not turn "I will press the Write warranty story button" into a controller reset or any shop-floor button press.
+6. You may lightly clean up grammar. You may NOT add diagnostic reasoning that was not recorded.
+7. Short sentences. Plain English. No fluff.
 
-Your job is to write a clear warranty story using this EXACT structure and order:
-
+IF THE JOB IS OPEN / NOT REPAIRED, use EXACTLY this structure:
 CONCERN
-(Clearly restate and slightly expand the customer's reported problem)
+(Restate the customer symptom. Do not add unstated details.)
 
+TESTING PERFORMED
+(Bullet only tests, readings, and observations the tech recorded. Include exact numbers they gave. Omit recommended-but-not-done checks.)
+
+STATUS
+Open. No repair completed.
+Next tech: [one or two lines on where they left off, using only recorded facts].
+
+IF THE JOB IS COMPLETE (tech said they repaired it), use EXACTLY this structure:
+CONCERN
 CAUSE
-(Explain the root cause that was found. Base this on the technician notes. You may add logical diagnostic reasoning that would normally be performed.)
-
+(Only if the tech stated a root cause. Otherwise write: Not confirmed.)
 CORRECTION
-(Detail the repair steps performed. You may add commonly performed related steps such as system recovery, evacuation, leak check, recharge, operational testing under load, verification of related systems, when they fit the repair type. Do not invent parts that were not implied.)
+(Only the repair steps the tech said they performed. No extra "typical" steps.)
+"""
 
-Rules:
-- Always use CONCERN / CAUSE / CORRECTION headers
-- Write for warranty auditors — clear, complete, professional
-- Expand short tech notes into full payable narrative without inventing a different failure
-- Short sentences, plain English, no fluff"""
-
+        status_line = (
+            "JOB STATUS: OPEN / NOT REPAIRED. Write the handoff structure. Do not invent a cause or a fix."
+            if incomplete
+            else "JOB STATUS: Write a completed warranty story ONLY if the notes clearly say a repair was performed. If they do not, treat it as OPEN."
+        )
         user_prompt = f"""CUSTOMER CONCERN:
 {concern or '(not provided)'}
 
-TECHNICIAN NOTES:
+TECHNICIAN NOTES (tech-reported facts only unless labeled otherwise):
 {tech_notes or '(not provided)'}
 
-Write the warranty story now following the rules above."""
+{status_line}
+
+Write the document now."""
 
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -683,7 +717,7 @@ Write the warranty story now following the rules above."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.3,
+            temperature=0.1,
             max_tokens=1200,
         )
         return response.choices[0].message.content.strip()
@@ -714,8 +748,8 @@ def story_from_diagnostic_job(job: "DiagnosticJob") -> str:
         pass
     if job.plan_text:
         notes_parts.append(
-            "Reference (guided test plan used during diagnosis — use only where it matches actual work):\n"
-            + (job.plan_text or "")[:2500]
+            "NOT PERFORMED unless also listed above — this was only the suggested test plan, do not copy it into CORRECTION:\n"
+            + (job.plan_text or "")[:800]
         )
     tech_notes = "\n\n".join(notes_parts).strip()
     return improve_tech_story(job.concern or "", tech_notes)
@@ -1244,7 +1278,8 @@ Rules:
 4. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
 5. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
 6. Plain shop language. Short sentences. No fluff.
-7. After the tech reports a result, interpret it and give the next 1–2 checks."""
+7. After the tech reports a result, interpret it and give the next 1–2 checks.
+8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -1254,7 +1289,7 @@ def _ask_chat_transcript(history: list) -> str:
         content = (m.get("content") or "").strip()
         if not content:
             continue
-        label = "Tech" if role == "user" else "TechTrack"
+        label = "Tech" if role == "user" else "Guided Diagnostics"
         lines.append(f"{label}: {content}")
     return "\n\n".join(lines)
 
@@ -1349,19 +1384,35 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
-    """Feed the Ask TechTrack transcript into improve_tech_story."""
-    transcript = _ask_chat_transcript(history)
+    """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
+    tech_lines = []
+    coach_lines = []
     first_user = ""
     for m in history or []:
-        if m.get("role") == "user" and (m.get("content") or "").strip():
-            first_user = m["content"].strip()
-            break
+        role = (m.get("role") or "").strip()
+        content = (m.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            if not first_user:
+                first_user = content
+            tech_lines.append(content)
+        else:
+            coach_lines.append(content[:400])
     notes_parts = []
     if category_name:
         notes_parts.append(f"Category: {category_name}")
     if model_text:
         notes_parts.append(f"Model/System: {model_text}")
-    notes_parts.append("Ask TechTrack conversation (tech + coach):\n" + (transcript or "(empty)"))
+    notes_parts.append(
+        "TECH REPORTED (only these are performed tests / readings / status):\n"
+        + ("\n\n".join(tech_lines) if tech_lines else "(none)")
+    )
+    if coach_lines:
+        notes_parts.append(
+            "COACH SUGGESTIONS (recommended only — do NOT treat as performed unless the tech later confirmed the result):\n"
+            + "\n---\n".join(coach_lines[:4])
+        )
     return improve_tech_story(first_user, "\n\n".join(notes_parts))
 
 
@@ -1462,7 +1513,7 @@ if st.sidebar.button("Log out"):
     st.rerun()
 st.sidebar.caption(f"Role: {user['role']}")
 
-tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "💬 Ask TechTrack", "📚 Document Library", "🛡️ Safety / Compliance"]
+tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
     tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
 tab_objs = st.tabs(tabs)
@@ -1843,10 +1894,11 @@ with tab_jobs:
 # ASK TECHTRACK
 # =========================================================
 with tab_ask:
-    st.subheader("💬 Ask TechTrack")
+    st.subheader("💬 Guided Diagnostics")
     st.caption(
-        "Chat diagnose with your uploaded manuals. TechTrack asks 1–2 questions or gives "
-        "1–2 tests at a time. For a saved work-order job with a test plan, use Diagnostic Jobs."
+        "Chat diagnose with your uploaded manuals. Guided Diagnostics asks 1–2 questions or gives "
+        "1–2 tests at a time. Write warranty story only records what you actually tested. "
+        "If the job is still open it writes a handoff log, not a fake repair."
     )
 
     if "ask_chat" not in st.session_state:
@@ -1897,7 +1949,7 @@ with tab_ask:
         for m in history:
             role = m.get("role") or "user"
             content = m.get("content") or ""
-            label = "You" if role == "user" else "TechTrack"
+            label = "You" if role == "user" else "Guided Diagnostics"
             with st.container(border=True):
                 st.caption(label)
                 st.markdown(content)
@@ -1954,7 +2006,7 @@ with tab_ask:
         if not history:
             st.warning("Chat is empty. Diagnose first, then write the story.")
         else:
-            with st.spinner("Writing CONCERN → CAUSE → CORRECTION from this chat…"):
+            with st.spinner("Writing shop notes from what you actually recorded…"):
                 story = ask_chat_to_warranty_story(history, category_name, ask_model or "")
             st.session_state["ask_story_out"] = story
             cid = st.session_state.get("ask_chat_id")
@@ -1966,7 +2018,7 @@ with tab_ask:
                     session.commit()
 
     if st.session_state.get("ask_story_out"):
-        st.markdown("### Warranty story (from this chat)")
+        st.markdown("### Shop notes / warranty story")
         st.text_area(
             "Copy into the warranty claim",
             value=st.session_state["ask_story_out"],
@@ -1974,7 +2026,7 @@ with tab_ask:
             key="ask_story_area",
         )
         st.caption(
-            "This is from the current Ask TechTrack conversation. "
+            "Only uses tests and readings you typed. Recommended checks are left out unless you said you did them. "
             "Start a new chat to begin a different job."
         )
 
@@ -2478,4 +2530,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.7.5 • Tacoma RV Center • Auto DB backup • Ask TechTrack saved 30 days • Groq")
+st.sidebar.caption("v4.7.6 • Tacoma RV Center • Guided Diagnostics • Honest warranty notes • Auto DB backup")
