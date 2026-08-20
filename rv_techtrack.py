@@ -10,6 +10,7 @@ RV TechTrack v4.7.1
 - Team Overview (Certificates + Safety Progress)
 - AI Tech Story Improver (Groq) — standalone + end-of-job
 - Ask TechTrack chat-diagnose (manuals + Groq)
+- Tacoma RV Center shop branding (logo + colors)
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
@@ -54,38 +55,95 @@ try:
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
+# ---------------- SHOP BRANDING ----------------
+HEADER_GREEN = "#038944"
+DEALER_RED = "#DF1F26"
+NAVY = "#01147C"
+DARKER_GREEN = "#02763A"
+
+
+def shop_logo_path():
+    """Official Tacoma RV Center logo. Prefer assets/ next to this script."""
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here / "assets" / "tacoma-rv-logo.png",
+        here / "tacoma-rv-logo.png",
+        Path.cwd() / "assets" / "tacoma-rv-logo.png",
+    ]
+    for p in candidates:
+        try:
+            if p.is_file():
+                return p
+        except OSError:
+            continue
+    return None
+
+
 # ---------------- PAGE CONFIG ----------------
+_logo_for_icon = shop_logo_path()
 st.set_page_config(
-    page_title="RV TechTrack v4.7",
-    page_icon="🔧",
+    page_title="TechTrack · Tacoma RV Center",
+    page_icon=str(_logo_for_icon) if _logo_for_icon else "🔧",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 st.markdown("""
 <style>
+    /* Tacoma RV Center shop colors: header green, dealer red, navy */
+    header[data-testid="stHeader"] {
+        background-color: #038944;
+    }
     .stButton > button {
-        min-height: 2.8rem;
-        font-size: 1.05rem;
-        border-radius: 10px;
+        min-height: 2.6rem;
+        font-size: 1.02rem;
+        border-radius: 8px;
+    }
+    button[kind="primary"],
+    [data-testid="stBaseButton-primary"],
+    .stFormSubmitButton button,
+    div[data-testid="stFormSubmitButton"] button {
+        background-color: #DF1F26 !important;
+        border-color: #9D151A !important;
+        color: #ffffff !important;
+    }
+    button[kind="primary"]:hover,
+    [data-testid="stBaseButton-primary"]:hover,
+    .stFormSubmitButton button:hover,
+    div[data-testid="stFormSubmitButton"] button:hover {
+        background-color: #9D151A !important;
+        border-color: #9D151A !important;
+        color: #ffffff !important;
+    }
+    button[kind="secondary"],
+    [data-testid="stBaseButton-secondary"] {
+        border-color: #038944 !important;
+        color: #02763A !important;
     }
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 12px;
+        border-radius: 10px;
     }
     .block-container {
-        padding-top: 4rem !important;
-        padding-bottom: 2rem;
+        padding-top: 2.4rem !important;
+        padding-bottom: 1.5rem;
+        max-width: 1200px;
     }
     div[data-testid="stHorizontalBlock"] {
-        margin-top: 0.8rem;
-        margin-bottom: 0.4rem;
+        margin-top: 0.55rem;
+        margin-bottom: 0.3rem;
     }
     [data-testid="stTabs"] button {
         font-size: 1rem;
         font-weight: 600;
         white-space: nowrap;
     }
+    [data-testid="stTabs"] button[aria-selected="true"] {
+        color: #038944 !important;
+    }
     section[data-testid="stSidebar"] {
         min-width: 220px;
+    }
+    h1, h2, h3 {
+        color: #01147C;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1149,32 +1207,52 @@ if "ask_chat" not in st.session_state:
     st.session_state["ask_chat"] = []
 
 if st.session_state.user is None:
-    st.title("🔧 RV TechTrack")
-    st.caption("Technician competency, manuals, safety, and guided diagnostics")
-    with st.form("login_form"):
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.form_submit_button("Sign In", type="primary"):
-            user = session.query(User).filter_by(username=u.strip().lower(), is_active=True).first()
-            if user and verify_password(p, user.password_hash):
-                st.session_state.user = {
-                    "id": user.id,
-                    "username": user.username,
-                    "full_name": user.full_name,
-                    "role": user.role,
-                }
-                st.rerun()
-            else:
-                st.error("Invalid username or password")
-    st.info("Default accounts (change after first login):\n- Manager: `manager` / `manager123`\n- Tech: `alex` or `jordan` / `tech123`")
+    _lc, login_col, _rc = st.columns([1, 1.5, 1])
+    with login_col:
+        _logo = shop_logo_path()
+        if _logo:
+            st.image(str(_logo), use_container_width=True)
+        st.markdown(
+            "<h1 style='text-align:center;margin:0.35rem 0 0;color:#01147C;font-size:2rem;'>TechTrack</h1>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<p style='text-align:center;color:#02763A;font-weight:600;margin:0.2rem 0 1.1rem;'>"
+            "Tacoma RV Center · Service</p>",
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("Sign In", type="primary"):
+                user = session.query(User).filter_by(username=u.strip().lower(), is_active=True).first()
+                if user and verify_password(p, user.password_hash):
+                    st.session_state.user = {
+                        "id": user.id,
+                        "username": user.username,
+                        "full_name": user.full_name,
+                        "role": user.role,
+                    }
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
     st.stop()
 
 user = st.session_state.user
 is_manager = user["role"] == "Manager"
 
 # ---------------- HEADER / NAV ----------------
-st.title("🔧 TechTrack")
-st.caption(f"Signed in as **{user['full_name']}** ({user['role']})")
+_hdr_logo = shop_logo_path()
+hdr_l, hdr_r = st.columns([1.05, 3.6])
+with hdr_l:
+    if _hdr_logo:
+        st.image(str(_hdr_logo), use_container_width=True)
+with hdr_r:
+    st.markdown(
+        "<h1 style='margin:0.4rem 0 0;color:#01147C;font-size:1.85rem;'>TechTrack</h1>",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Signed in as **{user['full_name']}** ({user['role']}) · Tacoma RV Center · Service")
 if st.sidebar.button("Log out"):
     st.session_state.user = None
     st.session_state.active_job_id = None
@@ -2138,4 +2216,4 @@ if is_manager and tab_mgr is not None:
                 u = session.query(User).get(cert.user_id)
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.7.3 • Ask TechTrack chat • Per-step source cites • OEM order • Source viewer • Groq")
+st.sidebar.caption("v4.7.4 • Tacoma RV Center • Ask TechTrack chat • Per-step source cites • OEM order • Source viewer • Groq")
