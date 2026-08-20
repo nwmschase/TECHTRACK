@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.7.1
+RV TechTrack v4.7.7
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -16,6 +16,7 @@ RV TechTrack v4.7.1
 - Library catalog export + manager backup warning
 - Auto SQLite backup/restore to R2 (survives Streamlit wipes)
 - Guided Diagnostics chats saved 30 days
+- Write warranty story remounts the copy box and uses latest tech status
 - Mobile-friendly
 """
 import streamlit as st
@@ -635,21 +636,42 @@ def get_safety_progress(user_id: int) -> float:
 
 # ---------------- AI STORY ----------------
 def _notes_say_incomplete(text: str) -> bool:
+    """True only if the latest status language is still open.
+
+    Midway Guided Diagnostics chats type "No repair yet" then later record the
+    real fix. Matching ANY "no repair" in the transcript would lock every later
+    Write-warranty-story click on the OPEN / no-repair template.
+    """
     t = (text or "").lower()
-    markers = (
+    incomplete_markers = (
         "no fix yet", "not repaired", "not repaired yet", "unit not repaired",
         "not fixed", "no repair", "still open", "handoff", "hold this info",
         "not finished", "incomplete", "left off", "pick up", "will press button",
         "need warranty story",
     )
-    return any(m in t for m in markers)
+    complete_markers = (
+        "job complete",
+        "repair completed",
+        "replaced the",
+        "compressor started",
+        "compressor ran",
+        "returned to service",
+    )
+    last_incomplete = max(t.rfind(m) for m in incomplete_markers)
+    last_complete = max(t.rfind(m) for m in complete_markers)
+    if last_complete > last_incomplete:
+        return False
+    return last_incomplete >= 0
 
 
-def improve_tech_story(concern: str, tech_notes: str) -> str:
+def improve_tech_story(concern: str, tech_notes: str, status_text=None) -> str:
     """Write a warranty narrative or an open-job handoff. Never invent tests or a completed repair."""
     concern = (concern or "").strip()
     tech_notes = (tech_notes or "").strip()
-    incomplete = _notes_say_incomplete(tech_notes)
+    # status_text should be TECH-reported lines only (not coach suggestions).
+    incomplete = _notes_say_incomplete(
+        status_text if status_text is not None else tech_notes
+    )
     if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
         if incomplete:
             return (
@@ -672,7 +694,7 @@ HARD RULES — violating any of these is a failed write-up:
 1. Use ONLY facts the TECHNICIAN recorded as already done or measured. Coach/AI recommended tests are NOT performed work unless the tech later said they did that exact test and reported a result.
 2. NEVER invent voltages, ohm readings, parts, corrosion, failed fuses, connector damage, reset buttons pressed, photos taken, or a completed repair.
 3. NEVER write that the unit was repaired, corrected, restored, returned to service, or fully functional unless the tech explicitly said the repair was done and the unit works.
-4. If the notes say the job is open / not repaired / no fix yet / hold this info / handoff: do NOT write a completed CAUSE or CORRECTION. Write a handoff log instead.
+4. Decide OPEN vs complete from the LATEST technician status. An earlier "no repair yet" / "need warranty story" / handoff does NOT override a later recorded repair (replaced / job complete / compressor ran). Only if the latest status is still open: do NOT write a completed CAUSE or CORRECTION. Write a handoff log instead.
 5. Do not turn "I will press the Write warranty story button" into a controller reset or any shop-floor button press.
 6. You may lightly clean up grammar. You may NOT add diagnostic reasoning that was not recorded.
 7. Short sentences. Plain English. No fluff.
@@ -697,9 +719,13 @@ CORRECTION
 """
 
         status_line = (
-            "JOB STATUS: OPEN / NOT REPAIRED. Write the handoff structure. Do not invent a cause or a fix."
+            "JOB STATUS: OPEN / NOT REPAIRED (latest tech status). Write the handoff structure. Do not invent a cause or a fix."
             if incomplete
-            else "JOB STATUS: Write a completed warranty story ONLY if the notes clearly say a repair was performed. If they do not, treat it as OPEN."
+            else (
+                "JOB STATUS: Write a completed warranty story ONLY if the notes clearly say a repair was performed. "
+                "If they do not, treat it as OPEN. If a later tech message recorded a repair, do not keep the job "
+                "OPEN because an earlier message said no repair yet."
+            )
         )
         user_prompt = f"""CUSTOMER CONCERN:
 {concern or '(not provided)'}
@@ -1404,16 +1430,18 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
         notes_parts.append(f"Category: {category_name}")
     if model_text:
         notes_parts.append(f"Model/System: {model_text}")
+    tech_blob = "\n\n".join(tech_lines) if tech_lines else "(none)"
     notes_parts.append(
         "TECH REPORTED (only these are performed tests / readings / status):\n"
-        + ("\n\n".join(tech_lines) if tech_lines else "(none)")
+        + tech_blob
     )
     if coach_lines:
         notes_parts.append(
             "COACH SUGGESTIONS (recommended only — do NOT treat as performed unless the tech later confirmed the result):\n"
             + "\n---\n".join(coach_lines[:4])
         )
-    return improve_tech_story(first_user, "\n\n".join(notes_parts))
+    # Status from tech lines only so coach "replace the overload" cannot flip OPEN/complete.
+    return improve_tech_story(first_user, "\n\n".join(notes_parts), status_text=tech_blob)
 
 
 def load_step_log(job: DiagnosticJob) -> list:
@@ -1510,6 +1538,7 @@ if st.sidebar.button("Log out"):
     st.session_state.active_job_id = None
     st.session_state["ask_chat"] = []
     st.session_state.pop("ask_story_out", None)
+    st.session_state.pop("ask_story_area", None)
     st.rerun()
 st.sidebar.caption(f"Role: {user['role']}")
 
@@ -1926,6 +1955,8 @@ with tab_ask:
                 st.session_state["ask_chat_id"] = ch.id
                 st.session_state["ask_chat"] = hist
                 st.session_state.pop("ask_story_out", None)
+                st.session_state.pop("ask_story_area", None)
+                st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
                 if loaded and loaded.final_story:
                     st.session_state["ask_story_out"] = loaded.final_story
                 st.rerun()
@@ -1999,6 +2030,8 @@ with tab_ask:
         st.session_state["ask_chat"] = []
         st.session_state["ask_chat_id"] = None
         st.session_state.pop("ask_story_out", None)
+        st.session_state.pop("ask_story_area", None)
+        st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
         st.session_state["ask_reset_input"] = True
         st.rerun()
 
@@ -2009,6 +2042,12 @@ with tab_ask:
             with st.spinner("Writing shop notes from what you actually recorded…"):
                 story = ask_chat_to_warranty_story(history, category_name, ask_model or "")
             st.session_state["ask_story_out"] = story
+            # text_area(key=) ignores value= after first mount. Bump the key so
+            # this click remounts the box with the newly generated story.
+            st.session_state.pop("ask_story_area", None)
+            n = int(st.session_state.get("ask_story_n") or 0) + 1
+            st.session_state["ask_story_n"] = n
+            st.session_state[f"ask_story_area_{n}"] = story
             cid = st.session_state.get("ask_chat_id")
             if cid:
                 chat_row = session.query(AskChat).get(cid)
@@ -2016,14 +2055,18 @@ with tab_ask:
                     chat_row.final_story = story
                     chat_row.updated_date = datetime.now()
                     session.commit()
+            st.rerun()
 
     if st.session_state.get("ask_story_out"):
         st.markdown("### Shop notes / warranty story")
+        _story_n = int(st.session_state.get("ask_story_n") or 0)
+        _story_key = f"ask_story_area_{_story_n}"
+        if _story_key not in st.session_state:
+            st.session_state[_story_key] = st.session_state["ask_story_out"]
         st.text_area(
             "Copy into the warranty claim",
-            value=st.session_state["ask_story_out"],
             height=280,
-            key="ask_story_area",
+            key=_story_key,
         )
         st.caption(
             "Only uses tests and readings you typed. Recommended checks are left out unless you said you did them. "
@@ -2530,4 +2573,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.7.6 • Tacoma RV Center • Guided Diagnostics • Honest warranty notes • Auto DB backup")
+st.sidebar.caption("v4.7.7 • Tacoma RV Center • Guided Diagnostics • Honest warranty notes • Auto DB backup")
