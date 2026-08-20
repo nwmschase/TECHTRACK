@@ -1676,6 +1676,8 @@ with tab_ask:
                 st.markdown(content)
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
+    if st.session_state.pop("ask_reset_input", False):
+        st.session_state["ask_input"] = ""
 
     st.text_area(
         "Your message",
@@ -1703,13 +1705,13 @@ with tab_ask:
             history.append({"role": "user", "content": msg})
             history.append({"role": "assistant", "content": reply})
             st.session_state["ask_chat"] = history
-            st.session_state["ask_input"] = ""
+            st.session_state["ask_reset_input"] = True
             st.rerun()
 
     if new_chat:
         st.session_state["ask_chat"] = []
         st.session_state.pop("ask_story_out", None)
-        st.session_state["ask_input"] = ""
+        st.session_state["ask_reset_input"] = True
         st.rerun()
 
     if write_story:
