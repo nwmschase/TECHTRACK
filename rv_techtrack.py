@@ -14,13 +14,15 @@ RV TechTrack v4.7.1
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
 - Library catalog export + manager backup warning
+- Auto SQLite backup/restore to R2 (survives Streamlit wipes)
+- Ask TechTrack chats saved 30 days
 - Mobile-friendly
 """
 import streamlit as st
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import os
 import shutil
@@ -29,6 +31,7 @@ import secrets
 import io
 import re
 import json
+import time
 
 try:
     from groq import Groq
@@ -150,6 +153,10 @@ st.markdown("""
 
 # ---------------- CONFIG ----------------
 DB_PATH = "rv_techtrack_v4.db"
+R2_DB_KEY = "backups/rv_techtrack_v4.db"
+R2_DB_PREV_KEY = "backups/rv_techtrack_v4.prev.db"
+MIN_DOCS_TO_BACKUP = 10
+BACKUP_DEBOUNCE_SEC = 90
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
@@ -388,6 +395,28 @@ class DiagnosticJob(Base):
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
+class AskChat(Base):
+    """Saved Ask TechTrack conversation (30-day retention)."""
+    __tablename__ = "ask_chats"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    category_name = Column(String(150), default="")
+    model_text = Column(String(250), default="")
+    title = Column(String(250), default="")
+    final_story = Column(Text, default="")
+    created_date = Column(DateTime, default=func.now())
+    updated_date = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class AskMessage(Base):
+    __tablename__ = "ask_messages"
+    id = Column(Integer, primary_key=True)
+    chat_id = Column(Integer, ForeignKey("ask_chats.id"), nullable=False)
+    role = Column(String(20), nullable=False)
+    content = Column(Text, default="")
+    created_date = Column(DateTime, default=func.now())
+
+
 Base.metadata.create_all(engine)
 session = Session()
 
@@ -409,6 +438,174 @@ def _ensure_schema_upgrades():
 
 
 _ensure_schema_upgrades()
+
+
+def _local_doc_count() -> int:
+    try:
+        return session.query(Document).count()
+    except Exception:
+        return 0
+
+
+def _reopen_db():
+    global engine, session
+    try:
+        session.close()
+    except Exception:
+        pass
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
+    Session.configure(bind=engine)
+    session = Session()
+    _ensure_schema_upgrades()
+
+
+def maybe_restore_db_from_r2() -> bool:
+    """If Streamlit wiped the local DB, pull the last good copy from R2."""
+    if not r2_available():
+        return False
+    local_n = _local_doc_count()
+    if local_n >= MIN_DOCS_TO_BACKUP:
+        return False
+    data = r2_download_bytes(R2_DB_KEY)
+    if not data or len(data) < 50000 or not data.startswith(b"SQLite format 3"):
+        return False
+    try:
+        if Path(DB_PATH).exists():
+            shutil.copy(DB_PATH, DB_PATH + ".pre_restore")
+        with open(DB_PATH, "wb") as f:
+            f.write(data)
+        _reopen_db()
+        restored_n = _local_doc_count()
+        if restored_n < max(local_n, 1):
+            if Path(DB_PATH + ".pre_restore").exists():
+                shutil.copy(DB_PATH + ".pre_restore", DB_PATH)
+                _reopen_db()
+            return False
+        try:
+            st.session_state["_db_restored_from_r2"] = True
+            st.session_state["_db_restored_docs"] = restored_n
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def maybe_backup_db_to_r2(force: bool = False):
+    """Upload the full SQLite file to R2. Never overwrite a good cloud copy with an empty local DB."""
+    if not r2_available():
+        return False, "Storage not configured"
+    local_n = _local_doc_count()
+    if local_n < MIN_DOCS_TO_BACKUP:
+        return False, "Local library too small to overwrite the cloud backup"
+    if not Path(DB_PATH).exists():
+        return False, "No local database file"
+    now = time.time()
+    try:
+        last = float(st.session_state.get("_db_backup_ts") or 0)
+        last_mtime = float(st.session_state.get("_db_backup_mtime") or 0)
+    except Exception:
+        last, last_mtime = 0.0, 0.0
+    if not force and (now - last) < BACKUP_DEBOUNCE_SEC:
+        return False, "Recently saved"
+    mtime = Path(DB_PATH).stat().st_mtime
+    if not force and last_mtime and mtime <= last_mtime:
+        return False, "No database changes"
+    client = get_r2_client()
+    if not client:
+        return False, "Storage not configured"
+    try:
+        try:
+            client.copy_object(
+                Bucket=st.secrets["R2_BUCKET_NAME"],
+                CopySource={"Bucket": st.secrets["R2_BUCKET_NAME"], "Key": R2_DB_KEY},
+                Key=R2_DB_PREV_KEY,
+            )
+        except Exception:
+            pass
+        tmp = DB_PATH + ".r2snap"
+        import sqlite3
+        src_con = sqlite3.connect(DB_PATH)
+        dst_con = sqlite3.connect(tmp)
+        with dst_con:
+            src_con.backup(dst_con)
+        dst_con.close()
+        src_con.close()
+        with open(tmp, "rb") as f:
+            ok = r2_upload(f.read(), R2_DB_KEY, "application/x-sqlite3")
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        if ok:
+            try:
+                st.session_state["_db_backup_ts"] = now
+                st.session_state["_db_backup_mtime"] = mtime
+                st.session_state["_db_backup_ok"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                st.session_state["_db_backup_docs"] = local_n
+            except Exception:
+                pass
+            return True, f"Saved {local_n} documents to cloud"
+        return False, "Upload failed"
+    except Exception as e:
+        return False, str(e)
+
+
+def purge_old_ask_chats(days: int = 30):
+    try:
+        cutoff = datetime.now() - timedelta(days=days)
+        old = session.query(AskChat).filter(AskChat.updated_date < cutoff).all()
+        for chat in old:
+            session.query(AskMessage).filter_by(chat_id=chat.id).delete()
+            session.delete(chat)
+        if old:
+            session.commit()
+    except Exception:
+        session.rollback()
+
+
+def load_ask_chat(chat_id: int):
+    chat = session.query(AskChat).get(chat_id)
+    if not chat:
+        return None, []
+    msgs = (
+        session.query(AskMessage)
+        .filter_by(chat_id=chat.id)
+        .order_by(AskMessage.id)
+        .all()
+    )
+    history = [{"role": m.role, "content": m.content or ""} for m in msgs]
+    return chat, history
+
+
+def persist_ask_turn(user_id: int, chat_id, category_name: str, model_text: str, user_msg: str, reply: str):
+    """Create or update a saved Ask TechTrack chat and append this turn."""
+    chat = session.query(AskChat).get(chat_id) if chat_id else None
+    if not chat:
+        title = (user_msg or "Ask TechTrack").strip().replace("\n", " ")[:80]
+        chat = AskChat(
+            user_id=user_id,
+            category_name=category_name or "",
+            model_text=model_text or "",
+            title=title or "Ask TechTrack",
+        )
+        session.add(chat)
+        session.commit()
+    else:
+        chat.updated_date = datetime.now()
+        if category_name:
+            chat.category_name = category_name
+        if model_text:
+            chat.model_text = model_text
+    session.add(AskMessage(chat_id=chat.id, role="user", content=user_msg or ""))
+    session.add(AskMessage(chat_id=chat.id, role="assistant", content=reply or ""))
+    session.commit()
+    return chat.id
+
 
 # ---------------- AUTH HELPERS ----------------
 def hash_password(password: str) -> str:
@@ -1196,7 +1393,9 @@ def seed_data():
         session.commit()
 
 
+maybe_restore_db_from_r2()
 seed_data()
+purge_old_ask_chats(30)
 
 # ---------------- LOGIN ----------------
 if "user" not in st.session_state:
@@ -1205,6 +1404,8 @@ if "active_job_id" not in st.session_state:
     st.session_state.active_job_id = None
 if "ask_chat" not in st.session_state:
     st.session_state["ask_chat"] = []
+if "ask_chat_id" not in st.session_state:
+    st.session_state["ask_chat_id"] = None
 
 if st.session_state.user is None:
     _lc, login_col, _rc = st.columns([1, 1.5, 1])
@@ -1650,6 +1851,32 @@ with tab_ask:
 
     if "ask_chat" not in st.session_state:
         st.session_state["ask_chat"] = []
+    if "ask_chat_id" not in st.session_state:
+        st.session_state["ask_chat_id"] = None
+
+    with st.expander("Recent chats (saved 30 days)", expanded=False):
+        qch = session.query(AskChat)
+        if not is_manager:
+            qch = qch.filter_by(user_id=user["id"])
+        recents = qch.order_by(AskChat.updated_date.desc()).limit(20).all()
+        if not recents:
+            st.caption("No saved chats yet. Send a message and it stays here.")
+        for ch in recents:
+            owner = session.query(User).get(ch.user_id)
+            when = (ch.updated_date or ch.created_date)
+            when_s = when.strftime("%b %d %I:%M %p") if when else ""
+            who = f" · {owner.full_name}" if is_manager and owner else ""
+            label = f"{(ch.title or 'Chat')[:60]} · {ch.category_name or 'any'}{who} · {when_s}"
+            cols = st.columns([4, 1])
+            cols[0].write(label)
+            if cols[1].button("Open", key=f"open_ask_{ch.id}"):
+                loaded, hist = load_ask_chat(ch.id)
+                st.session_state["ask_chat_id"] = ch.id
+                st.session_state["ask_chat"] = hist
+                st.session_state.pop("ask_story_out", None)
+                if loaded and loaded.final_story:
+                    st.session_state["ask_story_out"] = loaded.final_story
+                st.rerun()
 
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = ["(any)"] + [c.name for c in cats]
@@ -1705,11 +1932,20 @@ with tab_ask:
             history.append({"role": "user", "content": msg})
             history.append({"role": "assistant", "content": reply})
             st.session_state["ask_chat"] = history
+            st.session_state["ask_chat_id"] = persist_ask_turn(
+                user["id"],
+                st.session_state.get("ask_chat_id"),
+                category_name,
+                ask_model or "",
+                msg,
+                reply,
+            )
             st.session_state["ask_reset_input"] = True
             st.rerun()
 
     if new_chat:
         st.session_state["ask_chat"] = []
+        st.session_state["ask_chat_id"] = None
         st.session_state.pop("ask_story_out", None)
         st.session_state["ask_reset_input"] = True
         st.rerun()
@@ -1721,6 +1957,13 @@ with tab_ask:
             with st.spinner("Writing CONCERN → CAUSE → CORRECTION from this chat…"):
                 story = ask_chat_to_warranty_story(history, category_name, ask_model or "")
             st.session_state["ask_story_out"] = story
+            cid = st.session_state.get("ask_chat_id")
+            if cid:
+                chat_row = session.query(AskChat).get(cid)
+                if chat_row:
+                    chat_row.final_story = story
+                    chat_row.updated_date = datetime.now()
+                    session.commit()
 
     if st.session_state.get("ask_story_out"):
         st.markdown("### Warranty story (from this chat)")
@@ -1849,9 +2092,9 @@ if is_manager and tab_mgr is not None:
     with tab_mgr:
         st.subheader("🛠️ Manager Tools")
         st.warning(
-            "⚠️ BEFORE any app update or if the library looks empty: scroll to **Database Backup & Restore** "
-            "and click **Download Current Database**. That file holds titles, keywords, WO jobs, and stories. "
-            "R2 alone does not keep your titles/keywords."
+            "The full database (titles, keywords, users, WO jobs, chats) now auto-saves to R2. "
+            "If Streamlit wipes the local file, TechTrack restores the last good copy on boot. "
+            "You can still download a copy under **Database Backup & Restore**."
         )
         doc_count = session.query(Document).count()
         st.info(f"Library right now: **{doc_count}** document record(s) in the database.")
@@ -2190,7 +2433,23 @@ if is_manager and tab_mgr is not None:
                 )
 
         with st.expander("💾 Database Backup & Restore", expanded=True):
-            st.warning("Streamlit Cloud resets data on restart. Download backups regularly.")
+            last_ok = st.session_state.get("_db_backup_ok")
+            last_n = st.session_state.get("_db_backup_docs")
+            if st.session_state.get("_db_restored_from_r2"):
+                st.success(
+                    f"Restored library from cloud backup "
+                    f"({st.session_state.get('_db_restored_docs') or '?'} documents)."
+                )
+            if last_ok:
+                st.info(f"Last automatic cloud save: **{last_ok}** · {last_n or '?'} documents")
+            else:
+                st.caption("Automatic cloud save runs after real library / job / chat changes.")
+            if st.button("Save to cloud now", type="primary", key="force_r2_db"):
+                ok, note = maybe_backup_db_to_r2(force=True)
+                if ok:
+                    st.success(note)
+                else:
+                    st.warning(note)
             c1, c2 = st.columns(2)
             with c1:
                 if Path(DB_PATH).exists():
@@ -2218,4 +2477,5 @@ if is_manager and tab_mgr is not None:
                 u = session.query(User).get(cert.user_id)
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
-st.sidebar.caption("v4.7.4 • Tacoma RV Center • Ask TechTrack chat • Per-step source cites • OEM order • Source viewer • Groq")
+maybe_backup_db_to_r2(force=False)
+st.sidebar.caption("v4.7.5 • Tacoma RV Center • Auto DB backup • Ask TechTrack saved 30 days • Groq")
