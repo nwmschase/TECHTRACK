@@ -2107,7 +2107,7 @@ if is_manager and tab_mgr is not None:
                     st.write(f"**{len(keys)}** file(s) · **{len(unlinked)}** not in library · **{linked_n}** already linked")
                     cats = session.query(Category).order_by(Category.name).all()
                     techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
-                    show = unlinked[:40]
+                    show = unlinked[:300]
                     for i, key in enumerate(show):
                         with st.container(border=True):
                             st.caption(key)
@@ -2166,7 +2166,7 @@ if is_manager and tab_mgr is not None:
                             else:
                                 st.caption("Unknown folder — open documents/ certificates/ or safety/ for guided linking.")
                     if len(unlinked) > 40:
-                        st.info(f"Showing first 40 of {len(unlinked)} unlinked files. Link some, then list again.")
+                        st.info(f"Showing first 300 of {len(unlinked)} unlinked files. Link some, then list again.")
                     if not unlinked:
                         st.success("All listed files are already linked in the database.")
 
