@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.7.7
+RV TechTrack v4.7.8
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -17,6 +17,7 @@ RV TechTrack v4.7.7
 - Auto SQLite backup/restore to R2 (survives Streamlit wipes)
 - Guided Diagnostics chats saved 30 days
 - Write warranty story remounts the copy box and uses latest tech status
+- Guided Diagnostics refuses wrong-brand manuals; TSB / Recall searched with the system category
 - Mobile-friendly
 """
 import streamlit as st
@@ -1016,12 +1017,44 @@ def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) 
     return score
 
 
+SHOP_BRANDS = (
+    "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
+    "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
+    "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
+    "intelli-power", "pd", "on-an", "onan", "generac", "winegard",
+)
+
+
+def named_brands(*texts: str) -> list:
+    blob = " ".join(t or "" for t in texts).lower()
+    found = [b for b in SHOP_BRANDS if b in blob]
+    # PD alone is too noisy unless Progressive is also there
+    if "pd" in found and "progressive" not in blob and "intelli" not in blob:
+        found = [b for b in found if b != "pd"]
+    return found
+
+
+def chunk_brands(ch) -> list:
+    return named_brands(ch.title or "", ch.keywords or "")
+
+
 def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 14):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages."""
     q = session.query(DocChunk)
     if category_id:
-        q = q.filter(DocChunk.category_id == category_id)
+        cat_ids = [category_id]
+        tsb = session.query(Category).filter(Category.name == "TSB / Recall").first()
+        if tsb and tsb.id not in cat_ids:
+            cat_ids.append(tsb.id)
+        q = q.filter(DocChunk.category_id.in_(cat_ids))
     all_chunks = q.all()
+    asked = named_brands(model_text or "", symptom or "")
+    if asked:
+        branded = [ch for ch in all_chunks if any(b in chunk_brands(ch) for b in asked)]
+        if branded:
+            all_chunks = branded
+        else:
+            return []
     if not all_chunks:
         return []
 
@@ -1169,9 +1202,18 @@ def load_job_sources(job: DiagnosticJob) -> list:
 def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple:
     """Returns (plan_text, sources_text, sources_json)."""
     if not chunks:
+        asked = named_brands(model_text or "", symptom or "")
+        brand_line = ""
+        if asked:
+            brand_line = (
+                f"- Named brand/model: {', '.join(asked)}. Nothing in the library "
+                "for that brand in this category.\n"
+                "- Do not use another brand's voltages, ohms, or pin names.\n"
+            )
         msg = (
             "No matching manual text was found in TechTrack.\n\n"
-            "- Check category selection\n"
+            + brand_line
+            + "- Check category selection\n"
             "- Try different keywords / model number\n"
             "- Ask a manager to upload/index the service manual\n"
             "- Scanned PDFs with no text cannot be searched until OCR is added"
@@ -1249,7 +1291,9 @@ CRITICAL RULES:
    - If two pages apply, list both on that step: page 11, page 12.
    - Do NOT leave any step without a 📖 Source line.
 9. After all steps, add a short SOURCES list (optional recap). The inline citations are the primary requirement.
-10. Plain shop language. Do not invent OEM procedures not in the excerpts."""
+10. Plain shop language. Do not invent OEM procedures not in the excerpts.
+11. BRAND LOCK: If the tech named a brand or model (Furrion, Norcold N641, etc.) and the excerpts are a DIFFERENT brand, do NOT use those excerpts as the procedure. Say the library does not have that brand's service manual and ask only what they can see (blower run, spark, lockout, check light). No borrowed voltages, ohms, pin names, or step order from the other brand.
+12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω — confirm on the RM2662 page before using it")."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
@@ -1926,7 +1970,7 @@ with tab_ask:
     st.subheader("💬 Guided Diagnostics")
     st.caption(
         "Chat diagnose with your uploaded manuals. Guided Diagnostics asks 1–2 questions or gives "
-        "1–2 tests at a time. Write warranty story only records what you actually tested. "
+        "1–2 tests at a time. Write warranty story uses the chat plus any unsent text still in the box. Only records what you actually tested. "
         "If the job is still open it writes a handoff log, not a fake repair."
     )
 
@@ -2036,8 +2080,22 @@ with tab_ask:
         st.rerun()
 
     if write_story:
+        draft = (st.session_state.get("ask_input") or "").strip()
+        if draft:
+            history = list(history)
+            history.append({"role": "user", "content": draft})
+            st.session_state["ask_chat"] = history
+            st.session_state["ask_chat_id"] = persist_ask_turn(
+                user["id"],
+                st.session_state.get("ask_chat_id"),
+                category_name,
+                ask_model or "",
+                draft,
+                "(notes recorded for warranty story)",
+            )
+            st.session_state["ask_reset_input"] = True
         if not history:
-            st.warning("Chat is empty. Diagnose first, then write the story.")
+            st.warning("Chat is empty. Type the notes or send a message first, then write the story.")
         else:
             with st.spinner("Writing shop notes from what you actually recorded…"):
                 story = ask_chat_to_warranty_story(history, category_name, ask_model or "")
@@ -2573,4 +2631,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.7.7 • Tacoma RV Center • Guided Diagnostics • Honest warranty notes • Auto DB backup")
+st.sidebar.caption("v4.7.8 • Tacoma RV Center • Guided Diagnostics • No wrong-brand steps • Auto DB backup")
