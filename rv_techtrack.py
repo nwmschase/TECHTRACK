@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.7.8
+RV TechTrack v4.7.9
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -8,8 +8,8 @@ RV TechTrack v4.7.8
 - Source page viewer (dropdown + Show page + excerpts)
 - Safety / Compliance + Meeting Acknowledgements
 - Team Overview (Certificates + Safety Progress)
-- AI Tech Story Improver (Groq) — standalone + end-of-job
-- Guided Diagnostics chat (manuals + Groq)
+- AI Tech Story Improver (xAI Grok, Groq fallback) — standalone + end-of-job
+- Guided Diagnostics chat (manuals + Grok/Groq)
 - Tacoma RV Center shop branding (logo + colors)
 - Permanent file storage via Cloudflare R2
 - R2 re-link (recover library without re-upload)
@@ -18,6 +18,7 @@ RV TechTrack v4.7.8
 - Guided Diagnostics chats saved 30 days
 - Write warranty story remounts the copy box and uses latest tech status
 - Guided Diagnostics refuses wrong-brand manuals; TSB / Recall searched with the system category
+- Warranty stories include every recorded reading without inventing tests
 - Mobile-friendly
 """
 import streamlit as st
@@ -40,6 +41,12 @@ try:
     GROQ_AVAILABLE = True
 except ImportError:
     GROQ_AVAILABLE = False
+
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 try:
     import boto3
@@ -635,6 +642,56 @@ def get_safety_progress(user_id: int) -> float:
     )
     return round(100.0 * signed / meetings, 1)
 
+# ---------------- AI CLIENT (xAI Grok preferred, Groq fallback) ----------------
+def _secret(name: str):
+    """Read a Streamlit secret, then an env var."""
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass
+    return os.environ.get(name)
+
+
+def ai_available() -> bool:
+    return bool(_secret("XAI_API_KEY") or (GROQ_AVAILABLE and _secret("GROQ_API_KEY")))
+
+
+def ai_chat(messages, temperature=0.2, max_tokens=1400) -> str:
+    """One chat completion. Prefer xAI Grok; fall back to Groq. Retrieval/RAG is unchanged."""
+    errors = []
+    xai_key = _secret("XAI_API_KEY")
+    if xai_key and OPENAI_AVAILABLE:
+        try:
+            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
+            model = _secret("XAI_MODEL") or "grok-4.6"
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            errors.append(f"xAI: {e}")
+    groq_key = _secret("GROQ_API_KEY")
+    if GROQ_AVAILABLE and groq_key:
+        try:
+            client = Groq(api_key=groq_key)
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            errors.append(f"Groq: {e}")
+    if errors:
+        raise RuntimeError(" | ".join(errors))
+    raise RuntimeError("No AI key configured. Add XAI_API_KEY (preferred) or GROQ_API_KEY in Streamlit secrets.")
+
+
 # ---------------- AI STORY ----------------
 def _notes_say_incomplete(text: str) -> bool:
     """True only if the latest status language is still open.
@@ -673,7 +730,7 @@ def improve_tech_story(concern: str, tech_notes: str, status_text=None) -> str:
     incomplete = _notes_say_incomplete(
         status_text if status_text is not None else tech_notes
     )
-    if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
+    if not ai_available():
         if incomplete:
             return (
                 f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis.'}\n\n"
@@ -688,35 +745,44 @@ def improve_tech_story(concern: str, tech_notes: str, status_text=None) -> str:
             "**CORRECTION**\nOnly repairs the technician recorded. If none were recorded, none were performed."
         )
     try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        system_prompt = """You write shop documentation for RV warranty claims (Lippert, Dometic, etc.).
+        system_prompt = """You write shop documentation for RV warranty claims (Lippert, Dometic, Furrion, etc.).
 
-HARD RULES — violating any of these is a failed write-up:
+HARD RULES — facts (violating any of these is a failed write-up):
 1. Use ONLY facts the TECHNICIAN recorded as already done or measured. Coach/AI recommended tests are NOT performed work unless the tech later said they did that exact test and reported a result.
 2. NEVER invent voltages, ohm readings, parts, corrosion, failed fuses, connector damage, reset buttons pressed, photos taken, or a completed repair.
 3. NEVER write that the unit was repaired, corrected, restored, returned to service, or fully functional unless the tech explicitly said the repair was done and the unit works.
 4. Decide OPEN vs complete from the LATEST technician status. An earlier "no repair yet" / "need warranty story" / handoff does NOT override a later recorded repair (replaced / job complete / compressor ran). Only if the latest status is still open: do NOT write a completed CAUSE or CORRECTION. Write a handoff log instead.
 5. Do not turn "I will press the Write warranty story button" into a controller reset or any shop-floor button press.
-6. You may lightly clean up grammar. You may NOT add diagnostic reasoning that was not recorded.
-7. Short sentences. Plain English. No fluff.
+6. You may clean up grammar. You may NOT add tests, parts, or steps that were not recorded.
+
+HARD RULES — writing quality (a thin checklist that drops readings is also a failed write-up):
+7. Include EVERY recorded test, location, and reading. If the tech wrote 13.8 V at the converter, 13.5 V at the controller, 12.8 V at the display, a 1.0 V drop, or continuity — those numbers MUST appear. Do not collapse several measurements into "voltage checked OK."
+8. After each reading, add one short interpretation grounded only in that number and what the tech said it meant. Example: "13.8 V at the converter is supply/charging voltage; a 1.0 V drop to the display is more than a healthy short run of wire usually shows." Do not invent a spec chart the tech did not record.
+9. Write chronological shop paragraphs, not a one-line bullet dump. Short paragraphs are fine. Sentence fragments that drop the numbers are not.
+10. Cite a manual only if the tech or the notes already named that source. Do not invent page numbers.
+11. Professional warranty tone. No fluff, no first-person diary, no "I then proceeded to."
 
 IF THE JOB IS OPEN / NOT REPAIRED, use EXACTLY this structure:
 CONCERN
-(Restate the customer symptom. Do not add unstated details.)
+(Restate the customer symptom in one or two complete sentences. Do not add unstated details.)
 
 TESTING PERFORMED
-(Bullet only tests, readings, and observations the tech recorded. Include exact numbers they gave. Omit recommended-but-not-done checks.)
+(Full paragraphs covering every recorded test and reading, in the order they were done, with the interpretation rule above. Do not omit a number.)
 
 STATUS
 Open. No repair completed.
-Next tech: [one or two lines on where they left off, using only recorded facts].
+Next tech: [where they left off, using only recorded facts].
 
 IF THE JOB IS COMPLETE (tech said they repaired it), use EXACTLY this structure:
 CONCERN
+(Restate the customer symptom.)
+
 CAUSE
 (Only if the tech stated a root cause. Otherwise write: Not confirmed.)
+Include the testing narrative and every recorded reading that supports the cause. Do not invent a cause from a recommended-but-untested theory.
+
 CORRECTION
-(Only the repair steps the tech said they performed. No extra "typical" steps.)
+(Only the repair steps the tech said they performed. No extra typical steps.)
 """
 
         status_line = (
@@ -738,16 +804,14 @@ TECHNICIAN NOTES (tech-reported facts only unless labeled otherwise):
 
 Write the document now."""
 
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
+        return ai_chat(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.1,
-            max_tokens=1200,
+            temperature=0.25,
+            max_tokens=1600,
         )
-        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Error contacting AI: {e}\n\nConcern: {concern}\nNotes: {tech_notes}"
 
@@ -1229,7 +1293,7 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
         )
     context = "\n\n".join(context_parts)
 
-    if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
+    if not ai_available():
         body = [
             "**Guided Diagnostics (AI offline — matching manual excerpts)**",
             "",
@@ -1253,7 +1317,6 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
         return "\n".join(body), sources_text, sources_json
 
     try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
         system_prompt = """You are an expert RV technician coach helping shop techs diagnose and repair units on the floor.
 
 You will receive:
@@ -1293,7 +1356,8 @@ CRITICAL RULES:
 9. After all steps, add a short SOURCES list (optional recap). The inline citations are the primary requirement.
 10. Plain shop language. Do not invent OEM procedures not in the excerpts.
 11. BRAND LOCK: If the tech named a brand or model (Furrion, Norcold N641, etc.) and the excerpts are a DIFFERENT brand, do NOT use those excerpts as the procedure. Say the library does not have that brand's service manual and ask only what they can see (blower run, spark, lockout, check light). No borrowed voltages, ohms, pin names, or step order from the other brand.
-12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω — confirm on the RM2662 page before using it")."""
+12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω — confirm on the RM2662 page before using it").
+13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device."""
 
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
@@ -1312,16 +1376,14 @@ EVERY step must end with:
 📷 Open Source pages dropdown → choose this title + page to view figures.
 Do not put sources only at the bottom. Do not dump the entire chart."""
 
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
+        answer = ai_chat(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.15,
             max_tokens=2400,
         )
-        answer = response.choices[0].message.content.strip()
         if "source" not in answer.lower():
             answer += "\n\n**Sources used**\n" + sources_text
         answer += (
@@ -1349,7 +1411,9 @@ Rules:
 5. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
 6. Plain shop language. Short sentences. No fluff.
 7. After the tech reports a result, interpret it and give the next 1–2 checks.
-8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit."""
+8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
+9. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
+10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -1388,7 +1452,7 @@ def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit
 
 
 def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list) -> str:
-    """One chat turn: optional manual search + Groq coach reply (openai/gpt-oss-120b)."""
+    """One chat turn: optional manual search + Grok/Groq coach reply."""
     user_msg = (user_msg or "").strip()
     if not user_msg:
         return "Type a symptom or question first."
@@ -1418,8 +1482,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "Do not invent OEM page numbers."
         )
 
-    if not GROQ_AVAILABLE or "GROQ_API_KEY" not in st.secrets:
-        fallback = ["AI is offline (Groq not configured). Matching manual excerpts:", ""]
+    if not ai_available():
+        fallback = ["AI is offline (no XAI_API_KEY or GROQ_API_KEY). Matching manual excerpts:", ""]
         if chunks:
             for i, ch in enumerate(chunks[:6], 1):
                 fallback.append(f"**{ch.title}** p.{ch.page}")
@@ -1441,14 +1505,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=messages,
-            temperature=0.2,
-            max_tokens=1400,
-        )
-        return response.choices[0].message.content.strip()
+        return ai_chat(messages, temperature=0.2, max_tokens=1400)
     except Exception as e:
         return f"Error contacting AI: {e}"
 
@@ -2631,4 +2688,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.7.8 • Tacoma RV Center • Guided Diagnostics • No wrong-brand steps • Auto DB backup")
+st.sidebar.caption("v4.7.9 • Tacoma RV Center • Guided Diagnostics • Grok stories include readings • Auto DB backup")
