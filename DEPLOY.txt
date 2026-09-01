@@ -1,0 +1,7 @@
+TechTrack v4.7.9
+
+If the sidebar still says v4.7.8, Streamlit has not pulled the new rv_techtrack.py yet.
+Reboot the app after that file is on main.
+
+Then: Start a NEW Guided Diagnostics chat (do not reopen the old one) and click Write warranty story again.
+Old chats keep the previous saved story and will look unchanged until rewritten on the new code.
