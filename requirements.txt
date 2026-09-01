@@ -1,6 +1,7 @@
 streamlit
 sqlalchemy
 groq
+openai
 boto3
 pypdf
 pymupdf
