@@ -5,3 +5,5 @@ openai
 boto3
 pypdf
 pymupdf
+extra-streamlit-components
+itsdangerous
