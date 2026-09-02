@@ -1,0 +1,11 @@
+TechTrack v4.8.0 login cookie
+
+Add this to Streamlit Cloud → App settings → Secrets:
+
+AUTH_COOKIE_SECRET = "paste-a-long-random-string-here"
+
+Generate one with:
+python -c "import secrets; print(secrets.token_hex(32))"
+
+Do not reuse a password. After the secret is saved, reboot the app.
+Sidebar should read: v4.8.0 • 10-hour login cookie
