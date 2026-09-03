@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.7.9
+RV TechTrack v4.8.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -19,6 +19,7 @@ RV TechTrack v4.7.9
 - Write warranty story remounts the copy box and uses latest tech status
 - Guided Diagnostics refuses wrong-brand manuals; TSB / Recall searched with the system category
 - Warranty stories include every recorded reading without inventing tests
+- Signed login cookie (~10 hours) so a dropped websocket does not force re-login
 - Mobile-friendly
 """
 import streamlit as st
@@ -35,6 +36,18 @@ import io
 import re
 import json
 import time
+
+try:
+    import extra_streamlit_components as stx
+    COOKIE_MGR_AVAILABLE = True
+except ImportError:
+    COOKIE_MGR_AVAILABLE = False
+
+try:
+    from itsdangerous import URLSafeTimedSerializer, BadSignature, BadTimeSignature
+    ITSDANGEROUS_AVAILABLE = True
+except ImportError:
+    ITSDANGEROUS_AVAILABLE = False
 
 try:
     from groq import Groq
@@ -629,6 +642,99 @@ def verify_password(password: str, stored: str) -> bool:
         return hashlib.sha256((salt + password).encode()).hexdigest() == h
     except Exception:
         return False
+
+
+
+AUTH_COOKIE_NAME = "tt_auth"
+AUTH_COOKIE_HOURS = 10
+
+
+def _auth_serializer():
+    secret = _secret("AUTH_COOKIE_SECRET")
+    if not secret or not ITSDANGEROUS_AVAILABLE:
+        return None
+    return URLSafeTimedSerializer(str(secret), salt="techtrack-auth-v1")
+
+
+def _issue_auth_token(user_row) -> str:
+    ser = _auth_serializer()
+    if not ser:
+        return ""
+    return ser.dumps({
+        "id": int(user_row.id),
+        "username": user_row.username,
+        "role": user_row.role,
+    })
+
+
+def _load_auth_token(token: str):
+    ser = _auth_serializer()
+    if not ser or not token:
+        return None
+    try:
+        data = ser.loads(token, max_age=AUTH_COOKIE_HOURS * 3600)
+    except (BadSignature, BadTimeSignature, Exception):
+        return None
+    if not isinstance(data, dict) or "id" not in data or "username" not in data:
+        return None
+    row = session.query(User).filter_by(id=int(data["id"]), is_active=True).first()
+    if not row or row.username != data.get("username"):
+        return None
+    return {
+        "id": row.id,
+        "username": row.username,
+        "full_name": row.full_name,
+        "role": row.role,
+    }
+
+
+def _cookie_manager():
+    """Instantiate every run with a stable key so the browser component can hydrate."""
+    if not COOKIE_MGR_AVAILABLE:
+        return None
+    try:
+        return stx.CookieManager(key="tt_cookie_mgr")
+    except Exception:
+        return None
+
+
+def _cookie_get(mgr, name: str) -> str:
+    if not mgr:
+        return ""
+    try:
+        # get_all() forces the browser component to send cookies on the next run
+        bag = mgr.get_all() or {}
+        val = bag.get(name) if isinstance(bag, dict) else None
+        if val is None:
+            val = mgr.get(name)
+    except Exception:
+        return ""
+    return val if isinstance(val, str) else ""
+
+
+def _cookie_set_auth(mgr, token: str):
+    if not mgr or not token:
+        return
+    try:
+        mgr.set(
+            AUTH_COOKIE_NAME,
+            token,
+            expires_at=datetime.now() + timedelta(hours=AUTH_COOKIE_HOURS),
+            same_site="lax",
+            secure=True,
+            key="tt_set_auth",
+        )
+    except Exception:
+        pass
+
+
+def _cookie_clear_auth(mgr):
+    if not mgr:
+        return
+    try:
+        mgr.delete(AUTH_COOKIE_NAME, key="tt_del_auth")
+    except Exception:
+        pass
 
 
 def get_safety_progress(user_id: int) -> float:
@@ -1638,6 +1744,15 @@ if "ask_chat" not in st.session_state:
 if "ask_chat_id" not in st.session_state:
     st.session_state["ask_chat_id"] = None
 
+_cookie_mgr = _cookie_manager()
+if st.session_state.user is None:
+    restored = _load_auth_token(_cookie_get(_cookie_mgr, AUTH_COOKIE_NAME))
+    if restored:
+        st.session_state.user = restored
+        row = session.query(User).get(restored["id"])
+        if row:
+            _cookie_set_auth(_cookie_mgr, _issue_auth_token(row))
+
 if st.session_state.user is None:
     _lc, login_col, _rc = st.columns([1, 1.5, 1])
     with login_col:
@@ -1665,9 +1780,15 @@ if st.session_state.user is None:
                         "full_name": user.full_name,
                         "role": user.role,
                     }
+                    _cookie_set_auth(_cookie_mgr, _issue_auth_token(user))
                     st.rerun()
                 else:
                     st.error("Invalid username or password")
+        if not _auth_serializer() or not COOKIE_MGR_AVAILABLE:
+            st.caption(
+                "Stay-signed-in is off until AUTH_COOKIE_SECRET is in Streamlit secrets "
+                "and extra-streamlit-components is installed."
+            )
     st.stop()
 
 user = st.session_state.user
@@ -1686,6 +1807,7 @@ with hdr_r:
     )
     st.caption(f"Signed in as **{user['full_name']}** ({user['role']}) · Tacoma RV Center · Service")
 if st.sidebar.button("Log out"):
+    _cookie_clear_auth(_cookie_mgr)
     st.session_state.user = None
     st.session_state.active_job_id = None
     st.session_state["ask_chat"] = []
@@ -2739,4 +2861,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.7.9 • Tacoma RV Center • Guided Diagnostics • Grok stories include readings • Auto DB backup")
+st.sidebar.caption("v4.8.0 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
