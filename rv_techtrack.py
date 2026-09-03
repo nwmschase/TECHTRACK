@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.0
+RV TechTrack v4.8.1
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -20,6 +20,7 @@ RV TechTrack v4.8.0
 - Guided Diagnostics refuses wrong-brand manuals; TSB / Recall searched with the system category
 - Warranty stories include every recorded reading without inventing tests
 - Signed login cookie (~10 hours) so a dropped websocket does not force re-login
+- Layout fills the screen (no 1200px cap)
 - Mobile-friendly
 """
 import streamlit as st
@@ -147,10 +148,15 @@ st.markdown("""
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 10px;
     }
-    .block-container {
+    .block-container,
+    [data-testid="stMainBlockContainer"],
+    [data-testid="stAppViewContainer"] > .main,
+    section.main > div {
         padding-top: 2.4rem !important;
-        padding-bottom: 1.5rem;
-        max-width: 1200px;
+        padding-bottom: 1.5rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
+        max-width: 100% !important;
     }
     div[data-testid="stHorizontalBlock"] {
         margin-top: 0.55rem;
@@ -2861,4 +2867,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.0 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.8.1 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
