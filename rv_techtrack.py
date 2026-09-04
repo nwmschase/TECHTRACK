@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.1
+RV TechTrack v4.8.2
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -21,6 +21,8 @@ RV TechTrack v4.8.1
 - Warranty stories include every recorded reading without inventing tests
 - Signed login cookie (~10 hours) so a dropped websocket does not force re-login
 - Layout fills the screen (no 1200px cap)
+- v4.8.2: harden Streamlit CSS so side gutters stay dead on Streamlit Cloud
+- v4.8.2: Unity / OneControl CAN multiplex gate + OEM test order + Electrical cross-search
 - Mobile-friendly
 """
 import streamlit as st
@@ -148,14 +150,26 @@ st.markdown("""
     div[data-testid="stVerticalBlockBorderWrapper"] {
         border-radius: 10px;
     }
+    /* v4.8.2 — kill Streamlit side gutters / 730–1200px content box */
+    html, body, [data-testid="stAppViewContainer"],
+    [data-testid="stAppViewContainer"] > .main,
+    .stApp, section.main {
+        max-width: 100% !important;
+    }
     .block-container,
     [data-testid="stMainBlockContainer"],
-    [data-testid="stAppViewContainer"] > .main,
-    section.main > div {
+    [data-testid="stAppViewContainer"] > .main > .block-container,
+    section.main > div.block-container,
+    .main .block-container {
+        max-width: none !important;
+        width: 100% !important;
         padding-top: 2.4rem !important;
         padding-bottom: 1.5rem !important;
         padding-left: 1.25rem !important;
         padding-right: 1.25rem !important;
+    }
+    [data-testid="stSidebar"] ~ section.main,
+    [data-testid="stAppViewContainer"] section.main {
         max-width: 100% !important;
     }
     div[data-testid="stHorizontalBlock"] {
@@ -1216,7 +1230,7 @@ def chunk_brands(ch) -> list:
     return named_brands(ch.title or "", ch.keywords or "")
 
 
-def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 14):
+def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 14, unity_context: bool = False):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages."""
     q = session.query(DocChunk)
     if category_id:
@@ -1224,7 +1238,20 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
         tsb = session.query(Category).filter(Category.name == "TSB / Recall").first()
         if tsb and tsb.id not in cat_ids:
             cat_ids.append(tsb.id)
+        if unity_context:
+            for extra_name in ("Electrical", "Reference", "ID & Reference"):
+                extra = session.query(Category).filter(Category.name == extra_name).first()
+                if extra and extra.id not in cat_ids:
+                    cat_ids.append(extra.id)
         q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif unity_context:
+        cat_ids = []
+        for extra_name in ("Electrical", "Reference", "ID & Reference"):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
     all_chunks = q.all()
     asked = named_brands(model_text or "", symptom or "")
     if asked:
@@ -1384,7 +1411,7 @@ def load_job_sources(job: DiagnosticJob) -> list:
         return []
 
 
-def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks) -> tuple:
+def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks, unity_gate: str = "") -> tuple:
     """Returns (plan_text, sources_text, sources_json)."""
     if not chunks:
         asked = named_brands(model_text or "", symptom or "")
@@ -1486,13 +1513,16 @@ CRITICAL RULES:
 10. Plain shop language. Do not invent OEM procedures not in the excerpts.
 11. BRAND LOCK: If the tech named a brand or model (Furrion, Norcold N641, etc.) and the excerpts are a DIFFERENT brand, do NOT use those excerpts as the procedure. Say the library does not have that brand's service manual and ask only what they can see (blower run, spark, lockout, check light). No borrowed voltages, ohms, pin names, or step order from the other brand.
 12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω — confirm on the RM2662 page before using it").
-13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device."""
+13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
+14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt."""
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
+        unity_rule = UNITY_OEM_ORDER if is_unity_context(category_name, model_text, symptom, unity_gate) else ""
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 {furnace_rule}
+{unity_rule}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
 Each excerpt header has Manual + Page — copy those into every step's 📖 Source line:
@@ -1556,6 +1586,65 @@ When the concern is fan runs / no light / no heat / airflow or 1-flash limit fau
 """
 
 
+def is_unity_context(category_name: str = "", model_text: str = "", symptom: str = "", unity_gate: str = "") -> bool:
+    """True when this coach has or may have a Lippert OneControl / Unity multiplex board."""
+    gate = (unity_gate or "").strip()
+    if gate == "No":
+        return False
+    if gate in ("Yes", "Not sure"):
+        return True
+    cat = (category_name or "").lower()
+    if "electrical" in cat:
+        return True
+    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
+    markers = (
+        "unity", "onecontrol", "one control", "x270", "x270d", "multiplex",
+        "can bus", "can-bus", "can network",
+    )
+    if any(m in blob for m in markers):
+        return True
+    smell = (
+        "relay click", "touch panel", "onecontrol", "latching",
+        "water pump", "generator start", "from panel",
+    )
+    load = any(w in blob for w in ("awning", "slide", "retract", "extend"))
+    intermittent = any(w in blob for w in ("intermittent", "dropout", "drop out", "sometimes", "in and out"))
+    if load and (intermittent or any(s in blob for s in smell)):
+        return True
+    if any(s in blob for s in ("latching light", "lights on panel", "water pump on panel", "generator from panel")):
+        return True
+    return False
+
+
+def unity_search_symptom(category_name: str, model_text: str, symptom: str, unity_gate: str = "") -> str:
+    symptom = (symptom or "").strip()
+    if is_unity_context(category_name, model_text, symptom, unity_gate):
+        return (
+            f"{symptom} Unity OneControl X270 BAT1 BAT2 reversing output "
+            "awning slide CAN software fuse"
+        ).strip()
+    return symptom
+
+
+UNITY_OEM_ORDER = """
+UNITY / ONECONTROL BOARD OEM ORDER (only when this coach has or may have a Lippert Unity / OneControl multiplex board — CAN/bus). Skip entirely if the tech confirmed the coach has NO Unity board.
+
+Not every RV has a Unity board. Direct-switch Carefree awnings, standalone slide controllers, etc. stay on their own OEM path.
+
+When Unity / OneControl IS in play:
+1) Confirm command: switch/panel command produces a relay click at the Unity. Click alone does NOT prove the board is good — only that the control/coil side received a command.
+2) BAT1 and BAT2 at the Unity: resting ~12–14 VDC each. Trace feeds to protection and RECORD fuse/breaker sizes as found (do not invent a failure cause from fuse size alone — note for OEM review). X270 / X270D boards are commonly specified with dedicated 30A on EACH battery feed; if mixed sizes are found, document them.
+3) MONEY TEST at the Unity reversing (or latching) output for THIS function (awning, slide, etc.): resting; hold EXTEND; hold RETRACT. Pass ≈ ~12 V with polarity reverse on REV outputs. FAIL / authorize board R&R when BAT supply is solid, relay clicks, and at the Unity pins: no ~12 V, no polarity flip, stuck mid-voltage (~4–5 V), or intermittent spike-then-dropout while commanding.
+4) Same measurement at the motor/load. Good at Unity, bad at motor → harness/connector. Good at motor, no move → motor/mechanical bind.
+5) Optional: brief direct 12 V reverse-polarity at the motor only. Runs both ways → motor OK.
+6) Intermittent catch: when fault is present, retest immediately at Unity pins. Dropout at Unity → board. Cite the shop PRIMARY Unity Board Diagnostic and the coach SPMP pin map from the library (Electrical / Reference). Do not invent connector letters if the SPMP for this coach is not in the excerpts — tell the tech to open the SPMP / silkscreen for that function.
+7) CAN note: some functions (e.g. bed slide on some builds) are CAN-only with no local REV pin on the Unity. If SPMP says CAN-only, diagnose via CAN/module path — do not invent a REV meter point.
+8) Always ask early if unknown: "Does this coach have Lippert OneControl / Unity board (CAN multiplex)?"
+
+HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. Brand lock still applies.
+"""
+
+
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
 ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
 
@@ -1573,7 +1662,8 @@ Rules:
 8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
 9. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
-11. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power."""
+11. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
+12. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?"""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -1588,7 +1678,7 @@ def _ask_chat_transcript(history: list) -> str:
     return "\n\n".join(lines)
 
 
-def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit: int = 8):
+def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit: int = 8, unity_gate: str = ""):
     """Search uploaded manuals when category and/or symptom is known. Returns (chunks, context_text)."""
     category_name = (category_name or "").strip()
     model_text = (model_text or "").strip()
@@ -1599,7 +1689,13 @@ def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit
     if category_name:
         cat_obj = session.query(Category).filter_by(name=category_name).first()
     category_id = cat_obj.id if cat_obj else None
-    chunks = search_manual_chunks(category_id, model_text, symptom, limit=limit)
+    chunks = search_manual_chunks(
+        category_id,
+        model_text,
+        symptom,
+        limit=limit,
+        unity_context=is_unity_context(category_name, model_text, symptom, unity_gate),
+    )
     if not chunks:
         return [], ""
     parts = []
@@ -1611,7 +1707,7 @@ def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit
     return chunks, "\n\n".join(parts)
 
 
-def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list) -> str:
+def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "") -> str:
     """One chat turn: optional manual search + Grok/Groq coach reply."""
     user_msg = (user_msg or "").strip()
     if not user_msg:
@@ -1622,7 +1718,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     )
     search_symptom = f"{prior_user} {user_msg}".strip()
     search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
-    chunks, context = _ask_manual_context(category_name, model_text, search_symptom, limit=8)
+    search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
+    chunks, context = _ask_manual_context(
+        category_name, model_text, search_symptom, limit=8, unity_gate=unity_gate
+    )
 
     system_prompt = ASK_TECHTRACK_SYSTEM
     if category_name:
@@ -1631,6 +1730,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += f"\nModel/system: {model_text}"
     if is_furnace_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
+    if is_unity_context(category_name, model_text, search_symptom, unity_gate):
+        system_prompt += "\n\n" + UNITY_OEM_ORDER
     if context:
         system_prompt += (
             "\n\nMANUAL EXCERPTS from this shop's library "
@@ -1941,6 +2042,12 @@ with tab_jobs:
             nj_wo = st.text_input("Work Order #", key="nj_wo")
             nj_cat = st.selectbox("Category", cat_names, key="nj_cat")
             nj_model = st.text_input("Model / System (optional)", key="nj_model", placeholder="Schwintek, RM2652, Hydro-Sync…")
+            nj_unity = st.selectbox(
+                "Lippert OneControl / Unity board on this coach?",
+                ["Not sure", "Yes", "No"],
+                key="nj_unity_gate",
+                help="Not every unit has one. Yes/Not sure = include Unity board tests + Electrical manuals. No = skip Unity path.",
+            )
             nj_concern = st.text_area(
                 "Customer concern / symptom",
                 key="nj_concern",
@@ -1964,14 +2071,17 @@ with tab_jobs:
                     else:
                         cat_obj = session.query(Category).filter_by(name=nj_cat).first()
                         with st.spinner("Searching manuals and building guided tests..."):
+                            nj_sym = furnace_search_symptom(nj_cat, nj_model, nj_concern)
+                            nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
                             hits = search_manual_chunks(
                                 cat_obj.id if cat_obj else None,
                                 nj_model,
-                                furnace_search_symptom(nj_cat, nj_model, nj_concern),
+                                nj_sym,
                                 limit=16,
+                                unity_context=is_unity_context(nj_cat, nj_model, nj_concern, nj_unity),
                             )
                             plan, sources, sources_json = run_guided_diagnostics(
-                                nj_cat, nj_model, nj_concern, hits
+                                nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
                             )
                         job = DiagnosticJob(
                             wo_number=nj_wo.strip(),
@@ -2141,6 +2251,12 @@ with tab_jobs:
                 key=f"findings_{job.id}",
                 placeholder="Found left Schwintek motor open circuit. Replaced motor, synced system, cycled room 3x OK.",
             )
+            rebuild_unity = st.selectbox(
+                "Lippert OneControl / Unity board on this coach?",
+                ["Not sure", "Yes", "No"],
+                key=f"rebuild_unity_gate_{job.id}",
+                help="Used when rebuilding the test plan. Yes/Not sure includes Unity + Electrical manuals.",
+            )
             b1, b2, b3, b4 = st.columns(4)
             with b1:
                 if st.button("💾 Save progress", key=f"save_{job.id}", use_container_width=True):
@@ -2152,14 +2268,19 @@ with tab_jobs:
                 if st.button("🔄 Rebuild test plan", key=f"rebuild_{job.id}", use_container_width=True):
                     cat_obj = session.query(Category).filter_by(name=job.category_name).first()
                     with st.spinner("Re-searching manuals..."):
+                        rb_sym = furnace_search_symptom(job.category_name, job.model_text or "", job.concern)
+                        rb_sym = unity_search_symptom(job.category_name, job.model_text or "", rb_sym, rebuild_unity)
                         hits = search_manual_chunks(
                             cat_obj.id if cat_obj else None,
                             job.model_text or "",
-                            furnace_search_symptom(job.category_name, job.model_text or "", job.concern),
+                            rb_sym,
                             limit=16,
+                            unity_context=is_unity_context(
+                                job.category_name, job.model_text or "", job.concern, rebuild_unity
+                            ),
                         )
                         plan, sources, sources_json = run_guided_diagnostics(
-                            job.category_name, job.model_text or "", job.concern, hits
+                            job.category_name, job.model_text or "", job.concern, hits, unity_gate=rebuild_unity
                         )
                     job.plan_text = plan
                     job.sources_text = sources
@@ -2252,6 +2373,12 @@ with tab_ask:
             key="ask_model",
             placeholder="RM2652, Schwintek, Hydro-Hot…",
         )
+    unity_gate = st.selectbox(
+        "Lippert OneControl / Unity board on this coach?",
+        ["Not sure", "Yes", "No"],
+        key="ask_unity_gate",
+        help="Not every unit has one. Yes/Not sure = include Unity board tests + Electrical manuals. No = skip Unity path.",
+    )
     category_name = "" if ask_cat == "(any)" else ask_cat
 
     history = st.session_state.get("ask_chat") or []
@@ -2290,7 +2417,7 @@ with tab_ask:
             st.warning("Type a message first.")
         else:
             with st.spinner("Searching manuals and thinking…"):
-                reply = ask_techtrack_reply(msg, category_name, ask_model or "", history)
+                reply = ask_techtrack_reply(msg, category_name, ask_model or "", history, unity_gate=unity_gate)
             history = list(history)
             history.append({"role": "user", "content": msg})
             history.append({"role": "assistant", "content": reply})
@@ -2867,4 +2994,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.1 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.8.2 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
