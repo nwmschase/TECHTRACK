@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.2
+RV TechTrack v4.8.3
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -23,6 +23,7 @@ RV TechTrack v4.8.2
 - Layout fills the screen (no 1200px cap)
 - v4.8.2: harden Streamlit CSS so side gutters stay dead on Streamlit Cloud
 - v4.8.2: Unity / OneControl CAN multiplex gate + OEM test order + Electrical cross-search
+- v4.8.3: collapsed sidebar must not reserve 220px left gap
 - Mobile-friendly
 """
 import streamlit as st
@@ -184,8 +185,33 @@ st.markdown("""
     [data-testid="stTabs"] button[aria-selected="true"] {
         color: #038944 !important;
     }
-    section[data-testid="stSidebar"] {
+    /* v4.8.3 — collapsed sidebar must not reserve flex width */
+    section[data-testid="stSidebar"][aria-expanded="true"] {
         min-width: 220px;
+    }
+    section[data-testid="stSidebar"][aria-expanded="false"] {
+        min-width: 0 !important;
+        width: 0 !important;
+        max-width: 0 !important;
+        flex: 0 0 0px !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        border: none !important;
+        transform: translateX(-100%) !important;
+    }
+    section[data-testid="stSidebar"][aria-expanded="false"] > * {
+        min-width: 0 !important;
+        width: 0 !important;
+        overflow: hidden !important;
+    }
+    [data-testid="stAppViewContainer"] > .main,
+    [data-testid="stMain"],
+    section.main {
+        margin-left: 0 !important;
+        flex: 1 1 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
     }
     h1, h2, h3 {
         color: #01147C;
@@ -2994,4 +3020,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.2 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.8.3 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
