@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.9
+RV TechTrack v4.9.2
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -36,6 +36,9 @@ RV TechTrack v4.8.9
 - v4.8.7: never invent built-in fault/blink LEDs; Furrion FCR flash codes need SM clip-on diagnostic LED (or skip that gate)
 - v4.8.8: figure/page requests lock to the cited manual only - never cross-book Fig./page matches
 - v4.8.9: never emit markdown/fake images; 📖 Source page must match the claim; only R2 renderer shows photos
+- v4.9.0: data-plate photo fills Model/System (camera or upload; uses existing shop AI key)
+- v4.9.1: fix library page miss — Source en-dash cites + page-of-manual + DB title fallback for figures
+- v4.9.2: rebuild Guided Diagnostics page pipeline — detect→parse→resolve Document/page→R2+pymupdf render
 - Mobile-friendly
 """
 import streamlit as st
@@ -51,6 +54,7 @@ import secrets
 import io
 import re
 import json
+import base64
 import time
 
 try:
@@ -856,6 +860,136 @@ def ai_chat(messages, temperature=0.2, max_tokens=1400) -> str:
     raise RuntimeError("No AI key configured. Add XAI_API_KEY (preferred) or GROQ_API_KEY in Streamlit secrets.")
 
 
+def _image_to_data_url(image_bytes: bytes, mime: str = "image/jpeg") -> str:
+    mime = (mime or "image/jpeg").split(";")[0].strip() or "image/jpeg"
+    b64 = base64.b64encode(image_bytes or b"").decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> dict:
+    """Read brand + model from a data-plate photo using the shop's existing AI key (no extra paid OCR service)."""
+    if not image_bytes:
+        return {"ok": False, "error": "No photo provided.", "brand": "", "model": "", "raw": ""}
+    if not ai_available():
+        return {
+            "ok": False,
+            "error": "AI is offline. Add the shop AI key in Streamlit secrets, or type the model by hand.",
+            "brand": "",
+            "model": "",
+            "raw": "",
+        }
+    prompt = (
+        "You are reading an RV appliance data plate / rating label photo for a shop tech. "
+        "Extract the manufacturer BRAND and the MODEL number/string exactly as printed. "
+        "Return ONLY compact JSON with keys brand, model, notes. "
+        "model should be the full model token (example FCR10DCGTA). "
+        "If unreadable, set brand and model to empty strings and explain in notes. "
+        "No markdown fences."
+    )
+    data_url = _image_to_data_url(image_bytes, mime)
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        }
+    ]
+    errors = []
+    raw = ""
+    xai_key = _secret("XAI_API_KEY")
+    if xai_key and OPENAI_AVAILABLE:
+        try:
+            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
+            model = _secret("XAI_MODEL") or "grok-4.6"
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=400,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            errors.append(f"xAI vision: {e}")
+    if not raw:
+        groq_key = _secret("GROQ_API_KEY")
+        if GROQ_AVAILABLE and groq_key:
+            try:
+                # Groq vision model when available; if it fails, surface the error.
+                client = Groq(api_key=groq_key)
+                vision_model = _secret("GROQ_VISION_MODEL") or "meta-llama/llama-4-scout-17b-16e-instruct"
+                response = client.chat.completions.create(
+                    model=vision_model,
+                    messages=messages,
+                    temperature=0.0,
+                    max_tokens=400,
+                )
+                raw = (response.choices[0].message.content or "").strip()
+            except Exception as e:
+                errors.append(f"Groq vision: {e}")
+    if not raw:
+        return {
+            "ok": False,
+            "error": " | ".join(errors) if errors else "Could not read the plate photo.",
+            "brand": "",
+            "model": "",
+            "raw": "",
+        }
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    brand = ""
+    model_out = ""
+    try:
+        data = json.loads(cleaned)
+        brand = str(data.get("brand") or "").strip()
+        model_out = str(data.get("model") or "").strip()
+    except Exception:
+        # Fallback: pull a model-looking token
+        m = re.search(r"model[\"'\s:]+([A-Za-z0-9][A-Za-z0-9\-]{3,})", cleaned, re.I)
+        if m:
+            model_out = m.group(1).strip()
+        b = re.search(r"brand[\"'\s:]+([A-Za-z][A-Za-z0-9 \-]{1,40})", cleaned, re.I)
+        if b:
+            brand = b.group(1).strip().strip(',"\'')
+    if not model_out and not brand:
+        return {
+            "ok": False,
+            "error": "Could not read a model from that photo. Try a sharper shot of the plate, or type it.",
+            "brand": "",
+            "model": "",
+            "raw": raw[:500],
+        }
+    return {"ok": True, "error": "", "brand": brand, "model": model_out, "raw": raw[:500]}
+
+
+def apply_plate_read_to_model_key(model_key: str, image_file, button_key: str):
+    """Shared UI: read plate photo into a Streamlit text_input key."""
+    if image_file is None:
+        return
+    if not st.button("Read plate into Model", type="secondary", key=button_key):
+        return
+    raw = image_file.getvalue() if hasattr(image_file, "getvalue") else image_file
+    mime = getattr(image_file, "type", None) or "image/jpeg"
+    with st.spinner("Reading data plate…"):
+        result = read_data_plate_from_image(raw, mime)
+    if not result.get("ok"):
+        st.warning(result.get("error") or "Could not read plate.")
+        return
+    brand = (result.get("brand") or "").strip()
+    model = (result.get("model") or "").strip()
+    filled = model
+    if brand and model and brand.lower() not in model.lower():
+        filled = f"{brand} {model}".strip()
+    elif brand and not model:
+        filled = brand
+    st.session_state[model_key] = filled
+    st.success(f"Model set to: {filled}")
+    st.rerun()
+
+
 # ---------------- AI STORY ----------------
 def _notes_say_incomplete(text: str) -> bool:
     """True only if the latest status language is still open.
@@ -1521,23 +1655,47 @@ def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
 
 
 CITED_PAGE_RE = re.compile(
-    r"(?:📖\s*)?Source:\s*(.+?)\s*[-\--]+\s*page\s*(\d+)",
+    r"(?:📖\s*)?Source:\s*(.+?)\s*[-–—―]+\s*page\s*(\d+)",
+    re.I,
+)
+
+PAGE_OF_MANUAL_RE = re.compile(
+    r"\bpage\s*(\d+)\s+of\s+(?:the\s+)?(.+?)(?=\s*\(|\s*$|\.|\n)",
+    re.I,
+)
+
+EXPLICIT_PAGE_RE = re.compile(r"\bpage\s*(\d+)\b", re.I)
+
+FIGURE_REQ_RE = re.compile(
+    r"\b(?:fig(?:ure)?\.?|illustration)\s*([0-9]+[a-z]?)\b",
     re.I,
 )
 
 
 def parse_cited_pages_from_text(assistant_text: str) -> list:
-    """Pull manual title + page from coach 📖 Source lines."""
+    """Pull manual title + page from coach 📖 Source lines and 'page N of TITLE' phrases."""
     out = []
     seen = set()
-    for m in CITED_PAGE_RE.finditer(assistant_text or ""):
-        title = (m.group(1) or "").strip().strip("*").strip()
-        page = int(m.group(2))
+
+    def _add(title, page):
+        title = (title or "").strip().strip("*").strip().rstrip(".,;:")
+        title = re.sub(r"\s*\([^)]*$", "", title).strip()
+        try:
+            page = int(page)
+        except Exception:
+            return
+        if not title or not page:
+            return
         key = (title.lower(), page)
         if key in seen:
-            continue
+            return
         seen.add(key)
         out.append({"title": title, "page": page})
+
+    for m in CITED_PAGE_RE.finditer(assistant_text or ""):
+        _add(m.group(1), m.group(2))
+    for m in PAGE_OF_MANUAL_RE.finditer(assistant_text or ""):
+        _add(m.group(2), m.group(1))
     return out
 
 
@@ -1552,6 +1710,7 @@ def strip_fake_markdown_images(text: str) -> str:
 
 
 def wants_library_figures(text: str) -> bool:
+    """Detect that the tech wants a shop-library illustration / figure / page shown."""
     t = (text or "").lower()
     keys = (
         "illustration", "illustrations", "figure", "fig.", " fig ",
@@ -1560,6 +1719,8 @@ def wants_library_figures(text: str) -> bool:
         "show the illustration", "associated illustrations", "associated illustration",
         "source page", "that page", "this page", "show me fig",
         "picture of", "pictures", "photo of", "pcb layout",
+        "where are they", "where they are", "where is it", "where it is",
+        "show me where", "show where", "label the", "labeled",
     )
     return any(k in t for k in keys)
 
@@ -1572,7 +1733,6 @@ def _titles_compatible(cited_title: str, source_title: str) -> bool:
         return False
     if ct == stitle or ct in stitle or stitle in ct:
         return True
-    # token overlap on brand/model-ish words (len>3)
     ct_toks = {t for t in re.findall(r"[a-z0-9]+", ct) if len(t) > 3}
     st_toks = {t for t in re.findall(r"[a-z0-9]+", stitle) if len(t) > 3}
     if not ct_toks or not st_toks:
@@ -1582,9 +1742,7 @@ def _titles_compatible(cited_title: str, source_title: str) -> bool:
 
 def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -> list:
     """Map 📖 Source title/page cites onto the silent ledger. Title-locked. Never cross-book page matches."""
-    if not sources:
-        return []
-    if not cited:
+    if not sources or not cited:
         return []
     matched = []
     used = set()
@@ -1595,7 +1753,6 @@ def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -
         except Exception:
             cp = 0
         pick = None
-        # 1) Same page + compatible title
         if cp:
             for i, s in enumerate(sources):
                 if i in used:
@@ -1607,7 +1764,6 @@ def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -
                 if sp == cp and _titles_compatible(ct, s.get("title") or ""):
                     pick = i
                     break
-        # 2) Compatible title, nearest page in that document only
         if pick is None and ct:
             same_doc = []
             for i, s in enumerate(sources):
@@ -1624,13 +1780,13 @@ def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -
                 pick = same_doc[0][0]
             elif same_doc:
                 pick = same_doc[0][0]
-        # 3) HARD: do NOT pick a different book's page just because page numbers match
         if pick is not None:
             used.add(pick)
-            matched.append(sources[pick])
-    if matched:
-        return matched
-    return []
+            row = dict(sources[pick])
+            if cp:
+                row["page"] = cp
+            matched.append(row)
+    return matched
 
 
 def _source_ledger_key(item: dict) -> tuple:
@@ -1717,27 +1873,101 @@ def store_ask_sources(chunks):
 def parse_figure_requests(user_msg: str) -> list:
     """Pull Fig./Figure N requests from the tech message."""
     out = []
-    for m in re.finditer(r"\b(?:fig(?:ure)?\.?|illustration)\s*([0-9]+[a-z]?)\b", user_msg or "", re.I):
-        out.append(m.group(1).upper())
+    seen = set()
+    for m in FIGURE_REQ_RE.finditer(user_msg or ""):
+        tok = m.group(1).upper()
+        if tok not in seen:
+            seen.add(tok)
+            out.append(tok)
     return out
 
 
-def _active_cited_manual_title(assistant_text: str = "") -> str:
-    cited = parse_cited_pages_from_text(assistant_text or "")
+def parse_library_page_targets(user_msg: str, coach_text: str = "", prior_cited: list = None) -> dict:
+    """
+    Parse illustration/page targets from tech msg + coach reply + prior Source lines.
+    Returns figures, explicit/cited pages, and the title-locked manual name.
+    """
+    coach_text = coach_text or ""
+    user_msg = user_msg or ""
+    prior_cited = list(prior_cited or [])
+
+    cited = parse_cited_pages_from_text(coach_text)
+    if not cited:
+        cited = list(prior_cited)
+
+    figures = parse_figure_requests(user_msg)
+
+    # Explicit "page N" in the tech message (title filled later from locked manual)
+    explicit_pages = []
+    for m in EXPLICIT_PAGE_RE.finditer(user_msg):
+        # Skip "page N of TITLE" — those already carry a title via parse_cited_pages_from_text
+        span_end = m.end()
+        tail = user_msg[span_end:span_end + 12].lower()
+        if tail.lstrip().startswith("of "):
+            continue
+        try:
+            explicit_pages.append(int(m.group(1)))
+        except Exception:
+            pass
+
+    # Also accept page-of-title phrases from the tech message
+    for c in parse_cited_pages_from_text(user_msg):
+        if c not in cited:
+            cited.append(c)
+
+    manual_title = ""
     if cited:
-        return (cited[-1].get("title") or "").strip()
-    log = list(st.session_state.get("ask_cited_log") or [])
-    if log:
-        return (log[-1].get("title") or "").strip()
-    return ""
+        manual_title = (cited[-1].get("title") or "").strip()
+    elif prior_cited:
+        manual_title = (prior_cited[-1].get("title") or "").strip()
+
+    return {
+        "figures": figures[:3],
+        "cited": cited,
+        "explicit_pages": explicit_pages[:3],
+        "manual_title": manual_title,
+    }
 
 
-def _ledger_rows_for_manual(title: str, ledger: list) -> list:
-    return [s for s in ledger if _titles_compatible(title, s.get("title") or "")]
+def resolve_document_by_title(title: str):
+    """
+    Resolve a Document row by title compatibility.
+    Returns a page-ref seed with document_id + file_path, or None.
+    Never cross-book: caller must pass the cited manual title.
+    """
+    title = (title or "").strip()
+    if not title:
+        return None
+    try:
+        docs = session.query(Document).all()
+    except Exception:
+        return None
+    best = None
+    best_score = 0
+    for d in docs:
+        dt = d.title or ""
+        if not _titles_compatible(title, dt):
+            continue
+        ct_toks = {t for t in re.findall(r"[a-z0-9]+", title.lower()) if len(t) > 3}
+        st_toks = {t for t in re.findall(r"[a-z0-9]+", dt.lower()) if len(t) > 3}
+        score = len(ct_toks & st_toks)
+        if title.lower() in dt.lower() or dt.lower() in title.lower():
+            score += 5
+        if score > best_score and d.file_path:
+            best_score = score
+            best = {
+                "document_id": d.id,
+                "title": d.title,
+                "page": 1,
+                "file_path": d.file_path,
+                "file_type": d.file_type or "pdf",
+                "excerpt": "",
+            }
+    return best
 
 
-def _find_figure_page_in_document(document_id, figure_token: str) -> int:
-    """Locate Fig. N inside ONE document's indexed chunks. Returns page or 0."""
+def find_figure_page_in_document(document_id, figure_token: str) -> int:
+    """Locate Fig. N inside ONE document's indexed DocChunks. Returns page or 0."""
     if not document_id or not figure_token:
         return 0
     fig = figure_token.lower().lstrip("0") or figure_token.lower()
@@ -1765,81 +1995,85 @@ def _find_figure_page_in_document(document_id, figure_token: str) -> int:
     return 0
 
 
+def _page_ref(seed: dict, page: int, title_fallback: str = "") -> dict:
+    """Build a renderable page dict. Document title + page + file_path is enough."""
+    return {
+        "document_id": seed.get("document_id"),
+        "title": seed.get("title") or title_fallback or "Manual",
+        "page": int(page),
+        "file_path": seed.get("file_path"),
+        "file_type": seed.get("file_type") or "pdf",
+        "excerpt": seed.get("excerpt") or "",
+    }
+
+
 def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> list:
-    """Pages to render only because the tech asked. Locked to the cited manual."""
-    ledger = list(st.session_state.get("ask_sources") or [])
-    cited = parse_cited_pages_from_text(assistant_text or "")
-    active_title = _active_cited_manual_title(assistant_text)
-    figs = parse_figure_requests(user_msg or "")
+    """
+    Clean page pipeline (display path):
+      detect (caller) → parse targets → resolve Document (title-locked) → resolve page → list of page refs.
+    Silent ask_sources ledger is NOT required for display; Document.title + page + file_path is enough.
+    Never cross-book.
+    """
+    prior = list(st.session_state.get("ask_cited_log") or [])
+    targets = parse_library_page_targets(user_msg or "", assistant_text or "", prior_cited=prior)
+    manual_title = (targets.get("manual_title") or "").strip()
+    cited = list(targets.get("cited") or [])
+    figures = list(targets.get("figures") or [])
+    explicit_pages = list(targets.get("explicit_pages") or [])
 
-    # Explicit page N in the tech message -> still title-locked
-    for m in re.finditer(r"\bpage\s*(\d+)\b", user_msg or "", re.I):
-        cited.append({"title": active_title, "page": int(m.group(1))})
-
-    # Figure N -> find that figure inside the cited manual only
-    if figs:
-        doc_rows = _ledger_rows_for_manual(active_title, ledger) if active_title else []
-        # Prefer a row that already has file_path + document_id from the cited book
-        seed = next((s for s in reversed(doc_rows) if s.get("document_id") and s.get("file_path")), None)
-        if seed is None and active_title:
-            # Look up Document by title from DB
-            try:
-                docs = session.query(Document).all()
-                for d in docs:
-                    if _titles_compatible(active_title, d.title or ""):
-                        seed = {
-                            "document_id": d.id,
-                            "title": d.title,
-                            "page": 1,
-                            "file_path": d.file_path,
-                            "file_type": d.file_type or "pdf",
-                            "excerpt": "",
-                        }
-                        break
-            except Exception:
-                seed = None
-        out = []
-        if seed and seed.get("document_id"):
-            for fig in figs[:3]:
-                page = _find_figure_page_in_document(seed.get("document_id"), fig)
-                if not page:
-                    # Fall back to last cited page FROM THIS TITLE only
-                    for c in reversed(cited):
-                        if _titles_compatible(active_title, c.get("title") or ""):
-                            try:
-                                page = int(c.get("page") or 0)
-                            except Exception:
-                                page = 0
-                            break
-                if page:
-                    out.append({
-                        "document_id": seed.get("document_id"),
-                        "title": seed.get("title") or active_title,
-                        "page": page,
-                        "file_path": seed.get("file_path"),
-                        "file_type": seed.get("file_type") or "pdf",
-                        "excerpt": seed.get("excerpt") or "",
-                    })
-        if out:
-            return out[:3]
-        # Could not resolve figure inside cited book - show nothing from other books
+    if not manual_title:
+        # No cited shop manual — refuse to guess across books
         return []
 
-    if not cited:
-        # Last cited pages from THIS chat, still title-aware
-        cited = list(st.session_state.get("ask_cited_log") or [])[-2:]
-        if active_title:
-            for c in cited:
-                if not c.get("title"):
-                    c["title"] = active_title
+    seed = resolve_document_by_title(manual_title)
+    if not seed or not seed.get("file_path"):
+        return []
 
-    matched = match_cited_to_sources(cited, ledger, fallback=False)
-    if matched:
-        # Extra guard: if we know the active title, drop cross-book leftovers
-        if active_title:
-            matched = [s for s in matched if _titles_compatible(active_title, s.get("title") or "")] or matched
-        return matched[:3]
-    return []
+    out = []
+    seen_pages = set()
+
+    def _add_page(page_num: int):
+        try:
+            page_num = int(page_num)
+        except Exception:
+            return
+        if not page_num or page_num in seen_pages:
+            return
+        seen_pages.add(page_num)
+        out.append(_page_ref(seed, page_num, manual_title))
+
+    # 1) Fig./Figure N → search ONLY this document's DocChunks
+    for fig in figures:
+        page = find_figure_page_in_document(seed.get("document_id"), fig)
+        if not page:
+            # Fall back to last cited Source page from this same title
+            for c in reversed(cited):
+                if _titles_compatible(manual_title, c.get("title") or ""):
+                    try:
+                        page = int(c.get("page") or 0)
+                    except Exception:
+                        page = 0
+                    break
+        if page:
+            _add_page(page)
+
+    # 2) Explicit "page N" in the tech message (title-locked to cited manual)
+    for p in explicit_pages:
+        _add_page(p)
+
+    # 3) Cited Source pages / page-of-title (when coach named them)
+    if not out:
+        for c in cited:
+            if not _titles_compatible(manual_title, c.get("title") or manual_title):
+                continue
+            try:
+                p = int(c.get("page") or 0)
+            except Exception:
+                p = 0
+            if p:
+                _add_page(p)
+
+    return out[:3]
 
 
 def render_on_demand_library_pages(pages: list):
@@ -1880,13 +2114,17 @@ def clear_ask_source_state():
     st.session_state["ask_sources"] = []
     st.session_state.pop("ask_sources_json", None)
     st.session_state.pop("ask_auto_show", None)
+    st.session_state.pop("ask_auto_show_failed", None)
     st.session_state.pop("ask_cited_log", None)
 
 
 def render_library_page_image(src: dict, key_suffix: str):
-    """Download a shop-library PDF page from R2 and show it."""
+    """R2 download → pymupdf page → st.image. No markdown image embeds."""
     title = src.get("title") or "Manual"
-    page = int(src.get("page") or 1)
+    try:
+        page = int(src.get("page") or 1)
+    except Exception:
+        page = 1
     fpath = src.get("file_path")
     if not fpath:
         st.caption(f"{title} p.{page} - no storage path on this library record.")
@@ -2645,6 +2883,18 @@ with tab_jobs:
             nj_wo = st.text_input("Work Order #", key="nj_wo")
             nj_cat = st.selectbox("Category", cat_names, key="nj_cat")
             nj_model = st.text_input("Model / System (optional)", key="nj_model", placeholder="Schwintek, RM2652, Hydro-Sync…")
+            with st.expander("📷 Read model from data plate photo", expanded=False):
+                st.caption("Snap or upload the rating plate. Fills Model/System for this job.")
+                nj_cam = st.camera_input("Snap data plate", key="nj_plate_cam")
+                nj_up = st.file_uploader(
+                    "Or upload plate photo",
+                    type=["jpg", "jpeg", "png", "webp"],
+                    key="nj_plate_upload",
+                )
+                nj_img = nj_cam or nj_up
+                if nj_img is not None:
+                    st.image(nj_img, caption="Plate photo", width=280)
+                    apply_plate_read_to_model_key("nj_model", nj_img, "nj_plate_read_btn")
             nj_unity = st.selectbox(
                 "Lippert OneControl / Unity board on this coach?",
                 ["Not sure", "Yes", "No"],
@@ -2989,6 +3239,18 @@ with tab_ask:
             key="ask_model",
             placeholder="RM2652, Schwintek, Hydro-Hot…",
         )
+    with st.expander("📷 Read model from data plate photo", expanded=False):
+        st.caption("Snap or upload the rating plate. TechTrack fills Model/System. Uses the shop AI already on this app.")
+        plate_cam = st.camera_input("Snap data plate", key="ask_plate_cam")
+        plate_up = st.file_uploader(
+            "Or upload plate photo",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="ask_plate_upload",
+        )
+        plate_img = plate_cam or plate_up
+        if plate_img is not None:
+            st.image(plate_img, caption="Plate photo", width=280)
+            apply_plate_read_to_model_key("ask_model", plate_img, "ask_plate_read_btn")
     unity_gate = st.selectbox(
         "Lippert OneControl / Unity board on this coach?",
         ["Not sure", "Yes", "No"],
@@ -3057,15 +3319,14 @@ with tab_ask:
                 reply,
             )
             if wants_library_figures(msg):
-                last_coach = reply or ""
-                for m in reversed(history[:-1] if history else []):
-                    if (m.get("role") or "") == "assistant":
-                        if not parse_cited_pages_from_text(last_coach):
-                            last_coach = m.get("content") or last_coach
-                        break
-                pages = resolve_requested_library_pages(msg, last_coach)
-                if not pages:
-                    pages = resolve_requested_library_pages(msg, reply)
+                # Prefer current reply cites; else fall back to prior coach Source lines
+                coach_for_pages = reply or ""
+                if not parse_cited_pages_from_text(coach_for_pages):
+                    for m in reversed(history[:-1] if history else []):
+                        if (m.get("role") or "") == "assistant":
+                            coach_for_pages = m.get("content") or coach_for_pages
+                            break
+                pages = resolve_requested_library_pages(msg, coach_for_pages)
                 st.session_state["ask_auto_show"] = pages
                 st.session_state["ask_auto_show_failed"] = not bool(pages)
             else:
