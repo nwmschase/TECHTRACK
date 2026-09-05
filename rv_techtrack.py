@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.3
+RV TechTrack v4.8.4
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -24,6 +24,9 @@ RV TechTrack v4.8.3
 - v4.8.2: harden Streamlit CSS so side gutters stay dead on Streamlit Cloud
 - v4.8.2: Unity / OneControl CAN multiplex gate + OEM test order + Electrical cross-search
 - v4.8.3: collapsed sidebar must not reserve 220px left gap
+- v4.8.4: never brand-lock to empty; fridge synonyms + FCR model prefix match
+- v4.8.4: fridge no-power OEM order (accessible fuse before teardown)
+- v4.8.4: warranty story binds vague tech “pass/good” to coach’s last recommended test
 - Mobile-friendly
 """
 import streamlit as st
@@ -913,6 +916,7 @@ HARD RULES — writing quality (a thin checklist that drops readings is also a f
 9. Write chronological shop paragraphs, not a one-line bullet dump. Short paragraphs are fine. Sentence fragments that drop the numbers are not.
 10. Cite a manual only if the tech or the notes already named that source. Do not invent page numbers.
 11. Professional warranty tone. No fluff, no first-person diary, no "I then proceeded to."
+12. PASS-BIND: If the coach recommended a specific test (location + expected threshold/action) and the technician later replied with only a vague pass ("good", "done", "pass", "step 2 good", "voltage good", "completed test"), write a clean professional line bound to THAT exact check. Example: coach said measure at the front-vent fuse / supply and expect ≥11.3 V, tech said "voltage good" → write that voltage was checked at that location and confirmed at/above the stated threshold. Do NOT leave "completed voltage test, it was good." Do NOT invent a numeric reading the tech did not give (do not invent 12.6 V). Using the coach's stated threshold as the pass criterion is allowed when the tech only said good/pass. Do NOT invent pins, parts, or steps the coach never asked for.
 
 IF THE JOB IS OPEN / NOT REPAIRED, use EXACTLY this structure:
 CONCERN
@@ -1085,6 +1089,46 @@ def index_document_from_r2(doc: Document):
 # ---------------- MANUAL SEARCH + INDEX EXPANSION ----------------
 def tokenize(text: str):
     return [t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2]
+
+
+def model_search_terms(model_text: str) -> set:
+    """Expand FCR10DCGTA-BL into fcr10dcgta, fcr10, fcr10dc, etc. Never emit bare 'fcr'."""
+    out = set()
+    raw = (model_text or "").strip().lower()
+    if not raw:
+        return out
+    for chunk in re.split(r"[\s_/]+", raw):
+        for piece in chunk.split("-"):
+            alnum = re.sub(r"[^a-z0-9]", "", piece)
+            if len(alnum) < 4:
+                continue
+            out.add(alnum)
+            m = re.match(r"([a-z]{2,}\d{2,})", alnum)
+            if not m:
+                continue
+            root = m.group(1)
+            out.add(root)
+            for n in range(len(root) + 1, len(alnum)):
+                out.add(alnum[:n])
+    return out
+
+
+def is_fridge_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
+    cat = (category_name or "").lower()
+    if "refriger" in cat:
+        return True
+    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
+    if any(w in blob for w in ("fridge", "reefer", "refrigerator", "fcr0", "fcr1")):
+        return True
+    if "norcold" in blob:
+        return True
+    if "furrion fcr" in blob or re.search(r"\bfcr\d", blob):
+        return True
+    if "dometic rm" in blob or re.search(r"\brm\d{3,}", blob):
+        return True
+    if "12v" in blob and any(w in blob for w in ("fridge", "refrigerator", "reefer")):
+        return True
+    return False
 
 
 PAGE_REF_RE = re.compile(r"page\s*0*(\d+)", re.I)
@@ -1280,24 +1324,48 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
             q = q.filter(DocChunk.category_id.in_(cat_ids))
     all_chunks = q.all()
     asked = named_brands(model_text or "", symptom or "")
+    fridge_job = is_fridge_context("", model_text or "", symptom or "")
+    branded = []
     if asked:
         branded = [ch for ch in all_chunks if any(b in chunk_brands(ch) for b in asked)]
         if branded:
             all_chunks = branded
         else:
-            return []
+            extra_names = ["Refrigerators", "Electrical"] if (fridge_job or category_id) else []
+            have_ids = set()
+            if category_id:
+                have_ids.add(category_id)
+            for extra_name in extra_names:
+                extra = session.query(Category).filter(Category.name == extra_name).first()
+                if extra:
+                    have_ids.add(extra.id)
+            if have_ids:
+                more = session.query(DocChunk).filter(DocChunk.category_id.in_(list(have_ids))).all()
+                seen = {(c.document_id, c.page, (c.chunk_text or "")[:40]) for c in all_chunks}
+                for ch in more:
+                    key = (ch.document_id, ch.page, (ch.chunk_text or "")[:40])
+                    if key not in seen:
+                        all_chunks.append(ch)
+                        seen.add(key)
+            branded = [ch for ch in all_chunks if any(b in chunk_brands(ch) for b in asked)]
+            if branded:
+                all_chunks = branded
     if not all_chunks:
         return []
 
     query_terms = set(tokenize(f"{model_text} {symptom}"))
+    query_terms |= model_search_terms(model_text or "")
     # Light topic boost from symptom only (do NOT dump every OEM topic every time)
     for topic in PROCEDURE_TOPIC_TERMS:
         if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
             query_terms |= set(tokenize(topic))
     # Core path terms for reefer no-cool
-    if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger")):
+    if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
         for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
                   "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
+            query_terms.add(t)
+    if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
+        for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
             query_terms.add(t)
     # Core path terms for RV furnace — sail switch is first-line, even if the tech
     # only typed "won't light" / "fan runs" / Dometic furnace.
@@ -1308,8 +1376,23 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
             query_terms.add(t)
 
     scored = []
+    asked_set = set(asked or [])
     for ch in all_chunks:
         sc = score_chunk(ch, query_terms, model_text or "")
+        title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
+        hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
+        if asked_set and any(b in title_kw for b in asked_set):
+            sc += 6
+        for term in model_search_terms(model_text or ""):
+            if term in title_kw:
+                sc += 8
+            elif term in hay:
+                sc += 3
+        if fridge_job:
+            if any(x in title_kw for x in ("refriger", "fridge", "fcr", "norcold", "12v refrigerator")):
+                sc += 5
+            if any(x in title_kw for x in ("furnace", "rooftop", "chill cube", "air condition")) and "refriger" not in title_kw:
+                sc -= 8
         if sc > 0:
             scored.append((sc, ch))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -1544,11 +1627,13 @@ CRITICAL RULES:
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
         unity_rule = UNITY_OEM_ORDER if is_unity_context(category_name, model_text, symptom, unity_gate) else ""
+        fridge_rule = FRIDGE_OEM_ORDER if is_fridge_context(category_name, model_text, symptom) else ""
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 {furnace_rule}
 {unity_rule}
+{fridge_rule}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
 Each excerpt header has Manual + Page — copy those into every step's 📖 Source line:
@@ -1597,6 +1682,13 @@ def furnace_search_symptom(category_name: str, model_text: str, symptom: str) ->
     return symptom
 
 
+def fridge_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    symptom = (symptom or "").strip()
+    if is_fridge_context(category_name, model_text, symptom):
+        return f"{symptom} refrigerator fridge fuse voltage front vent no power display".strip()
+    return symptom
+
+
 FURNACE_OEM_ORDER = """
 FURNACE OEM ORDER (Dometic / Atwood / Suburban and any RV furnace job) — use this whenever the category is Furnaces OR the item/model/concern is a furnace. Do this almost first. Do not wait for the tech to ask about the sail switch.
 
@@ -1609,6 +1701,17 @@ FURNACE OEM ORDER (Dometic / Atwood / Suburban and any RV furnace job) — use t
 5) Only after the t-stat-bypass + sail/limit path is proven: electrode/igniter, gas pressure/valve, flame sense.
 
 When the concern is fan runs / no light / no heat / airflow or 1-flash limit fault on a Dometic furnace, the FIRST recommended inspections must be thermostat bypass and sail-switch voltage in vs out. Do not skip them because the tech did not type "sail switch".
+"""
+
+
+FRIDGE_OEM_ORDER = """
+FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V residential-style RV fridges) — only when this is a refrigerator job:
+1) Do NOT remove the fridge first.
+2) Check accessible customer/tech fuse first (Furrion FCR08/FCR10: front vent cover, left side of front vent cavity, 15A ATC blade fuse / cartridge — follow the shop SM excerpt). If blown, replace and retest before any teardown.
+3) Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt — say so from the manual).
+4) Display/LED/error flash next if present in excerpts.
+5) Only then harness, inverter/PCB, compressor paths from the manual.
+6) Cite 📖 Source lines from the Furrion/Norcold/Dometic excerpt actually used. Brand lock: do not use a furnace or rooftop AC manual for a fridge.
 """
 
 
@@ -1689,7 +1792,8 @@ Rules:
 9. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 11. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-12. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?"""
+12. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
+13. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -1744,6 +1848,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     )
     search_symptom = f"{prior_user} {user_msg}".strip()
     search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
+    search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
     search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
     chunks, context = _ask_manual_context(
         category_name, model_text, search_symptom, limit=8, unity_gate=unity_gate
@@ -1758,6 +1863,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
     if is_unity_context(category_name, model_text, search_symptom, unity_gate):
         system_prompt += "\n\n" + UNITY_OEM_ORDER
+    if is_fridge_context(category_name, model_text, search_symptom):
+        system_prompt += "\n\n" + FRIDGE_OEM_ORDER
     if context:
         system_prompt += (
             "\n\nMANUAL EXCERPTS from this shop's library "
@@ -1828,7 +1935,8 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
     )
     if coach_lines:
         notes_parts.append(
-            "COACH SUGGESTIONS (recommended only — do NOT treat as performed unless the tech later confirmed the result):\n"
+            "COACH SUGGESTIONS (recommended only — do NOT treat as performed unless the tech later confirmed the result). "
+            "If the tech later said good/pass/done on a recommended check, bind that pass to the coach's exact location and threshold; do not invent a reading:\n"
             + "\n---\n".join(coach_lines[:4])
         )
     # Status from tech lines only so coach "replace the overload" cannot flip OPEN/complete.
@@ -2098,6 +2206,7 @@ with tab_jobs:
                         cat_obj = session.query(Category).filter_by(name=nj_cat).first()
                         with st.spinner("Searching manuals and building guided tests..."):
                             nj_sym = furnace_search_symptom(nj_cat, nj_model, nj_concern)
+                            nj_sym = fridge_search_symptom(nj_cat, nj_model, nj_sym)
                             nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
                             hits = search_manual_chunks(
                                 cat_obj.id if cat_obj else None,
@@ -2295,6 +2404,7 @@ with tab_jobs:
                     cat_obj = session.query(Category).filter_by(name=job.category_name).first()
                     with st.spinner("Re-searching manuals..."):
                         rb_sym = furnace_search_symptom(job.category_name, job.model_text or "", job.concern)
+                        rb_sym = fridge_search_symptom(job.category_name, job.model_text or "", rb_sym)
                         rb_sym = unity_search_symptom(job.category_name, job.model_text or "", rb_sym, rebuild_unity)
                         hits = search_manual_chunks(
                             cat_obj.id if cat_obj else None,
@@ -3020,4 +3130,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.3 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.8.4 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
