@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.9.2
+RV TechTrack v4.10.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -39,6 +39,8 @@ RV TechTrack v4.9.2
 - v4.9.0: data-plate photo fills Model/System (camera or upload; uses existing shop AI key)
 - v4.9.1: fix library page miss — Source en-dash cites + page-of-manual + DB title fallback for figures
 - v4.9.2: rebuild Guided Diagnostics page pipeline — detect→parse→resolve Document/page→R2+pymupdf render
+- v4.10.0: Guided Testing flowchart ENGINE — hard procedure trees; TECH reports, tree edges decide next gate
+- v4.10.0: Furrion FCR CCD-0008122 tree (fuse→dial/battery→paper→operating?/Not Cooling); no invented fan volts after paper
 - Mobile-friendly
 """
 import streamlit as st
@@ -2116,6 +2118,7 @@ def clear_ask_source_state():
     st.session_state.pop("ask_auto_show", None)
     st.session_state.pop("ask_auto_show_failed", None)
     st.session_state.pop("ask_cited_log", None)
+    st.session_state.pop("ask_flow", None)
 
 
 def render_library_page_image(src: dict, key_suffix: str):
@@ -2430,6 +2433,834 @@ HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. B
 """
 
 
+# ---------------- GUIDED FLOW ENGINE (v4.10.0) ----------------
+# Chase's rule: TECH reports results; TechTrack advances ONLY via hard tree edges.
+# Free-text concerns never invent the next test. Prefer node.prompt verbatim.
+
+ASK_FLOWCHART_PAGE_LOCK = (
+    "HARD FLOWCHART PAGE LOCK: You may only prescribe the next test that appears as "
+    "the next decision on the cited excerpt page; never invent adjacent gates from "
+    "other sections. Prefer the hard procedure tree when one exists for this model."
+)
+
+FURRION_FCR_SM_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
+
+# First hard tree: Furrion FCR08/FCR10 / FCR10DCGTA / CCD-0008122
+# Encoded from shop SM: Sec1 Fuse p.19 → Gen TS dial/battery p.12 → Sec3 paper p.33 →
+# operating? diamond → Fan Replacement OR Not Cooling p.34.
+# Fan F+/F- supply volts live on Fan Fault flash-code path (p.27) ONLY — never after paper test.
+PROCEDURE_FURRION_FCR_CCD_0008122 = {
+    "id": "furrion_fcr_ccd_0008122",
+    "title": FURRION_FCR_SM_TITLE,
+    "models": ("fcr08", "fcr10", "fcr10dcgta", "fcr08dcgta", "ccd-0008122", "ccd0008122"),
+    "categories": ("refrigerat", "fridge"),
+    "nodes": {
+        "fuse_front_vent": {
+            "id": "fuse_front_vent",
+            "type": "multi",
+            "prompt": (
+                "DISCONNECT POWER. Pull the front vent cover off the bottom of the refrigerator. "
+                "Locate the fuse in the top left section of the front vent cavity (Fig. 7A) — "
+                "15A ATC blade / cartridge. Visually check the fuse, confirm with continuity, "
+                "check fitment in the holder, replace if blown, then reapply power.\n\n"
+                "Report fuse result: blown / replaced / good."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 19,
+            "edges": {
+                "blown": "cavity_light_after_fuse",
+                "replaced": "cavity_light_after_fuse",
+                "good": "cavity_light_check",
+            },
+        },
+        "cavity_light_check": {
+            "id": "cavity_light_check",
+            "type": "binary",
+            "prompt": (
+                "Open the door. Does the refrigerator cavity light come on?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 19,
+            "edges": {
+                "yes": "dial_on_4_5",
+                "no": "fuse_front_vent",
+            },
+        },
+        "cavity_light_after_fuse": {
+            "id": "cavity_light_after_fuse",
+            "type": "multi",
+            "prompt": (
+                "After the fuse check/replace and power reapplied: does the refrigerator cavity "
+                "light come on when opening the door? Also say if it is cooling or not cooling."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 19,
+            "edges": {
+                "light_on_cooling": "resolved_power",
+                "light_on_not_cooling": "dial_on_4_5",
+                "yes": "dial_on_4_5",
+                "light_on": "dial_on_4_5",
+                "no": "power_continuity_voltage",
+                "no_light": "power_continuity_voltage",
+            },
+        },
+        "resolved_power": {
+            "id": "resolved_power",
+            "type": "end",
+            "prompt": (
+                "Power issue resolved. Confirm the refrigerator performs. "
+                "No further action is required on the No-Power path."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 19,
+            "edges": {},
+        },
+        "power_continuity_voltage": {
+            "id": "power_continuity_voltage",
+            "type": "binary",
+            "prompt": (
+                "Slide the unit out to access power connections. Measure and record voltage at the "
+                "appliance connection (Fig. 8 / Fig. 9). Is the voltage between 12V–15V?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 20,
+            "edges": {
+                "yes": "dial_on_4_5",
+                "no": "external_power_issue",
+            },
+        },
+        "external_power_issue": {
+            "id": "external_power_issue",
+            "type": "end",
+            "prompt": (
+                "Insufficient RV supply voltage. Correct power supply: connect shore power, check "
+                "converter, check wiring and switches, charge batteries. Document as "
+                "\"external power issue.\" Contact RV manufacturer for additional troubleshooting."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 20,
+            "edges": {},
+        },
+        "dial_on_4_5": {
+            "id": "dial_on_4_5",
+            "type": "binary",
+            "prompt": (
+                "Open the door and locate the temperature dial. Confirm the dial is ON — not OFF — "
+                "set to position 4 or 5 (Fig. 17 / Fig. 32).\n\n"
+                "Is the dial ON at 4 or 5?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 23,
+            "edges": {
+                "yes": "battery_under_load",
+                "no": "set_dial_then_battery",
+                "off": "set_dial_then_battery",
+            },
+        },
+        "set_dial_then_battery": {
+            "id": "set_dial_then_battery",
+            "type": "gate",
+            "prompt": (
+                "Turn the refrigerator ON to dial position 4 or 5. Then check battery voltage under "
+                "load (General Troubleshooting: ≥10.5V under load).\n\n"
+                "Report when dial is set to 4–5 and the under-load voltage reading."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 12,
+            "edges": {
+                "pass": "paper_test",
+                "yes": "paper_test",
+                "ok": "paper_test",
+                "set": "paper_test",
+                "fail": "external_power_issue",
+                "low": "external_power_issue",
+                "no": "external_power_issue",
+            },
+        },
+        "battery_under_load": {
+            "id": "battery_under_load",
+            "type": "binary",
+            "prompt": (
+                "Per General Troubleshooting: check battery voltage for 10.5V under load "
+                "(operating range). Is battery voltage ≥10.5V under load?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 12,
+            "edges": {
+                "yes": "paper_test",
+                "pass": "paper_test",
+                "no": "external_power_issue",
+                "fail": "external_power_issue",
+            },
+        },
+        "paper_test": {
+            "id": "paper_test",
+            "type": "binary",
+            "prompt": (
+                "Insufficient Temperature — paper test for cooling-fan airflow (air in/out):\n"
+                "1. Open the door.\n"
+                "2. Droop a piece of paper over the edge of the cavity so it hangs over the front of the vent.\n"
+                "3. Facing the unit, left side of the vent cover should SUCK the paper in (Fig. 33).\n"
+                "4. Facing the unit, right side of the vent cover should BLOW the paper out (Fig. 34).\n\n"
+                "Does the paper move correctly (left suck / right blow)?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 33,
+            "edges": {
+                "yes": "not_cooling_current",
+                "pass": "not_cooling_current",
+                "no": "is_operating_diamond",
+                "fail": "is_operating_diamond",
+            },
+        },
+        "is_operating_diamond": {
+            "id": "is_operating_diamond",
+            "type": "binary",
+            "prompt": (
+                "Is the refrigerator operating? (Compressor working/running — it may not be cold yet. "
+                "Amperage should be greater than 1 amp to indicate it is working.)"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 33,
+            "edges": {
+                "no": "fan_replacement",
+                "yes": "not_cooling_current",
+            },
+        },
+        "fan_replacement": {
+            "id": "fan_replacement",
+            "type": "end",
+            "prompt": (
+                "Potential air blockage or bad fan. Proceed to Fan Replacement in Repair Section 2 "
+                "for further information. Do not meter fan supply voltage on this path; "
+                "that check belongs only on the Fan Fault / flash-code diagnostics, not after the paper test."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 33,
+            "edges": {},
+        },
+        "not_cooling_current": {
+            "id": "not_cooling_current",
+            "type": "binary",
+            "prompt": (
+                "Not Cooling Diagnostics: Pull the unit out to measure current. Run the refrigerator "
+                "for at least 1 hour before proceeding. Use a DC clamp meter to measure and record "
+                "current.\n\n"
+                "Is current <3 amps?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {
+                "yes": "oily_substance_check",
+                "no": "dial_max_one_hour",
+            },
+        },
+        "oily_substance_check": {
+            "id": "oily_substance_check",
+            "type": "binary",
+            "prompt": (
+                "Shut off the refrigerator and let sit for 1 hour. Remove the back cover and touch "
+                "the inlet and outlet tubes with fingers to check for oily substance.\n\n"
+                "Is there an oily substance present?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {
+                "yes": "replace_unit_coolant",
+                "no": "replace_unit_return",
+            },
+        },
+        "dial_max_one_hour": {
+            "id": "dial_max_one_hour",
+            "type": "binary",
+            "prompt": (
+                "Turn dial up to max setting and run for 1 hour.\n\n"
+                "Is the refrigerator operating correctly?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {
+                "yes": "replace_thermostat",
+                "no": "compressor_running_constant",
+            },
+        },
+        "compressor_running_constant": {
+            "id": "compressor_running_constant",
+            "type": "binary",
+            "prompt": "Is the compressor running constantly?",
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {
+                "yes": "replace_unit_coolant",
+                "no": "replace_thermostat",
+            },
+        },
+        "replace_thermostat": {
+            "id": "replace_thermostat",
+            "type": "end",
+            "prompt": (
+                "Replace the thermostat to recalibrate the unit. Proceed to Thermostat Replacement "
+                "in Repair Section 2. If issues persist, replace unit."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {},
+        },
+        "replace_unit_coolant": {
+            "id": "replace_unit_coolant",
+            "type": "end",
+            "prompt": (
+                "Likely a coolant leak. Replace unit and determine if unit needs to be returned."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {},
+        },
+        "replace_unit_return": {
+            "id": "replace_unit_return",
+            "type": "end",
+            "prompt": (
+                "Replace unit and determine if unit needs to be returned."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 34,
+            "edges": {},
+        },
+        # Flash-code Fan Fault path ONLY (p.27) — F+/F− volts live here, not after paper test.
+        "fan_fault_f_terminal_volts": {
+            "id": "fan_fault_f_terminal_volts",
+            "type": "binary",
+            "prompt": (
+                "Error Code — Fan Fault Diagnostics: Connect power, locate the inverter PCB. "
+                "Measure and record voltage at the F+ and F− terminals on the inverter PCB.\n\n"
+                "Is the nominal voltage 12V?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 27,
+            "edges": {
+                "yes": "fan_fault_connections",
+                "no": "replace_inverter_pcb",
+            },
+        },
+        "fan_fault_connections": {
+            "id": "fan_fault_connections",
+            "type": "binary",
+            "prompt": (
+                "Check connections: fan into inverter PCB F+/F− terminals, and fan quick connection "
+                "to harness. Reset power.\n\n"
+                "Did the error code go away after resetting power?"
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 27,
+            "edges": {
+                "yes": "resolved_power",
+                "no": "replace_inverter_and_fan",
+            },
+        },
+        "replace_inverter_pcb": {
+            "id": "replace_inverter_pcb",
+            "type": "end",
+            "prompt": (
+                "Replace the inverter PCB. Proceed to Compressor Inverter PCB Replacement in "
+                "Repair Section 2."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 27,
+            "edges": {},
+        },
+        "replace_inverter_and_fan": {
+            "id": "replace_inverter_and_fan",
+            "type": "end",
+            "prompt": (
+                "Replace the inverter PCB and fan. Proceed to Compressor Inverter PCB Replacement "
+                "and Fan Replacement in Repair Section 2."
+            ),
+            "source_title": FURRION_FCR_SM_TITLE,
+            "source_page": 27,
+            "edges": {},
+        },
+    },
+}
+
+PROCEDURE_TREES = {
+    PROCEDURE_FURRION_FCR_CCD_0008122["id"]: PROCEDURE_FURRION_FCR_CCD_0008122,
+}
+
+
+def _norm_flow_text(s: str) -> str:
+    t = (s or "").lower().strip()
+    t = t.replace("—", "-").replace("–", "-")
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def flow_matches_fcr_model(category_name: str = "", model_text: str = "") -> bool:
+    blob = _norm_flow_text(f"{category_name or ''} {model_text or ''}")
+    if "ccd-0008122" in blob or "ccd0008122" in blob:
+        return True
+    if re.search(r"\bfcr0?8\b", blob) or re.search(r"\bfcr10\b", blob):
+        return True
+    if "fcr10dcgta" in blob.replace(" ", "") or "fcr08dcgta" in blob.replace(" ", ""):
+        return True
+    if "furrion" in blob and ("fcr" in blob or "fridge" in blob or "refriger" in blob):
+        # Prefer hard tree only when FCR family / CCD is clear enough
+        if "fcr" in blob:
+            return True
+    return False
+
+
+def find_matching_procedure(category_name: str = "", model_text: str = ""):
+    """Return procedure dict if a hard tree matches category+model, else None."""
+    if flow_matches_fcr_model(category_name, model_text):
+        return PROCEDURE_FURRION_FCR_CCD_0008122
+    cat = _norm_flow_text(category_name)
+    model = _norm_flow_text(model_text)
+    if any(c in cat for c in ("refriger", "fridge")) and (
+        "fcr" in model or "ccd-0008122" in model or "ccd0008122" in model
+    ):
+        return PROCEDURE_FURRION_FCR_CCD_0008122
+    return None
+
+
+def get_procedure_node(procedure: dict, node_id: str):
+    if not procedure:
+        return None
+    return (procedure.get("nodes") or {}).get(node_id)
+
+
+def format_gate_reply(node: dict, preface: str = "") -> str:
+    """Shop language for the current gate + 📖 Source from the node (prompt verbatim)."""
+    if not node:
+        return "No active diagnostic gate."
+    prompt = (node.get("prompt") or "").strip()
+    title = (node.get("source_title") or "").strip()
+    page = node.get("source_page")
+    parts = []
+    if preface:
+        parts.append(preface.strip())
+        parts.append("")
+    parts.append(prompt)
+    if title and page is not None:
+        parts.append("")
+        parts.append(f"📖 Source: {title} - page {page}")
+    return "\n".join(parts).strip()
+
+
+def select_start_node_id(procedure: dict, user_msg: str, history: list = None) -> str:
+    """
+    Start node from tech free text. Does not invent tests — only picks an entry gate.
+    no power / dead → fuse. Fuse replaced + light on + not cooling → dial (post-power path).
+    Fan-fault flash → F+/F− path only.
+    """
+    blob = _norm_flow_text(user_msg)
+    prior = " ".join(
+        (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
+    )
+    blob = _norm_flow_text(f"{prior} {user_msg}")
+
+    # Flash / fan fault code path (only place F+/F− volts belong)
+    if re.search(r"\b(2\s*flash|flash\s*2|fan fault|fan.?fault)\b", blob):
+        return "fan_fault_f_terminal_volts"
+
+    fuse_done = bool(
+        re.search(
+            r"\b(fuse\s+(?:is\s+|was\s+)?(?:blown\s+)?replaced|replaced\s+(?:the\s+)?fuse|"
+            r"new\s+fuse|fuse\s+(?:was\s+)?blown\s+replac\w*|fuse\s+blown.*replac\w*)\b",
+            blob,
+        )
+        or ("fuse" in blob and "blown" in blob and "replac" in blob)
+        or ("fuse" in blob and "replac" in blob)
+    )
+    light_on = bool(
+        re.search(r"\b(light\s+on|cavity light|interior light|has power|powered|power.?on)\b", blob)
+    )
+    not_cooling = bool(
+        re.search(
+            r"\b(not\s+cool(?:ing)?|no\s+cool(?:ing)?|won'?t\s+cool|wont\s+cool|not\s+cold|warm|insufficient\s+temp|no\s+cold)\b",
+            blob,
+        )
+    )
+    no_power = bool(
+        re.search(
+            r"\b(no power|dead|no light|won'?t turn on|wont turn on|blank|no juice|completely dead)\b",
+            blob,
+        )
+    )
+
+    if fuse_done and (light_on or not no_power) and not_cooling:
+        return "dial_on_4_5"
+    if fuse_done and light_on and not not_cooling:
+        return "cavity_light_after_fuse"
+    if no_power and not (fuse_done and light_on):
+        return "fuse_front_vent"
+    if not_cooling and not no_power:
+        return "dial_on_4_5"
+    if light_on and not_cooling:
+        return "dial_on_4_5"
+    return "fuse_front_vent"
+
+
+# Ordered alias lists: first matching key wins for ambiguous text.
+_ANSWER_ALIAS_GROUPS = [
+    ("light_on_not_cooling", [
+        "light on not cooling", "light on, not cooling", "has power not cooling",
+        "power on not cooling", "light works not cooling", "light on but not cool",
+        "cavity light on not cooling", "powered but not cooling",
+    ]),
+    ("light_on_cooling", [
+        "light on cooling", "light on and cooling", "power restored cooling",
+        "working now", "cools now", "issue resolved",
+    ]),
+    ("replaced", ["fuse replaced", "replaced fuse", "replaced the fuse", "new fuse installed", "swapped fuse"]),
+    ("blown", ["fuse blown", "blown fuse", "fuse is blown", "was blown"]),
+    ("good", ["fuse good", "fuse ok", "fuse fine", "fuse intact", "continuity good", "not blown"]),
+    ("pass", ["pass", "passed", "paper moves", "sucks and blows", "left suck", "right blow", "airflow good"]),
+    ("fail", [
+        "fail", "failed", "no paper", "paper no", "no movement", "no paper movement",
+        "doesn't move", "does not move", "no suck", "no blow", "paper fails",
+    ]),
+    ("off", ["dial off", "set to off", "was off", "in off"]),
+    ("yes", [
+        "yes", "y", "yeah", "yep", "affirmative", "correct", "confirmed",
+        "light on", "it is on", "dial is on", "on 4", "on 5", "position 4", "position 5",
+        "operating", "compressor running", "running", "amps >1", "greater than 1",
+        "12v", "12 v", "between 12", "ok", "good", "voltage good", ">=10.5", "10.5", "11v", "13v", "14v",
+    ]),
+    ("no", [
+        "no", "n", "nope", "negative", "not operating", "not running", "dead compressor",
+        "no light", "still dark", "below 10.5", "low voltage", "9v", "under 11",
+        "current <3", "less than 3", "<3",
+    ]),
+]
+
+
+def map_tech_text_to_answer(node: dict, tech_text: str):
+    """
+    Map free text to ONE allowed edge key for the CURRENT node.
+    Returns (answer_key, None) or (None, reason) if unmapped — caller must re-ask, not advance.
+    """
+    if not node:
+        return None, "no_node"
+    edges = node.get("edges") or {}
+    if not edges:
+        return None, "end_node"
+    raw = _norm_flow_text(tech_text)
+    if not raw:
+        return None, "empty"
+
+    allowed = list(edges.keys())
+
+    # Exact / startswith key
+    for key in allowed:
+        if raw == key or raw.startswith(key + " ") or raw.endswith(" " + key):
+            return key, None
+
+    # Alias groups that intersect allowed edges (preserve group priority).
+    # Skip a positive phrase if it sits inside a negation ("not running", "no light").
+    def _phrase_hit(phrase: str, text: str) -> bool:
+        if phrase not in text:
+            return False
+        # Word-ish boundaries
+        if not re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", text):
+            return False
+        # Negation immediately before phrase
+        if re.search(r"\b(?:not|no|never|isn't|isnt|wasn't|wasnt|ain't|aint)\s+" + re.escape(phrase), text):
+            return False
+        return True
+
+    for key, phrases in _ANSWER_ALIAS_GROUPS:
+        if key not in edges:
+            continue
+        for p in phrases:
+            if _phrase_hit(p, raw):
+                return key, None
+
+    # Node-specific heuristics
+    nid = node.get("id") or ""
+    if nid in ("cavity_light_after_fuse",):
+        if ("light" in raw or "power" in raw) and any(
+            w in raw for w in ("not cool", "no cool", "warm", "not cold")
+        ):
+            if "light_on_not_cooling" in edges:
+                return "light_on_not_cooling", None
+            if "yes" in edges:
+                return "yes", None
+        if "light" in raw and "on" in raw and "cool" in raw and "not" not in raw:
+            if "light_on_cooling" in edges:
+                return "light_on_cooling", None
+        if any(w in raw for w in ("no light", "still dead", "dark", "no power")):
+            if "no" in edges:
+                return "no", None
+
+    if nid == "fuse_front_vent":
+        if "replac" in raw or ("blown" in raw and "replac" in raw):
+            if "replaced" in edges:
+                return "replaced", None
+        if "blown" in raw:
+            if "blown" in edges:
+                return "blown", None
+        if any(w in raw for w in ("good", "ok", "fine", "intact", "not blown")):
+            if "good" in edges:
+                return "good", None
+
+    if nid == "paper_test":
+        if any(w in raw for w in ("no movement", "no paper", "doesn't move", "does not move", "fail", "no suck", "no blow")):
+            if "fail" in edges:
+                return "fail", None
+            if "no" in edges:
+                return "no", None
+        if any(w in raw for w in ("suck", "blow", "moves", "pass", "airflow ok")):
+            if "pass" in edges:
+                return "pass", None
+            if "yes" in edges:
+                return "yes", None
+
+    if nid == "is_operating_diamond":
+        if re.search(r"\b(not\s+operat|not\s+running|isn't\s+running|compressor\s+not|no\s+compressor|dead)\b", raw):
+            if "no" in edges:
+                return "no", None
+        if re.search(r"\b(operat|compressor\s+running|amps?\s*>\s*1|greater\s+than\s+1)\b", raw) and not re.search(r"\bnot\b", raw):
+            if "yes" in edges:
+                return "yes", None
+
+    if nid in ("battery_under_load", "set_dial_then_battery", "power_continuity_voltage"):
+        m = re.search(r"(\d+(?:\.\d+)?)\s*v", raw)
+        if m:
+            try:
+                volts = float(m.group(1))
+                if nid == "battery_under_load":
+                    if volts >= 10.5 and "yes" in edges:
+                        return "yes", None
+                    if volts < 10.5 and "no" in edges:
+                        return "no", None
+                if nid == "power_continuity_voltage":
+                    if 12.0 <= volts <= 15.0 and "yes" in edges:
+                        return "yes", None
+                    if (volts < 12.0 or volts > 15.0) and "no" in edges:
+                        return "no", None
+            except ValueError:
+                pass
+
+    if nid == "not_cooling_current":
+        m = re.search(r"(\d+(?:\.\d+)?)\s*a", raw)
+        if m:
+            try:
+                amps = float(m.group(1))
+                if amps < 3.0 and "yes" in edges:
+                    return "yes", None
+                if amps >= 3.0 and "no" in edges:
+                    return "no", None
+            except ValueError:
+                pass
+        if "<3" in raw or "less than 3" in raw:
+            if "yes" in edges:
+                return "yes", None
+        if ">3" in raw or "over 3" in raw or "greater than 3" in raw:
+            if "no" in edges:
+                return "no", None
+
+    # Soft yes/no — leading token or whole-message affirmation/negation
+    lead = raw.split(",", 1)[0].strip()
+    if lead in ("yes", "y", "yeah", "yep", "pass", "ok", "good") or raw in ("yes", "y", "yeah", "yep", "pass", "ok", "good"):
+        if "yes" in edges:
+            return "yes", None
+        if "pass" in edges:
+            return "pass", None
+    if lead in ("no", "n", "nope", "fail", "failed") or raw in ("no", "n", "nope", "fail", "failed"):
+        if "no" in edges:
+            return "no", None
+        if "fail" in edges:
+            return "fail", None
+
+    return None, "unmapped"
+
+
+def advance_flow(procedure: dict, node_id: str, answer_key: str):
+    """Advance ONLY via tree edges. Returns (next_node_id, next_node) or (None, None)."""
+    node = get_procedure_node(procedure, node_id)
+    if not node:
+        return None, None
+    edges = node.get("edges") or {}
+    nxt = edges.get(answer_key)
+    if not nxt:
+        return None, None
+    return nxt, get_procedure_node(procedure, nxt)
+
+
+def binary_button_labels(node: dict):
+    """Optional Pass/Fail or Yes/No labels when node is binary."""
+    if not node or (node.get("type") or "") != "binary":
+        return None
+    edges = node.get("edges") or {}
+    if "pass" in edges and "fail" in edges:
+        return ("Pass", "pass", "Fail", "fail")
+    if "yes" in edges and "no" in edges:
+        return ("Yes", "yes", "No", "no")
+    return None
+
+
+def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_text: str = "", chat_history: list = None):
+    """
+    One Guided Diagnostics engine turn.
+    Returns dict:
+      used_engine, reply, ask_flow, reask, node (current after turn)
+    If no matching tree: used_engine=False (caller uses AI path with page-lock rule).
+    """
+    procedure = find_matching_procedure(category_name, model_text)
+    if not procedure:
+        return {
+            "used_engine": False,
+            "reply": None,
+            "ask_flow": ask_flow,
+            "reask": False,
+            "node": None,
+        }
+
+    flow = dict(ask_flow or {})
+    hist = list(flow.get("history") or [])
+    node_id = flow.get("node_id")
+    proc_id = procedure["id"]
+
+    # New / mismatched procedure → pick start from this message
+    if flow.get("procedure_id") != proc_id or not node_id:
+        node_id = select_start_node_id(procedure, user_msg, chat_history)
+        # If the start message already encodes fuse-replaced+light+not cooling,
+        # land on dial without requiring a prior answer.
+        node = get_procedure_node(procedure, node_id)
+        flow = {
+            "procedure_id": proc_id,
+            "node_id": node_id,
+            "history": hist,
+        }
+        # Opening turn: present the start gate (do not consume message as an answer
+        # unless we jumped into post-power because message already answered prior gates).
+        start_id = node_id
+        # When entry is dial_on_4_5 because message already reported fuse+light+not cooling,
+        # present dial gate (message was entry selection, not dial answer).
+        reply = format_gate_reply(node)
+        return {
+            "used_engine": True,
+            "reply": reply,
+            "ask_flow": flow,
+            "reask": False,
+            "node": node,
+            "opened": True,
+            "start_id": start_id,
+        }
+
+    node = get_procedure_node(procedure, node_id)
+    if not node:
+        node_id = select_start_node_id(procedure, user_msg, chat_history)
+        node = get_procedure_node(procedure, node_id)
+        flow = {"procedure_id": proc_id, "node_id": node_id, "history": hist}
+        return {
+            "used_engine": True,
+            "reply": format_gate_reply(node),
+            "ask_flow": flow,
+            "reask": False,
+            "node": node,
+        }
+
+    if (node.get("type") or "") == "end" or not (node.get("edges") or {}):
+        return {
+            "used_engine": True,
+            "reply": format_gate_reply(
+                node,
+                preface="This path is complete. Start a new chat for another symptom branch.",
+            ),
+            "ask_flow": flow,
+            "reask": False,
+            "node": node,
+        }
+
+    answer, reason = map_tech_text_to_answer(node, user_msg)
+    if not answer:
+        # Unmapped → re-ask CURRENT gate. Do NOT advance. Do NOT invent a new test.
+        reask_preface = (
+            "I need a result that matches this gate "
+            f"({', '.join((node.get('edges') or {}).keys())}). "
+            "Report only this check — I will not skip ahead."
+        )
+        return {
+            "used_engine": True,
+            "reply": format_gate_reply(node, preface=reask_preface),
+            "ask_flow": flow,
+            "reask": True,
+            "node": node,
+            "unmapped_reason": reason,
+        }
+
+    next_id, next_node = advance_flow(procedure, node_id, answer)
+    if not next_id or not next_node:
+        return {
+            "used_engine": True,
+            "reply": format_gate_reply(
+                node,
+                preface="That result does not match an edge on this gate. Re-report for this check only.",
+            ),
+            "ask_flow": flow,
+            "reask": True,
+            "node": node,
+        }
+
+    hist.append({"node_id": node_id, "result": answer})
+    flow = {
+        "procedure_id": proc_id,
+        "node_id": next_id,
+        "history": hist,
+    }
+    return {
+        "used_engine": True,
+        "reply": format_gate_reply(next_node),
+        "ask_flow": flow,
+        "reask": False,
+        "node": next_node,
+        "advanced_from": node_id,
+        "answer": answer,
+    }
+
+
+def guided_diagnostics_reply(
+    user_msg: str,
+    category_name: str,
+    model_text: str,
+    history: list,
+    unity_gate: str = "",
+    ask_flow: dict = None,
+):
+    """
+    Router: hard tree ENGINE when category+model match; else AI ask_techtrack_reply
+    with page-lock rule injected.
+    Returns (reply_text, new_ask_flow_dict_or_None).
+    """
+    result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
+    if result.get("used_engine"):
+        reply = result.get("reply") or ""
+        # Silent ledger: record cited page from node
+        node = result.get("node") or {}
+        title = node.get("source_title")
+        page = node.get("source_page")
+        if title and page is not None:
+            try:
+                record_cited_pages(f"📖 Source: {title} - page {page}")
+            except Exception:
+                pass
+        return reply, result.get("ask_flow")
+
+    # No hard tree — AI path with hard page-lock system rule
+    return ask_techtrack_reply(
+        user_msg,
+        category_name,
+        model_text,
+        history,
+        unity_gate=unity_gate,
+        extra_system_rule=ASK_FLOWCHART_PAGE_LOCK,
+    ), ask_flow
+
+
+# ---------------- END GUIDED FLOW ENGINE ----------------
+
+
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
 ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
 
@@ -2504,7 +3335,7 @@ def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit
     return chunks, "\n\n".join(parts)
 
 
-def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "") -> str:
+def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "", extra_system_rule: str = "") -> str:
     """One chat turn: optional manual search + Grok/Groq coach reply."""
     user_msg = (user_msg or "").strip()
     if not user_msg:
@@ -2534,6 +3365,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if is_fridge_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
     system_prompt += "\n\n" + DIAG_LED_HONESTY
+    if extra_system_rule:
+        system_prompt += "\n\n" + extra_system_rule
     if context:
         system_prompt += (
             "\n\nMANUAL EXCERPTS from this shop's Document Library "
@@ -3181,10 +4014,10 @@ with tab_jobs:
 with tab_ask:
     st.subheader("💬 Guided Diagnostics")
     st.caption(
-        "Chat diagnose from this shop's Document Library manuals. One or two tests per turn - "
-        "report those results before the next gate. Ask to see a page or illustration only when you need it. "
-        "Write warranty story uses the chat plus any unsent text. "
-        "Only records what you actually tested. Open jobs write a handoff log, not a fake repair."
+        "Chat diagnose from this shop's Document Library manuals. Hard flowchart trees (when matched) "
+        "advance only on reported gate results — free-text concerns never invent the next test. "
+        "One gate per turn; report that result before the next. Ask to see a page only when you need it. "
+        "Write warranty story uses the chat plus any unsent text. Only records what you actually tested."
     )
 
     if "ask_chat" not in st.session_state:
@@ -3195,6 +4028,8 @@ with tab_ask:
         st.session_state["ask_sources"] = []
     if "ask_cited_log" not in st.session_state:
         st.session_state["ask_cited_log"] = []
+    if "ask_flow" not in st.session_state:
+        st.session_state["ask_flow"] = None
 
     with st.expander("Recent chats (saved 30 days)", expanded=False):
         qch = session.query(AskChat)
@@ -3217,6 +4052,7 @@ with tab_ask:
                 st.session_state["ask_chat"] = hist
                 st.session_state["ask_sources"] = []
                 st.session_state["ask_cited_log"] = []
+                st.session_state["ask_flow"] = None
                 st.session_state.pop("ask_auto_show", None)
                 for m in hist:
                     if (m.get("role") or "") == "assistant":
@@ -3291,6 +4127,24 @@ with tab_ask:
         placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
     )
 
+    # Optional Pass/Fail or Yes/No when the hard-tree current node is binary
+    _flow_now = st.session_state.get("ask_flow") or {}
+    _proc_now = None
+    _node_now = None
+    if _flow_now.get("procedure_id") and _flow_now.get("node_id"):
+        _proc_now = PROCEDURE_TREES.get(_flow_now.get("procedure_id"))
+        _node_now = get_procedure_node(_proc_now, _flow_now.get("node_id")) if _proc_now else None
+    _bin = binary_button_labels(_node_now) if _node_now else None
+    if _bin:
+        _bl, _bk, _br, _brk = _bin
+        bb1, bb2 = st.columns(2)
+        if bb1.button(_bl, key="ask_flow_yes", use_container_width=True):
+            st.session_state["ask_input"] = _bk
+            st.session_state["ask_force_send"] = True
+        if bb2.button(_br, key="ask_flow_no", use_container_width=True):
+            st.session_state["ask_input"] = _brk
+            st.session_state["ask_force_send"] = True
+
     b1, b2, b3 = st.columns(3)
     with b1:
         send = st.button("Send", type="primary", key="ask_send", use_container_width=True)
@@ -3299,13 +4153,21 @@ with tab_ask:
     with b3:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
 
-    if send:
+    if send or st.session_state.pop("ask_force_send", False):
         msg = (st.session_state.get("ask_input") or "").strip()
         if not msg:
             st.warning("Type a message first.")
         else:
             with st.spinner("Searching manuals and thinking…"):
-                reply = ask_techtrack_reply(msg, category_name, ask_model or "", history, unity_gate=unity_gate)
+                reply, new_flow = guided_diagnostics_reply(
+                    msg,
+                    category_name,
+                    ask_model or "",
+                    history,
+                    unity_gate=unity_gate,
+                    ask_flow=st.session_state.get("ask_flow"),
+                )
+            st.session_state["ask_flow"] = new_flow
             history = list(history)
             history.append({"role": "user", "content": msg})
             history.append({"role": "assistant", "content": reply})
@@ -3897,4 +4759,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** - {u.full_name if u else 'Unknown'} ({cert.issuer or '-'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.6 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.10.0 • Tacoma RV Center • Guided Testing ENGINE • Auto DB backup")
