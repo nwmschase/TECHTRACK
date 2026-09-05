@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.4
+RV TechTrack v4.8.5
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -27,6 +27,10 @@ RV TechTrack v4.8.4
 - v4.8.4: never brand-lock to empty; fridge synonyms + FCR model prefix match
 - v4.8.4: fridge no-power OEM order (accessible fuse before teardown)
 - v4.8.4: warranty story binds vague tech “pass/good” to coach’s last recommended test
+- v4.8.5: Guided Diagnostics chat shows real library PDF pages when techs ask for figures/illustrations
+- v4.8.5: coach language attributes excerpts to the shop Document Library — never “the text you uploaded”
+- v4.8.5: Guided Diagnostics is a branching flowchart — 1–2 tests per turn, wait for results
+- v4.8.5: warranty story cites 📖 Source (manual + page) on each tech-performed step
 - Mobile-friendly
 """
 import streamlit as st
@@ -917,6 +921,7 @@ HARD RULES — writing quality (a thin checklist that drops readings is also a f
 10. Cite a manual only if the tech or the notes already named that source. Do not invent page numbers.
 11. Professional warranty tone. No fluff, no first-person diary, no "I then proceeded to."
 12. PASS-BIND: If the coach recommended a specific test (location + expected threshold/action) and the technician later replied with only a vague pass ("good", "done", "pass", "step 2 good", "voltage good", "completed test"), write a clean professional line bound to THAT exact check. Example: coach said measure at the front-vent fuse / supply and expect ≥11.3 V, tech said "voltage good" → write that voltage was checked at that location and confirmed at/above the stated threshold. Do NOT leave "completed voltage test, it was good." Do NOT invent a numeric reading the tech did not give (do not invent 12.6 V). Using the coach's stated threshold as the pass criterion is allowed when the tech only said good/pass. Do NOT invent pins, parts, or steps the coach never asked for.
+13. SOURCE CITE: For every test the technician reported as done, write it in order with the reading/result. When the coach cited 📖 Source: [manual title] — page [N] for that check (or the notes include that title + page), put the same citation on that story paragraph. Prefer binding the tech result to the matching coach step AND carry that step's source into TESTING / CAUSE. Do not invent page numbers. If no source was cited for a tech-reported check, write the fact without a fake citation. Open jobs stay handoff-only; still cite sources on tests that were actually performed.
 
 IF THE JOB IS OPEN / NOT REPAIRED, use EXACTLY this structure:
 CONCERN
@@ -1510,6 +1515,122 @@ def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
         return None
 
 
+CITED_PAGE_RE = re.compile(
+    r"(?:📖\s*)?Source:\s*(.+?)\s*[—\-–]+\s*page\s*(\d+)",
+    re.I,
+)
+
+
+def parse_cited_pages_from_text(assistant_text: str) -> list:
+    """Pull manual title + page from coach 📖 Source lines."""
+    out = []
+    seen = set()
+    for m in CITED_PAGE_RE.finditer(assistant_text or ""):
+        title = (m.group(1) or "").strip().strip("*").strip()
+        page = int(m.group(2))
+        key = (title.lower(), page)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"title": title, "page": page})
+    return out
+
+
+def wants_library_figures(text: str) -> bool:
+    t = (text or "").lower()
+    keys = (
+        "illustration", "illustrations", "figure", "fig.", " fig ",
+        "drawing", "diagram", "show me that page", "show that page",
+        "show the page", "show page", "show me the page", "show the figure",
+        "picture of", "pictures", "photo of", "pcb", "show me fig",
+    )
+    return any(k in t for k in keys)
+
+
+def match_cited_to_sources(cited: list, sources: list) -> list:
+    if not sources:
+        return []
+    if not cited:
+        return list(sources)[:4]
+    matched = []
+    used = set()
+    for c in cited:
+        ct = (c.get("title") or "").lower()
+        try:
+            cp = int(c.get("page") or 0)
+        except Exception:
+            cp = 0
+        pick = None
+        for i, s in enumerate(sources):
+            if i in used:
+                continue
+            stitle = (s.get("title") or "").lower()
+            try:
+                sp = int(s.get("page") or 0)
+            except Exception:
+                sp = 0
+            if cp and sp == cp and (not ct or ct in stitle or stitle in ct):
+                pick = i
+                break
+        if pick is None and cp:
+            for i, s in enumerate(sources):
+                if i in used:
+                    continue
+                try:
+                    sp = int(s.get("page") or 0)
+                except Exception:
+                    sp = 0
+                if sp == cp:
+                    pick = i
+                    break
+        if pick is not None:
+            used.add(pick)
+            matched.append(sources[pick])
+    return matched or list(sources)[:4]
+
+
+def store_ask_sources(chunks):
+    if not chunks:
+        return
+    _text, payload = build_sources_payload(chunks)
+    try:
+        data = json.loads(payload) if payload else []
+    except Exception:
+        data = []
+    if isinstance(data, list) and data:
+        st.session_state["ask_sources"] = data
+        st.session_state["ask_sources_json"] = payload
+
+
+def render_library_page_image(src: dict, key_suffix: str):
+    """Download a shop-library PDF page from R2 and show it."""
+    title = src.get("title") or "Manual"
+    page = int(src.get("page") or 1)
+    fpath = src.get("file_path")
+    if not fpath:
+        st.caption(f"{title} p.{page} — no storage path on this library record.")
+        return False
+    with st.spinner(f"Loading shop library page {page}…"):
+        data = r2_download_bytes(fpath)
+    if not data:
+        st.error("Could not download that PDF from shop storage.")
+        return False
+    png = render_pdf_page_png(data, page)
+    if png:
+        st.image(png, caption=f"Shop Document Library — {title} — page {page}", use_container_width=True)
+        return True
+    if not PYMUPDF_AVAILABLE:
+        st.warning(
+            "Page images need `pymupdf` in requirements.txt. "
+            "Use Download full PDF and jump to this page. Text excerpt below."
+        )
+    else:
+        st.warning("Could not render page image. Download the PDF and jump to this page.")
+    if src.get("excerpt"):
+        st.text(src.get("excerpt"))
+    return False
+
+
 def load_job_sources(job: DiagnosticJob) -> list:
     if not getattr(job, "sources_json", None):
         return []
@@ -1658,10 +1779,16 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
         )
         if "source" not in answer.lower():
             answer += "\n\n**Sources used**\n" + sources_text
+        answer = (
+            "**WO plan (documentation).** Live coaching in Guided Diagnostics chat still goes "
+            "gate-by-gate: run the next 1–2 tests only, then report results before the rest.\n\n"
+            + answer
+        )
         answer += (
             "\n\n---\n"
             "**How to open a cited page:** For any step with 📖 Source / page #, open "
-            "**📷 Source pages** below → pick that **title — p.#** in the dropdown → **Show this page**."
+            "**📷 Source pages** below → pick that **title — p.#** in the dropdown → **Show this page**. "
+            "These pages are from the shop Document Library, not text the tech pasted."
         )
         return answer, sources_text, sources_json
     except Exception as e:
@@ -1777,23 +1904,31 @@ HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. B
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
 ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
 
-You have access to excerpts from THIS SHOP's uploaded service manuals. Use them.
+You have excerpts from THIS SHOP's Document Library (indexed service manuals stored by Tacoma RV Center). The technician did not upload those excerpts. Never say "the text you uploaded," "the excerpts you provided," or "images weren't in what you uploaded." Say "the shop Document Library" or "the Furrion/Norcold/… manual in TechTrack." Figures live in those PDFs — tell the tech the page is shown below from the library, or to use 📷 Source pages.
+
+You are a BRANCHING FLOWCHART, not a dump of the whole diagnostic tree.
 
 Rules:
-1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps. If excerpts are missing or do not cover the issue, say so and ask a clarifying question — do not invent OEM procedures.
-2. Ask 1–2 clarifying questions OR give 1–2 tests at a time. Never dump a full flowchart or the whole diagnostic index.
-3. Cite sources inline when you use an excerpt:
+1. Use ONLY the provided Document Library excerpts for procedures, specs, LED codes, and test steps. If excerpts are missing or do not cover the issue, say so and ask a clarifying question — do not invent OEM procedures.
+2. FLOWCHART GATE: Each assistant turn is at most ONE clarifying question OR 1–2 concrete tests that are the next decision gate. Prefer ONE test when possible.
+3. NEVER list Step 3 / 4 / 5 or a long numbered sequence in one chat turn unless the tech explicitly asks for the full plan.
+4. After giving 1–2 tests, STOP and ask only for those results (reading, pass/fail, flash count — whatever that gate needs).
+5. On the next turn, use the tech's result + library excerpts to choose the NEXT branch. Skip tests the result made unnecessary.
+6. Do not front-load inverter PCB teardown, compressor fan, and error-code flash together if fuse/supply gates are still open. Follow OEM order one gate at a time.
+7. If the tech pastes multiple results at once, acknowledge each, then give only the next 1–2 gates.
+8. Cite sources inline when you use an excerpt:
    📖 Source: [Exact manual title from excerpt] — page [N]
-4. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
-5. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
-6. Plain shop language. Short sentences. No fluff.
-7. After the tech reports a result, interpret it and give the next 1–2 checks.
-8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
-9. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
-10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
-11. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-12. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
-13. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge."""
+9. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
+10. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
+11. Plain shop language. Short sentences. No fluff.
+12. After the tech reports a result, interpret it and give the next 1–2 checks.
+13. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
+14. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
+15. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
+16. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
+17. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
+18. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge.
+19. If the tech asks for illustrations, figures, drawings, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below (📷 Source pages) from the cited 📖 Source title and page."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -1853,6 +1988,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     chunks, context = _ask_manual_context(
         category_name, model_text, search_symptom, limit=8, unity_gate=unity_gate
     )
+    store_ask_sources(chunks)
 
     system_prompt = ASK_TECHTRACK_SYSTEM
     if category_name:
@@ -1867,8 +2003,9 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
     if context:
         system_prompt += (
-            "\n\nMANUAL EXCERPTS from this shop's library "
+            "\n\nMANUAL EXCERPTS from this shop's Document Library "
             "(INDEX CHART = pick one matching row only; PROCEDURE = write real tests). "
+            "The technician did not upload these excerpts. "
             "Each header has Manual + Page — copy those into 📖 Source lines:\n\n"
             + context
         )
@@ -1902,9 +2039,15 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        return ai_chat(messages, temperature=0.2, max_tokens=1400)
+        reply = ai_chat(messages, temperature=0.2, max_tokens=900)
     except Exception as e:
         return f"Error contacting AI: {e}"
+    if wants_library_figures(user_msg):
+        reply += (
+            "\n\nThe figures are in the shop Document Library PDF — not text the tech pasted. "
+            "Open **📷 Source pages** below (or the page image shown under this turn) for the cited title and page."
+        )
+    return reply
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
@@ -1922,7 +2065,7 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
                 first_user = content
             tech_lines.append(content)
         else:
-            coach_lines.append(content[:400])
+            coach_lines.append(content[:1600])
     notes_parts = []
     if category_name:
         notes_parts.append(f"Category: {category_name}")
@@ -2462,15 +2605,17 @@ with tab_jobs:
 with tab_ask:
     st.subheader("💬 Guided Diagnostics")
     st.caption(
-        "Chat diagnose with your uploaded manuals. Guided Diagnostics asks 1–2 questions or gives "
-        "1–2 tests at a time. Write warranty story uses the chat plus any unsent text still in the box. Only records what you actually tested. "
-        "If the job is still open it writes a handoff log, not a fake repair."
+        "Chat diagnose from this shop's Document Library manuals. One or two tests per turn — "
+        "report those results before the next gate. Write warranty story uses the chat plus any unsent text. "
+        "Only records what you actually tested. Open jobs write a handoff log, not a fake repair."
     )
 
     if "ask_chat" not in st.session_state:
         st.session_state["ask_chat"] = []
     if "ask_chat_id" not in st.session_state:
         st.session_state["ask_chat_id"] = None
+    if "ask_sources" not in st.session_state:
+        st.session_state["ask_sources"] = []
 
     with st.expander("Recent chats (saved 30 days)", expanded=False):
         qch = session.query(AskChat)
@@ -2532,6 +2677,59 @@ with tab_ask:
     if st.session_state.pop("ask_reset_input", False):
         st.session_state["ask_input"] = ""
 
+    ask_sources = st.session_state.get("ask_sources") or []
+    auto_pages = st.session_state.get("ask_auto_show") or []
+    if auto_pages:
+        st.markdown("#### Shop library pages (requested figures)")
+        st.caption("These images are from this shop's Document Library PDFs in storage — not text the tech pasted.")
+        for i, src in enumerate(auto_pages[:4]):
+            render_library_page_image(src, f"auto_{i}")
+
+    with st.expander(
+        "📷 Source pages (figures & full page view)",
+        expanded=bool(auto_pages or ask_sources),
+    ):
+        st.caption(
+            "Shop Document Library PDFs in R2 — not tech-pasted text. "
+            "When the coach cites 📖 Source / Fig. / a page, open it here."
+        )
+        if not ask_sources:
+            st.warning("No library pages attached to this chat yet. Send a symptom so TechTrack can search the manuals.")
+        else:
+            st.success(f"{len(ask_sources)} source page(s) linked from the shop library.")
+            labels = [
+                f"{(s.get('title') or 'Manual')[:60]} — p.{s.get('page') or '?'}"
+                for s in ask_sources
+            ]
+            pick = st.selectbox("Choose a source page", labels, key="ask_src_pick")
+            idx = labels.index(pick) if pick in labels else 0
+            src = ask_sources[idx]
+            title = src.get("title") or "Manual"
+            page = int(src.get("page") or 1)
+            fpath = src.get("file_path")
+            st.markdown(f"**{title}** — page **{page}**")
+            bcols = st.columns(2)
+            with bcols[0]:
+                if fpath:
+                    r2_download_button(
+                        "⬇️ Download full PDF",
+                        fpath,
+                        f"{title[:40]}.pdf",
+                        f"ask_src_dl_{idx}",
+                    )
+                else:
+                    st.caption("No file path on record for this source.")
+            with bcols[1]:
+                show = st.button("📷 Show this page", type="primary", key=f"ask_src_show_{idx}")
+            if show:
+                render_library_page_image(src, f"pick_{idx}")
+            if src.get("excerpt"):
+                with st.expander("Text excerpt from this page", expanded=not show):
+                    st.text(src.get("excerpt"))
+            st.markdown("**All linked pages**")
+            for i, s in enumerate(ask_sources):
+                st.caption(f"{i+1}. {(s.get('title') or 'Manual')[:50]} — p.{s.get('page')}")
+
     st.text_area(
         "Your message",
         key="ask_input",
@@ -2566,12 +2764,27 @@ with tab_ask:
                 msg,
                 reply,
             )
+            if wants_library_figures(msg):
+                cited = parse_cited_pages_from_text(reply)
+                last_coach = ""
+                for m in reversed(history):
+                    if m.get("role") == "assistant":
+                        last_coach = m.get("content") or ""
+                        break
+                if not cited:
+                    cited = parse_cited_pages_from_text(last_coach)
+                st.session_state["ask_auto_show"] = match_cited_to_sources(
+                    cited, st.session_state.get("ask_sources") or []
+                )
             st.session_state["ask_reset_input"] = True
             st.rerun()
 
     if new_chat:
         st.session_state["ask_chat"] = []
         st.session_state["ask_chat_id"] = None
+        st.session_state["ask_sources"] = []
+        st.session_state.pop("ask_sources_json", None)
+        st.session_state.pop("ask_auto_show", None)
         st.session_state.pop("ask_story_out", None)
         st.session_state.pop("ask_story_area", None)
         st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
@@ -3130,4 +3343,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** — {u.full_name if u else 'Unknown'} ({cert.issuer or '—'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.8.4 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
+st.sidebar.caption("v4.8.5 • Tacoma RV Center • 10-hour login cookie • Guided Diagnostics • Auto DB backup")
