@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.6
+RV TechTrack v4.8.7
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -33,6 +33,7 @@ RV TechTrack v4.8.6
 - v4.8.6: Guided Diagnostics chat does not dump source-page UI every turn
 - v4.8.6: show library text/illustration pages ONLY when the tech asks
 - v4.8.6: silent source ledger still records cited pages for the warranty story
+- v4.8.7: never invent built-in fault/blink LEDs; Furrion FCR flash codes need SM clip-on diagnostic LED (or skip that gate)
 - Mobile-friendly
 """
 import streamlit as st
@@ -1885,7 +1886,8 @@ CRITICAL RULES:
 11. BRAND LOCK: If the tech named a brand or model (Furrion, Norcold N641, etc.) and the excerpts are a DIFFERENT brand, do NOT use those excerpts as the procedure. Say the library does not have that brand's service manual and ask only what they can see (blower run, spark, lockout, check light). No borrowed voltages, ohms, pin names, or step order from the other brand.
 12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω - confirm on the RM2662 page before using it").
 13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
-14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt."""
+14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt.
+15. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. Furrion FCR08/FCR10 flash codes need the SM temporary 10 mA LED on rear inverter D/+ - say that, or skip flash codes. Never invent a control-panel blink LED."""
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
         unity_rule = UNITY_OEM_ORDER if is_unity_context(category_name, model_text, symptom, unity_gate) else ""
@@ -1896,6 +1898,7 @@ SYMPTOM: {symptom}
 {furnace_rule}
 {unity_rule}
 {fridge_rule}
+{DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
 Each excerpt header has Manual + Page - copy those into every step's 📖 Source line:
@@ -1975,10 +1978,18 @@ FRIDGE_OEM_ORDER = """
 FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V residential-style RV fridges) - only when this is a refrigerator job:
 1) Do NOT remove the fridge first.
 2) Check accessible customer/tech fuse first (Furrion FCR08/FCR10: front vent cover, left side of front vent cavity, 15A ATC blade fuse / cartridge - follow the shop SM excerpt). If blown, replace and retest before any teardown.
-3) Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt - say so from the manual).
-4) Display/LED/error flash next if present in excerpts.
-5) Only then harness, inverter/PCB, compressor paths from the manual.
+3) Confirm dial is ON (not OFF), about 4-5. Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt - say so from the manual). If still no cool: hard reset / lockout path from the SM (disconnect all power at the fridge, wait, restore, wait 5-10 minutes) when that path is in the excerpts.
+4) Fault flash codes on Furrion FCR08/FCR10 (CCD-0008122): NOT a built-in LED on the temperature dial / control panel. The SM requires a TEMPORARY 10 mA diagnostic LED clipped to the rear inverter/driver terminals D (LED negative) and + (LED positive, piggyback). Say that clearly, or SKIP flash codes and meter 12V into the inverter/board instead. NEVER say "watch the control panel LED blink" or that the driver board "just has an LED that flashes" without the clip-on procedure.
+5) Only then harness, inverter/PCB, compressor / fan paths from the manual.
 6) Cite 📖 Source lines from the Furrion/Norcold/Dometic excerpt actually used. Brand lock: do not use a furnace or rooftop AC manual for a fridge.
+"""
+
+DIAG_LED_HONESTY = """
+DIAGNOSTIC LED HONESTY (ALL brands / models):
+- NEVER invent indicator lights, LEDs, displays, buttons, or connectors that are not in the provided manual excerpts.
+- If the excerpt describes a temporary / jumper / clip-on diagnostic LED (Furrion FCR CCD-0008122 style), you MUST say: tech supplies a 10 mA LED, remove rear cover, clip to terminals D (-) and + (+), then count flashes. Do NOT call that a front control-panel LED.
+- If the excerpts do not describe any built-in flash LED, do NOT ask the tech to count flashes on a panel LED.
+- Prefer real gates (fuse, dial, hard reset, metered voltage) over a special LED setup the tech may not have ready.
 """
 
 
@@ -2068,7 +2079,8 @@ Rules:
 16. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
 17. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
 18. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge.
-19. If the tech asks for illustrations, figures, drawings, associated illustrations, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the cited 📖 Source title and page. Do not instruct them to open a Source pages dropdown or list every linked page."""
+19. If the tech asks for illustrations, figures, drawings, associated illustrations, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the cited 📖 Source title and page. Do not instruct them to open a Source pages dropdown or list every linked page.
+20. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -2141,6 +2153,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + UNITY_OEM_ORDER
     if is_fridge_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
+    system_prompt += "\n\n" + DIAG_LED_HONESTY
     if context:
         system_prompt += (
             "\n\nMANUAL EXCERPTS from this shop's Document Library "
