@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.8
+RV TechTrack v4.8.9
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -35,6 +35,7 @@ RV TechTrack v4.8.8
 - v4.8.6: silent source ledger still records cited pages for the warranty story
 - v4.8.7: never invent built-in fault/blink LEDs; Furrion FCR flash codes need SM clip-on diagnostic LED (or skip that gate)
 - v4.8.8: figure/page requests lock to the cited manual only - never cross-book Fig./page matches
+- v4.8.9: never emit markdown/fake images; 📖 Source page must match the claim; only R2 renderer shows photos
 - Mobile-friendly
 """
 import streamlit as st
@@ -1540,6 +1541,16 @@ def parse_cited_pages_from_text(assistant_text: str) -> list:
     return out
 
 
+def strip_fake_markdown_images(text: str) -> str:
+    """Remove invented markdown/HTML images from coach replies. Real pages use st.image only."""
+    if not text:
+        return text
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"<img\b[^>]*>", "", text, flags=re.I)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def wants_library_figures(text: str) -> bool:
     t = (text or "").lower()
     keys = (
@@ -2014,7 +2025,9 @@ CRITICAL RULES:
 12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω - confirm on the RM2662 page before using it").
 13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt.
-15. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. Furrion FCR08/FCR10 flash codes need the SM temporary 10 mA LED on rear inverter D/+ - say that, or skip flash codes. Never invent a control-panel blink LED."""
+15. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. Furrion FCR08/FCR10 flash codes need the SM temporary 10 mA LED on rear inverter D/+ - say that, or skip flash codes. Never invent a control-panel blink LED.
+16. SOURCE PAGE HONESTY: 📖 Source page must be the excerpt page that actually shows the figure/terminals you describe. Never invent markdown images.
+17. NO FAKE IMAGES: Never output ![alt](url) or HTML img tags in the plan."""
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
         unity_rule = UNITY_OEM_ORDER if is_unity_context(category_name, model_text, symptom, unity_gate) else ""
@@ -2207,7 +2220,9 @@ Rules:
 17. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
 18. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge.
 19. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
-20. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied."""
+21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
+20. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
+22. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -2322,11 +2337,13 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ai_chat(messages, temperature=0.2, max_tokens=900)
     except Exception as e:
         return f"Error contacting AI: {e}"
+    reply = strip_fake_markdown_images(reply)
     record_cited_pages(reply)
     if wants_library_figures(user_msg):
         reply += (
             "\n\nThe figure is in the shop Document Library PDF. "
-            "The requested page is shown below from the shop library."
+            "If a page image appears below, that is the real shop library page "
+            "(not a chat photo embed). If nothing appears below, say so and use Download PDF / meter from the text labels."
         )
     return reply
 
@@ -2998,6 +3015,12 @@ with tab_ask:
     auto_pages = st.session_state.get("ask_auto_show") or []
     if auto_pages:
         render_on_demand_library_pages(auto_pages)
+    elif st.session_state.pop("ask_auto_show_failed", None):
+        st.warning(
+            "You asked for a figure/page, but TechTrack could not load a matching shop-library PDF page "
+            "(wrong/missing file path, R2 download failed, or page render unavailable). "
+            "There is no chat photo embed — only the real library renderer."
+        )
 
     st.text_area(
         "Your message",
@@ -3044,8 +3067,10 @@ with tab_ask:
                 if not pages:
                     pages = resolve_requested_library_pages(msg, reply)
                 st.session_state["ask_auto_show"] = pages
+                st.session_state["ask_auto_show_failed"] = not bool(pages)
             else:
                 st.session_state.pop("ask_auto_show", None)
+                st.session_state.pop("ask_auto_show_failed", None)
             st.session_state["ask_reset_input"] = True
             st.rerun()
 
