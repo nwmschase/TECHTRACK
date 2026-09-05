@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.10.0
+RV TechTrack v4.10.1
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -41,6 +41,7 @@ RV TechTrack v4.10.0
 - v4.9.2: rebuild Guided Diagnostics page pipeline — detect→parse→resolve Document/page→R2+pymupdf render
 - v4.10.0: Guided Testing flowchart ENGINE — hard procedure trees; TECH reports, tree edges decide next gate
 - v4.10.0: Furrion FCR CCD-0008122 tree (fuse→dial/battery→paper→operating?/Not Cooling); no invented fan volts after paper
+- v4.10.1: fix Yes/No gate buttons (no ask_input write after widget); map not-operating tech language on operating diamond
 - Mobile-friendly
 """
 import streamlit as st
@@ -2955,6 +2956,25 @@ def map_tech_text_to_answer(node: dict, tech_text: str):
         if raw == key or raw.startswith(key + " ") or raw.endswith(" " + key):
             return key, None
 
+    nid = node.get("id") or ""
+
+    # Operating diamond: resolve negation BEFORE alias groups (alias "operating" would
+    # falsely match "…or operating" inside "does not seem to be cooling or operating").
+    if nid == "is_operating_diamond":
+        no_hits = (
+            "not operat", "isn't operat", "isnt operat", "not running", "isn't running", "isnt running",
+            "compressor not", "no compressor", "compressor dead", "not working", "isn't working",
+            "no amp", "0 amp", "0a", "silent", "no hum", "not getting power to compressor",
+            "does not seem to be cooling or operating", "not cooling or operating",
+            "cooling or operating",  # only when preceded by does not / not — checked below
+        )
+        if re.search(r"\b(does\s+not|doesn't|doesnt|not)\b.{0,40}\b(operat|running|working)\b", raw):
+            if "no" in edges:
+                return "no", None
+        if any(h in raw for h in no_hits[:14]):
+            if "no" in edges:
+                return "no", None
+
     # Alias groups that intersect allowed edges (preserve group priority).
     # Skip a positive phrase if it sits inside a negation ("not running", "no light").
     def _phrase_hit(phrase: str, text: str) -> bool:
@@ -2966,6 +2986,9 @@ def map_tech_text_to_answer(node: dict, tech_text: str):
         # Negation immediately before phrase
         if re.search(r"\b(?:not|no|never|isn't|isnt|wasn't|wasnt|ain't|aint)\s+" + re.escape(phrase), text):
             return False
+        # Broader: any "does not / doesn't / not" earlier in the same clause-ish window
+        if re.search(r"\b(?:does\s+not|doesn't|doesnt|not|no|never)\b.{0,48}" + re.escape(phrase), text):
+            return False
         return True
 
     for key, phrases in _ANSWER_ALIAS_GROUPS:
@@ -2976,7 +2999,6 @@ def map_tech_text_to_answer(node: dict, tech_text: str):
                 return key, None
 
     # Node-specific heuristics
-    nid = node.get("id") or ""
     if nid in ("cavity_light_after_fuse",):
         if ("light" in raw or "power" in raw) and any(
             w in raw for w in ("not cool", "no cool", "warm", "not cold")
@@ -3016,10 +3038,22 @@ def map_tech_text_to_answer(node: dict, tech_text: str):
                 return "yes", None
 
     if nid == "is_operating_diamond":
-        if re.search(r"\b(not\s+operat|not\s+running|isn't\s+running|compressor\s+not|no\s+compressor|dead)\b", raw):
+        # SM: "operating" = compressor working/running (may still not be cold). Cold-only answers need compressor yes/no.
+        no_hits = (
+            "not operat", "isn't operat", "isnt operat", "not running", "isn't running", "isnt running",
+            "compressor not", "no compressor", "compressor dead", "not working", "isn't working",
+            "no amp", "0 amp", "0a", "silent", "no hum", "not getting power to compressor",
+            "does not seem to be cooling or operating", "not cooling or operating",
+        )
+        if any(h in raw for h in no_hits) or re.search(
+            r"\b(dead|no\s+run|won't\s+run|will\s+not\s+run)\b", raw
+        ):
             if "no" in edges:
                 return "no", None
-        if re.search(r"\b(operat|compressor\s+running|amps?\s*>\s*1|greater\s+than\s+1)\b", raw) and not re.search(r"\bnot\b", raw):
+        # Plain "not cold / not cooling" alone is NOT a compressor answer — leave unmapped (re-ask).
+        if re.search(r"\b(operat|compressor\s+running|running|amps?\s*>\s*1|greater\s+than\s*1|>\s*1\s*a)\b", raw) and not re.search(
+            r"\b(not|no|isn't|isnt|won't|wont)\b", raw
+        ):
             if "yes" in edges:
                 return "yes", None
 
@@ -3176,11 +3210,19 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
     answer, reason = map_tech_text_to_answer(node, user_msg)
     if not answer:
         # Unmapped → re-ask CURRENT gate. Do NOT advance. Do NOT invent a new test.
-        reask_preface = (
-            "I need a result that matches this gate "
-            f"({', '.join((node.get('edges') or {}).keys())}). "
-            "Report only this check — I will not skip ahead."
-        )
+        edges_keys = ", ".join((node.get("edges") or {}).keys())
+        if (node.get("id") or "") == "is_operating_diamond":
+            reask_preface = (
+                "Cold alone is not this gate. "
+                "Is the compressor running (or draw greater than 1 amp)? "
+                f"Answer {edges_keys} only — I will not skip ahead."
+            )
+        else:
+            reask_preface = (
+                "I need a result that matches this gate "
+                f"({edges_keys}). "
+                "Report only this check — I will not skip ahead."
+            )
         return {
             "used_engine": True,
             "reply": format_gate_reply(node, preface=reask_preface),
@@ -4138,12 +4180,15 @@ with tab_ask:
     if _bin:
         _bl, _bk, _br, _brk = _bin
         bb1, bb2 = st.columns(2)
+        # Never write ask_input after the text_area widget exists (StreamlitWidgetAlreadyInstantiatedError).
         if bb1.button(_bl, key="ask_flow_yes", use_container_width=True):
-            st.session_state["ask_input"] = _bk
+            st.session_state["ask_pending_answer"] = _bk
             st.session_state["ask_force_send"] = True
+            st.rerun()
         if bb2.button(_br, key="ask_flow_no", use_container_width=True):
-            st.session_state["ask_input"] = _brk
+            st.session_state["ask_pending_answer"] = _brk
             st.session_state["ask_force_send"] = True
+            st.rerun()
 
     b1, b2, b3 = st.columns(3)
     with b1:
@@ -4154,7 +4199,7 @@ with tab_ask:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
 
     if send or st.session_state.pop("ask_force_send", False):
-        msg = (st.session_state.get("ask_input") or "").strip()
+        msg = (st.session_state.pop("ask_pending_answer", None) or st.session_state.get("ask_input") or "").strip()
         if not msg:
             st.warning("Type a message first.")
         else:
