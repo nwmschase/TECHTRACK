@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.8.7
+RV TechTrack v4.8.8
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -34,6 +34,7 @@ RV TechTrack v4.8.7
 - v4.8.6: show library text/illustration pages ONLY when the tech asks
 - v4.8.6: silent source ledger still records cited pages for the warranty story
 - v4.8.7: never invent built-in fault/blink LEDs; Furrion FCR flash codes need SM clip-on diagnostic LED (or skip that gate)
+- v4.8.8: figure/page requests lock to the cited manual only - never cross-book Fig./page matches
 - Mobile-friendly
 """
 import streamlit as st
@@ -1552,33 +1553,39 @@ def wants_library_figures(text: str) -> bool:
     return any(k in t for k in keys)
 
 
+def _titles_compatible(cited_title: str, source_title: str) -> bool:
+    """True when the source row belongs to the cited manual. Never treat empty cite as a free pass across books."""
+    ct = (cited_title or "").strip().lower()
+    stitle = (source_title or "").strip().lower()
+    if not ct or not stitle:
+        return False
+    if ct == stitle or ct in stitle or stitle in ct:
+        return True
+    # token overlap on brand/model-ish words (len>3)
+    ct_toks = {t for t in re.findall(r"[a-z0-9]+", ct) if len(t) > 3}
+    st_toks = {t for t in re.findall(r"[a-z0-9]+", stitle) if len(t) > 3}
+    if not ct_toks or not st_toks:
+        return False
+    return len(ct_toks & st_toks) >= 2
+
+
 def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -> list:
-    """Map 📖 Source title/page cites onto the silent ledger. No bulk dump."""
+    """Map 📖 Source title/page cites onto the silent ledger. Title-locked. Never cross-book page matches."""
     if not sources:
         return []
     if not cited:
-        return list(sources)[:2] if fallback else []
+        return []
     matched = []
     used = set()
     for c in cited:
-        ct = (c.get("title") or "").lower()
+        ct = (c.get("title") or "").strip()
         try:
             cp = int(c.get("page") or 0)
         except Exception:
             cp = 0
         pick = None
-        for i, s in enumerate(sources):
-            if i in used:
-                continue
-            stitle = (s.get("title") or "").lower()
-            try:
-                sp = int(s.get("page") or 0)
-            except Exception:
-                sp = 0
-            if cp and sp == cp and (not ct or ct in stitle or stitle in ct):
-                pick = i
-                break
-        if pick is None and cp:
+        # 1) Same page + compatible title
+        if cp:
             for i, s in enumerate(sources):
                 if i in used:
                     continue
@@ -1586,23 +1593,33 @@ def match_cited_to_sources(cited: list, sources: list, fallback: bool = False) -
                     sp = int(s.get("page") or 0)
                 except Exception:
                     sp = 0
-                if sp == cp:
+                if sp == cp and _titles_compatible(ct, s.get("title") or ""):
                     pick = i
                     break
+        # 2) Compatible title, nearest page in that document only
         if pick is None and ct:
+            same_doc = []
             for i, s in enumerate(sources):
                 if i in used:
                     continue
-                stitle = (s.get("title") or "").lower()
-                if ct in stitle or stitle in ct:
-                    pick = i
-                    break
+                if _titles_compatible(ct, s.get("title") or ""):
+                    try:
+                        sp = int(s.get("page") or 0)
+                    except Exception:
+                        sp = 0
+                    same_doc.append((i, sp, s))
+            if same_doc and cp:
+                same_doc.sort(key=lambda x: abs(x[1] - cp))
+                pick = same_doc[0][0]
+            elif same_doc:
+                pick = same_doc[0][0]
+        # 3) HARD: do NOT pick a different book's page just because page numbers match
         if pick is not None:
             used.add(pick)
             matched.append(sources[pick])
     if matched:
         return matched
-    return list(sources)[:1] if fallback else []
+    return []
 
 
 def _source_ledger_key(item: dict) -> tuple:
@@ -1686,21 +1703,131 @@ def store_ask_sources(chunks):
         merge_ask_source_ledger(data)
 
 
+def parse_figure_requests(user_msg: str) -> list:
+    """Pull Fig./Figure N requests from the tech message."""
+    out = []
+    for m in re.finditer(r"\b(?:fig(?:ure)?\.?|illustration)\s*([0-9]+[a-z]?)\b", user_msg or "", re.I):
+        out.append(m.group(1).upper())
+    return out
+
+
+def _active_cited_manual_title(assistant_text: str = "") -> str:
+    cited = parse_cited_pages_from_text(assistant_text or "")
+    if cited:
+        return (cited[-1].get("title") or "").strip()
+    log = list(st.session_state.get("ask_cited_log") or [])
+    if log:
+        return (log[-1].get("title") or "").strip()
+    return ""
+
+
+def _ledger_rows_for_manual(title: str, ledger: list) -> list:
+    return [s for s in ledger if _titles_compatible(title, s.get("title") or "")]
+
+
+def _find_figure_page_in_document(document_id, figure_token: str) -> int:
+    """Locate Fig. N inside ONE document's indexed chunks. Returns page or 0."""
+    if not document_id or not figure_token:
+        return 0
+    fig = figure_token.lower().lstrip("0") or figure_token.lower()
+    patterns = [
+        re.compile(rf"\bfig(?:ure)?\.?\s*0*{re.escape(fig)}\b", re.I),
+        re.compile(rf"\bfig(?:ure)?\s*0*{re.escape(fig)}\b", re.I),
+    ]
+    try:
+        chunks = (
+            session.query(DocChunk)
+            .filter_by(document_id=int(document_id))
+            .order_by(DocChunk.page)
+            .all()
+        )
+    except Exception:
+        return 0
+    for ch in chunks:
+        blob = ch.chunk_text or ""
+        for pat in patterns:
+            if pat.search(blob):
+                try:
+                    return int(ch.page or 0)
+                except Exception:
+                    return 0
+    return 0
+
+
 def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> list:
-    """Pages to render only because the tech asked to see them."""
+    """Pages to render only because the tech asked. Locked to the cited manual."""
     ledger = list(st.session_state.get("ask_sources") or [])
     cited = parse_cited_pages_from_text(assistant_text or "")
-    for m in re.finditer(r"page\s*(\d+)", user_msg or "", re.I):
-        cited.append({"title": "", "page": int(m.group(1))})
+    active_title = _active_cited_manual_title(assistant_text)
+    figs = parse_figure_requests(user_msg or "")
+
+    # Explicit page N in the tech message -> still title-locked
+    for m in re.finditer(r"\bpage\s*(\d+)\b", user_msg or "", re.I):
+        cited.append({"title": active_title, "page": int(m.group(1))})
+
+    # Figure N -> find that figure inside the cited manual only
+    if figs:
+        doc_rows = _ledger_rows_for_manual(active_title, ledger) if active_title else []
+        # Prefer a row that already has file_path + document_id from the cited book
+        seed = next((s for s in reversed(doc_rows) if s.get("document_id") and s.get("file_path")), None)
+        if seed is None and active_title:
+            # Look up Document by title from DB
+            try:
+                docs = session.query(Document).all()
+                for d in docs:
+                    if _titles_compatible(active_title, d.title or ""):
+                        seed = {
+                            "document_id": d.id,
+                            "title": d.title,
+                            "page": 1,
+                            "file_path": d.file_path,
+                            "file_type": d.file_type or "pdf",
+                            "excerpt": "",
+                        }
+                        break
+            except Exception:
+                seed = None
+        out = []
+        if seed and seed.get("document_id"):
+            for fig in figs[:3]:
+                page = _find_figure_page_in_document(seed.get("document_id"), fig)
+                if not page:
+                    # Fall back to last cited page FROM THIS TITLE only
+                    for c in reversed(cited):
+                        if _titles_compatible(active_title, c.get("title") or ""):
+                            try:
+                                page = int(c.get("page") or 0)
+                            except Exception:
+                                page = 0
+                            break
+                if page:
+                    out.append({
+                        "document_id": seed.get("document_id"),
+                        "title": seed.get("title") or active_title,
+                        "page": page,
+                        "file_path": seed.get("file_path"),
+                        "file_type": seed.get("file_type") or "pdf",
+                        "excerpt": seed.get("excerpt") or "",
+                    })
+        if out:
+            return out[:3]
+        # Could not resolve figure inside cited book - show nothing from other books
+        return []
+
     if not cited:
+        # Last cited pages from THIS chat, still title-aware
         cited = list(st.session_state.get("ask_cited_log") or [])[-2:]
+        if active_title:
+            for c in cited:
+                if not c.get("title"):
+                    c["title"] = active_title
+
     matched = match_cited_to_sources(cited, ledger, fallback=False)
     if matched:
+        # Extra guard: if we know the active title, drop cross-book leftovers
+        if active_title:
+            matched = [s for s in matched if _titles_compatible(active_title, s.get("title") or "")] or matched
         return matched[:3]
-    if cited:
-        return []
-    if ledger:
-        return list(ledger)[-1:]
     return []
 
 
@@ -2079,7 +2206,7 @@ Rules:
 16. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
 17. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
 18. FRIDGE / 12V COMPRESSOR NO-POWER: when this is a refrigerator job, follow FRIDGE OEM ORDER. Do not pull the fridge first. Check the accessible front-vent / customer fuse before rear voltage or teardown. Do not use a furnace or rooftop AC manual for a fridge.
-19. If the tech asks for illustrations, figures, drawings, associated illustrations, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the cited 📖 Source title and page. Do not instruct them to open a Source pages dropdown or list every linked page.
+19. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 20. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied."""
 
 
