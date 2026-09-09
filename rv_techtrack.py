@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.0
+RV TechTrack v4.13.1
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -45,6 +45,7 @@ RV TechTrack v4.13.0
 - v4.13.0: Guided Diagnostics chat is a SIMPLE open library coach (cite shop manuals; questions; figures; pivots)
 - v4.13.0: hard-tree / Yes-No gate quiz does not drive GD chat; never re-ask facts the tech already stated
 - v4.13.0: plate photo uses working Groq vision (qwen/qwen3.6-27b) after xAI; llama-4-scout 404 retired
+- v4.13.1: figure/terminal asks retrieve real SM diagram pages (not Quick Notes p.13)
 - Mobile-friendly
 """
 import streamlit as st
@@ -107,17 +108,29 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
 
 from gd_library_coach import (
+    FIGURE_PAGE_HONESTY,
+    FIGURE_QUERY_TERMS,
+    FURRION_FCR_BOARD_FIGURE_PAGES,
     HARD_TREE_EXCLUSIVE_CHAT,
     OPEN_LIBRARY_COACH_RULE,
     coach_library_search_boost,
     facts_from_chat,
+    figure_library_search_boost,
     format_stated_facts_rule,
     groq_vision_model_candidates,
+    is_furrion_ccd_0008122,
+    page_has_figure_or_terminal_layout,
+    page_is_text_only_notes,
+    pick_diagram_page_numbers,
     pick_working_vision_model,
     powered_not_cooling,
+    rank_chunks_for_figure_ask,
     reply_reasks_stated_facts,
+    score_figure_page,
     strip_path_complete_trap,
+    wants_board_or_terminal_figure,
     wants_library_figures,
+    wants_library_page_shown,
     xai_vision_model_candidates,
 )
 
@@ -1475,8 +1488,19 @@ def chunk_brands(ch) -> list:
     return named_brands(ch.title or "", ch.keywords or "")
 
 
-def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int = 14, unity_context: bool = False):
-    """Keyword search + expand matching INDEX chart rows into real SECTION pages."""
+def search_manual_chunks(
+    category_id,
+    model_text: str,
+    symptom: str,
+    limit: int = 14,
+    unity_context: bool = False,
+    figure_seek: bool = False,
+):
+    """Keyword search + expand matching INDEX chart rows into real SECTION pages.
+
+    figure_seek is GD-chat only (Jobs leave it False): prefer Fig./PCB/terminal
+    pages and do not let procedure-voltage scoring crown Quick Notes.
+    """
     q = session.query(DocChunk)
     if category_id:
         cat_ids = [category_id]
@@ -1530,18 +1554,23 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
 
     query_terms = set(tokenize(f"{model_text} {symptom}"))
     query_terms |= model_search_terms(model_text or "")
+    if figure_seek:
+        query_terms |= set(FIGURE_QUERY_TERMS)
+        query_terms.add("f+")
+        query_terms.add("fig.")
     # Light topic boost from symptom only (do NOT dump every OEM topic every time)
     for topic in PROCEDURE_TOPIC_TERMS:
         if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
             query_terms |= set(tokenize(topic))
-    # Core path terms for reefer no-cool
-    if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
-        for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
-                  "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
-            query_terms.add(t)
-    if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
-        for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
-            query_terms.add(t)
+    # Core path terms for reefer no-cool (skip on figure_seek — "voltage" crowns Quick Notes)
+    if not figure_seek:
+        if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
+            for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
+                      "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
+                query_terms.add(t)
+        if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
+            for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
+                query_terms.add(t)
     # Core path terms for RV furnace - sail switch is first-line, even if the tech
     # only typed "won't light" / "fan runs" / Dometic furnace.
     furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
@@ -1553,7 +1582,9 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
     scored = []
     asked_set = set(asked or [])
     for ch in all_chunks:
-        sc = score_chunk(ch, query_terms, model_text or "")
+        sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
+        if figure_seek:
+            sc += score_figure_page(ch, symptom or "")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1617,7 +1648,9 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int 
     merged = list(by_key.values())
     rescored = []
     for ch in merged:
-        sc = score_chunk(ch, query_terms, model_text or "")
+        sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
+        if figure_seek:
+            sc += score_figure_page(ch, symptom or "")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1873,6 +1906,58 @@ def record_cited_pages(assistant_text: str):
     return cited
 
 
+def _furrion_fcr_library_context(model_text: str, chunks) -> bool:
+    blob = (model_text or "") + " " + " ".join(
+        (getattr(ch, "title", "") or "") for ch in (chunks or [])
+    )
+    if is_furrion_ccd_0008122(blob):
+        return True
+    t = blob.lower()
+    return "furrion" in t and any(k in t for k in ("fcr08", "fcr10", "ccd-0008122", "ccd0008122"))
+
+
+def supplement_board_figure_pages(chunks, model_text: str, user_msg: str):
+    """Pull known CCD-0008122 board/terminal figure pages into the GD excerpt set."""
+    chunks = list(chunks or [])
+    if not wants_board_or_terminal_figure(user_msg):
+        return chunks
+    if not _furrion_fcr_library_context(model_text, chunks):
+        return chunks
+    doc_id = None
+    for ch in chunks:
+        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
+            doc_id = getattr(ch, "document_id", None)
+            if doc_id:
+                break
+    if not doc_id:
+        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
+        if seed:
+            doc_id = seed.get("document_id")
+    if not doc_id:
+        return chunks
+    have = {
+        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
+        for ch in chunks
+    }
+    try:
+        extra = (
+            session.query(DocChunk)
+            .filter(
+                DocChunk.document_id == int(doc_id),
+                DocChunk.page.in_(list(FURRION_FCR_BOARD_FIGURE_PAGES)),
+            )
+            .all()
+        )
+    except Exception:
+        extra = []
+    for ch in extra:
+        key = (ch.document_id, int(ch.page or 0))
+        if key not in have:
+            chunks.append(ch)
+            have.add(key)
+    return chunks
+
+
 def store_ask_sources(chunks):
     if not chunks:
         return
@@ -2076,7 +2161,24 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
     for p in explicit_pages:
         _add_page(p)
 
-    # 3) Cited Source pages / page-of-title (when coach named them)
+    ledger = list(st.session_state.get("ask_sources") or [])
+    same_book = [
+        s for s in ledger
+        if _titles_compatible(manual_title, s.get("title") or "")
+    ]
+
+    # 3) Board / terminal / PCB figure ask — pick real diagram pages, not Quick Notes
+    if not out and wants_board_or_terminal_figure(user_msg):
+        picked = pick_diagram_page_numbers(same_book, user_msg, manual_title)
+        for p in picked:
+            _add_page(p)
+        if not out and is_furrion_ccd_0008122(manual_title):
+            for p in FURRION_FCR_BOARD_FIGURE_PAGES:
+                _add_page(p)
+                if len(out) >= 2:
+                    break
+
+    # 4) Cited Source pages — skip text-only notes on a figure ask
     if not out:
         for c in cited:
             if not _titles_compatible(manual_title, c.get("title") or manual_title):
@@ -2085,8 +2187,24 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
                 p = int(c.get("page") or 0)
             except Exception:
                 p = 0
-            if p:
-                _add_page(p)
+            if not p:
+                continue
+            excerpt = ""
+            for s in same_book:
+                try:
+                    if int(s.get("page") or 0) == p:
+                        excerpt = s.get("excerpt") or ""
+                        break
+                except Exception:
+                    continue
+            if (
+                wants_library_page_shown(user_msg)
+                and excerpt
+                and page_is_text_only_notes(excerpt)
+                and not page_has_figure_or_terminal_layout(excerpt)
+            ):
+                continue
+            _add_page(p)
 
     return out[:3]
 
@@ -3338,7 +3456,8 @@ Rules:
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
 22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
-23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping."""
+23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping.
+24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels)."""
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -3353,7 +3472,15 @@ def _ask_chat_transcript(history: list) -> str:
     return "\n\n".join(lines)
 
 
-def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit: int = 8, unity_gate: str = ""):
+def _ask_manual_context(
+    category_name: str,
+    model_text: str,
+    symptom: str,
+    limit: int = 8,
+    unity_gate: str = "",
+    figure_seek: bool = False,
+    figure_query: str = "",
+):
     """Search uploaded manuals when category and/or symptom is known. Returns (chunks, context_text)."""
     category_name = (category_name or "").strip()
     model_text = (model_text or "").strip()
@@ -3368,9 +3495,13 @@ def _ask_manual_context(category_name: str, model_text: str, symptom: str, limit
         category_id,
         model_text,
         symptom,
-        limit=limit,
+        limit=max(limit, 10) if figure_seek else limit,
         unity_context=is_unity_context(category_name, model_text, symptom, unity_gate),
+        figure_seek=figure_seek,
     )
+    if figure_seek:
+        chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
+        chunks = rank_chunks_for_figure_ask(chunks, figure_query or symptom, limit=limit)
     if not chunks:
         return [], ""
     parts = []
@@ -3392,20 +3523,36 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     prior_user = " ".join(
         (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
     )
+    figure_seek = wants_board_or_terminal_figure(user_msg) or (
+        wants_library_figures(user_msg) and wants_board_or_terminal_figure(f"{prior_user} {user_msg}")
+    )
     search_symptom = f"{prior_user} {user_msg}".strip()
     search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
     # Jobs still uses fridge_search_symptom (no-power fuse boost). Coach skips that
     # bias once the tech already reported power + not cooling.
-    if powered_not_cooling(facts) and is_fridge_context(category_name, model_text, search_symptom):
+    # Figure/terminal asks must NOT inherit "voltage" / Quick Notes bias.
+    if figure_seek:
+        fig_boost = figure_library_search_boost(user_msg)
+        if is_fridge_context(category_name, model_text, search_symptom):
+            search_symptom = f"{search_symptom} refrigerator fridge inverter {fig_boost}".strip()
+        else:
+            search_symptom = f"{search_symptom} {fig_boost}".strip()
+    elif powered_not_cooling(facts) and is_fridge_context(category_name, model_text, search_symptom):
         search_symptom = f"{search_symptom} refrigerator fridge not cooling compressor inoperable"
     else:
         search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
     search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
     boost = coach_library_search_boost(facts)
-    if boost:
+    if boost and not figure_seek:
         search_symptom = f"{search_symptom} {boost}".strip()
     chunks, context = _ask_manual_context(
-        category_name, model_text, search_symptom, limit=8, unity_gate=unity_gate
+        category_name,
+        model_text,
+        search_symptom,
+        limit=8,
+        unity_gate=unity_gate,
+        figure_seek=figure_seek,
+        figure_query=user_msg,
     )
     store_ask_sources(chunks)
 
@@ -3422,6 +3569,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if is_fridge_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
     system_prompt += "\n\n" + DIAG_LED_HONESTY
+    if figure_seek or wants_library_page_shown(user_msg):
+        system_prompt += "\n\n" + FIGURE_PAGE_HONESTY
     if extra_system_rule:
         system_prompt += "\n\n" + extra_system_rule
     if stated and stated not in system_prompt:
@@ -3490,7 +3639,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         except Exception:
             pass
     record_cited_pages(reply)
-    if wants_library_figures(user_msg):
+    if wants_library_page_shown(user_msg):
         reply += (
             "\n\nThe figure is in the shop Document Library PDF. "
             "If a page image appears below, that is the real shop library page "
@@ -4264,7 +4413,7 @@ with tab_ask:
                 msg,
                 reply,
             )
-            if wants_library_figures(msg):
+            if wants_library_page_shown(msg):
                 # Prefer current reply cites; else fall back to prior coach Source lines
                 coach_for_pages = reply or ""
                 if not parse_cited_pages_from_text(coach_for_pages):

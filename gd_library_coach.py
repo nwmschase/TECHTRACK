@@ -73,7 +73,44 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
+- If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
 - When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
+"""
+
+# Board / terminal / PCB figure asks (Chase live: "show me labeled output terminals").
+BOARD_FIGURE_ASK_HINTS = (
+    "pcb", "inverter board", "board layout", "pinout", "pin-out", "pin out",
+    "output terminal", "terminals labeled", "labeled terminal", "terminal label",
+    "housing label", "wiring diagram", "inverter pcb", "inverter terminal",
+    "fan terminal", "labeled pcb", "label the terminal", "label the board",
+    "where are the terminal", "where is the terminal", "f+", "f-", "f–", "f−",
+    "d/+", "silkscreen",
+)
+
+# Search rewrite: pull figure pages, not Quick Notes / Nominal voltage.
+FIGURE_SEARCH_BOOST = (
+    "Fig. figure inverter PCB wiring diagram housing labels "
+    "F+ F- terminal labels board layout pinout"
+)
+FIGURE_QUERY_TERMS = (
+    "fig", "figure", "inverter", "pcb", "wiring", "diagram",
+    "housing", "labels", "terminal", "terminals", "board",
+    "layout", "pinout",
+)
+
+# CCD-0008122 shop SM pages that actually show board / terminal figures.
+# ~11 wiring, ~16–17 Fig. 2–4 inverter + D/+, ~27 Fig. 21 F+/F−, ~45–46 Fig. 68–69 housing.
+FURRION_FCR_BOARD_FIGURE_PAGES = (16, 17, 27, 11, 45, 46)
+FURRION_FCR_TEXT_ONLY_PAGES = (13,)  # Troubleshooting Instructions / Quick Notes
+
+FIG_CAPTION_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
+F_PLUS_MINUS_RE = re.compile(r"\bf\s*[+\-–−]", re.I)
+
+FIGURE_PAGE_HONESTY = """
+FIGURE / TERMINAL PAGE HONESTY:
+- If the tech asks for a figure, diagram, labeled terminals, PCB / inverter board layout, or pinout: cite a page whose excerpt actually contains Fig./figure numbers, F+/F−, inverter PCB, wiring diagram, or housing labels.
+- If the excerpt is Quick Notes / Nominal voltage / troubleshooting text with NO figure or terminal layout: say that page has no diagram. Do not invent pad locations. Try the next diagram-candidate excerpt, or ask which they need: wiring / LED terminals D/+ / fan F+ F− / housing labels.
+- Never describe pad locations from a text-only Quick Notes page.
 """
 
 
@@ -96,6 +133,204 @@ def wants_library_figures(text: str) -> bool:
     """Detect that the tech wants a shop-library illustration / figure / page shown."""
     t = _norm(text)
     return any(k in t for k in FIGURE_HINTS)
+
+
+def wants_board_or_terminal_figure(text: str) -> bool:
+    """True when the tech wants labeled terminals / PCB / inverter board / pinout / wiring."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    t = _norm(raw)
+    if any(k in t for k in BOARD_FIGURE_ASK_HINTS):
+        return True
+    if "terminal" in t and any(
+        k in t for k in ("pcb", "inverter", "board", "label", "diagram", "figure", "layout", "show")
+    ):
+        return True
+    if "inverter" in t and any(k in t for k in ("show", "page", "figure", "diagram", "layout", "label")):
+        return True
+    return False
+
+
+def wants_library_page_shown(text: str) -> bool:
+    """Show the shop-library PDF page: figure phrasing or a board/terminal ask."""
+    return wants_library_figures(text) or wants_board_or_terminal_figure(text)
+
+
+def is_furrion_ccd_0008122(text: str) -> bool:
+    t = _norm(text)
+    return "ccd-0008122" in t or "ccd0008122" in t or (
+        "furrion" in t and ("fcr08" in t or "fcr10" in t) and " sm" in f" {t} "
+    )
+
+
+def figure_library_search_boost(user_msg: str) -> str:
+    """
+    Extra library search terms for figure / terminal / PCB asks.
+    Does NOT include Nominal voltage / Quick Notes.
+    """
+    if wants_board_or_terminal_figure(user_msg):
+        return FIGURE_SEARCH_BOOST
+    if wants_library_figures(user_msg):
+        return "Fig. figure illustration diagram drawing"
+    return ""
+
+
+def _page_text_blob(page) -> str:
+    if isinstance(page, dict):
+        return " ".join(
+            str(page.get(k) or "")
+            for k in ("chunk_text", "excerpt", "text", "title", "keywords")
+        )
+    return " ".join(
+        str(getattr(page, k, "") or "")
+        for k in ("title", "keywords", "chunk_text")
+    )
+
+
+def _page_number(page) -> int:
+    try:
+        if isinstance(page, dict):
+            return int(page.get("page") or 0)
+        return int(getattr(page, "page", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _page_title(page) -> str:
+    if isinstance(page, dict):
+        return str(page.get("title") or "")
+    return str(getattr(page, "title", "") or "")
+
+
+def page_has_figure_or_terminal_layout(text: str) -> bool:
+    """True when page text looks like a board / wiring / terminal figure, not Quick Notes."""
+    raw = text or ""
+    t = _norm(raw)
+    if not t:
+        return False
+    if FIG_CAPTION_RE.search(raw):
+        return True
+    if "wiring diagram" in t or "housing label" in t:
+        return True
+    if F_PLUS_MINUS_RE.search(raw) and any(k in t for k in ("inverter", "pcb", "terminal", "fan")):
+        return True
+    if "inverter pcb" in t and ("terminal" in t or "fig" in t or "board" in t):
+        return True
+    return False
+
+
+def page_is_text_only_notes(text: str) -> bool:
+    """Quick Notes / Nominal voltage / troubleshooting prose with no figure layout."""
+    raw = text or ""
+    t = _norm(raw)
+    if not t or page_has_figure_or_terminal_layout(raw):
+        return False
+    return any(
+        s in t
+        for s in ("quick notes", "nominal voltage", "troubleshooting instructions")
+    )
+
+
+def score_figure_page(page, query: str = "") -> int:
+    """
+    Higher = more likely a real board/terminal figure page.
+    Penalize CCD-0008122 Quick Notes page 13 and other text-only notes.
+    """
+    raw = _page_text_blob(page)
+    t = _norm(raw)
+    q = _norm(query)
+    title = _page_title(page)
+    page_no = _page_number(page)
+    score = 0
+
+    fig_hits = len(FIG_CAPTION_RE.findall(raw))
+    score += min(fig_hits * 8, 24)
+    if "inverter pcb" in t or "inverter board" in t:
+        score += 10
+    if F_PLUS_MINUS_RE.search(raw):
+        score += 10
+    if "wiring diagram" in t:
+        score += 8
+    if "housing label" in t:
+        score += 8
+    if "terminal" in t and ("label" in t or fig_hits):
+        score += 6
+    if "d/" in t or ("terminal d" in t) or re.search(r"\bd\s*[+/]", t):
+        score += 4
+
+    if any(w in q for w in ("fan", "f+", "f-")) and F_PLUS_MINUS_RE.search(raw):
+        score += 6
+    if any(w in q for w in ("housing", "label")) and "housing" in t:
+        score += 4
+    if "wiring" in q and "wiring" in t:
+        score += 4
+    if any(w in q for w in ("pcb", "inverter", "board", "terminal")) and (
+        "inverter" in t or "pcb" in t or "terminal" in t
+    ):
+        score += 6
+
+    if page_is_text_only_notes(raw):
+        score -= 20
+    if "nominal voltage" in t and not page_has_figure_or_terminal_layout(raw):
+        score -= 12
+    if "quick notes" in t and not page_has_figure_or_terminal_layout(raw):
+        score -= 16
+
+    furrion = is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(q)
+    if furrion and page_no in FURRION_FCR_BOARD_FIGURE_PAGES:
+        score += 15
+    if furrion and page_no in FURRION_FCR_TEXT_ONLY_PAGES and not page_has_figure_or_terminal_layout(raw):
+        score -= 20
+    return score
+
+
+def rank_chunks_for_figure_ask(chunks, query: str, limit: int = 8) -> list:
+    """Prefer figure/terminal-layout pages; drop Quick Notes when a real figure page exists."""
+    scored = [(score_figure_page(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    has_fig = any(
+        sc > 0 and page_has_figure_or_terminal_layout(_page_text_blob(ch))
+        for sc, ch in scored
+    )
+    out = []
+    for _sc, ch in scored:
+        text = _page_text_blob(ch)
+        if has_fig and page_is_text_only_notes(text):
+            continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out or [ch for _sc, ch in scored[:limit]]
+
+
+def pick_diagram_page_numbers(candidates, query: str, manual_title: str = "") -> list:
+    """
+    Page numbers to show for a board/terminal figure ask.
+    Never returns a text-only Quick Notes page when a diagram candidate exists.
+    Falls back to CCD-0008122 board-figure pages when the SM is Furrion and nothing else qualifies.
+    """
+    ranked = rank_chunks_for_figure_ask(candidates, query, limit=8)
+    pages = []
+    title_blob = manual_title or ""
+    for ch in ranked:
+        title_blob = title_blob or _page_title(ch)
+        text = _page_text_blob(ch)
+        page_no = _page_number(ch)
+        if not page_no:
+            continue
+        hint_ok = (
+            is_furrion_ccd_0008122(_page_title(ch) or manual_title)
+            and page_no in FURRION_FCR_BOARD_FIGURE_PAGES
+        )
+        if page_has_figure_or_terminal_layout(text) or hint_ok:
+            if page_no not in pages:
+                pages.append(page_no)
+        if len(pages) >= 3:
+            break
+    if not pages and is_furrion_ccd_0008122(manual_title or title_blob) and wants_board_or_terminal_figure(query):
+        pages = list(FURRION_FCR_BOARD_FIGURE_PAGES[:3])
+    return pages[:3]
 
 
 def tech_wants_open_coach(user_msg: str) -> bool:

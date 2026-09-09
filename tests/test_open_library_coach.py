@@ -19,7 +19,9 @@ from gd_library_coach import (
     reply_reasks_stated_facts,
     strip_path_complete_trap,
     tech_wants_open_coach,
+    wants_board_or_terminal_figure,
     wants_library_figures,
+    wants_library_page_shown,
     xai_vision_model_candidates,
 )
 
@@ -122,6 +124,14 @@ class TestFigureAsks(unittest.TestCase):
     def test_plain_result_is_not_a_figure_ask(self):
         self.assertFalse(wants_library_figures("paper moved left suck right blow"))
 
+    def test_chase_terminal_ask_shows_library_page(self):
+        for msg in (
+            "show me the page with output terminals labeled",
+            "inverter PCB terminals",
+        ):
+            self.assertTrue(wants_board_or_terminal_figure(msg), msg)
+            self.assertTrue(wants_library_page_shown(msg), msg)
+
     def test_pivot_is_coach_request(self):
         self.assertTrue(tech_wants_open_coach("go back, need to test compressor"))
         self.assertTrue(tech_wants_open_coach("go to compressor section"))
@@ -181,12 +191,21 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("OPEN LIBRARY COACH", src)
         self.assertIn("from gd_library_coach import", src)
         self.assertIn("HARD_TREE_EXCLUSIVE_CHAT", src)
+        self.assertIn("FIGURE_PAGE_HONESTY", src)
 
     def test_jobs_plan_function_still_present(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         self.assertIn("def run_guided_diagnostics(", src)
         self.assertIn("Write the guided diagnostic plan now.", src)
         self.assertIn("Start Job + Build Test Plan", src)
+        self.assertIn("figure_seek: bool = False", src)
+        self.assertNotIn("figure_seek=True", src.split("def run_guided_diagnostics")[1][:800])
+
+    def test_figure_honesty_is_wired(self):
+        src = (ROOT / "rv_techtrack.py").read_text()
+        self.assertIn("FIGURE_PAGE_HONESTY", src)
+        self.assertIn("wants_library_page_shown", src)
+        self.assertIn("pick_diagram_page_numbers", src)
 
     def test_no_tree_dump_hint_in_coach_module(self):
         coach = (ROOT / "gd_library_coach.py").read_text()
