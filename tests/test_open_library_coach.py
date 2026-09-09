@@ -11,6 +11,7 @@ from gd_library_coach import (
     groq_vision_model_candidates,
     hard_tree_yields_to_coach,
     is_path_complete_trap,
+    pick_working_vision_model,
     tech_wants_open_coach,
     wants_library_figures,
     xai_vision_model_candidates,
@@ -105,6 +106,26 @@ class TestVisionModels(unittest.TestCase):
         self.assertEqual(models[0], "grok-vision-shop")
         self.assertIn("grok-4.6", models)
         self.assertIn("grok-2-vision-1212", models)
+
+    def test_scout_404_falls_through_to_qwen(self):
+        tried = []
+
+        def call_model(model):
+            tried.append(model)
+            if model == DEAD_GROQ_SCOUT_MODEL:
+                raise RuntimeError("404 model_not_found")
+            if model == "qwen/qwen3.6-27b":
+                return '{"brand":"Furrion","model":"FCR10DCGTA","notes":""}'
+            return ""
+
+        model, raw, errors = pick_working_vision_model(
+            [DEAD_GROQ_SCOUT_MODEL, "qwen/qwen3.6-27b"],
+            call_model,
+        )
+        self.assertEqual(model, "qwen/qwen3.6-27b")
+        self.assertIn("FCR10DCGTA", raw)
+        self.assertTrue(any("404" in e for e in errors))
+        self.assertEqual(tried, [DEAD_GROQ_SCOUT_MODEL, "qwen/qwen3.6-27b"])
 
 
 class TestLibraryHint(unittest.TestCase):

@@ -129,6 +129,25 @@ def _clean_model_id(name: str) -> str:
     return (name or "").strip()
 
 
+def pick_working_vision_model(candidates, call_model):
+    """
+    Try vision models in order. Used so a retired id (llama-4-scout 404)
+    falls through to qwen/qwen3.6-27b instead of aborting the plate read.
+    call_model(model_id) -> raw text (empty string counts as miss).
+    Returns (model_id, raw, errors).
+    """
+    errors = []
+    for model in candidates or []:
+        try:
+            raw = (call_model(model) or "").strip()
+            if raw:
+                return model, raw, errors
+            errors.append(f"{model}: empty vision response")
+        except Exception as e:
+            errors.append(f"{model}: {e}")
+    return None, "", errors
+
+
 def groq_vision_model_candidates(preferred: str = "") -> list:
     """Working Groq vision models. Scout is dead unless a shop secret explicitly names it."""
     out = []

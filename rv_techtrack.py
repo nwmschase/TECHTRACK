@@ -112,6 +112,7 @@ from gd_library_coach import (
     format_procedure_library_hint,
     groq_vision_model_candidates,
     hard_tree_yields_to_coach,
+    pick_working_vision_model,
     tech_wants_open_coach,
     wants_library_figures,
     xai_vision_model_candidates,
@@ -918,41 +919,45 @@ def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> 
     xai_key = _secret("XAI_API_KEY")
     if xai_key and OPENAI_AVAILABLE:
         client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
-        for model in xai_vision_model_candidates(
-            preferred_vision=_secret("XAI_VISION_MODEL") or "",
-            preferred_chat=_secret("XAI_MODEL") or "",
-        ):
-            try:
+
+        def _xai_call(model):
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=400,
+            )
+            return (response.choices[0].message.content or "").strip()
+
+        _used, raw, xai_errs = pick_working_vision_model(
+            xai_vision_model_candidates(
+                preferred_vision=_secret("XAI_VISION_MODEL") or "",
+                preferred_chat=_secret("XAI_MODEL") or "",
+            ),
+            _xai_call,
+        )
+        errors.extend(f"xAI vision ({e})" for e in xai_errs)
+    if not raw:
+        groq_key = _secret("GROQ_API_KEY")
+        if GROQ_AVAILABLE and groq_key:
+            client = Groq(api_key=groq_key)
+
+            def _groq_call(model):
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
                     temperature=0.0,
                     max_tokens=400,
                 )
-                raw = (response.choices[0].message.content or "").strip()
-                if raw:
-                    break
-            except Exception as e:
-                errors.append(f"xAI vision ({model}): {e}")
-    if not raw:
-        groq_key = _secret("GROQ_API_KEY")
-        if GROQ_AVAILABLE and groq_key:
-            client = Groq(api_key=groq_key)
+                return (response.choices[0].message.content or "").strip()
+
             # Scout (meta-llama/llama-4-scout-17b-16e-instruct) 404s on free/dev.
             # Try shop override, then current Groq vision models (qwen/qwen3.6-27b).
-            for vision_model in groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""):
-                try:
-                    response = client.chat.completions.create(
-                        model=vision_model,
-                        messages=messages,
-                        temperature=0.0,
-                        max_tokens=400,
-                    )
-                    raw = (response.choices[0].message.content or "").strip()
-                    if raw:
-                        break
-                except Exception as e:
-                    errors.append(f"Groq vision ({vision_model}): {e}")
+            _used, raw, groq_errs = pick_working_vision_model(
+                groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""),
+                _groq_call,
+            )
+            errors.extend(f"Groq vision ({e})" for e in groq_errs)
     if not raw:
         return {
             "ok": False,
