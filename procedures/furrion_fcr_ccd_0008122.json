@@ -1,0 +1,647 @@
+{
+  "id": "furrion_fcr_ccd_0008122",
+  "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+  "models": [
+    "fcr08",
+    "fcr10",
+    "fcr10dcgta",
+    "fcr08dcgta",
+    "ccd-0008122",
+    "ccd0008122"
+  ],
+  "categories": [
+    "refrigerat",
+    "fridge"
+  ],
+  "nodes": {
+    "fuse_front_vent": {
+      "id": "fuse_front_vent",
+      "type": "multi",
+      "prompt": "DISCONNECT POWER. Pull the front vent cover off the bottom of the refrigerator. Locate the fuse in the top left section of the front vent cavity (Fig. 7A) — 15A ATC blade / cartridge. Visually check the fuse, confirm with continuity, check fitment in the holder, replace if blown, then reapply power.\n\nReport fuse result: blown / replaced / good.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 19,
+      "edges": {
+        "blown": "cavity_light_after_fuse",
+        "replaced": "cavity_light_after_fuse",
+        "good": "cavity_light_check"
+      },
+      "map_hints": {
+        "rules": [
+          {
+            "any_contains": [
+              "replac"
+            ],
+            "answer": "replaced"
+          },
+          {
+            "any_contains": [
+              "blown"
+            ],
+            "answer": "blown"
+          },
+          {
+            "any_contains": [
+              "good",
+              "ok",
+              "fine",
+              "intact",
+              "not blown"
+            ],
+            "answer": "good"
+          }
+        ]
+      }
+    },
+    "cavity_light_check": {
+      "id": "cavity_light_check",
+      "type": "binary",
+      "prompt": "Open the door. Does the refrigerator cavity light come on?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 19,
+      "edges": {
+        "yes": "dial_on_4_5",
+        "no": "fuse_front_vent"
+      }
+    },
+    "cavity_light_after_fuse": {
+      "id": "cavity_light_after_fuse",
+      "type": "multi",
+      "prompt": "After the fuse check/replace and power reapplied: does the refrigerator cavity light come on when opening the door? Also say if it is cooling or not cooling.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 19,
+      "edges": {
+        "light_on_cooling": "resolved_power",
+        "light_on_not_cooling": "dial_on_4_5",
+        "yes": "dial_on_4_5",
+        "light_on": "dial_on_4_5",
+        "no": "power_continuity_voltage",
+        "no_light": "power_continuity_voltage"
+      },
+      "map_hints": {
+        "rules": [
+          {
+            "all_groups": [
+              [
+                "light",
+                "power"
+              ],
+              [
+                "not cool",
+                "no cool",
+                "warm",
+                "not cold"
+              ]
+            ],
+            "answer": "light_on_not_cooling",
+            "fallback": "yes"
+          },
+          {
+            "all_contains": [
+              "light",
+              "on",
+              "cool"
+            ],
+            "none_contains": [
+              "not"
+            ],
+            "answer": "light_on_cooling"
+          },
+          {
+            "any_contains": [
+              "no light",
+              "still dead",
+              "dark",
+              "no power"
+            ],
+            "answer": "no"
+          }
+        ]
+      }
+    },
+    "resolved_power": {
+      "id": "resolved_power",
+      "type": "end",
+      "prompt": "Power issue resolved. Confirm the refrigerator performs. No further action is required on the No-Power path.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 19,
+      "edges": {}
+    },
+    "power_continuity_voltage": {
+      "id": "power_continuity_voltage",
+      "type": "binary",
+      "prompt": "Slide the unit out to access power connections. Measure and record voltage at the appliance connection (Fig. 8 / Fig. 9). Is the voltage between 12V–15V?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 20,
+      "edges": {
+        "yes": "dial_on_4_5",
+        "no": "external_power_issue"
+      },
+      "reading": {
+        "unit": "V",
+        "regex": "(\\d+(?:\\.\\d+)?)\\s*v",
+        "compare": "between",
+        "min": 12.0,
+        "max": 15.0,
+        "in_range": "yes",
+        "out_of_range": "no"
+      }
+    },
+    "external_power_issue": {
+      "id": "external_power_issue",
+      "type": "end",
+      "prompt": "Insufficient RV supply voltage. Correct power supply: connect shore power, check converter, check wiring and switches, charge batteries. Document as \"external power issue.\" Contact RV manufacturer for additional troubleshooting.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 20,
+      "edges": {}
+    },
+    "dial_on_4_5": {
+      "id": "dial_on_4_5",
+      "type": "binary",
+      "prompt": "Open the door and locate the temperature dial. Confirm the dial is ON — not OFF — set to position 4 or 5 (Fig. 17 / Fig. 32).\n\nIs the dial ON at 4 or 5?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 23,
+      "edges": {
+        "yes": "battery_under_load",
+        "no": "set_dial_then_battery",
+        "off": "set_dial_then_battery"
+      }
+    },
+    "set_dial_then_battery": {
+      "id": "set_dial_then_battery",
+      "type": "gate",
+      "prompt": "Turn the refrigerator ON to dial position 4 or 5. Then check battery voltage under load (General Troubleshooting: ≥10.5V under load).\n\nReport when dial is set to 4–5 and the under-load voltage reading.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 12,
+      "edges": {
+        "pass": "paper_test",
+        "yes": "paper_test",
+        "ok": "paper_test",
+        "set": "paper_test",
+        "fail": "external_power_issue",
+        "low": "external_power_issue",
+        "no": "external_power_issue"
+      },
+      "reading": {
+        "unit": "V",
+        "regex": "(\\d+(?:\\.\\d+)?)\\s*v",
+        "compare": "gte",
+        "threshold": 10.5,
+        "true": "pass",
+        "false": "fail"
+      }
+    },
+    "battery_under_load": {
+      "id": "battery_under_load",
+      "type": "binary",
+      "prompt": "Per General Troubleshooting: check battery voltage for 10.5V under load (operating range). Is battery voltage ≥10.5V under load?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 12,
+      "edges": {
+        "yes": "paper_test",
+        "pass": "paper_test",
+        "no": "external_power_issue",
+        "fail": "external_power_issue"
+      },
+      "reading": {
+        "unit": "V",
+        "regex": "(\\d+(?:\\.\\d+)?)\\s*v",
+        "compare": "gte",
+        "threshold": 10.5,
+        "true": "yes",
+        "false": "no"
+      }
+    },
+    "paper_test": {
+      "id": "paper_test",
+      "type": "binary",
+      "prompt": "Insufficient Temperature — paper test for cooling-fan airflow (air in/out):\n1. Open the door.\n2. Droop a piece of paper over the edge of the cavity so it hangs over the front of the vent.\n3. Facing the unit, left side of the vent cover should SUCK the paper in (Fig. 33).\n4. Facing the unit, right side of the vent cover should BLOW the paper out (Fig. 34).\n\nDoes the paper move correctly (left suck / right blow)?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 33,
+      "edges": {
+        "yes": "not_cooling_current",
+        "pass": "not_cooling_current",
+        "no": "is_operating_diamond",
+        "fail": "is_operating_diamond"
+      },
+      "map_hints": {
+        "rules": [
+          {
+            "any_contains": [
+              "no movement",
+              "no paper",
+              "doesn't move",
+              "does not move",
+              "fail",
+              "no suck",
+              "no blow"
+            ],
+            "answer": "fail",
+            "fallback": "no"
+          },
+          {
+            "any_contains": [
+              "suck",
+              "blow",
+              "moves",
+              "pass",
+              "airflow ok"
+            ],
+            "answer": "pass",
+            "fallback": "yes"
+          }
+        ]
+      }
+    },
+    "is_operating_diamond": {
+      "id": "is_operating_diamond",
+      "type": "binary",
+      "prompt": "Is the refrigerator operating? (Compressor working/running — it may not be cold yet. Amperage should be greater than 1 amp to indicate it is working.)",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 33,
+      "edges": {
+        "no": "fan_replacement",
+        "yes": "not_cooling_current"
+      },
+      "reask_preface": "Cold alone is not this gate. Is the compressor running (or draw greater than 1 amp)? Answer {edges} only — I will not skip ahead.",
+      "map_hints": {
+        "pre_alias": [
+          {
+            "regex": "\\b(does\\s+not|doesn't|doesnt|not)\\b.{0,40}\\b(operat|running|working)\\b",
+            "answer": "no"
+          },
+          {
+            "any_contains": [
+              "not operat",
+              "isn't operat",
+              "isnt operat",
+              "not running",
+              "isn't running",
+              "isnt running",
+              "compressor not",
+              "no compressor",
+              "compressor dead",
+              "not working",
+              "isn't working",
+              "no amp",
+              "0 amp",
+              "0a"
+            ],
+            "answer": "no"
+          }
+        ],
+        "rules": [
+          {
+            "any_contains": [
+              "not operat",
+              "isn't operat",
+              "isnt operat",
+              "not running",
+              "isn't running",
+              "isnt running",
+              "compressor not",
+              "no compressor",
+              "compressor dead",
+              "not working",
+              "isn't working",
+              "no amp",
+              "0 amp",
+              "0a",
+              "silent",
+              "no hum",
+              "not getting power to compressor",
+              "does not seem to be cooling or operating",
+              "not cooling or operating"
+            ],
+            "answer": "no"
+          },
+          {
+            "regex": "\\b(dead|no\\s+run|won't\\s+run|will\\s+not\\s+run)\\b",
+            "answer": "no"
+          },
+          {
+            "regex": "\\b(operat|compressor\\s+running|running|amps?\\s*>\\s*1|greater\\s+than\\s*1|>\\s*1\\s*a)\\b",
+            "none_regex": "\\b(not|no|isn't|isnt|won't|wont)\\b",
+            "answer": "yes"
+          }
+        ]
+      }
+    },
+    "fan_replacement": {
+      "id": "fan_replacement",
+      "type": "end",
+      "prompt": "Potential air blockage or bad fan. Proceed to Fan Replacement in Repair Section 2 for further information. Do not meter fan supply voltage on this path; that check belongs only on the Fan Fault / flash-code diagnostics, not after the paper test.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 33,
+      "edges": {}
+    },
+    "not_cooling_current": {
+      "id": "not_cooling_current",
+      "type": "binary",
+      "prompt": "Not Cooling Diagnostics: Pull the unit out to measure current. Run the refrigerator for at least 1 hour before proceeding. Use a DC clamp meter to measure and record current.\n\nIs current <3 amps?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {
+        "yes": "oily_substance_check",
+        "no": "dial_max_one_hour"
+      },
+      "reading": {
+        "unit": "A",
+        "regex": "(\\d+(?:\\.\\d+)?)\\s*a",
+        "compare": "lt",
+        "threshold": 3.0,
+        "true": "yes",
+        "false": "no",
+        "text_true": [
+          "<3",
+          "less than 3"
+        ],
+        "text_false": [
+          ">3",
+          "over 3",
+          "greater than 3"
+        ]
+      }
+    },
+    "oily_substance_check": {
+      "id": "oily_substance_check",
+      "type": "binary",
+      "prompt": "Shut off the refrigerator and let sit for 1 hour. Remove the back cover and touch the inlet and outlet tubes with fingers to check for oily substance.\n\nIs there an oily substance present?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {
+        "yes": "replace_unit_coolant",
+        "no": "replace_unit_return"
+      }
+    },
+    "dial_max_one_hour": {
+      "id": "dial_max_one_hour",
+      "type": "binary",
+      "prompt": "Turn dial up to max setting and run for 1 hour.\n\nIs the refrigerator operating correctly?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {
+        "yes": "replace_thermostat",
+        "no": "compressor_running_constant"
+      }
+    },
+    "compressor_running_constant": {
+      "id": "compressor_running_constant",
+      "type": "binary",
+      "prompt": "Is the compressor running constantly?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {
+        "yes": "replace_unit_coolant",
+        "no": "replace_thermostat"
+      }
+    },
+    "replace_thermostat": {
+      "id": "replace_thermostat",
+      "type": "end",
+      "prompt": "Replace the thermostat to recalibrate the unit. Proceed to Thermostat Replacement in Repair Section 2. If issues persist, replace unit.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {}
+    },
+    "replace_unit_coolant": {
+      "id": "replace_unit_coolant",
+      "type": "end",
+      "prompt": "Likely a coolant leak. Replace unit and determine if unit needs to be returned.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {}
+    },
+    "replace_unit_return": {
+      "id": "replace_unit_return",
+      "type": "end",
+      "prompt": "Replace unit and determine if unit needs to be returned.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 34,
+      "edges": {}
+    },
+    "fan_fault_f_terminal_volts": {
+      "id": "fan_fault_f_terminal_volts",
+      "type": "binary",
+      "prompt": "Error Code — Fan Fault Diagnostics: Connect power, locate the inverter PCB. Measure and record voltage at the F+ and F− terminals on the inverter PCB.\n\nIs the nominal voltage 12V?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 27,
+      "edges": {
+        "yes": "fan_fault_connections",
+        "no": "replace_inverter_pcb"
+      }
+    },
+    "fan_fault_connections": {
+      "id": "fan_fault_connections",
+      "type": "binary",
+      "prompt": "Check connections: fan into inverter PCB F+/F− terminals, and fan quick connection to harness. Reset power.\n\nDid the error code go away after resetting power?",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 27,
+      "edges": {
+        "yes": "resolved_power",
+        "no": "replace_inverter_and_fan"
+      }
+    },
+    "replace_inverter_pcb": {
+      "id": "replace_inverter_pcb",
+      "type": "end",
+      "prompt": "Replace the inverter PCB. Proceed to Compressor Inverter PCB Replacement in Repair Section 2.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 27,
+      "edges": {}
+    },
+    "replace_inverter_and_fan": {
+      "id": "replace_inverter_and_fan",
+      "type": "end",
+      "prompt": "Replace the inverter PCB and fan. Proceed to Compressor Inverter PCB Replacement and Fan Replacement in Repair Section 2.",
+      "source_title": "Furrion FCR08/FCR10 SM CCD-0008122",
+      "source_page": 27,
+      "edges": {}
+    }
+  },
+  "schema_version": 1,
+  "brand": "Furrion",
+  "family": "FCR08/FCR10",
+  "manual": {
+    "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+    "document_code": "CCD-0008122",
+    "library_note": "Shop Document Library SM. Encoded from Sec1 Fuse p.19 → Gen TS dial/battery p.12 → Sec3 paper p.33 → operating? diamond → Fan Replacement OR Not Cooling p.34. Fan F+/F− volts live on Fan Fault p.27 ONLY — never after the paper test.",
+    "flowchart_pages": [
+      12,
+      19,
+      20,
+      23,
+      27,
+      33,
+      34
+    ]
+  },
+  "match": {
+    "any": [
+      {
+        "contains": "ccd-0008122"
+      },
+      {
+        "contains": "ccd0008122"
+      },
+      {
+        "regex": "\\bfcr0?8\\b"
+      },
+      {
+        "regex": "\\bfcr10\\b"
+      },
+      {
+        "contains": "fcr10dcgta"
+      },
+      {
+        "contains": "fcr08dcgta"
+      },
+      {
+        "all_contains": [
+          "furrion",
+          "fcr"
+        ]
+      }
+    ],
+    "or_category_and_model": {
+      "category_any": [
+        "refriger",
+        "fridge"
+      ],
+      "model_any": [
+        "fcr",
+        "ccd-0008122",
+        "ccd0008122"
+      ]
+    }
+  },
+  "flags": {
+    "fuse_done": {
+      "any_regex": [
+        "\\b(fuse\\s+(?:is\\s+|was\\s+)?(?:blown\\s+)?replaced|replaced\\s+(?:the\\s+)?fuse|new\\s+fuse|fuse\\s+(?:was\\s+)?blown\\s+replac\\w*|fuse\\s+blown.*replac\\w*)\\b"
+      ],
+      "any_all_contains": [
+        [
+          "fuse",
+          "replac"
+        ]
+      ]
+    },
+    "light_on": {
+      "any_regex": [
+        "\\b(light\\s+on|cavity light|interior light|has power|powered|power.?on)\\b"
+      ]
+    },
+    "not_cooling": {
+      "any_regex": [
+        "\\b(not\\s+cool(?:ing)?|no\\s+cool(?:ing)?|won'?t\\s+cool|wont\\s+cool|not\\s+cold|warm|insufficient\\s+temp|no\\s+cold)\\b"
+      ]
+    },
+    "no_power": {
+      "any_regex": [
+        "\\b(no power|dead|no light|won'?t turn on|wont turn on|blank|no juice|completely dead)\\b"
+      ]
+    }
+  },
+  "start_rules": [
+    {
+      "start": "fan_fault_f_terminal_volts",
+      "when": {
+        "regex": "\\b(2\\s*flash|flash\\s*2|fan fault|fan.?fault)\\b"
+      }
+    },
+    {
+      "start": "dial_on_4_5",
+      "when": {
+        "all": [
+          {
+            "flag": "fuse_done"
+          },
+          {
+            "any": [
+              {
+                "flag": "light_on"
+              },
+              {
+                "not": {
+                  "flag": "no_power"
+                }
+              }
+            ]
+          },
+          {
+            "flag": "not_cooling"
+          }
+        ]
+      }
+    },
+    {
+      "start": "cavity_light_after_fuse",
+      "when": {
+        "all": [
+          {
+            "flag": "fuse_done"
+          },
+          {
+            "flag": "light_on"
+          },
+          {
+            "not": {
+              "flag": "not_cooling"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "start": "fuse_front_vent",
+      "when": {
+        "all": [
+          {
+            "flag": "no_power"
+          },
+          {
+            "not": {
+              "all": [
+                {
+                  "flag": "fuse_done"
+                },
+                {
+                  "flag": "light_on"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "start": "dial_on_4_5",
+      "when": {
+        "all": [
+          {
+            "flag": "not_cooling"
+          },
+          {
+            "not": {
+              "flag": "no_power"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "start": "dial_on_4_5",
+      "when": {
+        "all": [
+          {
+            "flag": "light_on"
+          },
+          {
+            "flag": "not_cooling"
+          }
+        ]
+      }
+    }
+  ],
+  "default_start": "fuse_front_vent"
+}
