@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.1
+RV TechTrack v4.13.2
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -46,6 +46,7 @@ RV TechTrack v4.13.1
 - v4.13.0: hard-tree / Yes-No gate quiz does not drive GD chat; never re-ask facts the tech already stated
 - v4.13.0: plate photo uses working Groq vision (qwen/qwen3.6-27b) after xAI; llama-4-scout 404 retired
 - v4.13.1: figure/terminal asks retrieve real SM diagram pages (not Quick Notes p.13)
+- v4.13.2: Level Up Advantage / 807662 library search prefers Level-Up/OCTP/TI over Unity board SM
 - Mobile-friendly
 """
 import streamlit as st
@@ -112,21 +113,33 @@ from gd_library_coach import (
     FIGURE_QUERY_TERMS,
     FURRION_FCR_BOARD_FIGURE_PAGES,
     HARD_TREE_EXCLUSIVE_CHAT,
+    LEVEL_UP_ADVANTAGE_HINT_TITLES,
+    LEVEL_UP_PRODUCT_LOCK,
     OPEN_LIBRARY_COACH_RULE,
     coach_library_search_boost,
+    drop_unity_chunks_for_level_up,
     facts_from_chat,
     figure_library_search_boost,
+    figure_render_honesty_note,
+    format_level_up_library_honesty,
     format_stated_facts_rule,
     groq_vision_model_candidates,
     is_furrion_ccd_0008122,
+    is_level_up_advantage_context,
+    is_level_up_library_title,
+    is_unity_board_manual,
+    level_up_search_symptom,
     page_has_figure_or_terminal_layout,
     page_is_text_only_notes,
     pick_diagram_page_numbers,
     pick_working_vision_model,
     powered_not_cooling,
     rank_chunks_for_figure_ask,
+    rank_chunks_for_level_up,
     reply_reasks_stated_facts,
     score_figure_page,
+    score_level_up_product,
+    skip_unity_for_level_up,
     strip_path_complete_trap,
     wants_board_or_terminal_figure,
     wants_library_figures,
@@ -1495,11 +1508,14 @@ def search_manual_chunks(
     limit: int = 14,
     unity_context: bool = False,
     figure_seek: bool = False,
+    level_up_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
     figure_seek is GD-chat only (Jobs leave it False): prefer Fig./PCB/terminal
     pages and do not let procedure-voltage scoring crown Quick Notes.
+    level_up_context is GD-chat only (Jobs leave it False): search Leveling /
+    Level-Up titles first and do not let Unity Electrical SM win 807662 jobs.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1507,12 +1523,25 @@ def search_manual_chunks(
         tsb = session.query(Category).filter(Category.name == "TSB / Recall").first()
         if tsb and tsb.id not in cat_ids:
             cat_ids.append(tsb.id)
-        if unity_context:
+        if level_up_context:
+            for extra_name in ("Leveling", "ID & Reference"):
+                extra = session.query(Category).filter(Category.name == extra_name).first()
+                if extra and extra.id not in cat_ids:
+                    cat_ids.append(extra.id)
+        if unity_context and not level_up_context:
             for extra_name in ("Electrical", "Reference", "ID & Reference"):
                 extra = session.query(Category).filter(Category.name == extra_name).first()
                 if extra and extra.id not in cat_ids:
                     cat_ids.append(extra.id)
         q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif level_up_context:
+        cat_ids = []
+        for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
     elif unity_context:
         cat_ids = []
         for extra_name in ("Electrical", "Reference", "ID & Reference"):
@@ -1585,6 +1614,8 @@ def search_manual_chunks(
         sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
         if figure_seek:
             sc += score_figure_page(ch, symptom or "")
+        if level_up_context:
+            sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1651,6 +1682,8 @@ def search_manual_chunks(
         sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
         if figure_seek:
             sc += score_figure_page(ch, symptom or "")
+        if level_up_context:
+            sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1916,6 +1949,88 @@ def _furrion_fcr_library_context(model_text: str, chunks) -> bool:
     return "furrion" in t and any(k in t for k in ("fcr08", "fcr10", "ccd-0008122", "ccd0008122"))
 
 
+def list_library_catalog_docs() -> list:
+    """Document catalog rows (title / indexed / category) for coach honesty. Not Jobs."""
+    try:
+        cats = {c.id: c.name for c in session.query(Category).all()}
+        rows = []
+        for d in session.query(Document).order_by(Document.title).all():
+            rows.append({
+                "id": d.id,
+                "title": d.title or "",
+                "indexed": bool(d.indexed),
+                "category": cats.get(d.category_id, ""),
+                "file_path": d.file_path or "",
+                "chunk_count": None,
+            })
+        return rows
+    except Exception:
+        return []
+
+
+def resolve_level_up_document_seed():
+    """First catalog Level-Up / OCTP / TI PDF. Never a Unity board SM."""
+    for hint in LEVEL_UP_ADVANTAGE_HINT_TITLES:
+        seed = resolve_document_by_title(hint)
+        if seed and not is_unity_board_manual(seed.get("title") or ""):
+            return seed
+    try:
+        docs = session.query(Document).all()
+    except Exception:
+        return None
+    best = None
+    for d in docs:
+        title = d.title or ""
+        if not is_level_up_library_title(title) or not d.file_path:
+            continue
+        row = {
+            "document_id": d.id,
+            "title": title,
+            "page": 1,
+            "file_path": d.file_path,
+            "file_type": d.file_type or "pdf",
+            "excerpt": "",
+            "indexed": bool(d.indexed),
+        }
+        t = title.lower()
+        if "ti-005" in t or "electronic leveling" in t:
+            return row
+        if best is None:
+            best = row
+    return best
+
+
+def supplement_level_up_figure_pages(chunks, model_text: str, user_msg: str):
+    """Pull figure/wiring chunks from Level-Up / OCTP / TI titles when the tech asks."""
+    chunks = list(chunks or [])
+    if not wants_library_page_shown(user_msg):
+        return chunks
+    if not is_level_up_advantage_context("", model_text, user_msg):
+        return chunks
+    have = {
+        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
+        for ch in chunks
+    }
+    try:
+        doc_ids = [
+            d.id for d in session.query(Document).all()
+            if is_level_up_library_title(d.title or "")
+        ]
+        extra = (
+            session.query(DocChunk).filter(DocChunk.document_id.in_(doc_ids)).all()
+            if doc_ids else []
+        )
+    except Exception:
+        extra = []
+    extra = rank_chunks_for_figure_ask(extra, user_msg, limit=6) if extra else extra
+    for ch in extra:
+        key = (ch.document_id, int(ch.page or 0))
+        if key not in have:
+            chunks.append(ch)
+            have.add(key)
+    return chunks
+
+
 def supplement_board_figure_pages(chunks, model_text: str, user_msg: str):
     """Pull known CCD-0008122 board/terminal figure pages into the GD excerpt set."""
     chunks = list(chunks or [])
@@ -2121,11 +2236,21 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
     figures = list(targets.get("figures") or [])
     explicit_pages = list(targets.get("explicit_pages") or [])
 
+    level_up_ask = is_level_up_advantage_context("", "", f"{user_msg} {assistant_text} {manual_title}")
+    if level_up_ask and (not manual_title or is_unity_board_manual(manual_title)):
+        seed_lu = resolve_level_up_document_seed()
+        if seed_lu and seed_lu.get("file_path"):
+            manual_title = seed_lu.get("title") or manual_title
+
     if not manual_title:
         # No cited shop manual — refuse to guess across books
         return []
 
     seed = resolve_document_by_title(manual_title)
+    if (not seed or not seed.get("file_path")) and level_up_ask:
+        seed = resolve_level_up_document_seed()
+        if seed:
+            manual_title = seed.get("title") or manual_title
     if not seed or not seed.get("file_path"):
         return []
 
@@ -2177,6 +2302,18 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
                 _add_page(p)
                 if len(out) >= 2:
                     break
+        if not out and level_up_ask and is_level_up_library_title(manual_title):
+            try:
+                lu_chunks = (
+                    session.query(DocChunk)
+                    .filter(DocChunk.document_id == int(seed.get("document_id") or 0))
+                    .all()
+                    if seed.get("document_id") else []
+                )
+            except Exception:
+                lu_chunks = []
+            for p in pick_diagram_page_numbers(lu_chunks, user_msg, manual_title):
+                _add_page(p)
 
     # 4) Cited Source pages — skip text-only notes on a figure ask
     if not out:
@@ -2248,6 +2385,7 @@ def clear_ask_source_state():
     st.session_state.pop("ask_sources_json", None)
     st.session_state.pop("ask_auto_show", None)
     st.session_state.pop("ask_auto_show_failed", None)
+    st.session_state.pop("ask_auto_show_fail_note", None)
     st.session_state.pop("ask_cited_log", None)
     st.session_state.pop("ask_flow", None)
 
@@ -3491,17 +3629,35 @@ def _ask_manual_context(
     if category_name:
         cat_obj = session.query(Category).filter_by(name=category_name).first()
     category_id = cat_obj.id if cat_obj else None
+    level_up = is_level_up_advantage_context(category_name, model_text, symptom)
+    unity_on = (
+        False
+        if (level_up or skip_unity_for_level_up(category_name, model_text, symptom))
+        else is_unity_context(category_name, model_text, symptom, unity_gate)
+    )
     chunks = search_manual_chunks(
         category_id,
         model_text,
         symptom,
         limit=max(limit, 10) if figure_seek else limit,
-        unity_context=is_unity_context(category_name, model_text, symptom, unity_gate),
+        unity_context=unity_on,
         figure_seek=figure_seek,
+        level_up_context=level_up,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
+        if level_up:
+            chunks = supplement_level_up_figure_pages(chunks, model_text, figure_query or symptom)
         chunks = rank_chunks_for_figure_ask(chunks, figure_query or symptom, limit=limit)
+    honesty = ""
+    if level_up:
+        chunks = drop_unity_chunks_for_level_up(chunks)
+        chunks = rank_chunks_for_level_up(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
+        honesty = format_level_up_library_honesty(list_library_catalog_docs(), chunks)
+        if not chunks:
+            return [], honesty
     if not chunks:
         return [], ""
     parts = []
@@ -3510,7 +3666,10 @@ def _ask_manual_context(
         parts.append(
             f"[EXCERPT {i} | {label}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
         )
-    return chunks, "\n\n".join(parts)
+    context = "\n\n".join(parts)
+    if honesty:
+        context = honesty + "\n\n" + context
+    return chunks, context
 
 
 def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "", extra_system_rule: str = "") -> str:
@@ -3541,7 +3700,9 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         search_symptom = f"{search_symptom} refrigerator fridge not cooling compressor inoperable"
     else:
         search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
+    search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
+    if not skip_unity_for_level_up(category_name, model_text, search_symptom):
+        search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
     boost = coach_library_search_boost(facts)
     if boost and not figure_seek:
         search_symptom = f"{search_symptom} {boost}".strip()
@@ -3564,7 +3725,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += f"\nModel/system: {model_text}"
     if is_furnace_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
-    if is_unity_context(category_name, model_text, search_symptom, unity_gate):
+    level_up_job = is_level_up_advantage_context(category_name, model_text, search_symptom)
+    if level_up_job:
+        system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
+    if is_unity_context(category_name, model_text, search_symptom, unity_gate) and not level_up_job:
         system_prompt += "\n\n" + UNITY_OEM_ORDER
     if is_fridge_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
@@ -3575,12 +3739,19 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + extra_system_rule
     if stated and stated not in system_prompt:
         system_prompt += "\n\n" + stated
-    if context:
+    if chunks and context:
         system_prompt += (
             "\n\nMANUAL EXCERPTS from this shop's Document Library "
             "(INDEX CHART = pick one matching row only; PROCEDURE = write real tests). "
             "The technician did not upload these excerpts. "
             "Each header has Manual + Page - copy those into 📖 Source lines:\n\n"
+            + context
+        )
+    elif context:
+        system_prompt += (
+            "\n\nNo searchable chunks were retrieved this turn, but the shop catalog "
+            "still applies. Follow this honesty block. Do not invent OEM page numbers "
+            "and do not substitute a Unity / OneControl awning-slide board manual.\n\n"
             + context
         )
     else:
@@ -3597,6 +3768,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
                 fallback.append(f"**{ch.title}** p.{ch.page}")
                 fallback.append((ch.chunk_text or "")[:500])
                 fallback.append("")
+        elif context:
+            fallback.append(context)
         else:
             fallback.append(
                 "No matching manual text found. Check category / try different wording, "
@@ -4344,11 +4517,10 @@ with tab_ask:
     if auto_pages:
         render_on_demand_library_pages(auto_pages)
     elif st.session_state.pop("ask_auto_show_failed", None):
-        st.warning(
-            "You asked for a figure/page, but TechTrack could not load a matching shop-library PDF page "
-            "(wrong/missing file path, R2 download failed, or page render unavailable). "
-            "There is no chat photo embed — only the real library renderer."
+        fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note(
+            "", True
         )
+        st.warning(fail_note)
 
     st.text_area(
         "Your message",
@@ -4424,6 +4596,19 @@ with tab_ask:
                 pages = resolve_requested_library_pages(msg, coach_for_pages)
                 st.session_state["ask_auto_show"] = pages
                 st.session_state["ask_auto_show_failed"] = not bool(pages)
+                if not pages:
+                    cited = parse_cited_pages_from_text(coach_for_pages)
+                    fail_title = (cited[-1].get("title") if cited else "") or ""
+                    if is_unity_board_manual(fail_title) or is_level_up_advantage_context(
+                        category_name, ask_model or "", msg
+                    ):
+                        seed_lu = resolve_level_up_document_seed()
+                        fail_title = (seed_lu or {}).get("title") or fail_title
+                    st.session_state["ask_auto_show_fail_note"] = figure_render_honesty_note(
+                        fail_title, True
+                    )
+                else:
+                    st.session_state.pop("ask_auto_show_fail_note", None)
             else:
                 st.session_state.pop("ask_auto_show", None)
                 st.session_state.pop("ask_auto_show_failed", None)
