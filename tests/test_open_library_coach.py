@@ -200,12 +200,17 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("Start Job + Build Test Plan", src)
         self.assertIn("figure_seek: bool = False", src)
         self.assertNotIn("figure_seek=True", src.split("def run_guided_diagnostics")[1][:800])
+        self.assertIn("level_up_context: bool = False", src)
+        self.assertNotIn("level_up_context=True", src.split("def run_guided_diagnostics")[1][:1200])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         self.assertIn("FIGURE_PAGE_HONESTY", src)
         self.assertIn("wants_library_page_shown", src)
         self.assertIn("pick_diagram_page_numbers", src)
+        self.assertIn("LEVEL_UP_PRODUCT_LOCK", src)
+        self.assertIn("level_up_search_symptom", src)
+        self.assertIn("skip_unity_for_level_up", src)
 
     def test_no_tree_dump_hint_in_coach_module(self):
         coach = (ROOT / "gd_library_coach.py").read_text()

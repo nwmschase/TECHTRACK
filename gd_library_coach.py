@@ -111,7 +111,54 @@ FIGURE / TERMINAL PAGE HONESTY:
 - If the tech asks for a figure, diagram, labeled terminals, PCB / inverter board layout, or pinout: cite a page whose excerpt actually contains Fig./figure numbers, F+/F−, inverter PCB, wiring diagram, or housing labels.
 - If the excerpt is Quick Notes / Nominal voltage / troubleshooting text with NO figure or terminal layout: say that page has no diagram. Do not invent pad locations. Try the next diagram-candidate excerpt, or ask which they need: wiring / LED terminals D/+ / fan F+ F− / housing labels.
 - Never describe pad locations from a text-only Quick Notes page.
+- If TechTrack cannot render the shop-library figure page, say that. Name the manual title if known. Do not invent a substitute product manual. Do not claim the PDF is missing from the library when the title is on the catalog.
 """
+
+# Lippert Level Up Advantage hydraulic leveling controller (807662 / 25499 / 24999).
+# NOT Ground Control electric. NOT OneControl Unity M-Series awning/slide reversing.
+LEVEL_UP_PARTS = ("807662", "25499", "24999")
+LEVEL_UP_DOC_MARKERS = (
+    "ti-005", "ti 005", "ti005",
+    "ti-170", "ti 170", "ti170",
+    "qr-092", "qr 092", "qr092",
+    "qr-059", "qr 059", "qr059",
+    "octp",
+    "level-up", "level up", "levelup",
+    "electronic leveling troubleshooting",
+)
+LEVEL_UP_SEARCH_BOOST = (
+    "Level-Up Level Up Advantage 807662 25499 24999 OCTP "
+    "TI-005 Electronic Leveling Troubleshooting Guide "
+    "QR-092 Level-Up OCTP wiring QR-059 touch pad LCD "
+    "hydraulic leveling controller Manual Mode"
+)
+LEVEL_UP_FIGURE_SEARCH_BOOST = (
+    "Level-Up OCTP TI-005 QR-092 touch pad LCD wiring diagram "
+    "hydraulic leveling controller 807662 Fig. figure"
+)
+# Thin title hints (no invented page numbers) — same idea as Furrion board-figure pages.
+LEVEL_UP_ADVANTAGE_HINT_TITLES = (
+    "TI-005 Electronic Leveling Troubleshooting Guide",
+    "TI-170",
+    "QR-092 Level-Up OCTP wiring",
+    "QR-059 ID guide",
+)
+LEVEL_UP_PRODUCT_LOCK = """
+LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
+- 807662 / 25499 / 24999 is the Lippert Level Up (Level-Up) towable hydraulic leveling controller with slide output. It is NOT Ground Control electric and NOT a Lippert OneControl Unity M-Series awning/slide reversing board.
+- Search and cite Leveling Level-Up / OCTP / TI-005 / TI-170 / QR-092 / QR-059 / touch-pad leveling manuals FIRST.
+- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the Level Up Advantage controller manual.
+- Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
+- If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
+- If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.
+"""
+LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
+    r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
+    r"(level[\s-]*up|807662|leveling controller)|"
+    r"(no|not|lack|missing|doesn't have|does not have|do not have).{0,50}"
+    r"(level[\s-]*up|807662).{0,40}(manual|procedure|diagnos|controller|guide)",
+    re.I,
+)
 
 
 def _norm(text: str) -> str:
@@ -170,10 +217,295 @@ def figure_library_search_boost(user_msg: str) -> str:
     Does NOT include Nominal voltage / Quick Notes.
     """
     if wants_board_or_terminal_figure(user_msg):
-        return FIGURE_SEARCH_BOOST
+        extra = FIGURE_SEARCH_BOOST
+        if is_level_up_advantage_context("", "", user_msg):
+            extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
+        return extra
     if wants_library_figures(user_msg):
-        return "Fig. figure illustration diagram drawing"
+        extra = "Fig. figure illustration diagram drawing"
+        if is_level_up_advantage_context("", "", user_msg):
+            extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
+        return extra
     return ""
+
+
+def _blob(*texts: str) -> str:
+    return _norm(" ".join(t or "" for t in texts))
+
+
+def is_unity_board_manual(text: str) -> bool:
+    """True for OneControl Unity M-Series awning/slide reversing board manuals."""
+    t = _norm(text)
+    if not t:
+        return False
+    if "x270" in t:
+        return True
+    unityish = "unity" in t or "onecontrol" in t or "one control" in t
+    if not unityish:
+        return False
+    if any(k in t for k in ("awning", "reversing", "m series", "m-series", "x270")):
+        return True
+    if "unity board" in t or "onecontrol unity" in t or "one control unity" in t:
+        return True
+    return False
+
+
+def is_ground_control_manual(text: str) -> bool:
+    t = _norm(text)
+    return "ground control" in t or "ground-control" in t
+
+
+def is_level_up_library_title(title: str) -> bool:
+    """Catalog titles that are Level-Up / OCTP / TI leveling docs — not Unity, not Ground Control."""
+    t = _norm(title)
+    if not t or is_unity_board_manual(t) or is_ground_control_manual(t):
+        return False
+    if any(p in t for p in LEVEL_UP_PARTS):
+        return True
+    if any(m in t for m in LEVEL_UP_DOC_MARKERS):
+        return True
+    if re.search(r"\blevel[\s-]*up\b", t) and "leveling" in t:
+        return True
+    return False
+
+
+def is_level_up_advantage_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Hydraulic Level Up Advantage / 807662 / OCTP / leveling Manual Mode.
+    Ground Control electric alone is a different product.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    if is_ground_control_manual(blob) and not any(
+        k in blob for k in (*LEVEL_UP_PARTS, "octp", "level-up", "level up", "levelup", "advantage")
+    ):
+        return False
+    if any(p in blob for p in LEVEL_UP_PARTS):
+        return True
+    if "octp" in blob:
+        return True
+    if re.search(r"\blevel[\s-]*up\s+advantage\b", blob):
+        return True
+    if re.search(r"\blevel[\s-]*up\b", blob):
+        return True
+    if "hydraulic" in blob and "level" in blob and any(
+        k in blob for k in ("leveling", "controller", "manual mode", "slide output")
+    ):
+        return True
+    if "leveling" in blob and "manual mode" in blob:
+        return True
+    if "leveling" in blob and "slide output" in blob and "controller" in blob:
+        return True
+    cat = _norm(category_name)
+    if "leveling" in cat and any(k in blob for k in ("touch pad", "touchpad", "lcd wiring", "pump")):
+        if "controller" in blob or "807662" in blob or "level" in blob:
+            return True
+    return False
+
+
+def skip_unity_for_level_up(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Coach-only: do not inject Unity Electrical search for a Level Up Advantage job."""
+    return is_level_up_advantage_context(category_name, model_text, symptom)
+
+
+def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward Level-Up / OCTP / TI docs. Never add Unity terms."""
+    symptom = (symptom or "").strip()
+    if not is_level_up_advantage_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {LEVEL_UP_SEARCH_BOOST}".strip()
+
+
+def score_level_up_product(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = Level-Up / OCTP / TI leveling doc for 807662 Manual Mode.
+    Unity M-Series awning/slide reversing must lose. Ground Control electric is weaker.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    score = 0
+    if is_level_up_library_title(title) or is_level_up_library_title(t):
+        score += 22
+    if any(p in t or p in q for p in LEVEL_UP_PARTS):
+        score += 12
+    if "octp" in t:
+        score += 14
+    if "ti-005" in t or "ti 005" in t or "electronic leveling troubleshooting" in t:
+        score += 16
+    if "qr-092" in t or "qr 092" in t:
+        score += 12
+    if "qr-059" in t or "qr 059" in t:
+        score += 8
+    if "ti-170" in t or "ti 170" in t:
+        score += 10
+    if "leveling" in cat:
+        score += 8
+    if "hydraulic" in t and "level" in t:
+        score += 8
+    if any(k in t for k in ("touch pad", "touchpad", "manual mode", "lcd")):
+        score += 4
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 36
+    if "awning" in t and "slide" in t:
+        score -= 18
+    if "reversing" in t and any(k in t for k in ("awning", "unity", "slide")):
+        score -= 18
+    if "electrical" in cat and is_unity_board_manual(t):
+        score -= 8
+    if is_ground_control_manual(t) and is_level_up_advantage_context("", "", q or query):
+        score -= 10
+    return score
+
+
+def rank_chunks_for_level_up(chunks, query: str, limit: int = 8) -> list:
+    """Prefer Level-Up / OCTP / TI pages; drop Unity board SM when a Level-Up hit exists."""
+    scored = [(score_level_up_product(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    has_level_up = any(
+        sc > 0 and is_level_up_library_title(_page_title(ch) or _page_text_blob(ch))
+        for sc, ch in scored
+    )
+    out = []
+    for sc, ch in scored:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            if has_level_up or sc < 0:
+                continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    if out:
+        return out
+    return [
+        ch for sc, ch in scored[:limit]
+        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
+    ]
+
+
+def drop_unity_chunks_for_level_up(chunks) -> list:
+    """Never keep Unity awning/slide reversing excerpts as the Level Up controller manual."""
+    kept = []
+    for ch in chunks or []:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            continue
+        kept.append(ch)
+    return kept
+
+
+def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
+    """
+    When Level-Up titles exist on the catalog, never claim the library lacks them.
+    If they are unindexed / have zero chunks, name them and ask for reindex.
+    """
+    rows = list(catalog_docs or [])
+    level_up = []
+    for d in rows:
+        if isinstance(d, dict):
+            title = str(d.get("title") or "")
+            indexed = bool(d.get("indexed"))
+            chunks_n = d.get("chunk_count")
+        else:
+            title = str(getattr(d, "title", "") or "")
+            indexed = bool(getattr(d, "indexed", False))
+            chunks_n = getattr(d, "chunk_count", None)
+        if not is_level_up_library_title(title):
+            continue
+        level_up.append({"title": title, "indexed": indexed, "chunk_count": chunks_n})
+    if not level_up:
+        return ""
+    titles = [r["title"] for r in level_up]
+    unread = [
+        r for r in level_up
+        if (not r["indexed"]) or (r["chunk_count"] == 0)
+    ]
+    lines = [
+        "LEVEL UP LIBRARY HONESTY:",
+        "The shop Document Library DOES include Level Up / Level-Up controller material. "
+        "Never claim those Level-Up / 807662 titles are absent from the catalog.",
+        "Level-Up / OCTP / TI titles on the catalog:",
+    ]
+    for t in titles:
+        lines.append(f"- {t}")
+    retrieved = [
+        _page_title(ch) for ch in (chunks or [])
+        if is_level_up_library_title(_page_title(ch))
+    ]
+    if unread and not retrieved:
+        lines.append(
+            "Best Level-Up hit(s) are unindexed or have zero searchable chunks. "
+            "Name the title(s) and ask a manager to re-index that PDF in Document Library. "
+            "Do not substitute Lippert OneControl Unity M-Series awning/slide reversing."
+        )
+        for r in unread:
+            note = "not indexed" if not r["indexed"] else "zero chunks"
+            lines.append(f"- Reindex needed: {r['title']} ({note})")
+    elif not retrieved:
+        lines.append(
+            "Level-Up titles exist. If this turn's excerpts missed them, say so and stay on those titles — "
+            "do not invent Unity as the controller manual."
+        )
+    return "\n".join(lines)
+
+
+def claims_level_up_library_empty(reply: str) -> bool:
+    """True when a coach reply falsely says the library has no Level Up procedure."""
+    t = reply or ""
+    if not t:
+        return False
+    if LEVEL_UP_EMPTY_CLAIM_RE.search(t):
+        return True
+    low = _norm(t)
+    if "unity" in low and any(
+        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
+    ):
+        return True
+    return False
+
+
+def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
+    """Shop-floor line when a library figure page did not display."""
+    if not render_failed:
+        return ""
+    title = (manual_title or "").strip()
+    if title and is_level_up_library_title(title):
+        return (
+            f"The figure is in the shop Document Library PDF ({title}). "
+            "TechTrack could not render that page image this turn. "
+            "Download that PDF or ask a manager to re-index it — "
+            "do not treat this as a missing Level Up procedure, and do not use the Unity board SM."
+        )
+    if title and is_unity_board_manual(title):
+        return (
+            "That Unity / OneControl awning-slide board manual is the wrong book for "
+            "Level Up Advantage / 807662. The leveling figure is in a Leveling Level-Up / "
+            "OCTP / TI-005 PDF in the shop library. If the page image did not render, "
+            "download that Level-Up PDF or ask for a reindex."
+        )
+    return (
+        "You asked for a figure/page. TechTrack could not load a matching shop-library PDF page "
+        "(missing file path, download failed, unindexed PDF, or page render unavailable). "
+        "If a Level-Up / TI-005 / QR-092 title is on the Document Library catalog, the figure "
+        "is in that PDF — say so and ask for reindex. Do not invent a Unity substitute."
+    )
 
 
 def _page_text_blob(page) -> str:
