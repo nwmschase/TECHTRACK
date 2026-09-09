@@ -2450,8 +2450,6 @@ HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. B
 # GD chat product path is the open library coach — not an exclusive locked flowchart.
 # Chase 2026-09-09: do not trap with "path complete / start a new chat".
 
-ASK_FLOWCHART_PAGE_LOCK = OPEN_LIBRARY_COACH_RULE
-
 FURRION_FCR_SM_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
 
 # First hard tree: Furrion FCR08/FCR10 / FCR10DCGTA / CCD-0008122

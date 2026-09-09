@@ -1,5 +1,4 @@
 """Shop-library page render piece used when a tech asks for a cited figure."""
-import io
 import unittest
 
 try:
