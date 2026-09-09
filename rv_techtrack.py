@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.10.1
+RV TechTrack v4.12.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -42,6 +42,9 @@ RV TechTrack v4.10.1
 - v4.10.0: Guided Testing flowchart ENGINE — hard procedure trees; TECH reports, tree edges decide next gate
 - v4.10.0: Furrion FCR CCD-0008122 tree (fuse→dial/battery→paper→operating?/Not Cooling); no invented fan volts after paper
 - v4.10.1: fix Yes/No gate buttons (no ask_input write after widget); map not-operating tech language on operating diamond
+- v4.12.0: Guided Diagnostics chat is an OPEN LIBRARY COACH (cite shop manuals; answer questions; show figures on ask)
+- v4.12.0: soft-disable hard-tree “path complete / start a new chat” cage in GD chat (Jobs WO plan unchanged)
+- v4.12.0: plate photo uses working Groq vision (qwen/qwen3.6-27b) after xAI; llama-4-scout 404 retired
 - Mobile-friendly
 """
 import streamlit as st
@@ -102,6 +105,18 @@ try:
     PYMUPDF_AVAILABLE = True
 except ImportError:
     PYMUPDF_AVAILABLE = False
+
+from gd_library_coach import (
+    HARD_TREE_EXCLUSIVE_CHAT,
+    OPEN_LIBRARY_COACH_RULE,
+    format_procedure_library_hint,
+    groq_vision_model_candidates,
+    hard_tree_yields_to_coach,
+    pick_working_vision_model,
+    tech_wants_open_coach,
+    wants_library_figures,
+    xai_vision_model_candidates,
+)
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"
@@ -903,34 +918,46 @@ def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> 
     raw = ""
     xai_key = _secret("XAI_API_KEY")
     if xai_key and OPENAI_AVAILABLE:
-        try:
-            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
-            model = _secret("XAI_MODEL") or "grok-4.6"
+        client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
+
+        def _xai_call(model):
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,
                 temperature=0.0,
                 max_tokens=400,
             )
-            raw = (response.choices[0].message.content or "").strip()
-        except Exception as e:
-            errors.append(f"xAI vision: {e}")
+            return (response.choices[0].message.content or "").strip()
+
+        _used, raw, xai_errs = pick_working_vision_model(
+            xai_vision_model_candidates(
+                preferred_vision=_secret("XAI_VISION_MODEL") or "",
+                preferred_chat=_secret("XAI_MODEL") or "",
+            ),
+            _xai_call,
+        )
+        errors.extend(f"xAI vision ({e})" for e in xai_errs)
     if not raw:
         groq_key = _secret("GROQ_API_KEY")
         if GROQ_AVAILABLE and groq_key:
-            try:
-                # Groq vision model when available; if it fails, surface the error.
-                client = Groq(api_key=groq_key)
-                vision_model = _secret("GROQ_VISION_MODEL") or "meta-llama/llama-4-scout-17b-16e-instruct"
+            client = Groq(api_key=groq_key)
+
+            def _groq_call(model):
                 response = client.chat.completions.create(
-                    model=vision_model,
+                    model=model,
                     messages=messages,
                     temperature=0.0,
                     max_tokens=400,
                 )
-                raw = (response.choices[0].message.content or "").strip()
-            except Exception as e:
-                errors.append(f"Groq vision: {e}")
+                return (response.choices[0].message.content or "").strip()
+
+            # Scout (meta-llama/llama-4-scout-17b-16e-instruct) 404s on free/dev.
+            # Try shop override, then current Groq vision models (qwen/qwen3.6-27b).
+            _used, raw, groq_errs = pick_working_vision_model(
+                groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""),
+                _groq_call,
+            )
+            errors.extend(f"Groq vision ({e})" for e in groq_errs)
     if not raw:
         return {
             "ok": False,
@@ -1712,22 +1739,6 @@ def strip_fake_markdown_images(text: str) -> str:
     return text.strip()
 
 
-def wants_library_figures(text: str) -> bool:
-    """Detect that the tech wants a shop-library illustration / figure / page shown."""
-    t = (text or "").lower()
-    keys = (
-        "illustration", "illustrations", "figure", "fig.", " fig ",
-        "drawing", "diagram", "show me that page", "show that page",
-        "show the page", "show page", "show me the page", "show the figure",
-        "show the illustration", "associated illustrations", "associated illustration",
-        "source page", "that page", "this page", "show me fig",
-        "picture of", "pictures", "photo of", "pcb layout",
-        "where are they", "where they are", "where is it", "where it is",
-        "show me where", "show where", "label the", "labeled",
-    )
-    return any(k in t for k in keys)
-
-
 def _titles_compatible(cited_title: str, source_title: str) -> bool:
     """True when the source row belongs to the cited manual. Never treat empty cite as a free pass across books."""
     ct = (cited_title or "").strip().lower()
@@ -2306,8 +2317,8 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
         if "source" not in answer.lower():
             answer += "\n\n**Sources used**\n" + sources_text
         answer = (
-            "**WO plan (documentation).** Live coaching in Guided Diagnostics chat still goes "
-            "gate-by-gate: run the next 1-2 tests only, then report results before the rest.\n\n"
+            "**WO plan (documentation).** Live coaching is in Guided Diagnostics chat — "
+            "ask questions, request a cited page figure, or change direction there.\n\n"
             + answer
         )
         answer += (
@@ -2434,15 +2445,10 @@ HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. B
 """
 
 
-# ---------------- GUIDED FLOW ENGINE (v4.10.0) ----------------
-# Chase's rule: TECH reports results; TechTrack advances ONLY via hard tree edges.
-# Free-text concerns never invent the next test. Prefer node.prompt verbatim.
-
-ASK_FLOWCHART_PAGE_LOCK = (
-    "HARD FLOWCHART PAGE LOCK: You may only prescribe the next test that appears as "
-    "the next decision on the cited excerpt page; never invent adjacent gates from "
-    "other sections. Prefer the hard procedure tree when one exists for this model."
-)
+# ---------------- GUIDED FLOW ENGINE (v4.10.0, soft-disabled in GD chat v4.12.0) ----------------
+# Tree data stays as a Document Library citation hint (title + page).
+# GD chat product path is the open library coach — not an exclusive locked flowchart.
+# Chase 2026-09-09: do not trap with "path complete / start a new chat".
 
 FURRION_FCR_SM_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
 
@@ -3158,19 +3164,24 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
     # New / mismatched procedure → pick start from this message
     if flow.get("procedure_id") != proc_id or not node_id:
         node_id = select_start_node_id(procedure, user_msg, chat_history)
-        # If the start message already encodes fuse-replaced+light+not cooling,
-        # land on dial without requiring a prior answer.
         node = get_procedure_node(procedure, node_id)
         flow = {
             "procedure_id": proc_id,
             "node_id": node_id,
             "history": hist,
         }
-        # Opening turn: present the start gate (do not consume message as an answer
-        # unless we jumped into post-power because message already answered prior gates).
+        if tech_wants_open_coach(user_msg):
+            return {
+                "used_engine": False,
+                "reply": None,
+                "ask_flow": flow,
+                "reask": False,
+                "node": node,
+                "yielded_to_coach": True,
+                "opened": True,
+                "start_id": node_id,
+            }
         start_id = node_id
-        # When entry is dial_on_4_5 because message already reported fuse+light+not cooling,
-        # present dial gate (message was entry selection, not dial answer).
         reply = format_gate_reply(node)
         return {
             "used_engine": True,
@@ -3195,16 +3206,15 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
             "node": node,
         }
 
-    if (node.get("type") or "") == "end" or not (node.get("edges") or {}):
+    if hard_tree_yields_to_coach(user_msg, node):
+        # Soft-disable cage: questions, figure asks, pivots, and end-leafs go to the coach.
         return {
-            "used_engine": True,
-            "reply": format_gate_reply(
-                node,
-                preface="This path is complete. Start a new chat for another symptom branch.",
-            ),
+            "used_engine": False,
+            "reply": None,
             "ask_flow": flow,
             "reask": False,
             "node": node,
+            "yielded_to_coach": True,
         }
 
     answer, reason = map_tech_text_to_answer(node, user_msg)
@@ -3271,59 +3281,64 @@ def guided_diagnostics_reply(
     ask_flow: dict = None,
 ):
     """
-    Router: hard tree ENGINE when category+model match; else AI ask_techtrack_reply
-    with page-lock rule injected.
+    Open library coach is the product path.
+    Hard trees are citation hints only. Never exclusive; never 'path complete'.
     Returns (reply_text, new_ask_flow_dict_or_None).
     """
-    result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
-    if result.get("used_engine"):
-        reply = result.get("reply") or ""
-        # Silent ledger: record cited page from node
-        node = result.get("node") or {}
-        title = node.get("source_title")
-        page = node.get("source_page")
-        if title and page is not None:
-            try:
-                record_cited_pages(f"📖 Source: {title} - page {page}")
-            except Exception:
-                pass
-        return reply, result.get("ask_flow")
+    extra = OPEN_LIBRARY_COACH_RULE
+    procedure = find_matching_procedure(category_name, model_text)
+    if procedure:
+        extra += "\n\n" + format_procedure_library_hint(procedure)
 
-    # No hard tree — AI path with hard page-lock system rule
-    return ask_techtrack_reply(
+    # Soft-disabled exclusive tree. If re-enabled, still yield on questions/pivots/end-leafs.
+    if HARD_TREE_EXCLUSIVE_CHAT and not tech_wants_open_coach(user_msg):
+        result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
+        if result.get("used_engine"):
+            reply = result.get("reply") or ""
+            node = result.get("node") or {}
+            title = node.get("source_title")
+            page = node.get("source_page")
+            if title and page is not None:
+                try:
+                    record_cited_pages(f"📖 Source: {title} - page {page}")
+                except Exception:
+                    pass
+            return reply, result.get("ask_flow")
+
+    reply = ask_techtrack_reply(
         user_msg,
         category_name,
         model_text,
         history,
         unity_gate=unity_gate,
-        extra_system_rule=ASK_FLOWCHART_PAGE_LOCK,
-    ), ask_flow
+        extra_system_rule=extra,
+    )
+    # Do not keep a locked ask_flow cage on the product path.
+    return reply, None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
 
 
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
-ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
+ASK_TECHTRACK_SYSTEM = """You are an OPEN LIBRARY COACH for Tacoma RV Center techs. You guide diagnosis from THIS SHOP's Document Library (indexed service manuals). You are not a locked flowchart and not a Jobs work-order plan writer.
 
-You have excerpts from THIS SHOP's Document Library (indexed service manuals stored by Tacoma RV Center). The technician did not upload those excerpts. Never say "the text you uploaded," "the excerpts you provided," or "images weren't in what you uploaded." Say "the shop Document Library" or "the Furrion/Norcold/… manual in TechTrack." Figures live in those PDFs. If the tech asks to see a page, say it is shown below from the shop library. Do not tell them to open a Source pages dropdown.
-
-You are a BRANCHING FLOWCHART, not a dump of the whole diagnostic tree.
+You have excerpts from THIS SHOP's Document Library stored by Tacoma RV Center. The technician did not upload those excerpts. Never say "the text you uploaded," "the excerpts you provided," or "images weren't in what you uploaded." Say "the shop Document Library" or "the Furrion/Norcold/… manual in TechTrack." Figures live in those PDFs. If the tech asks to see a page, say it is shown below from the shop library. Do not tell them to open a Source pages dropdown.
 
 Rules:
 1. Use ONLY the provided Document Library excerpts for procedures, specs, LED codes, and test steps. If excerpts are missing or do not cover the issue, say so and ask a clarifying question - do not invent OEM procedures.
-2. FLOWCHART GATE: Each assistant turn is at most ONE clarifying question OR 1-2 concrete tests that are the next decision gate. Prefer ONE test when possible.
-3. NEVER list Step 3 / 4 / 5 or a long numbered sequence in one chat turn unless the tech explicitly asks for the full plan.
-4. After giving 1-2 tests, STOP and ask only for those results (reading, pass/fail, flash count - whatever that gate needs).
-5. On the next turn, use the tech's result + library excerpts to choose the NEXT branch. Skip tests the result made unnecessary.
-6. Do not front-load inverter PCB teardown, compressor fan, and error-code flash together if fuse/supply gates are still open. Follow OEM order one gate at a time.
-7. If the tech pastes multiple results at once, acknowledge each, then give only the next 1-2 gates.
+2. OPEN COACH: Answer clarifying questions, figure/diagram/illustration requests, and mid-job pivots in THIS chat. NEVER say "This path is complete" or tell the tech to start a new chat for another symptom branch. If they want to test the compressor after a paper test, follow that request using cited library pages.
+3. When recommending the next check (not answering a question), give at most ONE clarifying question OR 1-2 concrete tests. Prefer ONE test when possible. Do not dump the whole tree.
+4. NEVER list Step 3 / 4 / 5 or a long numbered sequence in one chat turn unless the tech explicitly asks for the full plan.
+5. After giving 1-2 tests, wait for those results — unless the tech asks a question, wants a figure, or changes direction. Then answer that request.
+6. Do not front-load inverter PCB teardown, compressor fan, and error-code flash together if fuse/supply gates are still open. Follow OEM order one recommended check at a time, but do not refuse a pivot the tech asked for.
+7. If the tech pastes multiple results at once, acknowledge each, then give only the next 1-2 checks.
 8. Cite sources inline when you use an excerpt:
    📖 Source: [Exact manual title from excerpt] - page [N]
 9. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
 10. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
 11. Plain shop language. Short sentences. No fluff.
-12. After the tech reports a result, interpret it and give the next 1-2 checks.
+12. After the tech reports a result, interpret it and give the next 1-2 checks — or answer their question if they asked one.
 13. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
 14. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 15. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
@@ -4056,9 +4071,10 @@ with tab_jobs:
 with tab_ask:
     st.subheader("💬 Guided Diagnostics")
     st.caption(
-        "Chat diagnose from this shop's Document Library manuals. Hard flowchart trees (when matched) "
-        "advance only on reported gate results — free-text concerns never invent the next test. "
-        "One gate per turn; report that result before the next. Ask to see a page only when you need it. "
+        "Open library coach — takes the complaint and guides from this shop's Document Library. "
+        "Ask questions, ask for clarification, or ask to see a cited page figure/diagram in this chat. "
+        "You can change direction mid-job (no 'start a new chat' trap). "
+        "Citations are shop manual pages only — TechTrack will not invent OEM steps. "
         "Write warranty story uses the chat plus any unsent text. Only records what you actually tested."
     )
 
@@ -4169,26 +4185,27 @@ with tab_ask:
         placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
     )
 
-    # Optional Pass/Fail or Yes/No when the hard-tree current node is binary
-    _flow_now = st.session_state.get("ask_flow") or {}
-    _proc_now = None
-    _node_now = None
-    if _flow_now.get("procedure_id") and _flow_now.get("node_id"):
-        _proc_now = PROCEDURE_TREES.get(_flow_now.get("procedure_id"))
-        _node_now = get_procedure_node(_proc_now, _flow_now.get("node_id")) if _proc_now else None
-    _bin = binary_button_labels(_node_now) if _node_now else None
-    if _bin:
-        _bl, _bk, _br, _brk = _bin
-        bb1, bb2 = st.columns(2)
-        # Never write ask_input after the text_area widget exists (StreamlitWidgetAlreadyInstantiatedError).
-        if bb1.button(_bl, key="ask_flow_yes", use_container_width=True):
-            st.session_state["ask_pending_answer"] = _bk
-            st.session_state["ask_force_send"] = True
-            st.rerun()
-        if bb2.button(_br, key="ask_flow_no", use_container_width=True):
-            st.session_state["ask_pending_answer"] = _brk
-            st.session_state["ask_force_send"] = True
-            st.rerun()
+    # Hard-tree Yes/No buttons are off on the open-coach product path.
+    # Kept behind the flag so a future exclusive-tree experiment can restore them.
+    if HARD_TREE_EXCLUSIVE_CHAT:
+        _flow_now = st.session_state.get("ask_flow") or {}
+        _proc_now = None
+        _node_now = None
+        if _flow_now.get("procedure_id") and _flow_now.get("node_id"):
+            _proc_now = PROCEDURE_TREES.get(_flow_now.get("procedure_id"))
+            _node_now = get_procedure_node(_proc_now, _flow_now.get("node_id")) if _proc_now else None
+        _bin = binary_button_labels(_node_now) if _node_now else None
+        if _bin:
+            _bl, _bk, _br, _brk = _bin
+            bb1, bb2 = st.columns(2)
+            if bb1.button(_bl, key="ask_flow_yes", use_container_width=True):
+                st.session_state["ask_pending_answer"] = _bk
+                st.session_state["ask_force_send"] = True
+                st.rerun()
+            if bb2.button(_br, key="ask_flow_no", use_container_width=True):
+                st.session_state["ask_pending_answer"] = _brk
+                st.session_state["ask_force_send"] = True
+                st.rerun()
 
     b1, b2, b3 = st.columns(3)
     with b1:
@@ -4804,4 +4821,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** - {u.full_name if u else 'Unknown'} ({cert.issuer or '-'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.10.0 • Tacoma RV Center • Guided Testing ENGINE • Auto DB backup")
+st.sidebar.caption("v4.12.0 • Tacoma RV Center • Open library coach • Auto DB backup")
