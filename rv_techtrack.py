@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.2
+RV TechTrack v4.13.3
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -47,6 +47,7 @@ RV TechTrack v4.13.2
 - v4.13.0: plate photo uses working Groq vision (qwen/qwen3.6-27b) after xAI; llama-4-scout 404 retired
 - v4.13.1: figure/terminal asks retrieve real SM diagram pages (not Quick Notes p.13)
 - v4.13.2: Level Up Advantage / 807662 library search prefers Level-Up/OCTP/TI over Unity board SM
+- v4.13.3: Air Conditioning GD search skips Unity board SM unless the tech names OneControl/Unity/CAN
 - Mobile-friendly
 """
 import streamlit as st
@@ -109,6 +110,8 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
 
 from gd_library_coach import (
+    AC_HINT_TITLES,
+    AC_PRODUCT_LOCK,
     FIGURE_PAGE_HONESTY,
     FIGURE_QUERY_TERMS,
     FURRION_FCR_BOARD_FIGURE_PAGES,
@@ -116,14 +119,19 @@ from gd_library_coach import (
     LEVEL_UP_ADVANTAGE_HINT_TITLES,
     LEVEL_UP_PRODUCT_LOCK,
     OPEN_LIBRARY_COACH_RULE,
+    ac_search_symptom,
     coach_library_search_boost,
+    drop_unity_chunks_for_ac,
     drop_unity_chunks_for_level_up,
     facts_from_chat,
     figure_library_search_boost,
     figure_render_honesty_note,
+    format_ac_library_honesty,
     format_level_up_library_honesty,
     format_stated_facts_rule,
     groq_vision_model_candidates,
+    is_ac_library_title,
+    is_air_conditioning_context,
     is_furrion_ccd_0008122,
     is_level_up_advantage_context,
     is_level_up_library_title,
@@ -134,11 +142,14 @@ from gd_library_coach import (
     pick_diagram_page_numbers,
     pick_working_vision_model,
     powered_not_cooling,
+    rank_chunks_for_ac,
     rank_chunks_for_figure_ask,
     rank_chunks_for_level_up,
     reply_reasks_stated_facts,
+    score_ac_product,
     score_figure_page,
     score_level_up_product,
+    skip_unity_for_ac,
     skip_unity_for_level_up,
     strip_path_complete_trap,
     wants_board_or_terminal_figure,
@@ -1509,6 +1520,7 @@ def search_manual_chunks(
     unity_context: bool = False,
     figure_seek: bool = False,
     level_up_context: bool = False,
+    ac_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1516,6 +1528,8 @@ def search_manual_chunks(
     pages and do not let procedure-voltage scoring crown Quick Notes.
     level_up_context is GD-chat only (Jobs leave it False): search Leveling /
     Level-Up titles first and do not let Unity Electrical SM win 807662 jobs.
+    ac_context: rooftop Air Conditioning — prefer FACT/Brisk/ADB and do not let
+    Unity Electrical SM win unless the tech named OneControl/Unity/CAN.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1528,7 +1542,11 @@ def search_manual_chunks(
                 extra = session.query(Category).filter(Category.name == extra_name).first()
                 if extra and extra.id not in cat_ids:
                     cat_ids.append(extra.id)
-        if unity_context and not level_up_context:
+        if ac_context:
+            extra = session.query(Category).filter(Category.name == "Air Conditioning").first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if unity_context and not level_up_context and not ac_context:
             for extra_name in ("Electrical", "Reference", "ID & Reference"):
                 extra = session.query(Category).filter(Category.name == extra_name).first()
                 if extra and extra.id not in cat_ids:
@@ -1537,6 +1555,14 @@ def search_manual_chunks(
     elif level_up_context:
         cat_ids = []
         for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif ac_context:
+        cat_ids = []
+        for extra_name in ("Air Conditioning", "TSB / Recall"):
             extra = session.query(Category).filter(Category.name == extra_name).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
@@ -1559,7 +1585,12 @@ def search_manual_chunks(
         if branded:
             all_chunks = branded
         else:
-            extra_names = ["Refrigerators", "Electrical"] if (fridge_job or category_id) else []
+            if ac_context:
+                extra_names = ["Air Conditioning"]
+            elif fridge_job or category_id:
+                extra_names = ["Refrigerators", "Electrical"]
+            else:
+                extra_names = []
             have_ids = set()
             if category_id:
                 have_ids.add(category_id)
@@ -1616,6 +1647,8 @@ def search_manual_chunks(
             sc += score_figure_page(ch, symptom or "")
         if level_up_context:
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
+        if ac_context:
+            sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1630,6 +1663,11 @@ def search_manual_chunks(
                 sc += 5
             if any(x in title_kw for x in ("furnace", "rooftop", "chill cube", "air condition")) and "refriger" not in title_kw:
                 sc -= 8
+        if ac_context:
+            if any(x in title_kw for x in ("air condition", "rooftop", "fact", "brisk", "b57915", "adb")):
+                sc += 5
+            if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
+                sc -= 20
         if sc > 0:
             scored.append((sc, ch))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -1684,6 +1722,8 @@ def search_manual_chunks(
             sc += score_figure_page(ch, symptom or "")
         if level_up_context:
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
+        if ac_context:
+            sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1701,6 +1741,9 @@ def search_manual_chunks(
         out.append(ch)
         if len(out) >= limit:
             break
+    if ac_context and not unity_context:
+        out = drop_unity_chunks_for_ac(out)
+        out = rank_chunks_for_ac(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
 
 
@@ -2000,6 +2043,40 @@ def resolve_level_up_document_seed():
     return best
 
 
+def resolve_ac_document_seed():
+    """First catalog rooftop AC / FACT / Brisk / ADB PDF. Never a Unity board SM."""
+    for hint in AC_HINT_TITLES:
+        seed = resolve_document_by_title(hint)
+        if seed and not is_unity_board_manual(seed.get("title") or "") and is_ac_library_title(
+            seed.get("title") or ""
+        ):
+            return seed
+    try:
+        docs = session.query(Document).all()
+    except Exception:
+        return None
+    best = None
+    for d in docs:
+        title = d.title or ""
+        if not is_ac_library_title(title) or not d.file_path:
+            continue
+        row = {
+            "document_id": d.id,
+            "title": title,
+            "page": 1,
+            "file_path": d.file_path,
+            "file_type": d.file_type or "pdf",
+            "excerpt": "",
+            "indexed": bool(d.indexed),
+        }
+        t = title.lower()
+        if "fact" in t or "b57915" in t or "brisk" in t:
+            return row
+        if best is None:
+            best = row
+    return best
+
+
 def supplement_level_up_figure_pages(chunks, model_text: str, user_msg: str):
     """Pull figure/wiring chunks from Level-Up / OCTP / TI titles when the tech asks."""
     chunks = list(chunks or [])
@@ -2237,10 +2314,15 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
     explicit_pages = list(targets.get("explicit_pages") or [])
 
     level_up_ask = is_level_up_advantage_context("", "", f"{user_msg} {assistant_text} {manual_title}")
+    ac_ask = is_air_conditioning_context("", "", f"{user_msg} {assistant_text} {manual_title}")
     if level_up_ask and (not manual_title or is_unity_board_manual(manual_title)):
         seed_lu = resolve_level_up_document_seed()
         if seed_lu and seed_lu.get("file_path"):
             manual_title = seed_lu.get("title") or manual_title
+    elif ac_ask and (not manual_title or is_unity_board_manual(manual_title)):
+        seed_ac = resolve_ac_document_seed()
+        if seed_ac and seed_ac.get("file_path"):
+            manual_title = seed_ac.get("title") or manual_title
 
     if not manual_title:
         # No cited shop manual — refuse to guess across books
@@ -2249,6 +2331,10 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
     seed = resolve_document_by_title(manual_title)
     if (not seed or not seed.get("file_path")) and level_up_ask:
         seed = resolve_level_up_document_seed()
+        if seed:
+            manual_title = seed.get("title") or manual_title
+    if (not seed or not seed.get("file_path")) and ac_ask:
+        seed = resolve_ac_document_seed()
         if seed:
             manual_title = seed.get("title") or manual_title
     if not seed or not seed.get("file_path"):
@@ -2313,6 +2399,18 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
             except Exception:
                 lu_chunks = []
             for p in pick_diagram_page_numbers(lu_chunks, user_msg, manual_title):
+                _add_page(p)
+        if not out and ac_ask and is_ac_library_title(manual_title):
+            try:
+                ac_chunks = (
+                    session.query(DocChunk)
+                    .filter(DocChunk.document_id == int(seed.get("document_id") or 0))
+                    .all()
+                    if seed.get("document_id") else []
+                )
+            except Exception:
+                ac_chunks = []
+            for p in pick_diagram_page_numbers(ac_chunks, user_msg, manual_title):
                 _add_page(p)
 
     # 4) Cited Source pages — skip text-only notes on a figure ask
@@ -2540,14 +2638,21 @@ CRITICAL RULES:
 17. NO FAKE IMAGES: Never output ![alt](url) or HTML img tags in the plan."""
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
-        unity_rule = UNITY_OEM_ORDER if is_unity_context(category_name, model_text, symptom, unity_gate) else ""
+        unity_rule = (
+            UNITY_OEM_ORDER
+            if is_unity_context(category_name, model_text, symptom, unity_gate)
+            and not skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
+            else ""
+        )
         fridge_rule = FRIDGE_OEM_ORDER if is_fridge_context(category_name, model_text, symptom) else ""
+        ac_rule = AC_PRODUCT_LOCK if is_air_conditioning_context(category_name, model_text, symptom) else ""
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
 {furnace_rule}
 {unity_rule}
 {fridge_rule}
+{ac_rule}
 {DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
@@ -2645,6 +2750,8 @@ DIAGNOSTIC LED HONESTY (ALL brands / models):
 
 def is_unity_context(category_name: str = "", model_text: str = "", symptom: str = "", unity_gate: str = "") -> bool:
     """True when this coach has or may have a Lippert OneControl / Unity multiplex board."""
+    if skip_unity_for_ac(category_name, model_text, symptom, unity_gate):
+        return False
     gate = (unity_gate or "").strip()
     if gate == "No":
         return False
@@ -3589,7 +3696,7 @@ Rules:
 15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)?
+18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
@@ -3630,9 +3737,15 @@ def _ask_manual_context(
         cat_obj = session.query(Category).filter_by(name=category_name).first()
     category_id = cat_obj.id if cat_obj else None
     level_up = is_level_up_advantage_context(category_name, model_text, symptom)
+    ac_job = is_air_conditioning_context(category_name, model_text, symptom)
+    skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
     unity_on = (
         False
-        if (level_up or skip_unity_for_level_up(category_name, model_text, symptom))
+        if (
+            level_up
+            or skip_unity_for_level_up(category_name, model_text, symptom)
+            or skip_ac_unity
+        )
         else is_unity_context(category_name, model_text, symptom, unity_gate)
     )
     chunks = search_manual_chunks(
@@ -3643,6 +3756,7 @@ def _ask_manual_context(
         unity_context=unity_on,
         figure_seek=figure_seek,
         level_up_context=level_up,
+        ac_context=ac_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
@@ -3657,6 +3771,15 @@ def _ask_manual_context(
         )
         honesty = format_level_up_library_honesty(list_library_catalog_docs(), chunks)
         if not chunks:
+            return [], honesty
+    elif ac_job:
+        if skip_ac_unity:
+            chunks = drop_unity_chunks_for_ac(chunks)
+            chunks = rank_chunks_for_ac(
+                chunks, f"{model_text} {figure_query or symptom}", limit=limit
+            )
+        honesty = format_ac_library_honesty(list_library_catalog_docs(), chunks)
+        if skip_ac_unity and not chunks:
             return [], honesty
     if not chunks:
         return [], ""
@@ -3701,7 +3824,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     else:
         search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
     search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
-    if not skip_unity_for_level_up(category_name, model_text, search_symptom):
+    search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
+    if not skip_unity_for_level_up(category_name, model_text, search_symptom) and not skip_unity_for_ac(
+        category_name, model_text, search_symptom, unity_gate
+    ):
         search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
     boost = coach_library_search_boost(facts)
     if boost and not figure_seek:
@@ -3726,9 +3852,16 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if is_furnace_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
     level_up_job = is_level_up_advantage_context(category_name, model_text, search_symptom)
+    ac_job = is_air_conditioning_context(category_name, model_text, search_symptom)
     if level_up_job:
         system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
-    if is_unity_context(category_name, model_text, search_symptom, unity_gate) and not level_up_job:
+    if ac_job:
+        system_prompt += "\n\n" + AC_PRODUCT_LOCK
+    if (
+        is_unity_context(category_name, model_text, search_symptom, unity_gate)
+        and not level_up_job
+        and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
+    ):
         system_prompt += "\n\n" + UNITY_OEM_ORDER
     if is_fridge_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
@@ -4161,13 +4294,16 @@ with tab_jobs:
                         with st.spinner("Searching manuals and building guided tests..."):
                             nj_sym = furnace_search_symptom(nj_cat, nj_model, nj_concern)
                             nj_sym = fridge_search_symptom(nj_cat, nj_model, nj_sym)
-                            nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
+                            nj_sym = ac_search_symptom(nj_cat, nj_model, nj_sym)
+                            if not skip_unity_for_ac(nj_cat, nj_model, nj_concern, nj_unity):
+                                nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
                             hits = search_manual_chunks(
                                 cat_obj.id if cat_obj else None,
                                 nj_model,
                                 nj_sym,
                                 limit=16,
                                 unity_context=is_unity_context(nj_cat, nj_model, nj_concern, nj_unity),
+                                ac_context=is_air_conditioning_context(nj_cat, nj_model, nj_concern),
                             )
                             plan, sources, sources_json = run_guided_diagnostics(
                                 nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
@@ -4359,7 +4495,13 @@ with tab_jobs:
                     with st.spinner("Re-searching manuals..."):
                         rb_sym = furnace_search_symptom(job.category_name, job.model_text or "", job.concern)
                         rb_sym = fridge_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        rb_sym = unity_search_symptom(job.category_name, job.model_text or "", rb_sym, rebuild_unity)
+                        rb_sym = ac_search_symptom(job.category_name, job.model_text or "", rb_sym)
+                        if not skip_unity_for_ac(
+                            job.category_name, job.model_text or "", job.concern, rebuild_unity
+                        ):
+                            rb_sym = unity_search_symptom(
+                                job.category_name, job.model_text or "", rb_sym, rebuild_unity
+                            )
                         hits = search_manual_chunks(
                             cat_obj.id if cat_obj else None,
                             job.model_text or "",
@@ -4367,6 +4509,9 @@ with tab_jobs:
                             limit=16,
                             unity_context=is_unity_context(
                                 job.category_name, job.model_text or "", job.concern, rebuild_unity
+                            ),
+                            ac_context=is_air_conditioning_context(
+                                job.category_name, job.model_text or "", job.concern
                             ),
                         )
                         plan, sources, sources_json = run_guided_diagnostics(
@@ -4604,6 +4749,13 @@ with tab_ask:
                     ):
                         seed_lu = resolve_level_up_document_seed()
                         fail_title = (seed_lu or {}).get("title") or fail_title
+                    if is_air_conditioning_context(category_name, ask_model or "", msg) or (
+                        is_unity_board_manual(fail_title)
+                        and is_air_conditioning_context(category_name, ask_model or "", msg)
+                    ):
+                        seed_ac = resolve_ac_document_seed()
+                        if seed_ac:
+                            fail_title = seed_ac.get("title") or fail_title
                     st.session_state["ask_auto_show_fail_note"] = figure_render_honesty_note(
                         fail_title, True
                     )

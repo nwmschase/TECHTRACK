@@ -1,12 +1,13 @@
 """
 Guided Diagnostics — simple open library coach.
 
-Chase product (2026-09-09):
+Chase product (2026-09-12):
   Jobs / WO diagnostic plans stay the plan feature.
   GD chat = complaint → shop Document Library coach → questions, figures, mid-chat pivots.
   Hard tree / Yes-No gate quiz must NOT drive GD chat.
   Never re-ask facts the tech already stated.
   Never invent OEM steps. Cite 📖 Source: manual title - page N.
+  Air Conditioning rooftop jobs skip OneControl Unity board manuals unless the tech names them.
 """
 from __future__ import annotations
 
@@ -160,6 +161,55 @@ LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
     re.I,
 )
 
+# Rooftop Air Conditioning (Furrion FACT*, Dometic B57915 / Brisk, ADB).
+# NOT Lippert OneControl Unity M-Series awning/slide reversing — unless the tech
+# explicitly names OneControl / Unity / CAN multiplex for the AC controls.
+AC_MODELS = ("fact12sa2", "fact12", "b57915")
+AC_DOC_MARKERS = (
+    "fact12", "furrion fact",
+    "b57915", "brisk",
+    "rooftop ac", "roof top ac", "roof ac",
+    "air condition", "air-condition",
+    "air distribution", "adb",
+    "penguin",
+)
+AC_SEARCH_BOOST = (
+    "Furrion FACT rooftop air conditioner FACT12SA2 FACT12 "
+    "Dometic Brisk B57915 ADB air distribution box "
+    "rooftop AC no cool E2 E3"
+)
+AC_FIGURE_SEARCH_BOOST = (
+    "Furrion FACT Dometic Brisk rooftop AC ADB "
+    "air distribution box wiring diagram Fig. figure"
+)
+AC_HINT_TITLES = (
+    "Furrion FACT12SA2",
+    "Furrion FACT rooftop air conditioner",
+    "Dometic Brisk B57915",
+    "Dometic Brisk rooftop AC",
+)
+AC_PRODUCT_LOCK = """
+AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
+- Furrion FACT* (FACT12SA2), Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
+- Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT manuals FIRST.
+- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
+- Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / Brisk / ADB title exists in the catalog or this turn's excerpts.
+- If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
+- If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the AC procedure.
+"""
+AC_EMPTY_CLAIM_RE = re.compile(
+    r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
+    r"(air\s*condit|rooftop\s+a/?c|fact\d|b57915|brisk)|"
+    r"(no|not|lack|missing|doesn't have|does not have|do not have).{0,50}"
+    r"(air\s*condit|rooftop\s+a/?c|fact\d|ac procedure).{0,40}(manual|procedure|diagnos|guide)|"
+    r"(only (has|have)|library only|only the onecontrol|only onecontrol).{0,40}unity",
+    re.I,
+)
+AC_UNITY_ASK_RE = re.compile(
+    r"\b(one\s*control|unity|x270|can[\s-]*bus|can[\s-]*multiplex|can[\s-]*network)\b",
+    re.I,
+)
+
 
 def _norm(text: str) -> str:
     t = (text or "").lower().strip()
@@ -220,11 +270,15 @@ def figure_library_search_boost(user_msg: str) -> str:
         extra = FIGURE_SEARCH_BOOST
         if is_level_up_advantage_context("", "", user_msg):
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
+        if is_air_conditioning_context("", "", user_msg):
+            extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
         return extra
     if wants_library_figures(user_msg):
         extra = "Fig. figure illustration diagram drawing"
         if is_level_up_advantage_context("", "", user_msg):
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
+        if is_air_conditioning_context("", "", user_msg):
+            extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
         return extra
     return ""
 
@@ -315,6 +369,115 @@ def skip_unity_for_level_up(
 ) -> bool:
     """Coach-only: do not inject Unity Electrical search for a Level Up Advantage job."""
     return is_level_up_advantage_context(category_name, model_text, symptom)
+
+
+def _fridge_blob_not_ac(blob: str) -> bool:
+    """True when this looks like a refrigerator job, not rooftop AC."""
+    if any(k in blob for k in ("fridge", "reefer", "refriger", "fcr0", "fcr1", "norcold")):
+        if re.search(r"\bfact\d", blob):
+            return False
+        if "air condition" in blob or "rooftop" in blob:
+            return False
+        return True
+    return False
+
+
+def tech_asks_unity_for_ac_controls(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    unity_gate: str = "",
+) -> bool:
+    """
+    Exception: tech clearly named OneControl / Unity / CAN multiplex for AC.
+    Gate Yes is an explicit answer. Bare 'can' / 'Not sure' is not.
+    """
+    if (unity_gate or "").strip() == "Yes":
+        return True
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    return bool(AC_UNITY_ASK_RE.search(blob))
+
+
+def is_air_conditioning_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Rooftop Air Conditioning: category, Furrion FACT*, Dometic B57915/Brisk,
+    ADB, E2/E3 AC codes, no-cool AC. Fridge 'not cooling' is not AC.
+    """
+    cat = _norm(category_name)
+    if "air condition" in cat or cat in ("a/c", "ac", "hvac"):
+        return True
+    blob = _blob(category_name, model_text, symptom)
+    if not blob or _fridge_blob_not_ac(blob):
+        return False
+    if any(m in blob for m in AC_MODELS):
+        return True
+    if re.search(r"\bfact\d", blob):
+        return True
+    if "brisk" in blob or "b57915" in blob:
+        return True
+    if "air condition" in blob or "air-condition" in blob:
+        return True
+    if re.search(r"\broof(?:[\s-]*top)?\s+a/?c\b", blob) or re.search(r"\ba/?c\s+unit\b", blob):
+        return True
+    if re.search(r"\badb\b", blob) and any(
+        k in blob for k in ("ac", "a/c", "air", "cool", "roof", "furrion", "dometic", "distribution")
+    ):
+        return True
+    if "penguin" in blob and any(k in blob for k in ("ac", "air", "cool", "roof", "dometic")):
+        return True
+    if re.search(r"\be\s*[23]\b", blob) and any(
+        k in blob for k in ("ac", "a/c", "air", "cool", "roof", "ccc", "thermostat", "dometic", "furrion")
+    ):
+        return True
+    if re.search(r"\b(?:no|not|won'?t|wont)\s+cool", blob) and any(
+        k in blob for k in ("rooftop", "air condition", "a/c", "brisk", "adb", "fact")
+    ):
+        return True
+    return False
+
+
+def skip_unity_for_ac(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    unity_gate: str = "",
+) -> bool:
+    """Coach: do not inject Unity Electrical search for a rooftop AC job."""
+    if not is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if tech_asks_unity_for_ac_controls(category_name, model_text, symptom, unity_gate):
+        return False
+    return True
+
+
+def is_ac_library_title(title: str) -> bool:
+    """Catalog titles that are rooftop AC / FACT / Brisk / ADB — not Unity."""
+    t = _norm(title)
+    if not t or is_unity_board_manual(t):
+        return False
+    if any(m in t for m in AC_MODELS) or re.search(r"\bfact\d", t):
+        return True
+    if any(p in t for p in AC_DOC_MARKERS):
+        return True
+    if "furrion" in t and any(k in t for k in ("fact", "air condition", "rooftop", "a/c")):
+        return True
+    if "dometic" in t and any(k in t for k in ("brisk", "penguin", "air condition", "rooftop", "b57915", "adb")):
+        return True
+    return False
+
+
+def ac_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward FACT / Brisk / ADB rooftop AC. Never add Unity terms."""
+    symptom = (symptom or "").strip()
+    if not is_air_conditioning_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {AC_SEARCH_BOOST}".strip()
 
 
 def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
@@ -411,6 +574,86 @@ def drop_unity_chunks_for_level_up(chunks) -> list:
     return kept
 
 
+def score_ac_product(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = Furrion/Dometic rooftop AC / ADB / Brisk / FACT doc.
+    Unity M-Series awning/slide reversing must lose on AC jobs.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    score = 0
+    if is_ac_library_title(title) or is_ac_library_title(t):
+        score += 22
+    if any(m in t or m in q for m in AC_MODELS) or re.search(r"\bfact\d", t) or re.search(r"\bfact\d", q):
+        score += 12
+    if "brisk" in t or "b57915" in t:
+        score += 12
+    if "air condition" in t or "rooftop" in t:
+        score += 10
+    if re.search(r"\badb\b", t) or "air distribution" in t:
+        score += 8
+    if "air condition" in cat:
+        score += 8
+    if any(k in t for k in ("e2", "e3", "no cool", "not cool")):
+        score += 4
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 36
+    if "awning" in t and "slide" in t:
+        score -= 18
+    if "reversing" in t and any(k in t for k in ("awning", "unity", "slide")):
+        score -= 18
+    if "electrical" in cat and is_unity_board_manual(t):
+        score -= 8
+    if any(k in t for k in ("refriger", "fridge", "furnace")) and "air condition" not in t:
+        score -= 8
+    return score
+
+
+def rank_chunks_for_ac(chunks, query: str, limit: int = 8) -> list:
+    """Prefer rooftop AC / FACT / Brisk / ADB pages; drop Unity board SM when an AC hit exists."""
+    scored = [(score_ac_product(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    has_ac = any(
+        sc > 0 and is_ac_library_title(_page_title(ch) or _page_text_blob(ch))
+        for sc, ch in scored
+    )
+    out = []
+    for sc, ch in scored:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            if has_ac or sc < 0:
+                continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    if out:
+        return out
+    return [
+        ch for sc, ch in scored[:limit]
+        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
+    ]
+
+
+def drop_unity_chunks_for_ac(chunks) -> list:
+    """Never keep Unity awning/slide reversing excerpts as the rooftop AC manual."""
+    kept = []
+    for ch in chunks or []:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            continue
+        kept.append(ch)
+    return kept
+
+
 def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
     """
     When Level-Up titles exist on the catalog, never claim the library lacks them.
@@ -481,6 +724,78 @@ def claims_level_up_library_empty(reply: str) -> bool:
     return False
 
 
+def format_ac_library_honesty(catalog_docs, chunks=None) -> str:
+    """
+    When rooftop AC titles exist on the catalog or in this turn's hits,
+    never claim the library only has Unity / lacks an AC procedure.
+    """
+    rows = list(catalog_docs or [])
+    ac_docs = []
+    for d in rows:
+        if isinstance(d, dict):
+            title = str(d.get("title") or "")
+            indexed = bool(d.get("indexed"))
+            chunks_n = d.get("chunk_count")
+        else:
+            title = str(getattr(d, "title", "") or "")
+            indexed = bool(getattr(d, "indexed", False))
+            chunks_n = getattr(d, "chunk_count", None)
+        if not is_ac_library_title(title):
+            continue
+        ac_docs.append({"title": title, "indexed": indexed, "chunk_count": chunks_n})
+    retrieved = [
+        _page_title(ch) for ch in (chunks or [])
+        if is_ac_library_title(_page_title(ch))
+    ]
+    if not ac_docs and not retrieved:
+        return ""
+    titles = [r["title"] for r in ac_docs] or retrieved
+    unread = [
+        r for r in ac_docs
+        if (not r["indexed"]) or (r["chunk_count"] == 0)
+    ]
+    lines = [
+        "AIR CONDITIONING LIBRARY HONESTY:",
+        "The shop Document Library DOES include rooftop Air Conditioning / FACT / Brisk / ADB material. "
+        "Never claim those Furrion/Dometic AC titles are absent from the catalog. "
+        "Do not invent Unity as the AC manual.",
+        "Rooftop AC / FACT / Brisk / ADB titles on the catalog or this turn's excerpts:",
+    ]
+    for t in titles:
+        lines.append(f"- {t}")
+    if unread and not retrieved:
+        lines.append(
+            "Best Air Conditioning hit(s) are unindexed or have zero searchable chunks. "
+            "Name the title(s) and ask a manager to re-index that PDF in Document Library. "
+            "Do not substitute Lippert OneControl Unity M-Series awning/slide reversing."
+        )
+        for r in unread:
+            note = "not indexed" if not r["indexed"] else "zero chunks"
+            lines.append(f"- Reindex needed: {r['title']} ({note})")
+    elif not retrieved:
+        lines.append(
+            "Air Conditioning titles exist. If this turn's excerpts missed them, say so and stay on those titles — "
+            "do not invent Unity as the AC manual."
+        )
+    return "\n".join(lines)
+
+
+def claims_ac_library_empty(reply: str) -> bool:
+    """True when a coach reply falsely says the library has no AC procedure / only Unity."""
+    t = reply or ""
+    if not t:
+        return False
+    if AC_EMPTY_CLAIM_RE.search(t):
+        return True
+    low = _norm(t)
+    if "unity" in low and any(
+        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
+    ):
+        if any(k in low for k in ("air condition", "rooftop", "fact", "brisk", "ac ")):
+            return True
+    return False
+
+
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
     """Shop-floor line when a library figure page did not display."""
     if not render_failed:
@@ -493,18 +808,27 @@ def figure_render_honesty_note(manual_title: str = "", render_failed: bool = Fal
             "Download that PDF or ask a manager to re-index it — "
             "do not treat this as a missing Level Up procedure, and do not use the Unity board SM."
         )
+    if title and is_ac_library_title(title):
+        return (
+            f"The figure is in the shop Document Library PDF ({title}). "
+            "TechTrack could not render that page image this turn. "
+            "Download that PDF or ask a manager to re-index it — "
+            "do not treat this as a missing Air Conditioning procedure, and do not use the Unity board SM."
+        )
     if title and is_unity_board_manual(title):
         return (
             "That Unity / OneControl awning-slide board manual is the wrong book for "
-            "Level Up Advantage / 807662. The leveling figure is in a Leveling Level-Up / "
-            "OCTP / TI-005 PDF in the shop library. If the page image did not render, "
-            "download that Level-Up PDF or ask for a reindex."
+            "rooftop Air Conditioning (Furrion FACT / Dometic Brisk) and for "
+            "Level Up Advantage / 807662. The AC figure is in a Furrion/Dometic rooftop "
+            "AC PDF; the leveling figure is in a Level-Up / OCTP / TI-005 PDF. "
+            "If the page image did not render, download that OEM PDF or ask for a reindex."
         )
     return (
         "You asked for a figure/page. TechTrack could not load a matching shop-library PDF page "
         "(missing file path, download failed, unindexed PDF, or page render unavailable). "
-        "If a Level-Up / TI-005 / QR-092 title is on the Document Library catalog, the figure "
-        "is in that PDF — say so and ask for reindex. Do not invent a Unity substitute."
+        "If a Level-Up / TI-005 / QR-092 or Furrion/Dometic rooftop AC title is on the "
+        "Document Library catalog, the figure is in that PDF — say so and ask for reindex. "
+        "Do not invent a Unity substitute."
     )
 
 
