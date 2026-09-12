@@ -109,7 +109,6 @@ except ImportError:
 from gd_library_coach import (
     HARD_TREE_EXCLUSIVE_CHAT,
     OPEN_LIBRARY_COACH_RULE,
-    format_procedure_library_hint,
     groq_vision_model_candidates,
     hard_tree_yields_to_coach,
     pick_working_vision_model,
@@ -117,6 +116,11 @@ from gd_library_coach import (
     wants_library_figures,
     xai_vision_model_candidates,
 )
+
+
+def format_procedure_library_hint(procedure=None):
+    """Removed from gd_library_coach in v4.13.0 — keep this leftover entry file bootable."""
+    return ""
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"
