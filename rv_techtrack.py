@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.3
+RV TechTrack v4.13.4
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -48,6 +48,7 @@ RV TechTrack v4.13.3
 - v4.13.1: figure/terminal asks retrieve real SM diagram pages (not Quick Notes p.13)
 - v4.13.2: Level Up Advantage / 807662 library search prefers Level-Up/OCTP/TI over Unity board SM
 - v4.13.3: Air Conditioning GD search skips Unity board SM unless the tech names OneControl/Unity/CAN
+- v4.13.4: Streamlit loads gd_library_coach from this file's folder (no stale/missing-module ImportError)
 - Mobile-friendly
 """
 import streamlit as st
@@ -109,54 +110,88 @@ try:
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
-from gd_library_coach import (
-    AC_HINT_TITLES,
-    AC_PRODUCT_LOCK,
-    FIGURE_PAGE_HONESTY,
-    FIGURE_QUERY_TERMS,
-    FURRION_FCR_BOARD_FIGURE_PAGES,
-    HARD_TREE_EXCLUSIVE_CHAT,
-    LEVEL_UP_ADVANTAGE_HINT_TITLES,
-    LEVEL_UP_PRODUCT_LOCK,
-    OPEN_LIBRARY_COACH_RULE,
-    ac_search_symptom,
-    coach_library_search_boost,
-    drop_unity_chunks_for_ac,
-    drop_unity_chunks_for_level_up,
-    facts_from_chat,
-    figure_library_search_boost,
-    figure_render_honesty_note,
-    format_ac_library_honesty,
-    format_level_up_library_honesty,
-    format_stated_facts_rule,
-    groq_vision_model_candidates,
-    is_ac_library_title,
-    is_air_conditioning_context,
-    is_furrion_ccd_0008122,
-    is_level_up_advantage_context,
-    is_level_up_library_title,
-    is_unity_board_manual,
-    level_up_search_symptom,
-    page_has_figure_or_terminal_layout,
-    page_is_text_only_notes,
-    pick_diagram_page_numbers,
-    pick_working_vision_model,
-    powered_not_cooling,
-    rank_chunks_for_ac,
-    rank_chunks_for_figure_ask,
-    rank_chunks_for_level_up,
-    reply_reasks_stated_facts,
-    score_ac_product,
-    score_figure_page,
-    score_level_up_product,
-    skip_unity_for_ac,
-    skip_unity_for_level_up,
-    strip_path_complete_trap,
-    wants_board_or_terminal_figure,
-    wants_library_figures,
-    wants_library_page_shown,
-    xai_vision_model_candidates,
-)
+def _load_gd_library_coach():
+    """
+    Load the sibling coach module by file path.
+
+    Streamlit Cloud often runs with cwd / sys.path that is not the repo root,
+    or keeps a stale gd_library_coach in sys.modules from before v4.13.3.
+    Either case raises ImportError at `from gd_library_coach import ...`.
+    """
+    import importlib.util
+    import sys
+
+    path = Path(__file__).resolve().parent / "gd_library_coach.py"
+    if not path.is_file():
+        raise ImportError(
+            "gd_library_coach.py is missing next to rv_techtrack.py "
+            f"({path}). Deploy the full GitHub repo, not only the main file."
+        )
+    root = str(path.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    cached = sys.modules.get("gd_library_coach")
+    if cached is not None and not hasattr(cached, "skip_unity_for_ac"):
+        sys.modules.pop("gd_library_coach", None)
+        cached = None
+    if cached is not None:
+        return cached
+    spec = importlib.util.spec_from_file_location("gd_library_coach", str(path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load gd_library_coach from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["gd_library_coach"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_gdc = _load_gd_library_coach()
+AC_HINT_TITLES = _gdc.AC_HINT_TITLES
+AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
+FIGURE_PAGE_HONESTY = _gdc.FIGURE_PAGE_HONESTY
+FIGURE_QUERY_TERMS = _gdc.FIGURE_QUERY_TERMS
+FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
+HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
+LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
+LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
+OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
+ac_search_symptom = _gdc.ac_search_symptom
+coach_library_search_boost = _gdc.coach_library_search_boost
+drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
+drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
+facts_from_chat = _gdc.facts_from_chat
+figure_library_search_boost = _gdc.figure_library_search_boost
+figure_render_honesty_note = _gdc.figure_render_honesty_note
+format_ac_library_honesty = _gdc.format_ac_library_honesty
+format_level_up_library_honesty = _gdc.format_level_up_library_honesty
+format_stated_facts_rule = _gdc.format_stated_facts_rule
+groq_vision_model_candidates = _gdc.groq_vision_model_candidates
+is_ac_library_title = _gdc.is_ac_library_title
+is_air_conditioning_context = _gdc.is_air_conditioning_context
+is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
+is_level_up_advantage_context = _gdc.is_level_up_advantage_context
+is_level_up_library_title = _gdc.is_level_up_library_title
+is_unity_board_manual = _gdc.is_unity_board_manual
+level_up_search_symptom = _gdc.level_up_search_symptom
+page_has_figure_or_terminal_layout = _gdc.page_has_figure_or_terminal_layout
+page_is_text_only_notes = _gdc.page_is_text_only_notes
+pick_diagram_page_numbers = _gdc.pick_diagram_page_numbers
+pick_working_vision_model = _gdc.pick_working_vision_model
+powered_not_cooling = _gdc.powered_not_cooling
+rank_chunks_for_ac = _gdc.rank_chunks_for_ac
+rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
+rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
+reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
+score_ac_product = _gdc.score_ac_product
+score_figure_page = _gdc.score_figure_page
+score_level_up_product = _gdc.score_level_up_product
+skip_unity_for_ac = _gdc.skip_unity_for_ac
+skip_unity_for_level_up = _gdc.skip_unity_for_level_up
+strip_path_complete_trap = _gdc.strip_path_complete_trap
+wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
+wants_library_figures = _gdc.wants_library_figures
+wants_library_page_shown = _gdc.wants_library_page_shown
+xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"

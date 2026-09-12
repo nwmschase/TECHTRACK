@@ -189,7 +189,8 @@ class TestProductSource(unittest.TestCase):
             src,
         )
         self.assertIn("OPEN LIBRARY COACH", src)
-        self.assertIn("from gd_library_coach import", src)
+        self.assertIn("_load_gd_library_coach", src)
+        self.assertIn("gd_library_coach.py", src)
         self.assertIn("HARD_TREE_EXCLUSIVE_CHAT", src)
         self.assertIn("FIGURE_PAGE_HONESTY", src)
 
