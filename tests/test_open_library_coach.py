@@ -202,6 +202,8 @@ class TestProductSource(unittest.TestCase):
         self.assertNotIn("figure_seek=True", src.split("def run_guided_diagnostics")[1][:800])
         self.assertIn("level_up_context: bool = False", src)
         self.assertNotIn("level_up_context=True", src.split("def run_guided_diagnostics")[1][:1200])
+        self.assertIn("ac_context: bool = False", src)
+        self.assertNotIn("ac_context=True", src.split("def run_guided_diagnostics")[1][:1200])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
@@ -211,6 +213,9 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("LEVEL_UP_PRODUCT_LOCK", src)
         self.assertIn("level_up_search_symptom", src)
         self.assertIn("skip_unity_for_level_up", src)
+        self.assertIn("AC_PRODUCT_LOCK", src)
+        self.assertIn("ac_search_symptom", src)
+        self.assertIn("skip_unity_for_ac", src)
 
     def test_no_tree_dump_hint_in_coach_module(self):
         coach = (ROOT / "gd_library_coach.py").read_text()
