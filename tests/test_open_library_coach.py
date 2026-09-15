@@ -265,6 +265,7 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("is_fcr_e2_fan_fault_context", src)
         self.assertIn("rank_chunks_for_fcr_fan_fault", src)
         self.assertIn("claims_fcr_e2_board_only_cage", src)
+        self.assertIn("ensure_fcr_e2_fan_rr", src)
         self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
         self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
         self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))

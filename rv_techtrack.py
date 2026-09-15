@@ -165,6 +165,8 @@ OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
 ac_search_symptom = _gdc.ac_search_symptom
 claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
+ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
+fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
 facts_from_chat = _gdc.facts_from_chat
@@ -4069,6 +4071,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
                 reply = retry
         except Exception:
             pass
+    if fan_fault_job:
+        reply = ensure_fcr_e2_fan_rr(reply, facts)
     reasked = reply_reasks_stated_facts(reply, facts)
     if reasked:
         retry_rule = (

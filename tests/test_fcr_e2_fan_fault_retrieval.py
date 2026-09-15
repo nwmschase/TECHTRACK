@@ -4,12 +4,16 @@ import unittest
 from gd_library_coach import (
     FAN_FAULT_SEARCH_BOOST,
     FCR_E2_FAN_FAULT_PRODUCT_LOCK,
+    FCR_E2_FAN_RR_SHOP_LINE,
     FURRION_FCR_FAN_FAULT_PAGES,
     claims_fcr_e2_board_only_cage,
+    ensure_fcr_e2_fan_rr,
+    fcr_e2_reply_needs_fan_rr,
     fcr_e2_search_symptom,
     is_air_conditioning_context,
     is_fcr_e2_fan_fault_context,
     rank_chunks_for_fcr_fan_fault,
+    reply_names_freezer_fan_rr,
     score_fcr_fan_fault_chunk,
 )
 
@@ -165,6 +169,48 @@ class TestFcrE2CageDetect(unittest.TestCase):
         self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
         self.assertIn("27", str(FURRION_FCR_FAN_FAULT_PAGES))
         self.assertIn("33", str(FURRION_FCR_FAN_FAULT_PAGES))
+
+    def test_ensure_uncages_live_miss_board_only(self):
+        live = (
+            "CCD-0008122 does not list a separate freezer evaporator fan. "
+            "E2 repair is board only. Replace the rear inverter/control board."
+        )
+        facts = {"fan_fault": "e2", "fan_volts": "reported", "fan_amps": "reported"}
+        self.assertTrue(fcr_e2_reply_needs_fan_rr(live, facts))
+        fixed = ensure_fcr_e2_fan_rr(live, facts)
+        self.assertIn("freezer evaporator fan", fixed.lower())
+        self.assertIn("fan replacement", fixed.lower())
+        self.assertTrue(reply_names_freezer_fan_rr(fixed))
+        self.assertIn("page 27", fixed)
+        self.assertIn(FCR_E2_FAN_RR_SHOP_LINE.split("\n")[-1], fixed)
+
+    def test_ensure_adds_fan_when_board_rr_and_readings(self):
+        board = (
+            "Fan volts and amps are on file. Replace the rear inverter/control board.\n"
+            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 48"
+        )
+        facts = {"fan_fault": "e2", "fan_volts": "reported", "fan_amps": "reported"}
+        self.assertTrue(fcr_e2_reply_needs_fan_rr(board, facts))
+        fixed = ensure_fcr_e2_fan_rr(board, facts)
+        self.assertTrue(reply_names_freezer_fan_rr(fixed))
+        self.assertIn("freezer evaporator fan", fixed.lower())
+
+    def test_ensure_leaves_f_plus_ask_and_good_rr_alone(self):
+        ask = (
+            "E2 is Fan Fault Current. Measure voltage at F+ and F− on the inverter PCB.\n"
+            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 27"
+        )
+        self.assertFalse(fcr_e2_reply_needs_fan_rr(ask, {"fan_fault": "e2"}))
+        self.assertEqual(ensure_fcr_e2_fan_rr(ask, {"fan_fault": "e2"}), ask)
+        good = (
+            "Fan volts and amps are present and E2 returned after thaw. "
+            "Replace the inverter PCB and fan. Recommend freezer evaporator fan R&R "
+            "and the rear inverter/control board.\n"
+            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 27"
+        )
+        facts = {"fan_fault": "e2", "fan_volts": "reported"}
+        self.assertFalse(fcr_e2_reply_needs_fan_rr(good, facts))
+        self.assertEqual(ensure_fcr_e2_fan_rr(good, facts), good)
 
 
 if __name__ == "__main__":

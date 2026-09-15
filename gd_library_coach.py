@@ -242,6 +242,19 @@ FCR_E2_BOARD_ONLY_RE = re.compile(
     r"(the )?(rear )?(inverter/?|control |driver )?(board only|inverter only)",
     re.I,
 )
+# SM language already in this repo (leftover tree + p.27 fixture). No invented pages.
+FCR_E2_FAN_RR_SHOP_LINE = (
+    "CCD-0008122 Error Code — Fan Fault Diagnostics includes Fan Replacement "
+    "in Repair Section 2. The SM fan on F+/F− is a replaceable freezer evaporator fan. "
+    "When fan volts/amps are present and E2 / 2-flash returned, recommend freezer "
+    "evaporator fan R&R and the rear inverter/control board — not board only.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 27"
+)
+BOARD_RR_RE = re.compile(
+    r"(replace|r\s*&\s*r|r and r).{0,40}"
+    r"(inverter|control board|driver board|rear (?:control )?board|\bpcb\b)",
+    re.I,
+)
 
 
 def _norm(text: str) -> str:
@@ -980,6 +993,74 @@ def claims_fcr_e2_board_only_cage(reply: str) -> bool:
     if _match_not_negated(FCR_E2_BOARD_ONLY_RE, t):
         return True
     return False
+
+
+def reply_names_freezer_fan_rr(reply: str) -> bool:
+    """True when the reply already reaches freezer evaporator fan / Fan Replacement."""
+    t = _norm(reply)
+    if not t:
+        return False
+    if "fan replacement" in t:
+        return True
+    if any(k in t for k in ("freezer evaporator fan", "evaporator fan")) and any(
+        k in t for k in ("replace", "r&r", "r & r")
+    ):
+        return True
+    if any(
+        k in t
+        for k in (
+            "inverter pcb and fan",
+            "board and fan",
+            "board + fan",
+            "board and the fan",
+        )
+    ):
+        return True
+    return False
+
+
+def reply_recommends_rear_board_rr(reply: str) -> bool:
+    return bool(BOARD_RR_RE.search(reply or ""))
+
+
+def fcr_e2_reply_needs_fan_rr(reply: str, facts: dict = None) -> bool:
+    """
+    True when this E2 turn would ship without freezer evaporator fan R&R:
+    explicit board-only cage, or board R&R with fan volts/amps already reported.
+    """
+    if not (reply or "").strip():
+        return False
+    if claims_fcr_e2_board_only_cage(reply):
+        return True
+    facts = facts or {}
+    readings = bool(facts.get("fan_volts") or facts.get("fan_amps"))
+    if readings and reply_recommends_rear_board_rr(reply) and not reply_names_freezer_fan_rr(reply):
+        return True
+    return False
+
+
+def strip_fcr_e2_board_only_claims(reply: str) -> str:
+    """Drop sentences that deny a separate fan or say E2 is board-only."""
+    if not reply or not claims_fcr_e2_board_only_cage(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
+        if part and not claims_fcr_e2_board_only_cage(part):
+            kept.append(part)
+    return " ".join(kept).strip() or reply
+
+
+def ensure_fcr_e2_fan_rr(reply: str, facts: dict = None) -> str:
+    """
+    Deterministic shop line so E2 cannot ship as board-only.
+    Uses CCD-0008122 Fan Fault Diagnostics / Fan Replacement language already in-repo.
+    """
+    if not reply or not fcr_e2_reply_needs_fan_rr(reply, facts):
+        return reply
+    cleaned = strip_fcr_e2_board_only_claims(reply)
+    if "includes fan replacement in repair section 2" in _norm(cleaned):
+        return cleaned
+    return f"{cleaned.rstrip()}\n\n{FCR_E2_FAN_RR_SHOP_LINE}".strip()
 
 
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:

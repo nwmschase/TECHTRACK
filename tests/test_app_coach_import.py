@@ -42,6 +42,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             "FCR_E2_FAN_FAULT_PRODUCT_LOCK",
             "ac_search_symptom",
             "drop_unity_chunks_for_ac",
+            "ensure_fcr_e2_fan_rr",
             "fcr_e2_search_symptom",
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
