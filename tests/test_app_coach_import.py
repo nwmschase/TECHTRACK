@@ -39,14 +39,22 @@ class TestCoachModuleLoads(unittest.TestCase):
         for name in (
             "AC_HINT_TITLES",
             "AC_PRODUCT_LOCK",
+            "FCR_E2_FAN_FAULT_PRODUCT_LOCK",
             "ac_search_symptom",
             "drop_unity_chunks_for_ac",
+            "fcr_e2_search_symptom",
             "is_air_conditioning_context",
+            "is_fcr_e2_fan_fault_context",
             "skip_unity_for_ac",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
             mod.skip_unity_for_ac("Air Conditioning", "Furrion FACT12SA2", "no cool")
+        )
+        self.assertTrue(
+            mod.is_fcr_e2_fan_fault_context(
+                "Refrigerators", "Furrion FCR10DCGTA", "intermittent E2 / 2-flash"
+            )
         )
 
     def test_rv_techtrack_binds_only_existing_coach_names(self):
@@ -54,6 +62,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         names = _names_assigned_from_gdc(src)
         self.assertIn("skip_unity_for_ac", names)
         self.assertIn("AC_PRODUCT_LOCK", names)
+        self.assertIn("is_fcr_e2_fan_fault_context", names)
+        self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -66,6 +76,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         """Mirrors Streamlit Cloud keeping a pre-4.13.3 gd_library_coach in sys.modules."""
         stale = types.ModuleType("gd_library_coach")
         stale.OPEN_LIBRARY_COACH_RULE = "old"
+        stale.skip_unity_for_ac = lambda *a, **k: True
         sys.modules["gd_library_coach"] = stale
         self.addCleanup(lambda: sys.modules.pop("gd_library_coach", None))
         spec = importlib.util.spec_from_file_location(
@@ -80,6 +91,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         exec(compile(src[start:end] + "_gdc = _load_gd_library_coach()\n", "loader", "exec"), ns)
         loaded = ns["_gdc"]
         self.assertTrue(hasattr(loaded, "skip_unity_for_ac"))
+        self.assertTrue(hasattr(loaded, "is_fcr_e2_fan_fault_context"))
         self.assertTrue(
             loaded.skip_unity_for_ac("Air Conditioning", "Dometic B57915", "no cool")
         )

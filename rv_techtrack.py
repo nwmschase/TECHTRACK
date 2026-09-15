@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.4
+RV TechTrack v4.13.5
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -49,6 +49,7 @@ RV TechTrack v4.13.4
 - v4.13.2: Level Up Advantage / 807662 library search prefers Level-Up/OCTP/TI over Unity board SM
 - v4.13.3: Air Conditioning GD search skips Unity board SM unless the tech names OneControl/Unity/CAN
 - v4.13.4: Streamlit loads gd_library_coach from this file's folder (no stale/missing-module ImportError)
+- v4.13.5: Furrion FCR E2 / Fan Fault Current can reach freezer evaporator fan R&R (and board+fan)
 - Mobile-friendly
 """
 import streamlit as st
@@ -131,7 +132,10 @@ def _load_gd_library_coach():
     if root not in sys.path:
         sys.path.insert(0, root)
     cached = sys.modules.get("gd_library_coach")
-    if cached is not None and not hasattr(cached, "skip_unity_for_ac"):
+    if cached is not None and (
+        not hasattr(cached, "skip_unity_for_ac")
+        or not hasattr(cached, "is_fcr_e2_fan_fault_context")
+    ):
         sys.modules.pop("gd_library_coach", None)
         cached = None
     if cached is not None:
@@ -148,18 +152,23 @@ def _load_gd_library_coach():
 _gdc = _load_gd_library_coach()
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES
 AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
+FCR_E2_FAN_FAULT_PRODUCT_LOCK = _gdc.FCR_E2_FAN_FAULT_PRODUCT_LOCK
+FAN_FAULT_SEARCH_BOOST = _gdc.FAN_FAULT_SEARCH_BOOST
 FIGURE_PAGE_HONESTY = _gdc.FIGURE_PAGE_HONESTY
 FIGURE_QUERY_TERMS = _gdc.FIGURE_QUERY_TERMS
 FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
+FURRION_FCR_FAN_FAULT_PAGES = _gdc.FURRION_FCR_FAN_FAULT_PAGES
 HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
 LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
 LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
 OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
 ac_search_symptom = _gdc.ac_search_symptom
+claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
 facts_from_chat = _gdc.facts_from_chat
+fcr_e2_search_symptom = _gdc.fcr_e2_search_symptom
 figure_library_search_boost = _gdc.figure_library_search_boost
 figure_render_honesty_note = _gdc.figure_render_honesty_note
 format_ac_library_honesty = _gdc.format_ac_library_honesty
@@ -168,6 +177,7 @@ format_stated_facts_rule = _gdc.format_stated_facts_rule
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
 is_air_conditioning_context = _gdc.is_air_conditioning_context
+is_fcr_e2_fan_fault_context = _gdc.is_fcr_e2_fan_fault_context
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
@@ -179,10 +189,12 @@ pick_diagram_page_numbers = _gdc.pick_diagram_page_numbers
 pick_working_vision_model = _gdc.pick_working_vision_model
 powered_not_cooling = _gdc.powered_not_cooling
 rank_chunks_for_ac = _gdc.rank_chunks_for_ac
+rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
 rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
 rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
 reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
 score_ac_product = _gdc.score_ac_product
+score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
 score_figure_page = _gdc.score_figure_page
 score_level_up_product = _gdc.score_level_up_product
 skip_unity_for_ac = _gdc.skip_unity_for_ac
@@ -1556,6 +1568,7 @@ def search_manual_chunks(
     figure_seek: bool = False,
     level_up_context: bool = False,
     ac_context: bool = False,
+    fan_fault_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1565,6 +1578,8 @@ def search_manual_chunks(
     Level-Up titles first and do not let Unity Electrical SM win 807662 jobs.
     ac_context: rooftop Air Conditioning — prefer FACT/Brisk/ADB and do not let
     Unity Electrical SM win unless the tech named OneControl/Unity/CAN.
+    fan_fault_context is GD-chat only (Jobs leave it False): Furrion FCR E2 /
+    Fan Fault Current — prefer Fan Fault Diagnostics + Fan Replacement.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1658,7 +1673,9 @@ def search_manual_chunks(
         if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
             query_terms |= set(tokenize(topic))
     # Core path terms for reefer no-cool (skip on figure_seek — "voltage" crowns Quick Notes)
-    if not figure_seek:
+    # Fan-fault E2 must not inherit fuse/no-power + generic "board" terms that crown
+    # driver-board R&R over Fan Replacement.
+    if not figure_seek and not fan_fault_context:
         if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
             for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
                       "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
@@ -1666,6 +1683,12 @@ def search_manual_chunks(
         if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
             for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
                 query_terms.add(t)
+    if fan_fault_context and not figure_seek:
+        for t in (
+            "fan", "fault", "f+", "f-", "replacement", "inverter",
+            "evaporator", "airflow", "diagnostics", "current",
+        ):
+            query_terms.add(t)
     # Core path terms for RV furnace - sail switch is first-line, even if the tech
     # only typed "won't light" / "fan runs" / Dometic furnace.
     furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
@@ -1684,6 +1707,8 @@ def search_manual_chunks(
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         if ac_context:
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
+        if fan_fault_context:
+            sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1759,6 +1784,8 @@ def search_manual_chunks(
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         if ac_context:
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
+        if fan_fault_context:
+            sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1779,6 +1806,8 @@ def search_manual_chunks(
     if ac_context and not unity_context:
         out = drop_unity_chunks_for_ac(out)
         out = rank_chunks_for_ac(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if fan_fault_context:
+        out = rank_chunks_for_fcr_fan_fault(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
 
 
@@ -2135,6 +2164,46 @@ def supplement_level_up_figure_pages(chunks, model_text: str, user_msg: str):
     except Exception:
         extra = []
     extra = rank_chunks_for_figure_ask(extra, user_msg, limit=6) if extra else extra
+    for ch in extra:
+        key = (ch.document_id, int(ch.page or 0))
+        if key not in have:
+            chunks.append(ch)
+            have.add(key)
+    return chunks
+
+
+def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
+    """Pull known CCD-0008122 Fan Fault Diagnostics / Fan Replacement pages into GD excerpts."""
+    chunks = list(chunks or [])
+    if not is_fcr_e2_fan_fault_context("", model_text, user_msg):
+        return chunks
+    doc_id = None
+    for ch in chunks:
+        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
+            doc_id = getattr(ch, "document_id", None)
+            if doc_id:
+                break
+    if not doc_id:
+        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
+        if seed:
+            doc_id = seed.get("document_id")
+    if not doc_id:
+        return chunks
+    have = {
+        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
+        for ch in chunks
+    }
+    try:
+        extra = (
+            session.query(DocChunk)
+            .filter(
+                DocChunk.document_id == int(doc_id),
+                DocChunk.page.in_(list(FURRION_FCR_FAN_FAULT_PAGES)),
+            )
+            .all()
+        )
+    except Exception:
+        extra = []
     for ch in extra:
         key = (ch.document_id, int(ch.page or 0))
         if key not in have:
@@ -2771,7 +2840,8 @@ FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V 
 3) Confirm dial is ON (not OFF), about 4-5. Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt - say so from the manual). If still no cool: hard reset / lockout path from the SM (disconnect all power at the fridge, wait, restore, wait 5-10 minutes) when that path is in the excerpts.
 4) Fault flash codes on Furrion FCR08/FCR10 (CCD-0008122): NOT a built-in LED on the temperature dial / control panel. The SM requires a TEMPORARY 10 mA diagnostic LED clipped to the rear inverter/driver terminals D (LED negative) and + (LED positive, piggyback). Say that clearly, or SKIP flash codes and meter 12V into the inverter/board instead. NEVER say "watch the control panel LED blink" or that the driver board "just has an LED that flashes" without the clip-on procedure.
 5) Only then harness, inverter/PCB, compressor / fan paths from the manual.
-6) Cite 📖 Source lines from the Furrion/Norcold/Dometic excerpt actually used. Brand lock: do not use a furnace or rooftop AC manual for a fridge.
+6) Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current: follow Error Code — Fan Fault Diagnostics (F+/F−) and Fan Replacement in Repair Section 2. The SM fan on F+/F− is a replaceable freezer evaporator fan. Do not treat E2 as rear inverter/control board only. Board + fan when F+ voltage is present and the fault remains.
+7) Cite 📖 Source lines from the Furrion/Norcold/Dometic excerpt actually used. Brand lock: do not use a furnace or rooftop AC manual for a fridge.
 """
 
 DIAG_LED_HONESTY = """
@@ -3773,6 +3843,7 @@ def _ask_manual_context(
     category_id = cat_obj.id if cat_obj else None
     level_up = is_level_up_advantage_context(category_name, model_text, symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, symptom)
+    fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
     skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
     unity_on = (
         False
@@ -3792,12 +3863,18 @@ def _ask_manual_context(
         figure_seek=figure_seek,
         level_up_context=level_up,
         ac_context=ac_job,
+        fan_fault_context=fan_fault_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
         if level_up:
             chunks = supplement_level_up_figure_pages(chunks, model_text, figure_query or symptom)
         chunks = rank_chunks_for_figure_ask(chunks, figure_query or symptom, limit=limit)
+    elif fan_fault_job:
+        chunks = supplement_fcr_fan_fault_pages(chunks, model_text, figure_query or symptom)
+        chunks = rank_chunks_for_fcr_fan_fault(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
     honesty = ""
     if level_up:
         chunks = drop_unity_chunks_for_level_up(chunks)
@@ -3845,8 +3922,16 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     )
     search_symptom = f"{prior_user} {user_msg}".strip()
     search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
+    fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, search_symptom)
+    if (
+        not fan_fault_job
+        and is_fridge_context(category_name, model_text, search_symptom)
+        and (facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
+    ):
+        fan_fault_job = True
     # Jobs still uses fridge_search_symptom (no-power fuse boost). Coach skips that
-    # bias once the tech already reported power + not cooling.
+    # bias once the tech already reported power + not cooling, and on FCR E2 /
+    # Fan Fault Current (do not crown fuse/board-only pages over Fan Replacement).
     # Figure/terminal asks must NOT inherit "voltage" / Quick Notes bias.
     if figure_seek:
         fig_boost = figure_library_search_boost(user_msg)
@@ -3854,6 +3939,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             search_symptom = f"{search_symptom} refrigerator fridge inverter {fig_boost}".strip()
         else:
             search_symptom = f"{search_symptom} {fig_boost}".strip()
+    elif fan_fault_job:
+        search_symptom = fcr_e2_search_symptom(category_name, model_text, search_symptom)
+        if FAN_FAULT_SEARCH_BOOST not in search_symptom:
+            search_symptom = f"{search_symptom} {FAN_FAULT_SEARCH_BOOST}".strip()
     elif powered_not_cooling(facts) and is_fridge_context(category_name, model_text, search_symptom):
         search_symptom = f"{search_symptom} refrigerator fridge not cooling compressor inoperable"
     else:
@@ -3892,6 +3981,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
     if ac_job:
         system_prompt += "\n\n" + AC_PRODUCT_LOCK
+    if fan_fault_job:
+        system_prompt += "\n\n" + FCR_E2_FAN_FAULT_PRODUCT_LOCK
     if (
         is_unity_context(category_name, model_text, search_symptom, unity_gate)
         and not level_up_job
@@ -3958,6 +4049,26 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     except Exception as e:
         return f"Error contacting AI: {e}"
     reply = strip_path_complete_trap(strip_fake_markdown_images(reply))
+    if fan_fault_job and claims_fcr_e2_board_only_cage(reply):
+        retry_rule = (
+            "Your previous draft said CCD-0008122 has no separate freezer evaporator fan "
+            "or that E2 / Fan Fault Current is rear inverter/control board only. Rewrite: "
+            "the shop SM Fan Fault path includes Fan Replacement. Recommend freezer "
+            "evaporator fan R&R, and the rear inverter/control board as well when fan "
+            "volts/amps are present and the fault returned. Do not invent pages or LEDs."
+        )
+        retry_messages = list(messages)
+        retry_messages[0] = {
+            "role": "system",
+            "content": system_prompt + "\n\n" + retry_rule,
+        }
+        try:
+            retry = ai_chat(retry_messages, temperature=0.1, max_tokens=900)
+            retry = strip_path_complete_trap(strip_fake_markdown_images(retry))
+            if retry and not claims_fcr_e2_board_only_cage(retry):
+                reply = retry
+        except Exception:
+            pass
     reasked = reply_reasks_stated_facts(reply, facts)
     if reasked:
         retry_rule = (

@@ -70,7 +70,8 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Answer clarifying questions, figure/diagram/illustration requests, and mid-job pivots in THIS chat.
 - NEVER say "This path is complete" or tell the tech to start a new chat for another symptom branch.
 - NEVER re-ask a fact the tech already stated in this chat (including the latest message). Restate briefly what you heard, then give the next cited check or answer their question.
-- If they already said the cavity light is on and the fridge is not cooling, do NOT ask those again. Do NOT restart at the fuse / no-power path. Follow the cited service-manual section for a powered unit that is not cooling (e.g. inoperable compressor). Do not force a fan-replacement leaf unless THIS turn's excerpt actually says that.
+- If they already said the cavity light is on and the fridge is not cooling, do NOT ask those again. Do NOT restart at the fuse / no-power path. Follow the cited service-manual section for a powered unit that is not cooling (e.g. inoperable compressor). Do not force Fan Replacement on that not-cooling / compressor path unless THIS turn's excerpt or an already-stated Furrion FCR E2 / 2-flash / Fan Fault Current says so.
+- Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -207,6 +208,38 @@ AC_EMPTY_CLAIM_RE = re.compile(
 )
 AC_UNITY_ASK_RE = re.compile(
     r"\b(one\s*control|unity|x270|can[\s-]*bus|can[\s-]*multiplex|can[\s-]*network)\b",
+    re.I,
+)
+
+# Furrion FCR08/FCR10 fridge E2 / 2-flash / Fan Fault Current (CCD-0008122).
+# Pages already encoded from the shop SM in this repo (figure fixture + leftover tree).
+# Do not invent other page numbers.
+FURRION_FCR_FAN_FAULT_PAGES = (27, 33)
+FAN_FAULT_SEARCH_BOOST = (
+    "Error Code Fan Fault Diagnostics Fan Fault Current "
+    "F+ F- Fan Replacement inverter PCB and fan "
+    "freezer evaporator fan airflow"
+)
+FCR_E2_FAN_FAULT_PRODUCT_LOCK = """
+FURRION FCR E2 / FAN FAULT CURRENT (CCD-0008122) — 12V fridge only, not rooftop AC E2:
+- Furrion FCR08/FCR10 2-flash / E2 / Fan Fault Current is freezer-fan / airflow monitoring. It is NOT a Furrion FACT / Dometic rooftop AC freeze-sensor E2.
+- CCD-0008122 Error Code — Fan Fault Diagnostics measures voltage at the F+ and F− terminals on the inverter PCB, then Fan Replacement in Repair Section 2. That SM fan is a separate replaceable part. Shop name: freezer evaporator fan. The excerpt may only say "fan" — that is still the freezer evaporator fan on F+/F−.
+- NEVER say the shop Document Library or CCD-0008122 does not list a separate freezer evaporator fan. NEVER say E2 / Fan Fault Current repair is rear inverter/control board only forever.
+- Fan Fault Current (1 A peak) is a diagnostic spec, not a board-only sentence. Fan amps under that peak do not prove the fan is good or that only the board is bad.
+- SM diamond already in this shop's CCD-0008122 encoding: no nominal ~12 V at F+/F− → inverter/control board R&R. Nominal voltage at F+/F−, connections checked, error remains → replace the inverter PCB AND fan. When the tech already reported fan volts and/or fan amps and E2 / 2-flash returned after thaw or reset, recommend freezer evaporator fan R&R and the rear inverter/control board — not board only.
+- Cite 📖 Source from the Fan Fault Diagnostics / Fan Replacement excerpt actually used. Do not invent blink LEDs or page numbers.
+"""
+FCR_E2_NO_SEPARATE_FAN_RE = re.compile(
+    r"(does not list|doesn't list|does not include|doesn't include|"
+    r"does not (?:have|name|show)|doesn't (?:have|name|show)|"
+    r"no separate|not list a separate)"
+    r".{0,60}(freezer )?(evaporator )?fan",
+    re.I,
+)
+FCR_E2_BOARD_ONLY_RE = re.compile(
+    r"(e2|fan fault|2[\s-]*flash).{0,50}"
+    r"(repair |fix |r\s*&\s*r |= |is |means )?"
+    r"(the )?(rear )?(inverter/?|control |driver )?(board only|inverter only)",
     re.I,
 )
 
@@ -796,6 +829,159 @@ def claims_ac_library_empty(reply: str) -> bool:
     return False
 
 
+def _has_fcr_e2_fan_fault_marker(blob: str) -> bool:
+    """E2 / 2-flash / Fan Fault Current / freezer-fan readings — fridge wording only."""
+    t = _norm(blob)
+    if not t:
+        return False
+    if "fan fault" in t or "fan-fault" in t:
+        return True
+    if re.search(r"\be\s*2\b", t):
+        return True
+    if re.search(r"\b(?:2\s*[\s-]*flash|flash(?:es|ing)?\s*2|blink(?:ing)?\s*2)\b", t):
+        return True
+    if re.search(r"\bfreezer\s+(?:evaporator\s+)?fan\b", t):
+        return True
+    if re.search(r"\bfan\s+(?:amps?|amperage|current|volts?|voltage)\b", t):
+        return True
+    if F_PLUS_MINUS_RE.search(blob or "") and "fan" in t:
+        return True
+    return False
+
+
+def is_fcr_e2_fan_fault_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Furrion FCR08/FCR10 fridge E2 / 2-flash / Fan Fault Current.
+    Rooftop AC E2 (FACT / Brisk freeze sensor) must lose.
+    """
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    cat = _norm(category_name)
+    blob = _blob(category_name, model_text, symptom)
+    if not blob and "refriger" not in cat and "fridge" not in cat:
+        return False
+    fridge = (
+        "refriger" in cat
+        or "fridge" in cat
+        or any(k in blob for k in ("fridge", "reefer", "refriger", "fcr08", "fcr10", "fcr0", "fcr1"))
+        or "ccd-0008122" in blob
+        or "ccd0008122" in blob
+        or ("furrion" in blob and "fcr" in blob)
+    )
+    if not fridge:
+        return False
+    return _has_fcr_e2_fan_fault_marker(blob)
+
+
+def fcr_e2_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward Fan Fault Diagnostics + Fan Replacement."""
+    symptom = (symptom or "").strip()
+    if not is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {FAN_FAULT_SEARCH_BOOST}".strip()
+
+
+def score_fcr_fan_fault_chunk(page, query: str = "") -> int:
+    """
+    Higher = Fan Fault Diagnostics / Fan Replacement on CCD-0008122.
+    Spec-only Fan Fault Current and board-only R&R lose to fan pages.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    page_no = _page_number(page)
+    score = 0
+    if "fan fault" in t:
+        score += 16
+    if "fan fault diagnostics" in t or ("error code" in t and "fan" in t):
+        score += 10
+    if "fan replacement" in t:
+        score += 18
+    if any(
+        k in t
+        for k in (
+            "inverter pcb and fan",
+            "inverter pcb and the fan",
+            "board and fan",
+            "replace the inverter pcb and fan",
+        )
+    ):
+        score += 16
+    if F_PLUS_MINUS_RE.search(raw):
+        score += 8
+    if "evaporator fan" in t or ("freezer" in t and "fan" in t):
+        score += 8
+    if "airflow" in t and "fan" in t:
+        score += 4
+    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
+        score += 6
+    if page_no in FURRION_FCR_FAN_FAULT_PAGES:
+        score += 15
+    if "fan fault current" in t and "replacement" not in t and "diagnostics" not in t:
+        score -= 6
+    board_rr = any(
+        k in t
+        for k in (
+            "inverter pcb replacement",
+            "driver board",
+            "replace the inverter",
+            "compressor inverter pcb replacement",
+        )
+    )
+    if board_rr and "fan" not in t:
+        score -= 12
+    if any(k in t for k in ("rooftop", "air condition", "fact12", "brisk", "b57915")):
+        score -= 16
+    q = _norm(query)
+    if q and any(k in q for k in ("e2", "fan fault", "2 flash", "freezer")):
+        if "fan" in t:
+            score += 4
+    return score
+
+
+def rank_chunks_for_fcr_fan_fault(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer Fan Fault Diagnostics + Fan Replacement over board-only R&R."""
+    scored = [(score_fcr_fan_fault_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _sc, ch in scored:
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _match_not_negated(pattern, text: str) -> bool:
+    """True if pattern matches a claim that is not a 'never / do not' instruction."""
+    t = text or ""
+    for m in pattern.finditer(t):
+        line_start = t.rfind("\n", 0, m.start()) + 1
+        prefix = t[line_start:m.start()].lower()
+        if re.search(
+            r"(never say|never treat|do not|don't|do not treat|not treat|not say)",
+            prefix,
+        ):
+            continue
+        return True
+    return False
+
+
+def claims_fcr_e2_board_only_cage(reply: str) -> bool:
+    """True when a coach reply cages FCR E2 to board-only / 'no separate fan'."""
+    t = reply or ""
+    if not t:
+        return False
+    if _match_not_negated(FCR_E2_NO_SEPARATE_FAN_RE, t):
+        return True
+    if _match_not_negated(FCR_E2_BOARD_ONLY_RE, t):
+        return True
+    return False
+
+
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
     """Shop-floor line when a library figure page did not display."""
     if not render_failed:
@@ -1083,6 +1269,21 @@ def extract_stated_facts(text: str) -> dict:
     elif re.search(r"\b(dial\s+(?:is\s+)?off|set\s+to\s+off)\b", raw):
         facts["dial"] = "off"
 
+    if re.search(
+        r"\b(?:e\s*2|2\s*[\s-]*flash|flash(?:es|ing)?\s*2|blink(?:ing)?\s*2|"
+        r"fan[\s-]*fault)\b",
+        raw,
+    ):
+        facts["fan_fault"] = "e2"
+    if re.search(r"\bfan\s*(?:v|volts?|voltage)\b", raw) or (
+        F_PLUS_MINUS_RE.search(text or "") and re.search(r"\b\d+(?:\.\d+)?\s*v", raw)
+    ):
+        facts["fan_volts"] = "reported"
+    if re.search(r"\bfan\s*(?:amps?|amperage|current)\b", raw) or (
+        "fan" in raw and re.search(r"\b0?\.\d+\s*a(?:mps?)?\b", raw)
+    ):
+        facts["fan_amps"] = "reported"
+
     return facts
 
 
@@ -1108,6 +1309,9 @@ def format_stated_facts_rule(facts: dict) -> str:
         "compressor": {"not_running": "compressor is NOT running", "running": "compressor is running"},
         "dial": {"on_4_5": "temperature dial is ON at 4 or 5", "off": "temperature dial is OFF"},
         "pivot": {"compressor": "tech asked to go to the compressor / inoperable-compressor section"},
+        "fan_fault": {"e2": "Furrion FCR E2 / 2-flash / Fan Fault Current (freezer fan / airflow)"},
+        "fan_volts": {"reported": "fan / F+ F− voltage already reported"},
+        "fan_amps": {"reported": "fan amps / current already reported"},
     }
     lines = [
         "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
@@ -1119,18 +1323,39 @@ def format_stated_facts_rule(facts: dict) -> str:
         "Acknowledge briefly what you heard, then give the next cited service-manual check "
         "or answer their question. Do not parrot a prior gate."
     )
+    if facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"):
+        lines.append(
+            "E2 / Fan Fault Current is already in play. Do NOT claim CCD-0008122 has no "
+            "separate freezer evaporator fan. Do NOT cage the repair to rear inverter/control "
+            "board only. Fan Fault Diagnostics (F+/F−) and Fan Replacement are valid. "
+            "If fan volts/amps are present and the fault returned, recommend freezer "
+            "evaporator fan R&R and the rear inverter/control board when both are supported."
+        )
     if facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
-        lines.append(
-            "Power is present and the unit is not cooling. Do NOT ask whether the light is on "
-            "or whether it is cooling. Do NOT restart at fuse / no-power. Follow the shop "
-            "service-manual section for a powered unit that is not cooling (inoperable compressor "
-            "/ not-cooling diagnostics) from the excerpts — not a hardcoded fan-replacement leaf."
-        )
+        if facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"):
+            lines.append(
+                "Power is present. Stay on the cited Fan Fault / freezer-fan path. "
+                "Do NOT ask whether the light is on or restart at fuse / no-power."
+            )
+        else:
+            lines.append(
+                "Power is present and the unit is not cooling. Do NOT ask whether the light is on "
+                "or whether it is cooling. Do NOT restart at fuse / no-power. Follow the shop "
+                "service-manual section for a powered unit that is not cooling (inoperable compressor "
+                "/ not-cooling diagnostics) from the excerpts — not a hardcoded Fan Replacement leaf "
+                "unless this turn's excerpt says so."
+            )
     if facts.get("pivot") == "compressor" or facts.get("compressor") == "not_running":
-        lines.append(
-            "The tech wants compressor / inoperable-compressor guidance. Use the cited SM pages "
-            "for that section. Do not force Fan Replacement unless this turn's excerpt says so."
-        )
+        if facts.get("fan_fault"):
+            lines.append(
+                "Compressor questions do not cancel E2 / Fan Fault Current. Keep Fan Replacement "
+                "and F+/F− in play when those excerpts apply."
+            )
+        else:
+            lines.append(
+                "The tech wants compressor / inoperable-compressor guidance. Use the cited SM pages "
+                "for that section. Do not force Fan Replacement unless this turn's excerpt says so."
+            )
     return "\n".join(lines)
 
 
@@ -1138,15 +1363,20 @@ def coach_library_search_boost(facts: dict) -> str:
     """
     Extra library search terms from stated facts.
     Does not encode the wrong Furrion hard-tree path.
+    E2 / Fan Fault Current steers to Fan Fault Diagnostics + Fan Replacement,
+    not compressor-only or board-only R&R.
     """
     if not facts:
         return ""
     parts = []
-    if facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
+    fan_fault = bool(facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
+    if fan_fault:
+        parts.append(FAN_FAULT_SEARCH_BOOST)
+    elif facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
         parts.append("not cooling inoperable compressor section 2 powered")
-    if facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor":
+    if (facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor") and not fan_fault:
         parts.append("inoperable compressor compressor diagnostics")
-    if facts.get("dial") == "on_4_5":
+    if facts.get("dial") == "on_4_5" and not fan_fault:
         parts.append("thermostat dial not cooling")
     return " ".join(parts).strip()
 
