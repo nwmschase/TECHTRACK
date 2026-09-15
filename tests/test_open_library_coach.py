@@ -5,14 +5,17 @@ from pathlib import Path
 from gd_library_coach import (
     DEAD_GROQ_SCOUT_MODEL,
     DEFAULT_GROQ_VISION_MODELS,
+    FCR_E2_FAN_FAULT_PRODUCT_LOCK,
     HARD_TREE_EXCLUSIVE_CHAT,
     OPEN_LIBRARY_COACH_RULE,
+    claims_fcr_e2_board_only_cage,
     coach_library_search_boost,
     extract_stated_facts,
     facts_from_chat,
     format_stated_facts_rule,
     groq_vision_model_candidates,
     hard_tree_yields_to_coach,
+    is_fcr_e2_fan_fault_context,
     is_path_complete_trap,
     pick_working_vision_model,
     powered_not_cooling,
@@ -23,6 +26,11 @@ from gd_library_coach import (
     wants_library_figures,
     wants_library_page_shown,
     xai_vision_model_candidates,
+)
+
+WO_155578 = (
+    "Furrion FCR10DCGTA-BG-PWH freezes contents, intermittent blinking 2 / E2, "
+    "temp control intermittent"
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +54,8 @@ class TestProductPath(unittest.TestCase):
         self.assertIn("NEVER say", OPEN_LIBRARY_COACH_RULE)
         self.assertIn("start a new chat", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("NEVER re-ask", OPEN_LIBRARY_COACH_RULE)
+        self.assertIn("Fan Fault Current", OPEN_LIBRARY_COACH_RULE)
+        self.assertIn("freezer evaporator fan", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
         self.assertTrue(
             is_path_complete_trap(
@@ -106,6 +116,37 @@ class TestChaseBayFacts(unittest.TestCase):
         self.assertIn("inoperable compressor", boost)
         self.assertNotIn("fan replacement", boost.lower())
         self.assertNotIn("no power", boost.lower())
+
+
+class TestFcrE2FanFaultFacts(unittest.TestCase):
+    def test_extracts_e2_and_fan_readings(self):
+        facts = extract_stated_facts(
+            WO_155578 + ". fan V 14.28-10.37 V; fan amps 0.383-0.442 A; E2 returned after thaw"
+        )
+        self.assertEqual(facts.get("fan_fault"), "e2")
+        self.assertEqual(facts.get("fan_volts"), "reported")
+        self.assertEqual(facts.get("fan_amps"), "reported")
+
+    def test_e2_search_boost_is_fan_replacement_not_compressor_only(self):
+        facts = extract_stated_facts(WO_155578)
+        boost = coach_library_search_boost(facts)
+        low = boost.lower()
+        self.assertIn("fan fault", low)
+        self.assertIn("fan replacement", low)
+        self.assertNotIn("inoperable compressor", low)
+        self.assertNotIn("no power", low)
+
+    def test_stated_facts_rule_forbids_board_only_cage(self):
+        rule = format_stated_facts_rule(extract_stated_facts(WO_155578 + " fan V 12.4 V"))
+        low = rule.lower()
+        self.assertIn("never re-ask", low)
+        self.assertIn("freezer evaporator fan", low)
+        self.assertIn("board only", low)
+
+    def test_powered_not_cooling_without_e2_still_not_fan_path(self):
+        facts = extract_stated_facts(CHASE_BAY)
+        self.assertNotIn("fan_fault", facts)
+        self.assertFalse(is_fcr_e2_fan_fault_context("Refrigerators", "Furrion FCR10", CHASE_BAY))
 
 
 class TestFigureAsks(unittest.TestCase):
@@ -205,6 +246,8 @@ class TestProductSource(unittest.TestCase):
         self.assertNotIn("level_up_context=True", src.split("def run_guided_diagnostics")[1][:1200])
         self.assertIn("ac_context: bool = False", src)
         self.assertNotIn("ac_context=True", src.split("def run_guided_diagnostics")[1][:1200])
+        self.assertIn("fan_fault_context: bool = False", src)
+        self.assertNotIn("fan_fault_context=True", src.split("def run_guided_diagnostics")[1][:1600])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
@@ -217,6 +260,15 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("AC_PRODUCT_LOCK", src)
         self.assertIn("ac_search_symptom", src)
         self.assertIn("skip_unity_for_ac", src)
+        self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", src)
+        self.assertIn("fcr_e2_search_symptom", src)
+        self.assertIn("is_fcr_e2_fan_fault_context", src)
+        self.assertIn("rank_chunks_for_fcr_fan_fault", src)
+        self.assertIn("claims_fcr_e2_board_only_cage", src)
+        self.assertIn("ensure_fcr_e2_fan_rr", src)
+        self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
+        self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
+        self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
 
     def test_no_tree_dump_hint_in_coach_module(self):
         coach = (ROOT / "gd_library_coach.py").read_text()
