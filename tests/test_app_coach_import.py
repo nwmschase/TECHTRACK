@@ -47,6 +47,9 @@ class TestCoachModuleLoads(unittest.TestCase):
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
             "skip_unity_for_ac",
+            "skip_unity_for_water_heater",
+            "is_water_heater_context",
+            "WATER_HEATER_PRODUCT_LOCK",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -65,6 +68,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("AC_PRODUCT_LOCK", names)
         self.assertIn("is_fcr_e2_fan_fault_context", names)
         self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
+        self.assertIn("skip_unity_for_water_heater", names)
+        self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -93,8 +98,12 @@ class TestCoachModuleLoads(unittest.TestCase):
         loaded = ns["_gdc"]
         self.assertTrue(hasattr(loaded, "skip_unity_for_ac"))
         self.assertTrue(hasattr(loaded, "is_fcr_e2_fan_fault_context"))
+        self.assertTrue(hasattr(loaded, "skip_unity_for_water_heater"))
         self.assertTrue(
             loaded.skip_unity_for_ac("Air Conditioning", "Dometic B57915", "no cool")
+        )
+        self.assertTrue(
+            loaded.skip_unity_for_water_heater("", "Girard GSWH-2", "water heater stopped working E8")
         )
 
     def test_legacy_pr4_does_not_import_removed_hint(self):

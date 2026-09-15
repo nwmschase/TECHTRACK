@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.5
+RV TechTrack v4.13.6
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -50,6 +50,7 @@ RV TechTrack v4.13.5
 - v4.13.3: Air Conditioning GD search skips Unity board SM unless the tech names OneControl/Unity/CAN
 - v4.13.4: Streamlit loads gd_library_coach from this file's folder (no stale/missing-module ImportError)
 - v4.13.5: Furrion FCR E2 / Fan Fault Current can reach freezer evaporator fan R&R (and board+fan)
+- v4.13.6: Water Heaters / Girard GSWH-2 E8 GD search skips Unity and keeps E8 / CCD-0009390 chunks
 - Mobile-friendly
 """
 import streamlit as st
@@ -135,6 +136,7 @@ def _load_gd_library_coach():
     if cached is not None and (
         not hasattr(cached, "skip_unity_for_ac")
         or not hasattr(cached, "is_fcr_e2_fan_fault_context")
+        or not hasattr(cached, "skip_unity_for_water_heater")
     ):
         sys.modules.pop("gd_library_coach", None)
         cached = None
@@ -162,19 +164,24 @@ HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
 LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
 LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
 OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
+WATER_HEATER_HINT_TITLES = _gdc.WATER_HEATER_HINT_TITLES
+WATER_HEATER_PRODUCT_LOCK = _gdc.WATER_HEATER_PRODUCT_LOCK
 ac_search_symptom = _gdc.ac_search_symptom
+error_code_query_terms = _gdc.error_code_query_terms
 claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
 ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
 fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
+drop_unity_chunks_for_water_heater = _gdc.drop_unity_chunks_for_water_heater
 facts_from_chat = _gdc.facts_from_chat
 fcr_e2_search_symptom = _gdc.fcr_e2_search_symptom
 figure_library_search_boost = _gdc.figure_library_search_boost
 figure_render_honesty_note = _gdc.figure_render_honesty_note
 format_ac_library_honesty = _gdc.format_ac_library_honesty
 format_level_up_library_honesty = _gdc.format_level_up_library_honesty
+format_water_heater_library_honesty = _gdc.format_water_heater_library_honesty
 format_stated_facts_rule = _gdc.format_stated_facts_rule
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
@@ -184,6 +191,8 @@ is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
 is_unity_board_manual = _gdc.is_unity_board_manual
+is_water_heater_context = _gdc.is_water_heater_context
+is_water_heater_library_title = _gdc.is_water_heater_library_title
 level_up_search_symptom = _gdc.level_up_search_symptom
 page_has_figure_or_terminal_layout = _gdc.page_has_figure_or_terminal_layout
 page_is_text_only_notes = _gdc.page_is_text_only_notes
@@ -194,13 +203,17 @@ rank_chunks_for_ac = _gdc.rank_chunks_for_ac
 rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
 rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
 rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
+rank_chunks_for_water_heater = _gdc.rank_chunks_for_water_heater
 reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
 score_ac_product = _gdc.score_ac_product
 score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
 score_figure_page = _gdc.score_figure_page
 score_level_up_product = _gdc.score_level_up_product
+score_water_heater_product = _gdc.score_water_heater_product
 skip_unity_for_ac = _gdc.skip_unity_for_ac
 skip_unity_for_level_up = _gdc.skip_unity_for_level_up
+skip_unity_for_water_heater = _gdc.skip_unity_for_water_heater
+water_heater_search_symptom = _gdc.water_heater_search_symptom
 strip_path_complete_trap = _gdc.strip_path_complete_trap
 wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
 wants_library_figures = _gdc.wants_library_figures
@@ -1348,8 +1361,13 @@ def index_document_from_r2(doc: Document):
     return index_document_from_bytes(doc, data)
 
 # ---------------- MANUAL SEARCH + INDEX EXPANSION ----------------
+FAULT_CODE_TOKEN_RE = re.compile(r"^[a-z]\d{1,3}$")
+
+
 def tokenize(text: str):
-    return [t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2]
+    """Keep 3+ letter tokens and short fault codes (E8, E2) that library search already matches."""
+    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return [t for t in tokens if len(t) > 2 or FAULT_CODE_TOKEN_RE.match(t)]
 
 
 def model_search_terms(model_text: str) -> set:
@@ -1544,7 +1562,7 @@ SHOP_BRANDS = (
     "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
     "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
-    "intelli-power", "pd", "on-an", "onan", "generac", "winegard",
+    "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
 )
 
 
@@ -1571,6 +1589,7 @@ def search_manual_chunks(
     level_up_context: bool = False,
     ac_context: bool = False,
     fan_fault_context: bool = False,
+    water_heater_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1582,6 +1601,9 @@ def search_manual_chunks(
     Unity Electrical SM win unless the tech named OneControl/Unity/CAN.
     fan_fault_context is GD-chat only (Jobs leave it False): Furrion FCR E2 /
     Fan Fault Current — prefer Fan Fault Diagnostics + Fan Replacement.
+    water_heater_context: Girard GSWH-2 / Water Heaters — include that category
+    even when the UI left category as (any), and do not let Unity Electrical SM
+    win E8 / Petit Tube / air-pressure-switch jobs.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1598,7 +1620,11 @@ def search_manual_chunks(
             extra = session.query(Category).filter(Category.name == "Air Conditioning").first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
-        if unity_context and not level_up_context and not ac_context:
+        if water_heater_context:
+            extra = session.query(Category).filter(Category.name == "Water Heaters").first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if unity_context and not level_up_context and not ac_context and not water_heater_context:
             for extra_name in ("Electrical", "Reference", "ID & Reference"):
                 extra = session.query(Category).filter(Category.name == extra_name).first()
                 if extra and extra.id not in cat_ids:
@@ -1615,6 +1641,14 @@ def search_manual_chunks(
     elif ac_context:
         cat_ids = []
         for extra_name in ("Air Conditioning", "TSB / Recall"):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif water_heater_context:
+        cat_ids = []
+        for extra_name in ("Water Heaters", "TSB / Recall"):
             extra = session.query(Category).filter(Category.name == extra_name).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
@@ -1637,7 +1671,9 @@ def search_manual_chunks(
         if branded:
             all_chunks = branded
         else:
-            if ac_context:
+            if water_heater_context:
+                extra_names = ["Water Heaters"]
+            elif ac_context:
                 extra_names = ["Air Conditioning"]
             elif fridge_job or category_id:
                 extra_names = ["Refrigerators", "Electrical"]
@@ -1666,6 +1702,7 @@ def search_manual_chunks(
 
     query_terms = set(tokenize(f"{model_text} {symptom}"))
     query_terms |= model_search_terms(model_text or "")
+    query_terms |= error_code_query_terms(f"{model_text} {symptom}")
     if figure_seek:
         query_terms |= set(FIGURE_QUERY_TERMS)
         query_terms.add("f+")
@@ -1711,6 +1748,8 @@ def search_manual_chunks(
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
         if fan_fault_context:
             sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if water_heater_context:
+            sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1727,6 +1766,11 @@ def search_manual_chunks(
                 sc -= 8
         if ac_context:
             if any(x in title_kw for x in ("air condition", "rooftop", "fact", "brisk", "b57915", "adb")):
+                sc += 5
+            if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
+                sc -= 20
+        if water_heater_context:
+            if any(x in title_kw for x in ("water heat", "girard", "gswh", "ccd-0009390")):
                 sc += 5
             if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
                 sc -= 20
@@ -1788,6 +1832,8 @@ def search_manual_chunks(
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
         if fan_fault_context:
             sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if water_heater_context:
+            sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1808,6 +1854,9 @@ def search_manual_chunks(
     if ac_context and not unity_context:
         out = drop_unity_chunks_for_ac(out)
         out = rank_chunks_for_ac(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if water_heater_context and not unity_context:
+        out = drop_unity_chunks_for_water_heater(out)
+        out = rank_chunks_for_water_heater(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if fan_fault_context:
         out = rank_chunks_for_fcr_fan_fault(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
@@ -2143,6 +2192,40 @@ def resolve_ac_document_seed():
     return best
 
 
+def resolve_water_heater_document_seed():
+    """First catalog Girard GSWH-2 / Water Heaters PDF. Never a Unity board SM."""
+    for hint in WATER_HEATER_HINT_TITLES:
+        seed = resolve_document_by_title(hint)
+        if seed and not is_unity_board_manual(seed.get("title") or "") and is_water_heater_library_title(
+            seed.get("title") or ""
+        ):
+            return seed
+    try:
+        docs = session.query(Document).all()
+    except Exception:
+        return None
+    best = None
+    for d in docs:
+        title = d.title or ""
+        if not is_water_heater_library_title(title) or not d.file_path:
+            continue
+        row = {
+            "document_id": d.id,
+            "title": title,
+            "page": 1,
+            "file_path": d.file_path,
+            "file_type": d.file_type or "pdf",
+            "excerpt": "",
+            "indexed": bool(d.indexed),
+        }
+        t = title.lower()
+        if "gswh" in t or "ccd-0009390" in t or "girard" in t:
+            return row
+        if best is None:
+            best = row
+    return best
+
+
 def supplement_level_up_figure_pages(chunks, model_text: str, user_msg: str):
     """Pull figure/wiring chunks from Level-Up / OCTP / TI titles when the tech asks."""
     chunks = list(chunks or [])
@@ -2421,6 +2504,7 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
 
     level_up_ask = is_level_up_advantage_context("", "", f"{user_msg} {assistant_text} {manual_title}")
     ac_ask = is_air_conditioning_context("", "", f"{user_msg} {assistant_text} {manual_title}")
+    wh_ask = is_water_heater_context("", "", f"{user_msg} {assistant_text} {manual_title}")
     if level_up_ask and (not manual_title or is_unity_board_manual(manual_title)):
         seed_lu = resolve_level_up_document_seed()
         if seed_lu and seed_lu.get("file_path"):
@@ -2429,6 +2513,10 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
         seed_ac = resolve_ac_document_seed()
         if seed_ac and seed_ac.get("file_path"):
             manual_title = seed_ac.get("title") or manual_title
+    elif wh_ask and (not manual_title or is_unity_board_manual(manual_title)):
+        seed_wh = resolve_water_heater_document_seed()
+        if seed_wh and seed_wh.get("file_path"):
+            manual_title = seed_wh.get("title") or manual_title
 
     if not manual_title:
         # No cited shop manual — refuse to guess across books
@@ -2441,6 +2529,10 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
             manual_title = seed.get("title") or manual_title
     if (not seed or not seed.get("file_path")) and ac_ask:
         seed = resolve_ac_document_seed()
+        if seed:
+            manual_title = seed.get("title") or manual_title
+    if (not seed or not seed.get("file_path")) and wh_ask:
+        seed = resolve_water_heater_document_seed()
         if seed:
             manual_title = seed.get("title") or manual_title
     if not seed or not seed.get("file_path"):
@@ -2748,10 +2840,12 @@ CRITICAL RULES:
             UNITY_OEM_ORDER
             if is_unity_context(category_name, model_text, symptom, unity_gate)
             and not skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
+            and not skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
             else ""
         )
         fridge_rule = FRIDGE_OEM_ORDER if is_fridge_context(category_name, model_text, symptom) else ""
         ac_rule = AC_PRODUCT_LOCK if is_air_conditioning_context(category_name, model_text, symptom) else ""
+        wh_rule = WATER_HEATER_PRODUCT_LOCK if is_water_heater_context(category_name, model_text, symptom) else ""
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
@@ -2759,6 +2853,7 @@ SYMPTOM: {symptom}
 {unity_rule}
 {fridge_rule}
 {ac_rule}
+{wh_rule}
 {DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
@@ -2858,6 +2953,8 @@ DIAGNOSTIC LED HONESTY (ALL brands / models):
 def is_unity_context(category_name: str = "", model_text: str = "", symptom: str = "", unity_gate: str = "") -> bool:
     """True when this coach has or may have a Lippert OneControl / Unity multiplex board."""
     if skip_unity_for_ac(category_name, model_text, symptom, unity_gate):
+        return False
+    if skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate):
         return False
     gate = (unity_gate or "").strip()
     if gate == "No":
@@ -3803,7 +3900,7 @@ Rules:
 15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists.
+18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
@@ -3845,14 +3942,17 @@ def _ask_manual_context(
     category_id = cat_obj.id if cat_obj else None
     level_up = is_level_up_advantage_context(category_name, model_text, symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, symptom)
+    water_heater_job = is_water_heater_context(category_name, model_text, symptom)
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
     skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
+    skip_wh_unity = skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
     unity_on = (
         False
         if (
             level_up
             or skip_unity_for_level_up(category_name, model_text, symptom)
             or skip_ac_unity
+            or skip_wh_unity
         )
         else is_unity_context(category_name, model_text, symptom, unity_gate)
     )
@@ -3866,6 +3966,7 @@ def _ask_manual_context(
         level_up_context=level_up,
         ac_context=ac_job,
         fan_fault_context=fan_fault_job,
+        water_heater_context=water_heater_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
@@ -3894,6 +3995,15 @@ def _ask_manual_context(
             )
         honesty = format_ac_library_honesty(list_library_catalog_docs(), chunks)
         if skip_ac_unity and not chunks:
+            return [], honesty
+    elif water_heater_job:
+        if skip_wh_unity:
+            chunks = drop_unity_chunks_for_water_heater(chunks)
+            chunks = rank_chunks_for_water_heater(
+                chunks, f"{model_text} {figure_query or symptom}", limit=limit
+            )
+        honesty = format_water_heater_library_honesty(list_library_catalog_docs(), chunks)
+        if skip_wh_unity and not chunks:
             return [], honesty
     if not chunks:
         return [], ""
@@ -3951,8 +4061,11 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
     search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
     search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
-    if not skip_unity_for_level_up(category_name, model_text, search_symptom) and not skip_unity_for_ac(
-        category_name, model_text, search_symptom, unity_gate
+    search_symptom = water_heater_search_symptom(category_name, model_text, search_symptom)
+    if (
+        not skip_unity_for_level_up(category_name, model_text, search_symptom)
+        and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
+        and not skip_unity_for_water_heater(category_name, model_text, search_symptom, unity_gate)
     ):
         search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
     boost = coach_library_search_boost(facts)
@@ -3979,16 +4092,20 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
     level_up_job = is_level_up_advantage_context(category_name, model_text, search_symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, search_symptom)
+    water_heater_job = is_water_heater_context(category_name, model_text, search_symptom)
     if level_up_job:
         system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
     if ac_job:
         system_prompt += "\n\n" + AC_PRODUCT_LOCK
+    if water_heater_job:
+        system_prompt += "\n\n" + WATER_HEATER_PRODUCT_LOCK
     if fan_fault_job:
         system_prompt += "\n\n" + FCR_E2_FAN_FAULT_PRODUCT_LOCK
     if (
         is_unity_context(category_name, model_text, search_symptom, unity_gate)
         and not level_up_job
         and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
+        and not skip_unity_for_water_heater(category_name, model_text, search_symptom, unity_gate)
     ):
         system_prompt += "\n\n" + UNITY_OEM_ORDER
     if is_fridge_context(category_name, model_text, search_symptom):
@@ -4445,7 +4562,11 @@ with tab_jobs:
                             nj_sym = furnace_search_symptom(nj_cat, nj_model, nj_concern)
                             nj_sym = fridge_search_symptom(nj_cat, nj_model, nj_sym)
                             nj_sym = ac_search_symptom(nj_cat, nj_model, nj_sym)
-                            if not skip_unity_for_ac(nj_cat, nj_model, nj_concern, nj_unity):
+                            nj_sym = water_heater_search_symptom(nj_cat, nj_model, nj_sym)
+                            if (
+                                not skip_unity_for_ac(nj_cat, nj_model, nj_concern, nj_unity)
+                                and not skip_unity_for_water_heater(nj_cat, nj_model, nj_concern, nj_unity)
+                            ):
                                 nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
                             hits = search_manual_chunks(
                                 cat_obj.id if cat_obj else None,
@@ -4454,6 +4575,7 @@ with tab_jobs:
                                 limit=16,
                                 unity_context=is_unity_context(nj_cat, nj_model, nj_concern, nj_unity),
                                 ac_context=is_air_conditioning_context(nj_cat, nj_model, nj_concern),
+                                water_heater_context=is_water_heater_context(nj_cat, nj_model, nj_concern),
                             )
                             plan, sources, sources_json = run_guided_diagnostics(
                                 nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
@@ -4646,8 +4768,14 @@ with tab_jobs:
                         rb_sym = furnace_search_symptom(job.category_name, job.model_text or "", job.concern)
                         rb_sym = fridge_search_symptom(job.category_name, job.model_text or "", rb_sym)
                         rb_sym = ac_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        if not skip_unity_for_ac(
-                            job.category_name, job.model_text or "", job.concern, rebuild_unity
+                        rb_sym = water_heater_search_symptom(job.category_name, job.model_text or "", rb_sym)
+                        if (
+                            not skip_unity_for_ac(
+                                job.category_name, job.model_text or "", job.concern, rebuild_unity
+                            )
+                            and not skip_unity_for_water_heater(
+                                job.category_name, job.model_text or "", job.concern, rebuild_unity
+                            )
                         ):
                             rb_sym = unity_search_symptom(
                                 job.category_name, job.model_text or "", rb_sym, rebuild_unity
@@ -4661,6 +4789,9 @@ with tab_jobs:
                                 job.category_name, job.model_text or "", job.concern, rebuild_unity
                             ),
                             ac_context=is_air_conditioning_context(
+                                job.category_name, job.model_text or "", job.concern
+                            ),
+                            water_heater_context=is_water_heater_context(
                                 job.category_name, job.model_text or "", job.concern
                             ),
                         )
@@ -4906,6 +5037,13 @@ with tab_ask:
                         seed_ac = resolve_ac_document_seed()
                         if seed_ac:
                             fail_title = seed_ac.get("title") or fail_title
+                    if is_water_heater_context(category_name, ask_model or "", msg) or (
+                        is_unity_board_manual(fail_title)
+                        and is_water_heater_context(category_name, ask_model or "", msg)
+                    ):
+                        seed_wh = resolve_water_heater_document_seed()
+                        if seed_wh:
+                            fail_title = seed_wh.get("title") or fail_title
                     st.session_state["ask_auto_show_fail_note"] = figure_render_honesty_note(
                         fail_title, True
                     )

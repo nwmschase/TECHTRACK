@@ -248,6 +248,8 @@ class TestProductSource(unittest.TestCase):
         self.assertNotIn("ac_context=True", src.split("def run_guided_diagnostics")[1][:1200])
         self.assertIn("fan_fault_context: bool = False", src)
         self.assertNotIn("fan_fault_context=True", src.split("def run_guided_diagnostics")[1][:1600])
+        self.assertIn("water_heater_context: bool = False", src)
+        self.assertNotIn("water_heater_context=True", src.split("def run_guided_diagnostics")[1][:1800])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
@@ -266,6 +268,10 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("rank_chunks_for_fcr_fan_fault", src)
         self.assertIn("claims_fcr_e2_board_only_cage", src)
         self.assertIn("ensure_fcr_e2_fan_rr", src)
+        self.assertIn("WATER_HEATER_PRODUCT_LOCK", src)
+        self.assertIn("water_heater_search_symptom", src)
+        self.assertIn("skip_unity_for_water_heater", src)
+        self.assertIn("is_water_heater_context", src)
         self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
         self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
         self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
