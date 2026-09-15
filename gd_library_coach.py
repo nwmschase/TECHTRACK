@@ -211,6 +211,52 @@ AC_UNITY_ASK_RE = re.compile(
     re.I,
 )
 
+# Girard GSWH-2 tankless water heater (CCD-0009390). Not fridge FCR E2, not rooftop AC E2.
+# Live library: Water Heaters / Girard GSWH-2 Troubleshooting Manual, 109 chunks.
+# Do not invent blink LEDs or OEM page numbers.
+WATER_HEATER_MODELS = ("gswh-2", "gswh2", "gswh 2")
+WATER_HEATER_DOC_MARKERS = (
+    "gswh",
+    "ccd-0009390",
+    "ccd0009390",
+    "girard",
+    "petit tube",
+    "tankless water",
+    "water heater",
+    "water-heater",
+)
+WATER_HEATER_SEARCH_BOOST = (
+    "Girard GSWH-2 GSWH2 CCD-0009390 E8 Petit Tube "
+    "air pressure switch tankless water heater troubleshooting"
+)
+WATER_HEATER_FIGURE_SEARCH_BOOST = (
+    "Girard GSWH-2 CCD-0009390 Petit Tube air pressure switch "
+    "water heater wiring diagram Fig. figure"
+)
+WATER_HEATER_HINT_TITLES = (
+    "Girard GSWH-2 Troubleshooting Manual",
+    "CCD-0009390",
+    "GSWH-2",
+)
+WATER_HEATER_PRODUCT_LOCK = """
+WATER HEATER / GIRARD GSWH-2 PRODUCT LOCK:
+- Girard GSWH-2, tankless water heater, E8, Petit Tube, and air-pressure-switch complaints are Water Heaters jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs. They are NOT Furrion FCR fridge E2 / Fan Fault Current. They are NOT rooftop AC E2/E3.
+- Search and cite Girard GSWH-2 / CCD-0009390 / Water Heaters troubleshooting manuals FIRST.
+- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the water heater procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls.
+- Do NOT say the shop library does not include a Girard GSWH-2 / E8 / water heater procedure if any Girard / GSWH-2 / CCD-0009390 / Water Heaters title exists in the catalog or this turn's excerpts.
+- If the best Water Heaters hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
+- Use ONLY excerpted OEM steps. Never invent blink LEDs, fault-light flash counts, or page numbers.
+"""
+WATER_HEATER_EMPTY_CLAIM_RE = re.compile(
+    r"(library|manuals?|document library).{0,80}"
+    r"(does not include|doesn't include|does not have|doesn't have|do not have|lacks?|without).{0,60}"
+    r"(girard|gswh|water\s*heater|ccd-0009390)|"
+    r"(does not include|doesn't include|does not have|doesn't have|do not have|lacks?|missing|no matching).{0,50}"
+    r"(girard|gswh-?2|water\s*heater|e8).{0,40}(manual|procedure|diagnos|guide)",
+    re.I,
+)
+ERROR_CODE_QUERY_RE = re.compile(r"\b([a-z])[\s-]*([0-9]{1,3})\b", re.I)
+
 # Furrion FCR08/FCR10 fridge E2 / 2-flash / Fan Fault Current (CCD-0008122).
 # Pages already encoded from the shop SM in this repo (figure fixture + leftover tree).
 # Do not invent other page numbers.
@@ -318,6 +364,8 @@ def figure_library_search_boost(user_msg: str) -> str:
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
         if is_air_conditioning_context("", "", user_msg):
             extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
+        if is_water_heater_context("", "", user_msg):
+            extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
         return extra
     if wants_library_figures(user_msg):
         extra = "Fig. figure illustration diagram drawing"
@@ -325,6 +373,8 @@ def figure_library_search_boost(user_msg: str) -> str:
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
         if is_air_conditioning_context("", "", user_msg):
             extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
+        if is_water_heater_context("", "", user_msg):
+            extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
         return extra
     return ""
 
@@ -842,6 +892,267 @@ def claims_ac_library_empty(reply: str) -> bool:
     return False
 
 
+def error_code_query_terms(text: str) -> set:
+    """Keep E8 / E2 / E3 style codes that tokenize() used to drop (len 2)."""
+    return {f"{m.group(1).lower()}{m.group(2)}" for m in ERROR_CODE_QUERY_RE.finditer(text or "")}
+
+
+def _fridge_blob_not_water_heater(blob: str) -> bool:
+    """True when this looks like a refrigerator job, not a water heater."""
+    if any(k in blob for k in ("fridge", "reefer", "refriger", "fcr0", "fcr1", "norcold")):
+        if "water heater" in blob or "gswh" in blob or "girard" in blob:
+            return False
+        return True
+    return False
+
+
+def is_water_heater_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Water Heaters / Girard GSWH-2 / E8 / Petit Tube / air pressure switch.
+    Fridge FCR E2 and rooftop AC E2/E3 must lose.
+    """
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    cat = _norm(category_name)
+    if "water heat" in cat:
+        return True
+    blob = _blob(category_name, model_text, symptom)
+    if not blob or _fridge_blob_not_water_heater(blob):
+        return False
+    if any(m in blob for m in WATER_HEATER_MODELS) or "gswh" in blob:
+        return True
+    if "ccd-0009390" in blob or "ccd0009390" in blob:
+        return True
+    if "petit tube" in blob or "petit-tube" in blob:
+        return True
+    if "water heater" in blob or "water-heater" in blob or "tankless water" in blob:
+        return True
+    if "girard" in blob and any(
+        k in blob for k in ("water", "heater", "tankless", "gswh", "e8", "petit", "gsw")
+    ):
+        return True
+    if re.search(r"\be\s*8\b", blob) and any(
+        k in blob for k in ("water", "heater", "girard", "gswh", "petit", "air pressure", "tankless")
+    ):
+        return True
+    return False
+
+
+def tech_asks_unity_for_water_heater(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    unity_gate: str = "",
+) -> bool:
+    """Exception: tech clearly named OneControl / Unity / CAN for the water heater."""
+    if (unity_gate or "").strip() == "Yes":
+        return True
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    return bool(AC_UNITY_ASK_RE.search(blob))
+
+
+def skip_unity_for_water_heater(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    unity_gate: str = "",
+) -> bool:
+    """Coach: do not inject Unity Electrical search for a water heater / GSWH-2 job."""
+    if not is_water_heater_context(category_name, model_text, symptom):
+        return False
+    if tech_asks_unity_for_water_heater(category_name, model_text, symptom, unity_gate):
+        return False
+    return True
+
+
+def is_water_heater_library_title(title: str) -> bool:
+    """Catalog titles that are Girard / GSWH / Water Heaters — not Unity, not FCR fridge."""
+    t = _norm(title)
+    if not t or is_unity_board_manual(t):
+        return False
+    if "ccd-0008122" in t or "ccd0008122" in t:
+        return False
+    if any(m in t for m in WATER_HEATER_MODELS) or "gswh" in t:
+        return True
+    if "ccd-0009390" in t or "ccd0009390" in t:
+        return True
+    if "girard" in t and any(k in t for k in ("water", "heater", "tankless", "gswh", "troubleshoot")):
+        return True
+    if "water heater" in t or "water-heater" in t or "tankless water" in t:
+        return True
+    return False
+
+
+def water_heater_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward Girard GSWH-2 / E8 / Petit Tube. Never add Unity terms."""
+    symptom = (symptom or "").strip()
+    if not is_water_heater_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {WATER_HEATER_SEARCH_BOOST}".strip()
+
+
+def score_water_heater_product(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = Girard GSWH-2 / CCD-0009390 / Water Heaters / E8 / Petit Tube / air pressure.
+    Unity M-Series and Furrion FCR fridge E2 pages must lose.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    score = 0
+    if is_water_heater_library_title(title) or is_water_heater_library_title(t):
+        score += 22
+    if any(m in t or m in q for m in WATER_HEATER_MODELS) or "gswh" in t or "gswh" in q:
+        score += 14
+    if "ccd-0009390" in t or "ccd0009390" in t or "ccd-0009390" in q:
+        score += 14
+    if "girard" in t or "girard" in q:
+        score += 10
+    if "water heat" in cat:
+        score += 8
+    if "water heater" in t or "tankless" in t:
+        score += 8
+    if re.search(r"\be\s*8\b", t) or re.search(r"\be\s*8\b", q):
+        score += 12
+    if "petit tube" in t or "petit-tube" in t or "petit tube" in q:
+        score += 12
+    if "air pressure" in t or "pressure switch" in t:
+        score += 10
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 36
+    if "awning" in t and "slide" in t:
+        score -= 18
+    if "ccd-0008122" in t or "ccd0008122" in t or is_furrion_ccd_0008122(title):
+        score -= 20
+    if any(k in t for k in ("refriger", "fridge", "furnace", "air condition")) and "water heater" not in t:
+        score -= 8
+    return score
+
+
+def rank_chunks_for_water_heater(chunks, query: str, limit: int = 8) -> list:
+    """Prefer Girard GSWH-2 / Water Heaters pages; drop Unity board SM when a WH hit exists."""
+    scored = [(score_water_heater_product(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    has_wh = any(
+        sc > 0 and is_water_heater_library_title(_page_title(ch) or _page_text_blob(ch))
+        for sc, ch in scored
+    )
+    out = []
+    for sc, ch in scored:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            if has_wh or sc < 0:
+                continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    if out:
+        return out
+    return [
+        ch for sc, ch in scored[:limit]
+        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
+    ]
+
+
+def drop_unity_chunks_for_water_heater(chunks) -> list:
+    """Never keep Unity awning/slide reversing excerpts as the water heater manual."""
+    kept = []
+    for ch in chunks or []:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            continue
+        kept.append(ch)
+    return kept
+
+
+def format_water_heater_library_honesty(catalog_docs, chunks=None) -> str:
+    """
+    When Girard / GSWH-2 / Water Heaters titles exist on the catalog or in this
+    turn's hits, never claim the library lacks a GSWH-2 / E8 procedure.
+    """
+    rows = list(catalog_docs or [])
+    wh_docs = []
+    for d in rows:
+        if isinstance(d, dict):
+            title = str(d.get("title") or "")
+            indexed = bool(d.get("indexed"))
+            chunks_n = d.get("chunk_count")
+        else:
+            title = str(getattr(d, "title", "") or "")
+            indexed = bool(getattr(d, "indexed", False))
+            chunks_n = getattr(d, "chunk_count", None)
+        if not is_water_heater_library_title(title):
+            continue
+        wh_docs.append({"title": title, "indexed": indexed, "chunk_count": chunks_n})
+    retrieved = [
+        _page_title(ch) for ch in (chunks or [])
+        if is_water_heater_library_title(_page_title(ch))
+    ]
+    if not wh_docs and not retrieved:
+        return ""
+    titles = [r["title"] for r in wh_docs] or retrieved
+    unread = [
+        r for r in wh_docs
+        if (not r["indexed"]) or (r["chunk_count"] == 0)
+    ]
+    lines = [
+        "WATER HEATER LIBRARY HONESTY:",
+        "The shop Document Library DOES include Girard GSWH-2 / Water Heaters material. "
+        "Never claim those Girard / GSWH-2 / CCD-0009390 titles are absent from the catalog. "
+        "Do not invent Unity as the water heater manual. Do not invent blink LEDs.",
+        "Girard / GSWH-2 / Water Heaters titles on the catalog or this turn's excerpts:",
+    ]
+    for t in titles:
+        lines.append(f"- {t}")
+    if unread and not retrieved:
+        lines.append(
+            "Best Water Heaters hit(s) are unindexed or have zero searchable chunks. "
+            "Name the title(s) and ask a manager to re-index that PDF in Document Library. "
+            "Do not substitute Lippert OneControl Unity M-Series awning/slide reversing."
+        )
+        for r in unread:
+            note = "not indexed" if not r["indexed"] else "zero chunks"
+            lines.append(f"- Reindex needed: {r['title']} ({note})")
+    elif not retrieved:
+        lines.append(
+            "Water Heaters titles exist. If this turn's excerpts missed them, say so and stay on those titles — "
+            "do not invent Unity as the water heater manual."
+        )
+    return "\n".join(lines)
+
+
+def claims_water_heater_library_empty(reply: str) -> bool:
+    """True when a coach reply falsely says the library has no GSWH-2 / water heater procedure."""
+    t = reply or ""
+    if not t:
+        return False
+    if WATER_HEATER_EMPTY_CLAIM_RE.search(t):
+        return True
+    low = _norm(t)
+    if "unity" in low and any(
+        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
+    ):
+        if any(k in low for k in ("water heater", "girard", "gswh", "e8")):
+            return True
+    return False
+
+
 def _has_fcr_e2_fan_fault_marker(blob: str) -> bool:
     """E2 / 2-flash / Fan Fault Current / freezer-fan readings — fridge wording only."""
     t = _norm(blob)
@@ -1082,19 +1393,30 @@ def figure_render_honesty_note(manual_title: str = "", render_failed: bool = Fal
             "Download that PDF or ask a manager to re-index it — "
             "do not treat this as a missing Air Conditioning procedure, and do not use the Unity board SM."
         )
+    if title and is_water_heater_library_title(title):
+        return (
+            f"The figure is in the shop Document Library PDF ({title}). "
+            "TechTrack could not render that page image this turn. "
+            "Download that PDF or ask a manager to re-index it — "
+            "do not treat this as a missing Girard GSWH-2 / water heater procedure, "
+            "and do not use the Unity board SM."
+        )
     if title and is_unity_board_manual(title):
         return (
             "That Unity / OneControl awning-slide board manual is the wrong book for "
-            "rooftop Air Conditioning (Furrion FACT / Dometic Brisk) and for "
-            "Level Up Advantage / 807662. The AC figure is in a Furrion/Dometic rooftop "
-            "AC PDF; the leveling figure is in a Level-Up / OCTP / TI-005 PDF. "
+            "rooftop Air Conditioning (Furrion FACT / Dometic Brisk), for "
+            "Level Up Advantage / 807662, and for Girard GSWH-2 water heaters. "
+            "The AC figure is in a Furrion/Dometic rooftop AC PDF; the leveling figure "
+            "is in a Level-Up / OCTP / TI-005 PDF; the water heater figure is in a "
+            "Girard GSWH-2 / CCD-0009390 PDF. "
             "If the page image did not render, download that OEM PDF or ask for a reindex."
         )
     return (
         "You asked for a figure/page. TechTrack could not load a matching shop-library PDF page "
         "(missing file path, download failed, unindexed PDF, or page render unavailable). "
-        "If a Level-Up / TI-005 / QR-092 or Furrion/Dometic rooftop AC title is on the "
-        "Document Library catalog, the figure is in that PDF — say so and ask for reindex. "
+        "If a Level-Up / TI-005 / QR-092, Furrion/Dometic rooftop AC, or Girard GSWH-2 "
+        "water heater title is on the Document Library catalog, the figure is in that PDF — "
+        "say so and ask for reindex. "
         "Do not invent a Unity substitute."
     )
 
