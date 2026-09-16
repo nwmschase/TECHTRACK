@@ -50,6 +50,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "skip_unity_for_water_heater",
             "is_water_heater_context",
             "WATER_HEATER_PRODUCT_LOCK",
+            "is_cooktop_pan_on_flameout_context",
+            "COOKTOP_PRODUCT_LOCK",
+            "ensure_cooktop_tip_pan_check",
+            "is_stabilizer_override_pin_context",
+            "PSX1_PRODUCT_LOCK",
+            "ensure_stabilizer_assembly_rr",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -70,6 +76,10 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
         self.assertIn("skip_unity_for_water_heater", names)
         self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
+        self.assertIn("COOKTOP_PRODUCT_LOCK", names)
+        self.assertIn("is_cooktop_pan_on_flameout_context", names)
+        self.assertIn("PSX1_PRODUCT_LOCK", names)
+        self.assertIn("is_stabilizer_override_pin_context", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -99,6 +109,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "skip_unity_for_ac"))
         self.assertTrue(hasattr(loaded, "is_fcr_e2_fan_fault_context"))
         self.assertTrue(hasattr(loaded, "skip_unity_for_water_heater"))
+        self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
+        self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
         self.assertTrue(
             loaded.skip_unity_for_ac("Air Conditioning", "Dometic B57915", "no cool")
         )

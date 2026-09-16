@@ -72,6 +72,8 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - NEVER re-ask a fact the tech already stated in this chat (including the latest message). Restate briefly what you heard, then give the next cited check or answer their question.
 - If they already said the cavity light is on and the fridge is not cooling, do NOT ask those again. Do NOT restart at the fuse / no-power path. Follow the cited service-manual section for a powered unit that is not cooling (e.g. inoperable compressor). Do not force Fan Replacement on that not-cooling / compressor path unless THIS turn's excerpt or an already-stated Furrion FCR E2 / 2-flash / Fan Fault Current says so.
 - Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
+- Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
+- Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -299,6 +301,85 @@ FCR_E2_FAN_RR_SHOP_LINE = (
 BOARD_RR_RE = re.compile(
     r"(replace|r\s*&\s*r|r and r).{0,40}"
     r"(inverter|control board|driver board|rear (?:control )?board|\bpcb\b)",
+    re.I,
+)
+
+# Suburban Range / Cooktops — pan-on flame-out (thermocouple tip geometry).
+# Do not invent OEM voltages or page numbers. Title bias only.
+COOKTOP_HINT_TITLES = (
+    "Suburban Range/Cooktops SM",
+    "Suburban Range Cooktops",
+)
+COOKTOP_SEARCH_BOOST = (
+    "Suburban Range Cooktops cooktop burner thermocouple flame sensor "
+    "tip position cookware pan-on flame stays on tip"
+)
+COOKTOP_PRODUCT_LOCK = """
+SUBURBAN / GAS COOKTOP PAN-ON FLAME-OUT PRODUCT LOCK:
+- Burner lights, then goes out when a pan/cookware is placed (either burner) is a cooktop flame-sensor / thermocouple-tip geometry complaint. It is NOT a furnace sail-switch / draft / igniter-first path.
+- Search and cite Suburban Range/Cooktops SM FIRST.
+- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load.
+- Do this BEFORE condemning or R&R of the thermocouple, safety valve, orifice, regulator, or igniter.
+- Only if tip geometry is correct WITH the pan on and the flame still drops out, proceed to parts / readings from the Suburban Range/Cooktops SM excerpt actually used.
+- Never invent OEM voltages or page numbers. Cite 📖 Source from an excerpt actually used.
+"""
+COOKTOP_TIP_PAN_SHOP_LINE = (
+    "Before condemning the thermocouple, safety valve, orifice, regulator, or igniter: "
+    "verify the thermocouple / flame-sensor tip is positioned in the burner flame "
+    "WITH COOKWARE ON. Reposition the tip so the flame stays on the tip under load. "
+    "Only if tip geometry is correct and the flame still drops out, proceed to parts "
+    "R&R from the Suburban Range/Cooktops SM.\n"
+    "📖 Source: Suburban Range/Cooktops SM"
+)
+COOKTOP_PARTS_RR_RE = re.compile(
+    r"(?<!before )(?<!not )(?<!don't )(?<!do not )"
+    r"(replace|r\s*&\s*r|r and r|condemn).{0,50}"
+    r"(thermocouple|flame[\s-]*sensor|safety valve|orifice|regulator|igniter)",
+    re.I,
+)
+COOKTOP_SKIP_AHEAD_RE = re.compile(
+    r"\b(igniter|draft|regulator|orifice|safety valve)\b",
+    re.I,
+)
+
+# Lippert PSX1 front stabilizer — broken/seized override roll pin.
+# CCD-0007345 p.7 is override USAGE, not the end fix for a destroyed pin.
+PSX1_HINT_TITLES = (
+    "Lippert PSX1 CCD-0007345",
+    "rear stabilizer owner",
+)
+PSX1_SEARCH_BOOST = (
+    "Lippert PSX1 CCD-0007345 front stabilizer jack "
+    "manual crank override roll pin complete assembly"
+)
+PSX1_PRODUCT_LOCK = """
+LIPPERT PSX1 / FRONT STABILIZER MANUAL OVERRIDE PRODUCT LOCK:
+- Power extend/retract works but manual crank/override will not engage, with a broken or seized roll pin / override coupler that is not field-serviceable, is a complete front stabilizer jack assembly R&R. It is NOT a coupler-only repair.
+- Search Lippert PSX1 CCD-0007345 and the rear stabilizer owner manual for identification / override usage. Those pages tell how to USE the override — they are not the end fix for a destroyed pin.
+- Do NOT recommend replacing the coupler only. Do NOT treat CCD-0007345 p.7 override usage as the repair.
+- Steer to replace the COMPLETE front stabilizer jack assembly: reconnect mount + electrical; retest power AND manual.
+- Never invent OEM voltages or extra page numbers.
+"""
+PSX1_ASSEMBLY_RR_SHOP_LINE = (
+    "When the manual-override roll pin / coupler is broken or seized and not "
+    "serviceable in the field, replace the complete front stabilizer jack assembly "
+    "(reconnect mount and electrical; retest power extend/retract and manual crank). "
+    "Do not replace the coupler only. Lippert PSX1 CCD-0007345 override-usage pages "
+    "(including p.7) are for using the override, not the end fix for a destroyed pin.\n"
+    "📖 Source: Lippert PSX1 CCD-0007345"
+)
+COUPLER_ONLY_RE = re.compile(
+    r"(replace|r\s*&\s*r|r and r)\s+(the\s+)?(override\s+)?coupler.{0,20}(only|alone)|"
+    r"\bcoupler[\s-]*only\b",
+    re.I,
+)
+COMPLETE_JACK_ASSEMBLY_RE = re.compile(
+    r"(replace|r\s*&\s*r|r and r).{0,50}"
+    r"(complete|entire|whole).{0,20}"
+    r"(front )?(stabilizer )?(jack )?assembly|"
+    r"(complete|entire|whole).{0,20}"
+    r"(front )?(stabilizer )?jack assembly.{0,30}"
+    r"(replace|r\s*&\s*r|r and r)",
     re.I,
 )
 
@@ -1374,6 +1455,445 @@ def ensure_fcr_e2_fan_rr(reply: str, facts: dict = None) -> str:
     return f"{cleaned.rstrip()}\n\n{FCR_E2_FAN_RR_SHOP_LINE}".strip()
 
 
+def is_cooktop_library_title(title: str) -> bool:
+    """Catalog titles that are Suburban Range / Cooktops — not furnace-only, not Unity."""
+    t = _norm(title)
+    if not t or is_unity_board_manual(t):
+        return False
+    if "furnace" in t and "cooktop" not in t and "range" not in t:
+        return False
+    if "suburban" in t and any(k in t for k in ("range", "cooktop", "cook top")):
+        return True
+    if "range" in t and "cooktop" in t:
+        return True
+    if "range/cooktop" in t or "range & cooktop" in t or "ranges & cooktops" in t:
+        return True
+    return False
+
+
+def is_stabilizer_library_title(title: str) -> bool:
+    """PSX1 / stabilizer jack / rear stabilizer owner — not Level-Up hydraulic, not Unity."""
+    t = _norm(title)
+    if not t or is_unity_board_manual(t) or is_level_up_library_title(t):
+        return False
+    if "psx1" in t or "ccd-0007345" in t or "ccd0007345" in t:
+        return True
+    if "stabilizer" in t and any(k in t for k in ("jack", "owner", "psx", "lippert")):
+        return True
+    if "rear stabilizer" in t:
+        return True
+    return False
+
+
+def _is_cooktop_range_blob(blob: str) -> bool:
+    """True when the blob names a gas range / cooktop, not a Suburban furnace."""
+    t = _norm(blob)
+    if not t:
+        return False
+    if any(k in t for k in ("cooktop", "cook top", "cook-top", "range/cooktop", "range & cooktop")):
+        return True
+    if re.search(r"\branges?\s*&\s*cooktops?\b", t):
+        return True
+    if re.search(r"\bsuburban\s+range\b", t):
+        return True
+    if re.search(r"\b(?:gas|lp|propane)\s+range\b", t):
+        return True
+    return False
+
+
+def is_cooktop_range_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Suburban / gas range or cooktop job. Furnace-only Suburban must lose."""
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    cat = _norm(category_name)
+    blob = _blob(category_name, model_text, symptom)
+    if "cooktop" in cat or "cook top" in cat or re.search(r"\brange", cat):
+        if "furnace" not in cat or _is_cooktop_range_blob(blob):
+            return True
+    if _is_cooktop_range_blob(blob):
+        return True
+    return False
+
+
+def _has_pan_on_flameout_marker(blob: str) -> bool:
+    """Pan/cookware + flame drops out, or thermocouple path with pan-on shutoff."""
+    t = _norm(blob)
+    if not t:
+        return False
+    pan = bool(re.search(r"\b(pan|pans|cookware|pot|pots|skillet)\b", t) or "pan-on" in t or "pan on" in t)
+    flameout = bool(
+        re.search(
+            r"\b(goes?\s+out|go\s+out|went\s+out|flame[\s-]*out|shuts?\s+off|"
+            r"shut\s+off|drops?\s+out|drop\s+out|flame\s+dies|goes?\s+off)\b",
+            t,
+        )
+        or re.search(r"\blights?\b.{0,40}\b(then\s+)?(goes?|went|drops?)\s+out\b", t)
+    )
+    sensor = bool(re.search(r"\b(thermocouple|flame[\s-]*sensor)\b", t))
+    if pan and flameout:
+        return True
+    if pan and sensor:
+        return True
+    if flameout and sensor:
+        return True
+    return False
+
+
+def is_cooktop_pan_on_flameout_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Suburban / gas cooktop: burner lights, then goes out when a pan is placed.
+    Furnace sail-switch / fridge / AC / water heater must lose.
+    """
+    if not is_cooktop_range_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    return _has_pan_on_flameout_marker(blob)
+
+
+def cooktop_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward Suburban Range/Cooktops + tip/pan."""
+    symptom = (symptom or "").strip()
+    if not is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {COOKTOP_SEARCH_BOOST}".strip()
+
+
+def score_cooktop_pan_on_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = Suburban Range/Cooktops + thermocouple tip / pan-on geometry.
+    Furnace sail-switch / draft / igniter-first pages lose.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    score = 0
+    if is_cooktop_library_title(title) or is_cooktop_library_title(t):
+        score += 22
+    if "suburban" in t and any(k in t for k in ("range", "cooktop")):
+        score += 12
+    if "cooktop" in t or "cook top" in t:
+        score += 10
+    if re.search(r"\brange", cat) or "cooktop" in cat:
+        score += 8
+    if "thermocouple" in t or "flame sensor" in t or "flame-sensor" in t:
+        score += 10
+    if any(k in t for k in ("tip", "position", "geometry")):
+        score += 12
+    if any(k in t for k in ("pan", "cookware", "pan-on", "pan on")):
+        score += 12
+    if q and any(k in q for k in ("pan", "cookware", "thermocouple", "tip")):
+        if "thermocouple" in t or "tip" in t:
+            score += 4
+    if "sail switch" in t or ("furnace" in t and "cooktop" not in t and "range" not in t):
+        score -= 16
+    if "draft" in t and "cooktop" not in t:
+        score -= 8
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 20
+    if any(k in t for k in ("refriger", "fridge", "air condition", "gswh")) and "cooktop" not in t:
+        score -= 10
+    return score
+
+
+def rank_chunks_for_cooktop_pan_on(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer Suburban Range/Cooktops tip/pan pages over furnace / igniter-first."""
+    scored = [(score_cooktop_pan_on_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _sc, ch in scored:
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def reply_names_cooktop_tip_pan_check(reply: str) -> bool:
+    """True when the reply already tells the tech to check tip position with a pan on."""
+    t = _norm(reply)
+    if not t:
+        return False
+    tip = "tip" in t or "geometry" in t
+    position = any(k in t for k in ("position", "geometry", "in the flame", "in the burner"))
+    pan = any(k in t for k in ("pan", "cookware", "pot", "skillet"))
+    return bool(tip and position and pan)
+
+
+def reply_jumps_to_cooktop_parts_rr(reply: str) -> bool:
+    """True when the reply condemns / R&Rs cooktop parts without a tip+pan check."""
+    return bool(COOKTOP_PARTS_RR_RE.search(reply or ""))
+
+
+def cooktop_reply_needs_tip_pan(reply: str) -> bool:
+    """True when a pan-on flame-out turn would ship without tip/position/pan first."""
+    if not (reply or "").strip():
+        return False
+    if reply_names_cooktop_tip_pan_check(reply) and reply_has_tip_pan_before_parts(reply):
+        return False
+    if reply_jumps_to_cooktop_parts_rr(reply):
+        return True
+    if COOKTOP_SKIP_AHEAD_RE.search(reply or "") and not reply_names_cooktop_tip_pan_check(reply):
+        return True
+    if not reply_names_cooktop_tip_pan_check(reply):
+        return True
+    return False
+
+
+def reply_has_tip_pan_before_parts(reply: str) -> bool:
+    """Success check: tip/position/pan appear before parts R&R (or no parts R&R yet)."""
+    text = reply or ""
+    if not reply_names_cooktop_tip_pan_check(text):
+        return False
+    t = _norm(text)
+    tip_at = t.find("tip")
+    if tip_at < 0:
+        tip_at = t.find("geometry")
+    pan_at = -1
+    for key in ("cookware", "pan", "pot", "skillet"):
+        idx = t.find(key)
+        if idx >= 0 and (pan_at < 0 or idx < pan_at):
+            pan_at = idx
+    first_check = min(i for i in (tip_at, pan_at) if i >= 0)
+    parts_at = None
+    for m in COOKTOP_PARTS_RR_RE.finditer(text):
+        line_start = text.rfind("\n", 0, m.start()) + 1
+        prefix = text[line_start:m.start()].lower()
+        if re.search(r"(before|never|do not|don't|not condemn|not replace)", prefix):
+            continue
+        parts_at = m.start()
+        break
+    if parts_at is None:
+        return True
+    return first_check < parts_at
+
+
+def ensure_cooktop_tip_pan_check(reply: str) -> str:
+    """
+    Deterministic shop line so pan-on flame-out cannot skip tip geometry.
+    Prepends so tip/position/pan appear before any parts R&R.
+    """
+    if not reply or not cooktop_reply_needs_tip_pan(reply):
+        return reply
+    if reply_has_tip_pan_before_parts(reply):
+        return reply
+    if "with cookware on" in _norm(reply) and "tip" in _norm(reply):
+        if reply_has_tip_pan_before_parts(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}"):
+            return f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}".strip()
+    return f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}".strip()
+
+
+def _is_stabilizer_blob(blob: str) -> bool:
+    t = _norm(blob)
+    if not t:
+        return False
+    if "psx1" in t or "ccd-0007345" in t or "ccd0007345" in t:
+        return True
+    if "stabilizer" in t:
+        return True
+    return False
+
+
+def _has_override_pin_marker(blob: str) -> bool:
+    t = _norm(blob)
+    if not t:
+        return False
+    override = bool(
+        re.search(
+            r"\b(manual\s+crank|manual\s+override|hand\s+crank|override|"
+            r"roll[\s-]*pin|override[\s-]*pin|coupler|crank)\b",
+            t,
+        )
+    )
+    broken = bool(
+        re.search(
+            r"\b(broken|seized|seize|sheared|destroyed|snapped|won't engage|"
+            r"will not engage|wont engage|not engage|not serviceable)\b",
+            t,
+        )
+    )
+    power_ok = bool(re.search(r"\b(power|electric|extend|retract)\b", t))
+    manual_fail = bool(
+        re.search(r"\b(manual|crank|override)\b", t)
+        and re.search(r"\b(won't|will not|wont|not engage|broken|seized)\b", t)
+    )
+    if override and broken:
+        return True
+    if power_ok and manual_fail:
+        return True
+    if ("roll pin" in t or "override pin" in t or "coupler" in t) and broken:
+        return True
+    return False
+
+
+def is_stabilizer_override_pin_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Front stabilizer / PSX1: power works, manual override will not engage
+    (broken/seized roll pin). Level-Up hydraulic 807662 must lose.
+    """
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if not _is_stabilizer_blob(blob):
+        return False
+    if any(p in blob for p in LEVEL_UP_PARTS) or "octp" in blob or re.search(r"\blevel[\s-]*up\b", blob):
+        return False
+    return _has_override_pin_marker(blob)
+
+
+def stabilizer_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward PSX1 / complete jack assembly."""
+    symptom = (symptom or "").strip()
+    if not is_stabilizer_override_pin_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {PSX1_SEARCH_BOOST}".strip()
+
+
+def score_stabilizer_override_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = PSX1 / stabilizer jack / complete assembly.
+    Coupler-only and override-usage-only pages lose to assembly R&R.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    score = 0
+    if is_stabilizer_library_title(title) or is_stabilizer_library_title(t):
+        score += 22
+    if "psx1" in t or "ccd-0007345" in t or "ccd0007345" in t:
+        score += 14
+    if "stabilizer" in t and "jack" in t:
+        score += 12
+    if "leveling" in cat and "stabilizer" in t:
+        score += 6
+    if "complete" in t and "assembly" in t:
+        score += 16
+    if "roll pin" in t or "override" in t:
+        score += 6
+    if q and any(k in q for k in ("psx1", "stabilizer", "roll pin", "override")):
+        if "stabilizer" in t or "psx1" in t:
+            score += 4
+    if re.search(r"\bcoupler\b", t) and "assembly" not in t:
+        score -= 10
+    if "override usage" in t or ("how to use" in t and "override" in t):
+        score -= 8
+    if is_level_up_library_title(title) or is_level_up_library_title(t):
+        score -= 20
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 20
+    return score
+
+
+def rank_chunks_for_stabilizer_override(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer PSX1 / complete jack assembly over coupler-only or override-usage-only."""
+    scored = [(score_stabilizer_override_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _sc, ch in scored:
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def claims_coupler_only_rr(reply: str) -> bool:
+    """True when a coach reply treats coupler-only as the end fix."""
+    t = reply or ""
+    if not t:
+        return False
+    for m in COUPLER_ONLY_RE.finditer(t):
+        line_start = t.rfind("\n", 0, m.start()) + 1
+        prefix = t[line_start:m.start()].lower()
+        if re.search(r"(never|do not|don't|not a |not the |not treat)", prefix):
+            continue
+        return True
+    return False
+
+
+def reply_recommends_complete_jack_assembly(reply: str) -> bool:
+    t = reply or ""
+    if COMPLETE_JACK_ASSEMBLY_RE.search(t):
+        return True
+    n = _norm(t)
+    if "complete" in n and "assembly" in n and any(k in n for k in ("replace", "r&r", "r & r")):
+        if "jack" in n or "stabilizer" in n:
+            return True
+    return False
+
+
+def stabilizer_reply_needs_assembly_rr(reply: str, facts: dict = None) -> bool:
+    """True when a broken/seized override-pin turn would ship coupler-only or no assembly."""
+    if not (reply or "").strip():
+        return False
+    if claims_coupler_only_rr(reply):
+        return True
+    facts = facts or {}
+    pin_known = facts.get("override_pin") == "broken_or_seized"
+    n = _norm(reply)
+    pin_in_reply = bool(
+        re.search(r"\b(roll[\s-]*pin|override[\s-]*pin|coupler)\b", n)
+        and re.search(r"\b(broken|seized|seize|sheared|destroyed|not serviceable)\b", n)
+    )
+    if (pin_known or pin_in_reply) and not reply_recommends_complete_jack_assembly(reply):
+        return True
+    return False
+
+
+def strip_coupler_only_claims(reply: str) -> str:
+    """Drop sentences that recommend coupler-only R&R."""
+    if not reply or not claims_coupler_only_rr(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
+        if part and not claims_coupler_only_rr(part):
+            kept.append(part)
+    return " ".join(kept).strip() or reply
+
+
+def ensure_stabilizer_assembly_rr(reply: str, facts: dict = None) -> str:
+    """
+    Deterministic shop line so a destroyed override pin cannot ship as coupler-only.
+    """
+    if not reply or not stabilizer_reply_needs_assembly_rr(reply, facts):
+        return reply
+    cleaned = strip_coupler_only_claims(reply)
+    if reply_recommends_complete_jack_assembly(cleaned) and not claims_coupler_only_rr(cleaned):
+        return cleaned
+    if "complete front stabilizer jack assembly" in _norm(cleaned):
+        return cleaned
+    return f"{cleaned.rstrip()}\n\n{PSX1_ASSEMBLY_RR_SHOP_LINE}".strip()
+
+
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
     """Shop-floor line when a library figure page did not display."""
     if not render_failed:
@@ -1687,6 +2207,17 @@ def extract_stated_facts(text: str) -> dict:
     ):
         facts["fan_amps"] = "reported"
 
+    if re.search(r"\b(pan|cookware|pot|skillet)\b", raw) and re.search(
+        r"\b(goes?\s+out|went\s+out|flame[\s-]*out|shuts?\s+off|drops?\s+out)\b",
+        raw,
+    ):
+        facts["pan_on_flameout"] = "reported"
+    if re.search(
+        r"\b(roll[\s-]*pin|override[\s-]*pin|override coupler|coupler)\b",
+        raw,
+    ) and re.search(r"\b(broken|seized|seize|sheared|destroyed|not serviceable)\b", raw):
+        facts["override_pin"] = "broken_or_seized"
+
     return facts
 
 
@@ -1715,6 +2246,12 @@ def format_stated_facts_rule(facts: dict) -> str:
         "fan_fault": {"e2": "Furrion FCR E2 / 2-flash / Fan Fault Current (freezer fan / airflow)"},
         "fan_volts": {"reported": "fan / F+ F− voltage already reported"},
         "fan_amps": {"reported": "fan amps / current already reported"},
+        "pan_on_flameout": {
+            "reported": "cooktop burner lights then goes out with pan / cookware on"
+        },
+        "override_pin": {
+            "broken_or_seized": "stabilizer override roll pin / coupler is broken or seized"
+        },
     }
     lines = [
         "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
@@ -1759,6 +2296,20 @@ def format_stated_facts_rule(facts: dict) -> str:
                 "The tech wants compressor / inoperable-compressor guidance. Use the cited SM pages "
                 "for that section. Do not force Fan Replacement unless this turn's excerpt says so."
             )
+    if facts.get("pan_on_flameout"):
+        lines.append(
+            "Pan-on cooktop flame-out is already in play. FIRST verify the thermocouple / "
+            "flame-sensor tip is positioned in the burner flame WITH COOKWARE ON. Do NOT "
+            "jump to thermocouple, safety valve, orifice, regulator, or igniter R&R until "
+            "tip geometry is correct and the flame still drops out."
+        )
+    if facts.get("override_pin") == "broken_or_seized":
+        lines.append(
+            "Override roll pin / coupler is broken or seized and not field-serviceable. "
+            "Recommend complete front stabilizer jack assembly R&R (mount + electrical; "
+            "retest power and manual). Do NOT recommend coupler-only. CCD-0007345 override "
+            "usage is not the end fix."
+        )
     return "\n".join(lines)
 
 
@@ -1781,6 +2332,10 @@ def coach_library_search_boost(facts: dict) -> str:
         parts.append("inoperable compressor compressor diagnostics")
     if facts.get("dial") == "on_4_5" and not fan_fault:
         parts.append("thermostat dial not cooling")
+    if facts.get("pan_on_flameout"):
+        parts.append(COOKTOP_SEARCH_BOOST)
+    if facts.get("override_pin") == "broken_or_seized":
+        parts.append(PSX1_SEARCH_BOOST)
     return " ".join(parts).strip()
 
 
