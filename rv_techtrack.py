@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.6
+RV TechTrack v4.13.7
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -51,6 +51,7 @@ RV TechTrack v4.13.6
 - v4.13.4: Streamlit loads gd_library_coach from this file's folder (no stale/missing-module ImportError)
 - v4.13.5: Furrion FCR E2 / Fan Fault Current can reach freezer evaporator fan R&R (and board+fan)
 - v4.13.6: Water Heaters / Girard GSWH-2 E8 GD search skips Unity and keeps E8 / CCD-0009390 chunks
+- v4.13.7: GD category picker includes Water Heaters and Range & Cooktops (seed upserts missing names)
 - Mobile-friendly
 """
 import streamlit as st
@@ -166,6 +167,13 @@ LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
 OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
 WATER_HEATER_HINT_TITLES = _gdc.WATER_HEATER_HINT_TITLES
 WATER_HEATER_PRODUCT_LOCK = _gdc.WATER_HEATER_PRODUCT_LOCK
+AIR_CONDITIONING_CATEGORY = _gdc.AIR_CONDITIONING_CATEGORY
+DEFAULT_LIBRARY_CATEGORIES = _gdc.DEFAULT_LIBRARY_CATEGORIES
+RANGE_COOKTOPS_CATEGORY = _gdc.RANGE_COOKTOPS_CATEGORY
+REFRIGERATORS_CATEGORY = _gdc.REFRIGERATORS_CATEGORY
+WATER_HEATERS_CATEGORY = _gdc.WATER_HEATERS_CATEGORY
+gd_category_select_options = _gdc.gd_category_select_options
+library_category_picker_names = _gdc.library_category_picker_names
 ac_search_symptom = _gdc.ac_search_symptom
 error_code_query_terms = _gdc.error_code_query_terms
 claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
@@ -1617,11 +1625,11 @@ def search_manual_chunks(
                 if extra and extra.id not in cat_ids:
                     cat_ids.append(extra.id)
         if ac_context:
-            extra = session.query(Category).filter(Category.name == "Air Conditioning").first()
+            extra = session.query(Category).filter(Category.name == AIR_CONDITIONING_CATEGORY).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
         if water_heater_context:
-            extra = session.query(Category).filter(Category.name == "Water Heaters").first()
+            extra = session.query(Category).filter(Category.name == WATER_HEATERS_CATEGORY).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
         if unity_context and not level_up_context and not ac_context and not water_heater_context:
@@ -1640,7 +1648,7 @@ def search_manual_chunks(
             q = q.filter(DocChunk.category_id.in_(cat_ids))
     elif ac_context:
         cat_ids = []
-        for extra_name in ("Air Conditioning", "TSB / Recall"):
+        for extra_name in (AIR_CONDITIONING_CATEGORY, "TSB / Recall"):
             extra = session.query(Category).filter(Category.name == extra_name).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
@@ -1648,7 +1656,7 @@ def search_manual_chunks(
             q = q.filter(DocChunk.category_id.in_(cat_ids))
     elif water_heater_context:
         cat_ids = []
-        for extra_name in ("Water Heaters", "TSB / Recall"):
+        for extra_name in (WATER_HEATERS_CATEGORY, "TSB / Recall"):
             extra = session.query(Category).filter(Category.name == extra_name).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
@@ -1672,11 +1680,11 @@ def search_manual_chunks(
             all_chunks = branded
         else:
             if water_heater_context:
-                extra_names = ["Water Heaters"]
+                extra_names = [WATER_HEATERS_CATEGORY]
             elif ac_context:
-                extra_names = ["Air Conditioning"]
+                extra_names = [AIR_CONDITIONING_CATEGORY]
             elif fridge_job or category_id:
-                extra_names = ["Refrigerators", "Electrical"]
+                extra_names = [REFRIGERATORS_CATEGORY, "Electrical"]
             else:
                 extra_names = []
             have_ids = set()
@@ -4307,9 +4315,13 @@ def seed_data():
         session.add(User(username="alex", password_hash=hash_password("tech123"), full_name="Alex Tech", role="Technician"))
         session.add(User(username="jordan", password_hash=hash_password("tech123"), full_name="Jordan Tech", role="Technician"))
         session.commit()
-    if session.query(Category).count() == 0:
-        for name in ["Refrigerators", "Furnaces", "Water Heaters", "Air Conditioning", "Slideouts", "Leveling", "Electrical", "ID & Reference", "Warranty Forms", "Solar"]:
+    existing = {c.name for c in session.query(Category).all()}
+    added = False
+    for name in DEFAULT_LIBRARY_CATEGORIES:
+        if name not in existing:
             session.add(Category(name=name))
+            added = True
+    if added:
         session.commit()
 
 
@@ -4511,7 +4523,7 @@ with tab_jobs:
 
         st.markdown("#### New diagnostic job")
         cats = session.query(Category).order_by(Category.name).all()
-        cat_names = [c.name for c in cats]
+        cat_names = library_category_picker_names([c.name for c in cats])
         if not cat_names:
             st.warning("No categories yet. Ask a manager to create categories and upload manuals.")
         else:
@@ -4894,7 +4906,7 @@ with tab_ask:
                 st.rerun()
 
     cats = session.query(Category).order_by(Category.name).all()
-    cat_names = ["(any)"] + [c.name for c in cats]
+    cat_names = gd_category_select_options([c.name for c in cats])
     c1, c2 = st.columns(2)
     with c1:
         ask_cat = st.selectbox("Category (optional)", cat_names, key="ask_cat")
@@ -5123,13 +5135,14 @@ with tab_ask:
 with tab_lib:
     st.subheader("📚 Document Library (Manuals & Troubleshooting)")
     cats = session.query(Category).order_by(Category.name).all()
-    if not cats:
+    cat_names = library_category_picker_names([c.name for c in cats])
+    if not cat_names:
         st.warning("No categories yet. Ask a manager to create some.")
     else:
-        cat_name = st.selectbox("Select Category", [c.name for c in cats], key="lib_cat")
-        cat = next(c for c in cats if c.name == cat_name)
+        cat_name = st.selectbox("Select Category", cat_names, key="lib_cat")
+        cat = next((c for c in cats if c.name == cat_name), None) or session.query(Category).filter_by(name=cat_name).first()
         q = st.text_input("Search documents by title or keyword", key="lib_search")
-        docs = session.query(Document).filter_by(category_id=cat.id).order_by(Document.title).all()
+        docs = session.query(Document).filter_by(category_id=cat.id).order_by(Document.title).all() if cat else []
         if q.strip():
             terms = q.lower().split()
             docs = [
