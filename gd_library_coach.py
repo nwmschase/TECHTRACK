@@ -16,6 +16,42 @@ import re
 # Product path: hard tree is never exclusive GD chat.
 HARD_TREE_EXCLUSIVE_CHAT = False
 
+# Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
+# Match live library labels — do not invent OEM manuals here.
+WATER_HEATERS_CATEGORY = "Water Heaters"
+RANGE_COOKTOPS_CATEGORY = "Range & Cooktops"
+AIR_CONDITIONING_CATEGORY = "Air Conditioning"
+REFRIGERATORS_CATEGORY = "Refrigerators"
+
+DEFAULT_LIBRARY_CATEGORIES = (
+    REFRIGERATORS_CATEGORY,
+    "Furnaces",
+    WATER_HEATERS_CATEGORY,
+    RANGE_COOKTOPS_CATEGORY,
+    AIR_CONDITIONING_CATEGORY,
+    "Slideouts",
+    "Leveling",
+    "Electrical",
+    "ID & Reference",
+    "Warranty Forms",
+    "Solar",
+)
+
+
+def library_category_picker_names(existing_names=None):
+    """Category names for Document Library and Jobs selects (no (any))."""
+    names = set(DEFAULT_LIBRARY_CATEGORIES)
+    for raw in existing_names or []:
+        name = (raw or "").strip()
+        if name:
+            names.add(name)
+    return sorted(names)
+
+
+def gd_category_select_options(existing_names=None):
+    """Same list the Guided Diagnostics category selectbox uses."""
+    return ["(any)"] + library_category_picker_names(existing_names)
+
 # Groq retired llama-4-scout on 2026-07-17 (404 / no access).
 # Current Groq vision: https://console.groq.com/docs/vision
 DEAD_GROQ_SCOUT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"

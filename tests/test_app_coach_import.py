@@ -50,6 +50,10 @@ class TestCoachModuleLoads(unittest.TestCase):
             "skip_unity_for_water_heater",
             "is_water_heater_context",
             "WATER_HEATER_PRODUCT_LOCK",
+            "DEFAULT_LIBRARY_CATEGORIES",
+            "WATER_HEATERS_CATEGORY",
+            "RANGE_COOKTOPS_CATEGORY",
+            "gd_category_select_options",
             "is_cooktop_pan_on_flameout_context",
             "COOKTOP_PRODUCT_LOCK",
             "ensure_cooktop_tip_pan_check",
@@ -76,6 +80,10 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
         self.assertIn("skip_unity_for_water_heater", names)
         self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
+        self.assertIn("DEFAULT_LIBRARY_CATEGORIES", names)
+        self.assertIn("WATER_HEATERS_CATEGORY", names)
+        self.assertIn("RANGE_COOKTOPS_CATEGORY", names)
+        self.assertIn("gd_category_select_options", names)
         self.assertIn("COOKTOP_PRODUCT_LOCK", names)
         self.assertIn("is_cooktop_pan_on_flameout_context", names)
         self.assertIn("PSX1_PRODUCT_LOCK", names)
