@@ -71,6 +71,7 @@ class TestGdCategoryPicker(unittest.TestCase):
         search = src.split("def search_manual_chunks(", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("WATER_HEATERS_CATEGORY", search)
         self.assertIn("AIR_CONDITIONING_CATEGORY", search)
+        self.assertIn("RANGE_COOKTOPS_CATEGORY", search)
         self.assertNotIn('"Water Heaters"', search)
         self.assertNotIn('"Air Conditioning"', search)
 

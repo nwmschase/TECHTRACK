@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.7
+RV TechTrack v4.13.8
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -52,6 +52,7 @@ RV TechTrack v4.13.7
 - v4.13.5: Furrion FCR E2 / Fan Fault Current can reach freezer evaporator fan R&R (and board+fan)
 - v4.13.6: Water Heaters / Girard GSWH-2 E8 GD search skips Unity and keeps E8 / CCD-0009390 chunks
 - v4.13.7: GD category picker includes Water Heaters and Range & Cooktops (seed upserts missing names)
+- v4.13.8: cooktop pan-on flame-out checks thermocouple tip with pan on; PSX1 seized override pin is complete jack assembly R&R
 - Mobile-friendly
 """
 import streamlit as st
@@ -138,6 +139,8 @@ def _load_gd_library_coach():
         not hasattr(cached, "skip_unity_for_ac")
         or not hasattr(cached, "is_fcr_e2_fan_fault_context")
         or not hasattr(cached, "skip_unity_for_water_heater")
+        or not hasattr(cached, "is_cooktop_pan_on_flameout_context")
+        or not hasattr(cached, "is_stabilizer_override_pin_context")
     ):
         sys.modules.pop("gd_library_coach", None)
         cached = None
@@ -155,6 +158,9 @@ def _load_gd_library_coach():
 _gdc = _load_gd_library_coach()
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES
 AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
+COOKTOP_HINT_TITLES = _gdc.COOKTOP_HINT_TITLES
+COOKTOP_PRODUCT_LOCK = _gdc.COOKTOP_PRODUCT_LOCK
+COOKTOP_SEARCH_BOOST = _gdc.COOKTOP_SEARCH_BOOST
 FCR_E2_FAN_FAULT_PRODUCT_LOCK = _gdc.FCR_E2_FAN_FAULT_PRODUCT_LOCK
 FAN_FAULT_SEARCH_BOOST = _gdc.FAN_FAULT_SEARCH_BOOST
 FIGURE_PAGE_HONESTY = _gdc.FIGURE_PAGE_HONESTY
@@ -165,6 +171,9 @@ HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
 LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
 LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
 OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
+PSX1_HINT_TITLES = _gdc.PSX1_HINT_TITLES
+PSX1_PRODUCT_LOCK = _gdc.PSX1_PRODUCT_LOCK
+PSX1_SEARCH_BOOST = _gdc.PSX1_SEARCH_BOOST
 WATER_HEATER_HINT_TITLES = _gdc.WATER_HEATER_HINT_TITLES
 WATER_HEATER_PRODUCT_LOCK = _gdc.WATER_HEATER_PRODUCT_LOCK
 AIR_CONDITIONING_CATEGORY = _gdc.AIR_CONDITIONING_CATEGORY
@@ -175,10 +184,13 @@ WATER_HEATERS_CATEGORY = _gdc.WATER_HEATERS_CATEGORY
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
 ac_search_symptom = _gdc.ac_search_symptom
+cooktop_search_symptom = _gdc.cooktop_search_symptom
 error_code_query_terms = _gdc.error_code_query_terms
 claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
+ensure_cooktop_tip_pan_check = _gdc.ensure_cooktop_tip_pan_check
 ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
+ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
 fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
@@ -194,10 +206,13 @@ format_stated_facts_rule = _gdc.format_stated_facts_rule
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
 is_air_conditioning_context = _gdc.is_air_conditioning_context
+is_cooktop_pan_on_flameout_context = _gdc.is_cooktop_pan_on_flameout_context
+is_cooktop_range_context = _gdc.is_cooktop_range_context
 is_fcr_e2_fan_fault_context = _gdc.is_fcr_e2_fan_fault_context
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
+is_stabilizer_override_pin_context = _gdc.is_stabilizer_override_pin_context
 is_unity_board_manual = _gdc.is_unity_board_manual
 is_water_heater_context = _gdc.is_water_heater_context
 is_water_heater_library_title = _gdc.is_water_heater_library_title
@@ -208,19 +223,24 @@ pick_diagram_page_numbers = _gdc.pick_diagram_page_numbers
 pick_working_vision_model = _gdc.pick_working_vision_model
 powered_not_cooling = _gdc.powered_not_cooling
 rank_chunks_for_ac = _gdc.rank_chunks_for_ac
+rank_chunks_for_cooktop_pan_on = _gdc.rank_chunks_for_cooktop_pan_on
 rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
 rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
 rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
+rank_chunks_for_stabilizer_override = _gdc.rank_chunks_for_stabilizer_override
 rank_chunks_for_water_heater = _gdc.rank_chunks_for_water_heater
 reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
 score_ac_product = _gdc.score_ac_product
+score_cooktop_pan_on_chunk = _gdc.score_cooktop_pan_on_chunk
 score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
 score_figure_page = _gdc.score_figure_page
 score_level_up_product = _gdc.score_level_up_product
+score_stabilizer_override_chunk = _gdc.score_stabilizer_override_chunk
 score_water_heater_product = _gdc.score_water_heater_product
 skip_unity_for_ac = _gdc.skip_unity_for_ac
 skip_unity_for_level_up = _gdc.skip_unity_for_level_up
 skip_unity_for_water_heater = _gdc.skip_unity_for_water_heater
+stabilizer_search_symptom = _gdc.stabilizer_search_symptom
 water_heater_search_symptom = _gdc.water_heater_search_symptom
 strip_path_complete_trap = _gdc.strip_path_complete_trap
 wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
@@ -1598,6 +1618,8 @@ def search_manual_chunks(
     ac_context: bool = False,
     fan_fault_context: bool = False,
     water_heater_context: bool = False,
+    cooktop_context: bool = False,
+    stabilizer_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1612,6 +1634,10 @@ def search_manual_chunks(
     water_heater_context: Girard GSWH-2 / Water Heaters — include that category
     even when the UI left category as (any), and do not let Unity Electrical SM
     win E8 / Petit Tube / air-pressure-switch jobs.
+    cooktop_context: Suburban Range/Cooktops pan-on flame-out — prefer that SM
+    over furnace sail-switch / igniter-first pages.
+    stabilizer_context: Lippert PSX1 / front stabilizer override pin — prefer
+    complete jack assembly over coupler-only / override-usage-only pages.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1632,6 +1658,16 @@ def search_manual_chunks(
             extra = session.query(Category).filter(Category.name == WATER_HEATERS_CATEGORY).first()
             if extra and extra.id not in cat_ids:
                 cat_ids.append(extra.id)
+        if cooktop_context:
+            for extra_name in (RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference"):
+                extra = session.query(Category).filter(Category.name == extra_name).first()
+                if extra and extra.id not in cat_ids:
+                    cat_ids.append(extra.id)
+        if stabilizer_context:
+            for extra_name in ("Leveling", "ID & Reference"):
+                extra = session.query(Category).filter(Category.name == extra_name).first()
+                if extra and extra.id not in cat_ids:
+                    cat_ids.append(extra.id)
         if unity_context and not level_up_context and not ac_context and not water_heater_context:
             for extra_name in ("Electrical", "Reference", "ID & Reference"):
                 extra = session.query(Category).filter(Category.name == extra_name).first()
@@ -1662,6 +1698,24 @@ def search_manual_chunks(
                 cat_ids.append(extra.id)
         if cat_ids:
             q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif cooktop_context:
+        cat_ids = []
+        for extra_name in (
+            RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference", "TSB / Recall"
+        ):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
+    elif stabilizer_context:
+        cat_ids = []
+        for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
+            extra = session.query(Category).filter(Category.name == extra_name).first()
+            if extra and extra.id not in cat_ids:
+                cat_ids.append(extra.id)
+        if cat_ids:
+            q = q.filter(DocChunk.category_id.in_(cat_ids))
     elif unity_context:
         cat_ids = []
         for extra_name in ("Electrical", "Reference", "ID & Reference"):
@@ -1683,6 +1737,10 @@ def search_manual_chunks(
                 extra_names = [WATER_HEATERS_CATEGORY]
             elif ac_context:
                 extra_names = [AIR_CONDITIONING_CATEGORY]
+            elif cooktop_context:
+                extra_names = [RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference"]
+            elif stabilizer_context:
+                extra_names = ["Leveling", "ID & Reference"]
             elif fridge_job or category_id:
                 extra_names = [REFRIGERATORS_CATEGORY, "Electrical"]
             else:
@@ -1736,10 +1794,28 @@ def search_manual_chunks(
             "evaporator", "airflow", "diagnostics", "current",
         ):
             query_terms.add(t)
+    if cooktop_context and not figure_seek:
+        for t in (
+            "thermocouple", "tip", "position", "cookware", "pan",
+            "flame", "sensor", "cooktop", "range",
+        ):
+            query_terms.add(t)
+    if stabilizer_context and not figure_seek:
+        for t in (
+            "stabilizer", "jack", "psx1", "override", "roll",
+            "pin", "assembly", "complete",
+        ):
+            query_terms.add(t)
     # Core path terms for RV furnace - sail switch is first-line, even if the tech
     # only typed "won't light" / "fan runs" / Dometic furnace.
     furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
-    if any(k in furnace_blob for k in ("furnace", "sail", "blower", "won't light", "wont light", "no heat", "no ignition")):
+    if (
+        not cooktop_context
+        and any(
+            k in furnace_blob
+            for k in ("furnace", "sail", "blower", "won't light", "wont light", "no heat", "no ignition")
+        )
+    ):
         for t in ("sail", "switch", "limit", "thermostat", "bypass", "blower",
                   "airflow", "voltage", "igniter", "electrode", "valve", "propane"):
             query_terms.add(t)
@@ -1758,6 +1834,10 @@ def search_manual_chunks(
             sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if water_heater_context:
             sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
+        if cooktop_context:
+            sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if stabilizer_context:
+            sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1782,6 +1862,16 @@ def search_manual_chunks(
                 sc += 5
             if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
                 sc -= 20
+        if cooktop_context:
+            if any(x in title_kw for x in ("range", "cooktop", "suburban")):
+                sc += 5
+            if "furnace" in title_kw and "cooktop" not in title_kw and "range" not in title_kw:
+                sc -= 8
+        if stabilizer_context:
+            if any(x in title_kw for x in ("psx1", "ccd-0007345", "stabilizer")):
+                sc += 5
+            if any(x in title_kw for x in ("level-up", "level up", "octp", "807662")):
+                sc -= 8
         if sc > 0:
             scored.append((sc, ch))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -1842,6 +1932,10 @@ def search_manual_chunks(
             sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if water_heater_context:
             sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
+        if cooktop_context:
+            sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if stabilizer_context:
+            sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1867,6 +1961,10 @@ def search_manual_chunks(
         out = rank_chunks_for_water_heater(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if fan_fault_context:
         out = rank_chunks_for_fcr_fan_fault(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if cooktop_context:
+        out = rank_chunks_for_cooktop_pan_on(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if stabilizer_context:
+        out = rank_chunks_for_stabilizer_override(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
 
 
@@ -2854,6 +2952,16 @@ CRITICAL RULES:
         fridge_rule = FRIDGE_OEM_ORDER if is_fridge_context(category_name, model_text, symptom) else ""
         ac_rule = AC_PRODUCT_LOCK if is_air_conditioning_context(category_name, model_text, symptom) else ""
         wh_rule = WATER_HEATER_PRODUCT_LOCK if is_water_heater_context(category_name, model_text, symptom) else ""
+        cooktop_rule = (
+            COOKTOP_PRODUCT_LOCK
+            if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
+            else ""
+        )
+        stab_rule = (
+            PSX1_PRODUCT_LOCK
+            if is_stabilizer_override_pin_context(category_name, model_text, symptom)
+            else ""
+        )
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
@@ -2862,6 +2970,8 @@ SYMPTOM: {symptom}
 {fridge_rule}
 {ac_rule}
 {wh_rule}
+{cooktop_rule}
+{stab_rule}
 {DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
@@ -2905,6 +3015,10 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
 
 # ---------------- FURNACE OEM ORDER (always-on coach rule) ----------------
 def is_furnace_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_range_context(category_name, model_text, symptom):
+        return False
     blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
     return "furnace" in blob
 
@@ -3952,6 +4066,8 @@ def _ask_manual_context(
     ac_job = is_air_conditioning_context(category_name, model_text, symptom)
     water_heater_job = is_water_heater_context(category_name, model_text, symptom)
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
+    cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
+    stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, symptom)
     skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
     skip_wh_unity = skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
     unity_on = (
@@ -3975,6 +4091,8 @@ def _ask_manual_context(
         ac_context=ac_job,
         fan_fault_context=fan_fault_job,
         water_heater_context=water_heater_job,
+        cooktop_context=cooktop_job,
+        stabilizer_context=stabilizer_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
@@ -3984,6 +4102,14 @@ def _ask_manual_context(
     elif fan_fault_job:
         chunks = supplement_fcr_fan_fault_pages(chunks, model_text, figure_query or symptom)
         chunks = rank_chunks_for_fcr_fan_fault(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
+    elif cooktop_job:
+        chunks = rank_chunks_for_cooktop_pan_on(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
+    elif stabilizer_job:
+        chunks = rank_chunks_for_stabilizer_override(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
     honesty = ""
@@ -4043,6 +4169,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     search_symptom = f"{prior_user} {user_msg}".strip()
     search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, search_symptom)
+    cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, search_symptom)
+    stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, search_symptom)
     if (
         not fan_fault_job
         and is_fridge_context(category_name, model_text, search_symptom)
@@ -4070,6 +4198,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
     search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
     search_symptom = water_heater_search_symptom(category_name, model_text, search_symptom)
+    search_symptom = cooktop_search_symptom(category_name, model_text, search_symptom)
+    search_symptom = stabilizer_search_symptom(category_name, model_text, search_symptom)
     if (
         not skip_unity_for_level_up(category_name, model_text, search_symptom)
         and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
@@ -4109,6 +4239,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + WATER_HEATER_PRODUCT_LOCK
     if fan_fault_job:
         system_prompt += "\n\n" + FCR_E2_FAN_FAULT_PRODUCT_LOCK
+    if cooktop_job:
+        system_prompt += "\n\n" + COOKTOP_PRODUCT_LOCK
+    if stabilizer_job:
+        system_prompt += "\n\n" + PSX1_PRODUCT_LOCK
     if (
         is_unity_context(category_name, model_text, search_symptom, unity_gate)
         and not level_up_job
@@ -4198,6 +4332,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             pass
     if fan_fault_job:
         reply = ensure_fcr_e2_fan_rr(reply, facts)
+    if cooktop_job:
+        reply = ensure_cooktop_tip_pan_check(reply)
+    if stabilizer_job:
+        reply = ensure_stabilizer_assembly_rr(reply, facts)
     reasked = reply_reasks_stated_facts(reply, facts)
     if reasked:
         retry_rule = (
@@ -4575,6 +4713,8 @@ with tab_jobs:
                             nj_sym = fridge_search_symptom(nj_cat, nj_model, nj_sym)
                             nj_sym = ac_search_symptom(nj_cat, nj_model, nj_sym)
                             nj_sym = water_heater_search_symptom(nj_cat, nj_model, nj_sym)
+                            nj_sym = cooktop_search_symptom(nj_cat, nj_model, nj_sym)
+                            nj_sym = stabilizer_search_symptom(nj_cat, nj_model, nj_sym)
                             if (
                                 not skip_unity_for_ac(nj_cat, nj_model, nj_concern, nj_unity)
                                 and not skip_unity_for_water_heater(nj_cat, nj_model, nj_concern, nj_unity)
@@ -4588,6 +4728,12 @@ with tab_jobs:
                                 unity_context=is_unity_context(nj_cat, nj_model, nj_concern, nj_unity),
                                 ac_context=is_air_conditioning_context(nj_cat, nj_model, nj_concern),
                                 water_heater_context=is_water_heater_context(nj_cat, nj_model, nj_concern),
+                                cooktop_context=is_cooktop_pan_on_flameout_context(
+                                    nj_cat, nj_model, nj_concern
+                                ),
+                                stabilizer_context=is_stabilizer_override_pin_context(
+                                    nj_cat, nj_model, nj_concern
+                                ),
                             )
                             plan, sources, sources_json = run_guided_diagnostics(
                                 nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
@@ -4781,6 +4927,8 @@ with tab_jobs:
                         rb_sym = fridge_search_symptom(job.category_name, job.model_text or "", rb_sym)
                         rb_sym = ac_search_symptom(job.category_name, job.model_text or "", rb_sym)
                         rb_sym = water_heater_search_symptom(job.category_name, job.model_text or "", rb_sym)
+                        rb_sym = cooktop_search_symptom(job.category_name, job.model_text or "", rb_sym)
+                        rb_sym = stabilizer_search_symptom(job.category_name, job.model_text or "", rb_sym)
                         if (
                             not skip_unity_for_ac(
                                 job.category_name, job.model_text or "", job.concern, rebuild_unity
@@ -4804,6 +4952,12 @@ with tab_jobs:
                                 job.category_name, job.model_text or "", job.concern
                             ),
                             water_heater_context=is_water_heater_context(
+                                job.category_name, job.model_text or "", job.concern
+                            ),
+                            cooktop_context=is_cooktop_pan_on_flameout_context(
+                                job.category_name, job.model_text or "", job.concern
+                            ),
+                            stabilizer_context=is_stabilizer_override_pin_context(
                                 job.category_name, job.model_text or "", job.concern
                             ),
                         )

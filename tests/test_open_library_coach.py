@@ -56,6 +56,8 @@ class TestProductPath(unittest.TestCase):
         self.assertIn("NEVER re-ask", OPEN_LIBRARY_COACH_RULE)
         self.assertIn("Fan Fault Current", OPEN_LIBRARY_COACH_RULE)
         self.assertIn("freezer evaporator fan", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("cookware", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("complete stabilizer jack assembly", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
         self.assertTrue(
             is_path_complete_trap(
@@ -250,6 +252,10 @@ class TestProductSource(unittest.TestCase):
         self.assertNotIn("fan_fault_context=True", src.split("def run_guided_diagnostics")[1][:1600])
         self.assertIn("water_heater_context: bool = False", src)
         self.assertNotIn("water_heater_context=True", src.split("def run_guided_diagnostics")[1][:1800])
+        self.assertIn("cooktop_context: bool = False", src)
+        self.assertNotIn("cooktop_context=True", src.split("def run_guided_diagnostics")[1][:2000])
+        self.assertIn("stabilizer_context: bool = False", src)
+        self.assertNotIn("stabilizer_context=True", src.split("def run_guided_diagnostics")[1][:2200])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
@@ -272,6 +278,14 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("water_heater_search_symptom", src)
         self.assertIn("skip_unity_for_water_heater", src)
         self.assertIn("is_water_heater_context", src)
+        self.assertIn("COOKTOP_PRODUCT_LOCK", src)
+        self.assertIn("cooktop_search_symptom", src)
+        self.assertIn("is_cooktop_pan_on_flameout_context", src)
+        self.assertIn("ensure_cooktop_tip_pan_check", src)
+        self.assertIn("PSX1_PRODUCT_LOCK", src)
+        self.assertIn("stabilizer_search_symptom", src)
+        self.assertIn("is_stabilizer_override_pin_context", src)
+        self.assertIn("ensure_stabilizer_assembly_rr", src)
         self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
         self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
         self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
