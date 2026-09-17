@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.8
+RV TechTrack v4.13.9
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -53,6 +53,7 @@ RV TechTrack v4.13.8
 - v4.13.6: Water Heaters / Girard GSWH-2 E8 GD search skips Unity and keeps E8 / CCD-0009390 chunks
 - v4.13.7: GD category picker includes Water Heaters and Range & Cooktops (seed upserts missing names)
 - v4.13.8: cooktop pan-on flame-out checks thermocouple tip with pan on; PSX1 seized override pin is complete jack assembly R&R
+- v4.13.9: reload stale gd_library_coach when category constants are missing (Streamlit AttributeError)
 - Mobile-friendly
 """
 import streamlit as st
@@ -114,12 +115,32 @@ try:
 except ImportError:
     PYMUPDF_AVAILABLE = False
 
+# Sentinels that must exist on a cached gd_library_coach. Streamlit Cloud can
+# keep a pre-v4.13.7 coach that has cooktop/stab helpers but no category constants.
+_GDC_STALE_GUARD_ATTRS = (
+    "skip_unity_for_ac",
+    "is_fcr_e2_fan_fault_context",
+    "skip_unity_for_water_heater",
+    "is_cooktop_pan_on_flameout_context",
+    "is_stabilizer_override_pin_context",
+    "AIR_CONDITIONING_CATEGORY",
+    "DEFAULT_LIBRARY_CATEGORIES",
+    "RANGE_COOKTOPS_CATEGORY",
+    "REFRIGERATORS_CATEGORY",
+    "WATER_HEATERS_CATEGORY",
+    "gd_category_select_options",
+    "library_category_picker_names",
+)
+
+
 def _load_gd_library_coach():
     """
     Load the sibling coach module by file path.
 
     Streamlit Cloud often runs with cwd / sys.path that is not the repo root,
     or keeps a stale gd_library_coach in sys.modules from before v4.13.3.
+    After v4.13.7 the same cache can still lack category constants, which
+    raises AttributeError at AIR_CONDITIONING_CATEGORY = _gdc.AIR_CONDITIONING_CATEGORY.
     Either case raises ImportError at `from gd_library_coach import ...`.
     """
     import importlib.util
@@ -135,13 +156,7 @@ def _load_gd_library_coach():
     if root not in sys.path:
         sys.path.insert(0, root)
     cached = sys.modules.get("gd_library_coach")
-    if cached is not None and (
-        not hasattr(cached, "skip_unity_for_ac")
-        or not hasattr(cached, "is_fcr_e2_fan_fault_context")
-        or not hasattr(cached, "skip_unity_for_water_heater")
-        or not hasattr(cached, "is_cooktop_pan_on_flameout_context")
-        or not hasattr(cached, "is_stabilizer_override_pin_context")
-    ):
+    if cached is not None and not all(hasattr(cached, name) for name in _GDC_STALE_GUARD_ATTRS):
         sys.modules.pop("gd_library_coach", None)
         cached = None
     if cached is not None:

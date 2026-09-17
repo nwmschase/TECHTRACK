@@ -51,9 +51,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "is_water_heater_context",
             "WATER_HEATER_PRODUCT_LOCK",
             "DEFAULT_LIBRARY_CATEGORIES",
+            "AIR_CONDITIONING_CATEGORY",
+            "REFRIGERATORS_CATEGORY",
             "WATER_HEATERS_CATEGORY",
             "RANGE_COOKTOPS_CATEGORY",
             "gd_category_select_options",
+            "library_category_picker_names",
             "is_cooktop_pan_on_flameout_context",
             "COOKTOP_PRODUCT_LOCK",
             "ensure_cooktop_tip_pan_check",
@@ -81,9 +84,12 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("skip_unity_for_water_heater", names)
         self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
         self.assertIn("DEFAULT_LIBRARY_CATEGORIES", names)
+        self.assertIn("AIR_CONDITIONING_CATEGORY", names)
+        self.assertIn("REFRIGERATORS_CATEGORY", names)
         self.assertIn("WATER_HEATERS_CATEGORY", names)
         self.assertIn("RANGE_COOKTOPS_CATEGORY", names)
         self.assertIn("gd_category_select_options", names)
+        self.assertIn("library_category_picker_names", names)
         self.assertIn("COOKTOP_PRODUCT_LOCK", names)
         self.assertIn("is_cooktop_pan_on_flameout_context", names)
         self.assertIn("PSX1_PRODUCT_LOCK", names)
@@ -96,21 +102,43 @@ class TestCoachModuleLoads(unittest.TestCase):
         missing = [n for n in names if not hasattr(coach, n)]
         self.assertEqual(missing, [])
 
+    def test_reexport_block_binds_category_attrs(self):
+        """Execute the rv_techtrack _gdc re-export block so a missing attr fails CI."""
+        src = (ROOT / "rv_techtrack.py").read_text()
+        names = _names_assigned_from_gdc(src)
+        spec = importlib.util.spec_from_file_location(
+            "gd_library_coach_reexport", ROOT / "gd_library_coach.py"
+        )
+        coach = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(coach)
+        lines = []
+        for name in names:
+            lines.append(f"{name} = _gdc.{name}")
+        ns = {"_gdc": coach}
+        exec(compile("\n".join(lines), "reexport", "exec"), ns)
+        self.assertEqual(ns["AIR_CONDITIONING_CATEGORY"], "Air Conditioning")
+        self.assertEqual(ns["WATER_HEATERS_CATEGORY"], "Water Heaters")
+        self.assertEqual(ns["RANGE_COOKTOPS_CATEGORY"], "Range & Cooktops")
+        self.assertEqual(ns["REFRIGERATORS_CATEGORY"], "Refrigerators")
+        self.assertIn(ns["AIR_CONDITIONING_CATEGORY"], ns["DEFAULT_LIBRARY_CATEGORIES"])
+        self.assertTrue(callable(ns["gd_category_select_options"]))
+        self.assertTrue(callable(ns["library_category_picker_names"]))
+
     def test_loader_replaces_stale_cached_module(self):
-        """Mirrors Streamlit Cloud keeping a pre-4.13.3 gd_library_coach in sys.modules."""
+        """Mirrors Streamlit Cloud keeping a pre-4.13.7 gd_library_coach in sys.modules."""
         stale = types.ModuleType("gd_library_coach")
         stale.OPEN_LIBRARY_COACH_RULE = "old"
         stale.skip_unity_for_ac = lambda *a, **k: True
+        stale.is_fcr_e2_fan_fault_context = lambda *a, **k: False
+        stale.skip_unity_for_water_heater = lambda *a, **k: True
+        stale.is_cooktop_pan_on_flameout_context = lambda *a, **k: False
+        stale.is_stabilizer_override_pin_context = lambda *a, **k: False
+        # Live crash: PR #14 attrs present, PR #13 category constants absent.
         sys.modules["gd_library_coach"] = stale
         self.addCleanup(lambda: sys.modules.pop("gd_library_coach", None))
-        spec = importlib.util.spec_from_file_location(
-            "rv_techtrack_loader_probe", ROOT / "rv_techtrack.py"
-        )
-        # Only exec through the loader by importing the helper from source.
         src = (ROOT / "rv_techtrack.py").read_text()
         ns = {"__file__": str(ROOT / "rv_techtrack.py"), "Path": Path}
-        # Run just enough of the file to define and call the loader.
-        start = src.index("def _load_gd_library_coach")
+        start = src.index("_GDC_STALE_GUARD_ATTRS")
         end = src.index("_gdc = _load_gd_library_coach()")
         exec(compile(src[start:end] + "_gdc = _load_gd_library_coach()\n", "loader", "exec"), ns)
         loaded = ns["_gdc"]
@@ -119,6 +147,9 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "skip_unity_for_water_heater"))
         self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
+        self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
+        self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
+        self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
         self.assertTrue(
             loaded.skip_unity_for_ac("Air Conditioning", "Dometic B57915", "no cool")
         )
