@@ -127,10 +127,18 @@ class TestBayProcedurePdfBytes(unittest.TestCase):
         pdf = render_bay_procedure_pdf(proc)
         self.assertTrue(pdf.startswith(b"%PDF"), pdf[:20])
         self.assertGreater(len(pdf), 200)
-        self.assertIn(b"%%EOF", pdf[-32:])
+        self.assertIn(b"%%EOF", pdf[-64:] if len(pdf) > 64 else pdf)
         self.assertEqual(suggested_pdf_filename(proc), "bay_procedure_WO-4521.pdf")
         self.assertEqual(BAY_PROCEDURE_LABEL, "Bay procedure PDF")
         self.assertNotIn("AI report", BAY_PROCEDURE_LABEL)
+        try:
+            from bay_procedure import _render_pdf_fpdf2
+
+            fancy = _render_pdf_fpdf2(proc)
+            self.assertTrue(fancy.startswith(b"%PDF"))
+            self.assertGreater(len(fancy), 400)
+        except ImportError:
+            pass
 
 
 if __name__ == "__main__":

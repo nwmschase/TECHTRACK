@@ -536,18 +536,28 @@ def _latin1_safe(text: str) -> str:
 def _render_pdf_fpdf2(proc: BayProcedure) -> bytes:
     from fpdf import FPDF
 
-    pdf = FPDF(format="Letter")
+    pdf = FPDF(unit="mm", format="Letter")
     pdf.set_auto_page_break(auto=True, margin=16)
     pdf.add_page()
-    pdf.set_text_color(1, 20, 124)
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.multi_cell(0, 8, BAY_PROCEDURE_LABEL)
-    pdf.set_text_color(3, 137, 68)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.multi_cell(0, 5, "Tacoma RV Center  |  shop Document Library  |  not live web")
+
+    def write(text, *, size=11, bold=False, italic=False, color=(0, 0, 0), h=5):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_text_color(*color)
+        style = ""
+        if bold:
+            style += "B"
+        if italic:
+            style += "I"
+        pdf.set_font("Helvetica", style, size)
+        pdf.multi_cell(pdf.epw, h, _latin1_safe(text or ""))
+
+    write(BAY_PROCEDURE_LABEL, size=16, bold=True, color=(1, 20, 124), h=8)
+    write(
+        "Tacoma RV Center  |  shop Document Library  |  not live web",
+        size=10,
+        color=(3, 137, 68),
+    )
     pdf.ln(2)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Helvetica", "", 11)
 
     header = [
         ("Customer concern", proc.concern),
@@ -557,69 +567,67 @@ def _render_pdf_fpdf2(proc: BayProcedure) -> bytes:
         ("Date", proc.created.strftime("%Y-%m-%d")),
     ]
     for label, value in header:
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.multi_cell(0, 5, _latin1_safe(f"{label}:"))
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 5, _latin1_safe(value or "-"))
+        write(f"{label}:", size=10, bold=True)
+        write(value or "-", size=11)
         pdf.ln(1)
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.multi_cell(0, 6, "Sources (shop Document Library)")
-    pdf.set_font("Helvetica", "", 10)
+    write("Sources (shop Document Library)", size=12, bold=True, h=6)
     if proc.sources:
         for s in proc.sources:
             page = f" p.{s['page']}" if s.get("page") else ""
-            pdf.multi_cell(0, 5, _latin1_safe(f"- {s.get('title') or 'Manual'}{page}"))
+            write(f"- {s.get('title') or 'Manual'}{page}", size=10)
     else:
-        pdf.multi_cell(0, 5, "- (no indexed excerpt retrieved this pass)")
+        write("- (no indexed excerpt retrieved this pass)", size=10)
     pdf.ln(2)
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.multi_cell(0, 6, "Diagnostic checks")
-    pdf.set_font("Helvetica", "", 11)
+    write("Diagnostic checks", size=12, bold=True, h=6)
     for i, chk in enumerate(proc.checks, 1):
         cite = ""
         if chk.source_title:
             page = f" - page {chk.source_page}" if chk.source_page else ""
             cite = f"  Source: {chk.source_title}{page}"
-        pdf.multi_cell(0, 5, _latin1_safe(f"{i}. {chk.text}{cite}"))
+        write(f"{i}. {chk.text}{cite}", size=11)
         pdf.ln(1)
 
     if proc.figures:
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.multi_cell(0, 6, "Cited library figures")
-        pdf.set_font("Helvetica", "", 10)
+        write("Cited library figures", size=12, bold=True, h=6)
         for fig in proc.figures:
             page = f" p.{fig.page}" if fig.page else ""
-            pdf.multi_cell(0, 5, _latin1_safe(f"- {fig.caption or 'Figure'} -- {fig.title}{page}"))
+            write(f"- {fig.caption or 'Figure'} -- {fig.title}{page}", size=10)
             if fig.excerpt:
-                pdf.multi_cell(0, 5, _latin1_safe(fig.excerpt[:360]))
+                write(fig.excerpt[:360], size=10)
             if fig.image_png:
                 try:
-                    pdf.image(BytesIO(fig.image_png), w=170)
+                    pdf.set_x(pdf.l_margin)
+                    pdf.image(BytesIO(fig.image_png), w=min(170, pdf.epw))
+                    pdf.ln(2)
                 except Exception:
                     pass
             pdf.ln(1)
 
     if proc.include_3c:
+        box_h = 16
+        if pdf.get_y() + 78 > pdf.h - 14:
+            pdf.add_page()
+        pdf.set_auto_page_break(auto=False)
         pdf.ln(2)
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.multi_cell(0, 6, "Concern / Cause / Correction")
-        pdf.set_font("Helvetica", "I", 9)
-        pdf.multi_cell(
-            0,
-            5,
+        write("Concern / Cause / Correction", size=12, bold=True, h=6)
+        write(
             "Blank on purpose. TechTrack does not write the warranty story from this PDF.",
+            size=9,
+            italic=True,
         )
-        pdf.set_font("Helvetica", "", 11)
         for label in ("CONCERN", "CAUSE", "CORRECTION"):
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.multi_cell(0, 5, f"{label}:")
-            pdf.set_draw_color(160, 160, 160)
+            if pdf.get_y() + box_h + 10 > pdf.h - 12:
+                pdf.add_page()
+            pdf.ln(1)
+            write(f"{label}:", size=11, bold=True)
+            pdf.set_x(pdf.l_margin)
             y = pdf.get_y()
-            pdf.rect(pdf.l_margin, y, pdf.epw, 22)
-            pdf.set_y(y + 24)
+            pdf.set_draw_color(160, 160, 160)
+            pdf.rect(pdf.l_margin, y, pdf.epw, box_h)
+            pdf.set_xy(pdf.l_margin, y + box_h + 2)
+        pdf.set_auto_page_break(auto=True, margin=16)
 
     raw = pdf.output()
     return bytes(raw) if not isinstance(raw, (bytes, bytearray)) else bytes(raw)
