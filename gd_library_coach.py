@@ -112,7 +112,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
-- Level-Up Manual Mode dump that works plus Auto that works: Firefly CAN path — isolate modules one at a time, then check CAN terminators (120 ohm). Do not jump to pump/valve R&R when dump and Auto already prove hydraulics.
+- Level-Up Manual Mode flashes or dumps to home while Auto still works: Firefly CAN path — cheap proves, then isolate with the rubber-boot terminator left in (wired CAN out). If Manual stays: Firefly USB firmware, 574-825-4600, stick ≤4 GB + interim. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -177,8 +177,9 @@ LEVEL_UP_SEARCH_BOOST = (
 )
 # Manual Mode dump works + Auto works → Firefly CAN isolate / terminator (not Unity).
 FIREFLY_CAN_SEARCH_BOOST = (
-    "Firefly CAN isolate terminator 120 ohm CAN bus "
-    "module isolate Manual Mode dump Auto works"
+    "Firefly CAN isolate terminator rubber-boot terminator left in "
+    "wired CAN out USB firmware 574-825-4600 interim 4 GB "
+    "Manual Mode flashes home Auto Level works"
 )
 LEVEL_UP_FIGURE_SEARCH_BOOST = (
     "Level-Up OCTP TI-005 QR-092 touch pad LCD wiring diagram "
@@ -196,7 +197,7 @@ LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
 - 807662 / 25499 / 24999 is the Lippert Level Up (Level-Up) towable hydraulic leveling controller with slide output. It is NOT Ground Control electric and NOT a Lippert OneControl Unity M-Series awning/slide reversing board.
 - Search and cite Leveling Level-Up / OCTP / TI-005 / TI-170 / QR-092 / QR-059 / touch-pad leveling manuals FIRST.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the Level Up Advantage controller manual.
-- Manual Mode dump works + Auto works is the Firefly CAN path: isolate CAN modules one at a time, then check/measure CAN terminators (120 ohm). Hydraulics/pump/valves are already proven — do not start at pump R&R.
+- Manual Mode flashes / dumps to home while Auto still works is the Firefly CAN path — not a hydraulic dump test. Cheap-prove Auto, then CAN isolate with the rubber-boot terminator left in (wired CAN out). If Manual stays on flash/home: Firefly USB firmware, 574-825-4600, stick 4 GB or smaller + interim file. Do not start at pump R&R.
 - Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
 - If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
 - If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.

@@ -83,29 +83,59 @@ ICE_MOISTURE_CHECKS = (
     ),
 )
 
+FACR_7990_TITLE = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+FACR_8666_TITLE = "Furrion Chill FACR CCD-0008666"
+FACR_FREEZE_CHECKS = (
+    (
+        "FACR* rooftop freeze / interior leak / condensate is the CCD-0007990 assembly / "
+        "condensate path (base pan, drain, freeze / suction icing). CCD-0008666 (Furrion Chill FACR) "
+        "is OK as the model book — do not start at Unity or a Dometic-only rooftop SM.",
+        FACR_7990_TITLE,
+        None,
+    ),
+    (
+        "Inspect the rooftop assembly, evaporator/base pan, and condensate drain for ice, frost, "
+        "or a melt-leak into the interior. Clear restriction and confirm the drain before condemning "
+        "the sealed system. Follow CCD-0007990; use CCD-0008666 for FACR08 Chill layout.",
+        FACR_7990_TITLE,
+        None,
+    ),
+    (
+        "Retest cooling and watch the pan / drain. If freeze or interior condensate returns, stay on "
+        "the CCD-0007990 assembly / condensate path (CCD-0008666 OK) — do not invent OEM steps.",
+        FACR_7990_TITLE,
+        None,
+    ),
+)
+
+FIREFLY_PATH_TITLE = "Firefly CAN / Level-Up Manual Mode path"
 FIREFLY_CAN_CHECKS = (
     (
-        "Confirm Manual Mode dump works. If dump works, hydraulics / pump / valves are proven — "
-        "do not start at pump or valve R&R.",
-        "Firefly CAN / Level-Up Manual Mode path",
+        "Cheap proves: Auto Level still works — the pump / valves / 807662 can run Auto. "
+        "Manual Mode flashes or dumps to the home screen is a Firefly CAN / firmware path, "
+        "not a hydraulic dump test.",
+        FIREFLY_PATH_TITLE,
         None,
     ),
     (
-        "Confirm Auto works. If Auto works, the controller and sensors are good enough to run Auto — "
-        "the remaining path is Firefly CAN, not a dead leveling controller.",
-        "Firefly CAN / Level-Up Manual Mode path",
+        "Cheap prove power and ground at the Level-Up / Firefly panel. Do not condemn the "
+        "807662 controller or start at pump / valve R&R while Auto still works.",
+        FIREFLY_PATH_TITLE,
         None,
     ),
     (
-        "CAN isolate: disconnect Firefly / CAN modules one at a time (slides, jacks, panels) and retest "
-        "Manual Mode / Auto after each isolate. A recovered network names the dropped module.",
-        "Firefly CAN / Level-Up Manual Mode path",
+        "CAN isolate: unplug wired CAN modules one at a time (slides, jacks, panels) and retest "
+        "Manual Mode after each. Leave the rubber-boot terminator left in on the open/isolated "
+        "CAN. Wired CAN out only — do not pull the boot terminator. A recovered network names "
+        "the dropped module. Measure ~120 ohm only if a terminator is actually missing.",
+        FIREFLY_PATH_TITLE,
         None,
     ),
     (
-        "Check CAN terminators. Measure terminator resistance (~120 ohm) at each end of the bus. "
-        "Look for a missing terminator, an extra terminator, or damaged CAN wiring.",
-        "Firefly CAN / Level-Up Manual Mode path",
+        "If Manual Mode still flashes / dumps to home after isolate: Firefly USB firmware. "
+        "Call Firefly 574-825-4600. Use a USB stick 4 GB or smaller plus the interim firmware "
+        "file they specify. Do not skip the USB / interim step for a flash-to-home that survived isolate.",
+        FIREFLY_PATH_TITLE,
         None,
     ),
 )
@@ -316,7 +346,10 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
         category_name, model_text, concern
     ):
-        notes.append("Level-Up Manual Mode → Firefly CAN isolate / terminator (not Unity board SM).")
+        notes.append(
+            "Level-Up Manual Mode flash/home → Firefly CAN isolate "
+            "(rubber-boot terminator left in) then USB firmware 574-825-4600."
+        )
     if is_facr_rooftop_freeze_context(category_name, model_text, concern):
         notes.append("FACR rooftop freeze/condensate → CCD-0007990 with CCD-0008666.")
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
@@ -365,6 +398,13 @@ def compile_bay_procedure(
 
     ice = is_fridge_ice_moisture_context(category, model_text, concern)
     firefly = is_firefly_can_path_context(category, model_text, concern)
+    facr = is_facr_rooftop_freeze_context(category, model_text, concern)
+
+    def _ensure_source(title: str, page=None, excerpt: str = ""):
+        key = title.lower()
+        if any((s.get("title") or "").lower() == key for s in sources):
+            return
+        sources.append({"title": title, "page": page, "excerpt": excerpt})
 
     if ice:
         for text, title, page in ICE_MOISTURE_CHECKS:
@@ -379,9 +419,27 @@ def compile_bay_procedure(
                     "excerpt": "Ice and Moisture / Ice or Moisture in the Fridge / Fig. 36",
                 },
             )
+    if facr:
+        for text, title, page in FACR_FREEZE_CHECKS:
+            checks.append(BayCheck(text=text, source_title=title, source_page=page))
+        _ensure_source(
+            FACR_7990_TITLE,
+            excerpt="Assembly / condensate / freeze / base-pan / suction icing path.",
+        )
+        _ensure_source(
+            FACR_8666_TITLE,
+            excerpt="Furrion Chill FACR08 model book — drain / base pan / freeze sensor.",
+        )
     if firefly:
         for text, title, page in FIREFLY_CAN_CHECKS:
             checks.append(BayCheck(text=text, source_title=title, source_page=page))
+        _ensure_source(
+            FIREFLY_PATH_TITLE,
+            excerpt=(
+                "CAN isolate with rubber-boot terminator left in; "
+                "Firefly USB firmware 574-825-4600, stick 4 GB or smaller + interim."
+            ),
+        )
 
     used_titles_pages = {(c.source_title.lower(), c.source_page) for c in checks}
     for d in ranked:

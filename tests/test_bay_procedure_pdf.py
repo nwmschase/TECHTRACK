@@ -12,6 +12,7 @@ from bay_procedure import (
 from gd_library_coach import (
     FIREFLY_CAN_SEARCH_BOOST,
     ICE_MOISTURE_SEARCH_BOOST,
+    is_facr_rooftop_freeze_context,
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
 )
@@ -109,9 +110,47 @@ class TestManualModeFireflyCan(unittest.TestCase):
         text = procedure_plain_text(proc).lower()
         self.assertIn("can isolate", text)
         self.assertIn("terminator", text)
-        self.assertIn("120 ohm", text)
+        self.assertIn("rubber-boot", text)
+        self.assertIn("firefly usb", text)
+        self.assertIn("574-825-4600", text)
         self.assertIn("firefly", text)
         self.assertNotIn("ai report", text)
+        self.assertNotIn("confirm manual dump works", text)
+        self.assertNotIn("confirm manual mode dump works", text)
+
+    def test_seed_facr08_freeze_surfaces_ccd_0007990(self):
+        concern = "FACR08 freeze up interior leak condensate"
+        self.assertTrue(is_facr_rooftop_freeze_context("", "Furrion", concern))
+        proc = compile_bay_procedure(concern=concern, brand="Furrion")
+        text = procedure_plain_text(proc)
+        low = text.lower()
+        self.assertIn("ccd-0007990", low)
+        self.assertIn("condensate", low)
+        self.assertIn("assembly", low)
+        self.assertTrue("ccd-0008666" in low)
+        self.assertNotIn("no matching manual excerpt", low)
+        titles = " ".join(s.get("title") or "" for s in proc.sources).lower()
+        self.assertIn("ccd-0007990", titles)
+        self.assertEqual(proc.checks[0].kind, "check")
+
+    def test_seed_807662_flash_home_has_usb_and_terminator(self):
+        concern = (
+            "Level Up Advantage 807662 Manual Mode flashes then dumps home. "
+            "Auto Level still works. Brinkley Firefly."
+        )
+        self.assertTrue(is_firefly_can_path_context("", "", concern))
+        proc = compile_bay_procedure(concern=concern)
+        text = procedure_plain_text(proc)
+        low = text.lower()
+        self.assertIn("can isolate", low)
+        self.assertIn("terminator", low)
+        self.assertIn("rubber-boot", low)
+        self.assertIn("firefly usb", low)
+        self.assertIn("574-825-4600", low)
+        self.assertIn("4 gb", low)
+        self.assertIn("interim", low)
+        self.assertNotIn("confirm manual dump works", low)
+        self.assertNotIn("no matching manual excerpt", low)
 
 
 class TestBayProcedurePdfBytes(unittest.TestCase):
