@@ -68,6 +68,8 @@ class TestCoachModuleLoads(unittest.TestCase):
             "ensure_fridge_ice_moisture_path",
             "is_facr_rooftop_freeze_context",
             "FACR_FREEZE_SEARCH_BOOST",
+            "is_firefly_can_path_context",
+            "FIREFLY_CAN_SEARCH_BOOST",
             "is_level_up_manual_can_conflict_context",
             "LEVEL_UP_CAN_PRODUCT_LOCK",
             "ensure_level_up_manual_can_path",
@@ -106,6 +108,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("is_fridge_ice_moisture_context", names)
         self.assertIn("ensure_fridge_ice_moisture_path", names)
         self.assertIn("is_facr_rooftop_freeze_context", names)
+        self.assertIn("is_firefly_can_path_context", names)
+        self.assertIn("FIREFLY_CAN_SEARCH_BOOST", names)
         self.assertIn("FACR_FREEZE_SEARCH_BOOST", names)
         self.assertIn("is_level_up_manual_can_conflict_context", names)
         self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", names)
@@ -165,6 +169,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
         self.assertTrue(hasattr(loaded, "is_fridge_ice_moisture_context"))
         self.assertTrue(hasattr(loaded, "is_facr_rooftop_freeze_context"))
+        self.assertTrue(hasattr(loaded, "is_firefly_can_path_context"))
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")

@@ -2,8 +2,10 @@
 import unittest
 
 from gd_library_coach import (
+    FIREFLY_CAN_SEARCH_BOOST,
     LEVEL_UP_PRODUCT_LOCK,
     LEVEL_UP_SEARCH_BOOST,
+    is_firefly_can_path_context,
     claims_level_up_library_empty,
     drop_unity_chunks_for_level_up,
     figure_library_search_boost,
@@ -95,6 +97,16 @@ class TestLevelUpDetect(unittest.TestCase):
     def test_fridge_is_not_level_up(self):
         self.assertFalse(
             is_level_up_advantage_context("Refrigerators", "Furrion FCR10", "not cooling")
+        )
+
+    def test_manual_mode_dump_auto_works_is_firefly_can(self):
+        concern = "Manual Mode dump works. Auto works."
+        self.assertTrue(is_firefly_can_path_context("Leveling", "807662", concern))
+        q = level_up_search_symptom("Leveling", "807662", concern)
+        self.assertIn("terminator", q.lower())
+        self.assertIn("can isolate", FIREFLY_CAN_SEARCH_BOOST.lower())
+        self.assertFalse(
+            is_firefly_can_path_context("Refrigerators", "Furrion FCR10", "not cooling")
         )
 
 
