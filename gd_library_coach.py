@@ -2,7 +2,7 @@
 Guided Diagnostics — simple open library coach.
 
 Chase product (2026-09-12):
-  Jobs / WO diagnostic plans stay the plan feature.
+  Bay procedure PDF is the printable plan feature (replaces Diagnostic Jobs as the plan UI).
   GD chat = complaint → shop Document Library coach → questions, figures, mid-chat pivots.
   Hard tree / Yes-No gate quiz must NOT drive GD chat.
   Never re-ask facts the tech already stated.
@@ -112,6 +112,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
+- Level-Up Manual Mode dump that works plus Auto that works: Firefly CAN path — isolate modules one at a time, then check CAN terminators (120 ohm). Do not jump to pump/valve R&R when dump and Auto already prove hydraulics.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -174,6 +175,11 @@ LEVEL_UP_SEARCH_BOOST = (
     "QR-092 Level-Up OCTP wiring QR-059 touch pad LCD "
     "hydraulic leveling controller Manual Mode"
 )
+# Manual Mode dump works + Auto works → Firefly CAN isolate / terminator (not Unity).
+FIREFLY_CAN_SEARCH_BOOST = (
+    "Firefly CAN isolate terminator 120 ohm CAN bus "
+    "module isolate Manual Mode dump Auto works"
+)
 LEVEL_UP_FIGURE_SEARCH_BOOST = (
     "Level-Up OCTP TI-005 QR-092 touch pad LCD wiring diagram "
     "hydraulic leveling controller 807662 Fig. figure"
@@ -190,6 +196,7 @@ LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
 - 807662 / 25499 / 24999 is the Lippert Level Up (Level-Up) towable hydraulic leveling controller with slide output. It is NOT Ground Control electric and NOT a Lippert OneControl Unity M-Series awning/slide reversing board.
 - Search and cite Leveling Level-Up / OCTP / TI-005 / TI-170 / QR-092 / QR-059 / touch-pad leveling manuals FIRST.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the Level Up Advantage controller manual.
+- Manual Mode dump works + Auto works is the Firefly CAN path: isolate CAN modules one at a time, then check/measure CAN terminators (120 ohm). Hydraulics/pump/valves are already proven — do not start at pump R&R.
 - Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
 - If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
 - If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.
@@ -677,6 +684,47 @@ def skip_unity_for_level_up(
     return is_level_up_advantage_context(category_name, model_text, symptom)
 
 
+def is_firefly_can_path_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Level-Up / Firefly: Manual Mode dump works + Auto works → CAN isolate / terminator.
+    Do not steal fridge, rooftop AC, water heater, or cooktop jobs.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    if any(
+        k in blob
+        for k in (
+            "fridge", "refriger", "reefer", "fcr0", "fcr1",
+            "facr", "rooftop", "air condition",
+            "water heat", "gswh", "cooktop", "range & cook",
+        )
+    ):
+        return False
+    dump = bool(re.search(r"\bdump\b", blob))
+    auto_works = bool(
+        re.search(r"\bauto(?:\s+level|\s+mode)?\s+works\b", blob)
+        or re.search(r"\bauto\b.{0,24}\bworks\b", blob)
+    )
+    manual_mode = "manual mode" in blob
+    firefly = "firefly" in blob
+    if firefly and (manual_mode or dump or "terminator" in blob or "can" in blob):
+        return True
+    if dump and auto_works:
+        return True
+    if manual_mode and dump and re.search(r"\bauto\b", blob):
+        return True
+    if is_level_up_advantage_context(category_name, model_text, symptom) and (
+        (dump and auto_works) or (manual_mode and auto_works)
+    ):
+        return True
+    return False
+
+
 def _compact_ccd(text: str) -> str:
     """ccd-0007990 / CCD 0007990 → ccd0007990 for title matching."""
     return re.sub(r"[^a-z0-9]", "", _norm(text))
@@ -915,9 +963,14 @@ def ac_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
 def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
     """Rewrite the library query toward Level-Up / OCTP / TI docs. Never add Unity terms."""
     symptom = (symptom or "").strip()
-    if not is_level_up_advantage_context(category_name, model_text, symptom):
+    extras = []
+    if is_level_up_advantage_context(category_name, model_text, symptom):
+        extras.append(LEVEL_UP_SEARCH_BOOST)
+    if is_firefly_can_path_context(category_name, model_text, symptom):
+        extras.append(FIREFLY_CAN_SEARCH_BOOST)
+    if not extras:
         return symptom
-    return f"{symptom} {LEVEL_UP_SEARCH_BOOST}".strip()
+    return f"{symptom} {' '.join(extras)}".strip()
 
 
 def score_level_up_product(page, query: str = "", category: str = "") -> int:
@@ -955,6 +1008,11 @@ def score_level_up_product(page, query: str = "", category: str = "") -> int:
         score += 8
     if any(k in t for k in ("touch pad", "touchpad", "manual mode", "lcd")):
         score += 4
+    if any(k in t for k in ("can isolate", "terminator", "firefly", "120 ohm", "120ohm")):
+        score += 10
+    if any(k in q for k in ("dump", "auto works", "terminator", "firefly")):
+        if any(k in t for k in ("can", "terminator", "firefly", "isolate")):
+            score += 8
     if is_unity_board_manual(title) or is_unity_board_manual(t):
         score -= 36
     if "awning" in t and "slide" in t:

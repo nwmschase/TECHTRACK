@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.11
+RV TechTrack v4.14.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -56,6 +56,7 @@ RV TechTrack v4.13.11
 - v4.13.9: reload stale gd_library_coach when category constants are missing (Streamlit AttributeError)
 - v4.13.10: fridge rear/back-wall ice/frost retrieves CCD-0008122 Ice and Moisture p.36 / Fig.36 (not fuse/12V)
 - v4.13.11: Furrion FACR* rooftop freeze/condensate/base-pan ranks CCD-0007990 with CCD-0008666
+- v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - Mobile-friendly
 """
 import streamlit as st
@@ -127,6 +128,7 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_stabilizer_override_pin_context",
     "is_fridge_ice_moisture_context",
     "is_facr_rooftop_freeze_context",
+    "is_firefly_can_path_context",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -179,6 +181,7 @@ AC_HINT_TITLES = _gdc.AC_HINT_TITLES
 AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
 FACR_FREEZE_HINT_TITLES = _gdc.FACR_FREEZE_HINT_TITLES
 FACR_FREEZE_SEARCH_BOOST = _gdc.FACR_FREEZE_SEARCH_BOOST
+FIREFLY_CAN_SEARCH_BOOST = _gdc.FIREFLY_CAN_SEARCH_BOOST
 COOKTOP_HINT_TITLES = _gdc.COOKTOP_HINT_TITLES
 COOKTOP_PRODUCT_LOCK = _gdc.COOKTOP_PRODUCT_LOCK
 COOKTOP_SEARCH_BOOST = _gdc.COOKTOP_SEARCH_BOOST
@@ -210,6 +213,7 @@ library_category_picker_names = _gdc.library_category_picker_names
 ac_search_symptom = _gdc.ac_search_symptom
 is_facr_freeze_library_title = _gdc.is_facr_freeze_library_title
 is_facr_rooftop_freeze_context = _gdc.is_facr_rooftop_freeze_context
+is_firefly_can_path_context = _gdc.is_firefly_can_path_context
 is_dometic_only_rooftop_ac = _gdc.is_dometic_only_rooftop_ac
 cooktop_search_symptom = _gdc.cooktop_search_symptom
 error_code_query_terms = _gdc.error_code_query_terms
@@ -280,6 +284,14 @@ wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
 wants_library_figures = _gdc.wants_library_figures
 wants_library_page_shown = _gdc.wants_library_page_shown
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
+
+from bay_procedure import (
+    BAY_PROCEDURE_LABEL,
+    compile_bay_procedure,
+    render_bay_procedure_pdf,
+    rewrite_bay_search_symptom,
+    suggested_pdf_filename,
+)
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"
@@ -4192,7 +4204,9 @@ def _ask_manual_context(
     if category_name:
         cat_obj = session.query(Category).filter_by(name=category_name).first()
     category_id = cat_obj.id if cat_obj else None
-    level_up = is_level_up_advantage_context(category_name, model_text, symptom)
+    level_up = is_level_up_advantage_context(
+        category_name, model_text, symptom
+    ) or is_firefly_can_path_context(category_name, model_text, symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, symptom)
     water_heater_job = is_water_heater_context(category_name, model_text, symptom)
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
@@ -4380,9 +4394,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if is_furnace_context(category_name, model_text, search_symptom):
         system_prompt += "\n\n" + FURNACE_OEM_ORDER
     level_up_job = is_level_up_advantage_context(category_name, model_text, search_symptom)
+    firefly_job = is_firefly_can_path_context(category_name, model_text, search_symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, search_symptom)
     water_heater_job = is_water_heater_context(category_name, model_text, search_symptom)
-    if level_up_job:
+    if level_up_job or firefly_job:
         system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
     if ac_job:
         system_prompt += "\n\n" + AC_PRODUCT_LOCK
@@ -4704,7 +4719,7 @@ if st.sidebar.button("Log out"):
     st.rerun()
 st.sidebar.caption(f"Role: {user['role']}")
 
-tabs = ["📱 My Dashboard", "🔍 Diagnostic Jobs (Work Order)", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
+tabs = ["📱 My Dashboard", "🧾 Bay procedure PDF", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
     tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
 tab_objs = st.tabs(tabs)
@@ -4772,7 +4787,10 @@ with tab_dash:
                     st.warning("Title and PDF are required.")
 
     st.markdown("#### ✍️ Quick Story Improver (no WO)")
-    st.caption("For one-off claims. For full jobs with saved progress, use Diagnostic Jobs above.")
+    st.caption(
+        "For one-off claims after you already tested. "
+        "Printable bay checks are under Bay procedure PDF."
+    )
     sc = st.text_area("1. Customer Concern", key="story_concern", placeholder="Customer states the air conditioner is not cooling…")
     sn = st.text_area("2. What you found and did", key="story_notes", placeholder="Found bad compressor. Recovered, replaced, evacuated, recharged, tested.")
     if st.button("Improve Story", type="primary", key="improve_story_btn"):
@@ -4785,383 +4803,175 @@ with tab_dash:
             st.warning("Please enter at least the customer concern or your notes.")
 
 # =========================================================
-# DIAGNOSTIC JOBS
+# BAY PROCEDURE PDF (replaces Diagnostic Jobs as the plan UI)
 # =========================================================
+def _retrieve_bay_library_chunks(category_name: str, model_text: str, concern: str):
+    """Same Document Library retrieval GD chat uses. No live web."""
+    search_sym = rewrite_bay_search_symptom(category_name, model_text, concern)
+    chunks, _ctx = _ask_manual_context(
+        category_name,
+        model_text,
+        search_sym,
+        limit=12,
+    )
+    return chunks or []
+
+
+def _attach_bay_figure_images(proc):
+    """Best-effort shop-library page images for cited figures (R2 + pymupdf)."""
+    if not r2_available() or not PYMUPDF_AVAILABLE:
+        return proc
+    for fig in proc.figures[:3]:
+        if fig.image_png:
+            continue
+        title = (fig.title or "").strip()
+        page = fig.page
+        if not title or not page:
+            continue
+        seed = None
+        try:
+            seed = resolve_document_by_title(title)
+        except Exception:
+            seed = None
+        fpath = (seed or {}).get("file_path") if seed else None
+        if not fpath:
+            continue
+        try:
+            data = r2_download_bytes(fpath)
+        except Exception:
+            data = None
+        if not data:
+            continue
+        png = render_pdf_page_png(data, int(page), zoom=1.2)
+        if png:
+            fig.image_png = png
+    return proc
+
+
 with tab_jobs:
-    st.subheader("🔍 Diagnostic Jobs (Work Order)")
+    st.subheader(f"🧾 {BAY_PROCEDURE_LABEL}")
     st.caption(
-        "Start or resume a job by work order number. TechTrack searches your manuals, "
-        "guides testing, saves progress, and can write the warranty story when you're done."
+        "Enter the customer concern. TechTrack retrieves from this shop's Document Library "
+        "(same stack as Guided Diagnostics — no live web) and compiles a printable bay procedure: "
+        "header, ordered diagnostic checks, cited library figures when available, "
+        "and an optional blank Concern / Cause / Correction block. "
+        "Guided Diagnostics chat is unchanged. This does not write a warranty story."
     )
 
-    tab_start, tab_list, tab_active = st.tabs(["Start / Resume", "My Jobs", "Active Job"])
-
-    with tab_start:
-        st.markdown("#### Start a new job or resume by WO #")
-        resume_wo = st.text_input("Work Order Number", key="resume_wo", placeholder="e.g. 4521 or WO-4521")
-        if st.button("Resume this WO", key="btn_resume"):
-            if not resume_wo.strip():
-                st.warning("Enter a work order number.")
-            else:
-                q = session.query(DiagnosticJob).filter_by(wo_number=resume_wo.strip())
-                if not is_manager:
-                    q = q.filter_by(user_id=user["id"])
-                job = q.order_by(DiagnosticJob.updated_date.desc()).first()
-                if not job:
-                    st.warning("No job found for that WO #. Start a new one below.")
-                else:
-                    st.session_state.active_job_id = job.id
-                    st.success(f"Resumed WO {job.wo_number}")
-                    st.rerun()
-
-        st.markdown("#### New diagnostic job")
-        cats = session.query(Category).order_by(Category.name).all()
-        cat_names = library_category_picker_names([c.name for c in cats])
-        if not cat_names:
-            st.warning("No categories yet. Ask a manager to create categories and upload manuals.")
+    cats = session.query(Category).order_by(Category.name).all()
+    cat_names = gd_category_select_options([c.name for c in cats])
+    bay_concern = st.text_area(
+        "Customer concern",
+        key="bay_concern",
+        height=110,
+        placeholder="Icing up on the rear wall — only about half from the top down",
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        bay_brand = st.text_input("Brand (optional)", key="bay_brand", placeholder="Furrion")
+        bay_cat = st.selectbox("Category (optional)", cat_names, key="bay_cat")
+    with c2:
+        bay_model = st.text_input(
+            "Model / system (optional)",
+            key="bay_model",
+            placeholder="FCR10DCGTA-BG-PWH",
+        )
+        bay_wo = st.text_input("Work order # (optional)", key="bay_wo", placeholder="WO-4521")
+    with st.expander("📷 Read model from data plate photo", expanded=False):
+        st.caption("Snap or upload the rating plate. Fills Model / system for this procedure.")
+        bay_cam = st.camera_input("Snap data plate", key="bay_plate_cam")
+        bay_up = st.file_uploader(
+            "Or upload plate photo",
+            type=["jpg", "jpeg", "png", "webp"],
+            key="bay_plate_upload",
+        )
+        bay_img = bay_cam or bay_up
+        if bay_img is not None:
+            st.image(bay_img, caption="Plate photo", width=280)
+            apply_plate_read_to_model_key("bay_model", bay_img, "bay_plate_read_btn")
+    bay_include_3c = st.checkbox(
+        "Include blank Concern / Cause / Correction block",
+        value=True,
+        key="bay_include_3c",
+        help="Left blank on purpose. TechTrack does not auto-write the warranty story.",
+    )
+    if st.button(f"Generate {BAY_PROCEDURE_LABEL}", type="primary", key="bay_generate"):
+        if not (bay_concern or "").strip():
+            st.warning("Customer concern is required.")
         else:
-            nj_wo = st.text_input("Work Order #", key="nj_wo")
-            nj_cat = st.selectbox("Category", cat_names, key="nj_cat")
-            nj_model = st.text_input("Model / System (optional)", key="nj_model", placeholder="Schwintek, RM2652, Hydro-Sync…")
-            with st.expander("📷 Read model from data plate photo", expanded=False):
-                st.caption("Snap or upload the rating plate. Fills Model/System for this job.")
-                nj_cam = st.camera_input("Snap data plate", key="nj_plate_cam")
-                nj_up = st.file_uploader(
-                    "Or upload plate photo",
-                    type=["jpg", "jpeg", "png", "webp"],
-                    key="nj_plate_upload",
+            cat_use = "" if (bay_cat or "") in ("(any)", "") else bay_cat
+            model_text = " ".join(p for p in ((bay_brand or "").strip(), (bay_model or "").strip()) if p)
+            with st.spinner("Retrieving shop library pages and compiling the bay procedure..."):
+                hits = _retrieve_bay_library_chunks(cat_use, model_text, bay_concern.strip())
+                proc = compile_bay_procedure(
+                    concern=bay_concern.strip(),
+                    brand=bay_brand,
+                    model=bay_model,
+                    category=cat_use,
+                    wo_number=bay_wo,
+                    chunks=hits,
+                    include_3c=bool(bay_include_3c),
                 )
-                nj_img = nj_cam or nj_up
-                if nj_img is not None:
-                    st.image(nj_img, caption="Plate photo", width=280)
-                    apply_plate_read_to_model_key("nj_model", nj_img, "nj_plate_read_btn")
-            nj_unity = st.selectbox(
-                "Lippert OneControl / Unity board on this coach?",
-                ["Not sure", "Yes", "No"],
-                key="nj_unity_gate",
-                help="Not every unit has one. Yes/Not sure = include Unity board tests + Electrical manuals. No = skip Unity path.",
+                proc = _attach_bay_figure_images(proc)
+                pdf_bytes = render_bay_procedure_pdf(proc)
+            st.session_state["bay_pdf_bytes"] = pdf_bytes
+            st.session_state["bay_pdf_name"] = suggested_pdf_filename(proc)
+            st.session_state["bay_pdf_preview"] = {
+                "concern": proc.concern,
+                "model": proc.model_line,
+                "sources": proc.sources,
+                "check_count": len(proc.checks),
+                "figure_count": len(proc.figures),
+            }
+            st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
+
+    preview = st.session_state.get("bay_pdf_preview")
+    pdf_bytes = st.session_state.get("bay_pdf_bytes")
+    if pdf_bytes:
+        if preview:
+            st.markdown(
+                f"**Concern:** {preview.get('concern') or '—'}  \n"
+                f"**Model:** {preview.get('model') or '—'}  \n"
+                f"**Checks:** {preview.get('check_count') or 0} · "
+                f"**Cited figures:** {preview.get('figure_count') or 0}"
             )
-            nj_concern = st.text_area(
-                "Customer concern / symptom",
-                key="nj_concern",
-                height=100,
-                placeholder="Customer states slide only moves ~2 inches then one side stops.",
-            )
-            if st.button("Start Job + Build Test Plan", type="primary", key="nj_start"):
-                if not nj_wo.strip() or not nj_concern.strip():
-                    st.warning("Work order number and concern are required.")
-                else:
-                    existing = (
-                        session.query(DiagnosticJob)
-                        .filter_by(wo_number=nj_wo.strip(), status="in_progress")
-                        .first()
-                    )
-                    if existing and existing.user_id == user["id"]:
-                        st.warning(
-                            f"Open job already exists for WO {nj_wo.strip()} "
-                            f"(id {existing.id}). Use Resume, or complete that job first."
-                        )
-                    else:
-                        cat_obj = session.query(Category).filter_by(name=nj_cat).first()
-                        with st.spinner("Searching manuals and building guided tests..."):
-                            nj_sym = furnace_search_symptom(nj_cat, nj_model, nj_concern)
-                            nj_sym = fridge_search_symptom(nj_cat, nj_model, nj_sym)
-                            nj_sym = ac_search_symptom(nj_cat, nj_model, nj_sym)
-                            nj_sym = water_heater_search_symptom(nj_cat, nj_model, nj_sym)
-                            nj_sym = cooktop_search_symptom(nj_cat, nj_model, nj_sym)
-                            nj_sym = stabilizer_search_symptom(nj_cat, nj_model, nj_sym)
-                            if (
-                                not skip_unity_for_ac(nj_cat, nj_model, nj_concern, nj_unity)
-                                and not skip_unity_for_water_heater(nj_cat, nj_model, nj_concern, nj_unity)
-                            ):
-                                nj_sym = unity_search_symptom(nj_cat, nj_model, nj_sym, nj_unity)
-                            hits = search_manual_chunks(
-                                cat_obj.id if cat_obj else None,
-                                nj_model,
-                                nj_sym,
-                                limit=16,
-                                unity_context=is_unity_context(nj_cat, nj_model, nj_concern, nj_unity),
-                                ac_context=is_air_conditioning_context(nj_cat, nj_model, nj_concern),
-                                water_heater_context=is_water_heater_context(nj_cat, nj_model, nj_concern),
-                                cooktop_context=is_cooktop_pan_on_flameout_context(
-                                    nj_cat, nj_model, nj_concern
-                                ),
-                                stabilizer_context=is_stabilizer_override_pin_context(
-                                    nj_cat, nj_model, nj_concern
-                                ),
-                                ice_moisture_context=is_fridge_ice_moisture_context(
-                                    nj_cat, nj_model, nj_concern
-                                ),
-                            )
-                            plan, sources, sources_json = run_guided_diagnostics(
-                                nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
-                            )
-                        job = DiagnosticJob(
-                            wo_number=nj_wo.strip(),
-                            user_id=user["id"],
-                            category_name=nj_cat,
-                            model_text=nj_model or None,
-                            concern=nj_concern.strip(),
-                            plan_text=plan,
-                            findings="",
-                            step_log="[]",
-                            sources_text=sources,
-                            sources_json=sources_json,
-                            status="in_progress",
-                        )
-                        session.add(job)
-                        session.commit()
-                        st.session_state.active_job_id = job.id
-                        st.success(f"Job started for WO {job.wo_number}")
-                        st.rerun()
-
-    with tab_list:
-        q = session.query(DiagnosticJob)
-        if not is_manager:
-            q = q.filter_by(user_id=user["id"])
-        my_jobs = q.order_by(DiagnosticJob.updated_date.desc()).limit(40).all()
-        if is_manager:
-            st.caption("Showing all jobs. Managers can open any WO via Resume.")
-        if not my_jobs:
-            st.info("No diagnostic jobs yet.")
-        else:
-            for j in my_jobs:
-                owner = session.query(User).get(j.user_id)
-                label = f"WO {j.wo_number} · {j.status} · {j.category_name or '-'} · {(j.updated_date or j.created_date).strftime('%Y-%m-%d %H:%M') if (j.updated_date or j.created_date) else ''}"
-                if is_manager and owner:
-                    label += f" · {owner.full_name}"
-                cols = st.columns([4, 1])
-                cols[0].write(label)
-                if cols[1].button("Open", key=f"open_job_{j.id}"):
-                    st.session_state.active_job_id = j.id
-                    st.rerun()
-
-    with tab_active:
-        jid = st.session_state.active_job_id
-        job = session.query(DiagnosticJob).get(jid) if jid else None
-        if not job:
-            st.info("No active job. Use **Start / Resume** to open a work order.")
-        else:
-            owner = session.query(User).get(job.user_id)
-            st.markdown(f"### WO **{job.wo_number}** · {job.status}")
-            st.caption(f"{job.category_name or '-'} · {job.model_text or '-'} · Tech: {owner.full_name if owner else job.user_id}")
-            st.markdown("**Customer concern**")
-            st.write(job.concern)
-
-            with st.expander("📋 Guided test plan (from manuals)", expanded=True):
-                st.markdown(job.plan_text or "_No plan saved._")
-                if job.sources_text:
-                    st.markdown("**Sources (text list)**")
-                    st.text(job.sources_text)
-
-            sources = load_job_sources(job)
-            # Rebuild sources_json from sources_text is not possible; offer rebuild if empty
-            with st.expander(
-                "📷 Source pages (figures & full page view)",
-                expanded=False,
-            ):
+            srcs = preview.get("sources") or []
+            if srcs:
                 st.caption(
-                    "When the plan says Fig. 1F / LCD / diagram - open that page here. "
-                    "This is the actual PDF page from your uploaded manual."
-                )
-                if not sources:
-                    st.warning(
-                        "No structured source pages on this job yet. "
-                        "Click **🔄 Rebuild test plan** below - that re-attaches manuals and pages."
+                    "Sources: "
+                    + "; ".join(
+                        f"{(s.get('title') or 'Manual')[:48]}"
+                        + (f" p.{s.get('page')}" if s.get("page") else "")
+                        for s in srcs[:6]
                     )
-                else:
-                    st.success(f"{len(sources)} source page(s) linked to this plan.")
-                    labels = [
-                        f"{(s.get('title') or 'Manual')[:60]} - p.{s.get('page') or '?'}"
-                        for s in sources
-                    ]
-                    pick = st.selectbox("Choose a source page", labels, key=f"src_pick_{job.id}")
-                    idx = labels.index(pick) if pick in labels else 0
-                    src = sources[idx]
-                    title = src.get("title") or "Manual"
-                    page = int(src.get("page") or 1)
-                    fpath = src.get("file_path")
-                    st.markdown(f"**{title}** - page **{page}**")
-                    bcols = st.columns(2)
-                    with bcols[0]:
-                        if fpath:
-                            r2_download_button(
-                                "⬇️ Download full PDF",
-                                fpath,
-                                f"{title[:40]}.pdf",
-                                f"src_dl_{job.id}_{idx}",
-                            )
-                        else:
-                            st.caption("No file path on record for this source.")
-                    with bcols[1]:
-                        show = st.button("📷 Show this page", type="primary", key=f"src_show_{job.id}_{idx}")
-                    if show:
-                        if not fpath:
-                            st.error("Missing storage path for this manual.")
-                        else:
-                            with st.spinner(f"Loading page {page}…"):
-                                data = r2_download_bytes(fpath)
-                            if not data:
-                                st.error("Could not download PDF from storage. Check R2 secrets / file still in bucket.")
-                            else:
-                                png = render_pdf_page_png(data, page)
-                                if png:
-                                    st.image(png, caption=f"{title} - page {page}", use_container_width=True)
-                                else:
-                                    if not PYMUPDF_AVAILABLE:
-                                        st.warning(
-                                            "Page images need `pymupdf` in requirements.txt. "
-                                            "Download the PDF and jump to this page. Showing text excerpt below."
-                                        )
-                                    else:
-                                        st.warning("Could not render page image. Download the PDF and jump to this page.")
-                    if src.get("excerpt"):
-                        with st.expander("Text excerpt from this page", expanded=not show):
-                            st.text(src.get("excerpt"))
-                    st.markdown("**All linked pages**")
-                    for i, s in enumerate(sources):
-                        st.caption(f"{i+1}. {(s.get('title') or 'Manual')[:50]} - p.{s.get('page')}")
+                )
+        st.download_button(
+            f"⬇️ Download {BAY_PROCEDURE_LABEL}",
+            data=pdf_bytes,
+            file_name=st.session_state.get("bay_pdf_name") or "bay_procedure.pdf",
+            mime="application/pdf",
+            type="primary",
+            key="bay_pdf_dl",
+        )
 
-            st.markdown("#### Log tests as you go")
-            st.caption("Record each test result so you can stop and resume later. This also feeds the warranty story.")
-            steps = load_step_log(job)
-            if steps:
-                st.markdown("**Progress so far**")
-                for s in steps:
-                    test = (s.get("test") or s.get("step") or s.get("what") or s.get("action") or "").strip() or "(unnamed step)"
-                    result = s.get("result") or s.get("outcome") or "-"
-                    notes = (s.get("notes") or s.get("note") or "").strip()
-                    line = f"- **{test}** → {result}"
-                    if notes:
-                        line += f" · {notes}"
-                    st.write(line)
-
-            t1, t2 = st.columns(2)
-            with t1:
-                step_test = st.text_input("What test / step did you do?", key=f"step_test_{job.id}", placeholder="e.g. Checked 30A fuse / battery voltage")
-            with t2:
-                step_result = st.selectbox("Result", ["Pass", "Fail", "Inconclusive", "Info"], key=f"step_res_{job.id}")
-            step_notes = st.text_input("Notes (readings, LED codes, etc.)", key=f"step_notes_{job.id}", placeholder="e.g. 12.4V, motor LED red")
-            if st.button("Add to job log", key=f"add_step_{job.id}"):
-                if step_test.strip():
-                    steps.append({
-                        "test": step_test.strip(),
-                        "result": step_result,
-                        "notes": step_notes.strip(),
-                        "at": datetime.now().isoformat(timespec="minutes"),
-                    })
-                    save_step_log(job, steps)
-                    st.success("Step saved.")
-                    st.rerun()
-                else:
-                    st.warning("Enter what you tested.")
-
-            st.markdown("#### Findings / work performed (running notes)")
-            findings_val = st.text_area(
-                "Everything you found and fixed",
-                value=job.findings or "",
-                height=160,
-                key=f"findings_{job.id}",
-                placeholder="Found left Schwintek motor open circuit. Replaced motor, synced system, cycled room 3x OK.",
+    past = (
+        session.query(DiagnosticJob)
+        .filter_by(user_id=user["id"])
+        .order_by(DiagnosticJob.updated_date.desc())
+        .limit(12)
+        .all()
+    )
+    if past:
+        with st.expander("Past work-order jobs (archived — not a second plan UI)", expanded=False):
+            st.caption(
+                "Older Diagnostic Jobs stay on file. New plans are Bay procedure PDF. "
+                "Live coaching stays in Guided Diagnostics chat."
             )
-            rebuild_unity = st.selectbox(
-                "Lippert OneControl / Unity board on this coach?",
-                ["Not sure", "Yes", "No"],
-                key=f"rebuild_unity_gate_{job.id}",
-                help="Used when rebuilding the test plan. Yes/Not sure includes Unity + Electrical manuals.",
-            )
-            b1, b2, b3, b4 = st.columns(4)
-            with b1:
-                if st.button("💾 Save progress", key=f"save_{job.id}", use_container_width=True):
-                    job.findings = findings_val
-                    job.updated_date = datetime.now()
-                    session.commit()
-                    st.success("Progress saved.")
-            with b2:
-                if st.button("🔄 Rebuild test plan", key=f"rebuild_{job.id}", use_container_width=True):
-                    cat_obj = session.query(Category).filter_by(name=job.category_name).first()
-                    with st.spinner("Re-searching manuals..."):
-                        rb_sym = furnace_search_symptom(job.category_name, job.model_text or "", job.concern)
-                        rb_sym = fridge_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        rb_sym = ac_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        rb_sym = water_heater_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        rb_sym = cooktop_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        rb_sym = stabilizer_search_symptom(job.category_name, job.model_text or "", rb_sym)
-                        if (
-                            not skip_unity_for_ac(
-                                job.category_name, job.model_text or "", job.concern, rebuild_unity
-                            )
-                            and not skip_unity_for_water_heater(
-                                job.category_name, job.model_text or "", job.concern, rebuild_unity
-                            )
-                        ):
-                            rb_sym = unity_search_symptom(
-                                job.category_name, job.model_text or "", rb_sym, rebuild_unity
-                            )
-                        hits = search_manual_chunks(
-                            cat_obj.id if cat_obj else None,
-                            job.model_text or "",
-                            rb_sym,
-                            limit=16,
-                            unity_context=is_unity_context(
-                                job.category_name, job.model_text or "", job.concern, rebuild_unity
-                            ),
-                            ac_context=is_air_conditioning_context(
-                                job.category_name, job.model_text or "", job.concern
-                            ),
-                            water_heater_context=is_water_heater_context(
-                                job.category_name, job.model_text or "", job.concern
-                            ),
-                            cooktop_context=is_cooktop_pan_on_flameout_context(
-                                job.category_name, job.model_text or "", job.concern
-                            ),
-                            stabilizer_context=is_stabilizer_override_pin_context(
-                                job.category_name, job.model_text or "", job.concern
-                            ),
-                            ice_moisture_context=is_fridge_ice_moisture_context(
-                                job.category_name, job.model_text or "", job.concern
-                            ),
-                        )
-                        plan, sources, sources_json = run_guided_diagnostics(
-                            job.category_name, job.model_text or "", job.concern, hits, unity_gate=rebuild_unity
-                        )
-                    job.plan_text = plan
-                    job.sources_text = sources
-                    job.sources_json = sources_json
-                    job.findings = findings_val
-                    job.updated_date = datetime.now()
-                    session.commit()
-                    st.success("Test plan rebuilt from current manuals.")
-                    st.rerun()
-            with b3:
-                if st.button("✍️ Generate warranty story", key=f"story_{job.id}", type="primary", use_container_width=True):
-                    job.findings = findings_val
-                    session.commit()
-                    with st.spinner("Writing CONCERN → CAUSE → CORRECTION from this job..."):
-                        story = story_from_diagnostic_job(job)
-                    job.final_story = story
-                    job.updated_date = datetime.now()
-                    session.commit()
-                    st.success("Story generated and saved on this WO.")
-                    st.rerun()
-            with b4:
-                if st.button("✅ Mark complete", key=f"done_{job.id}", use_container_width=True):
-                    job.findings = findings_val
-                    job.status = "complete"
-                    job.updated_date = datetime.now()
-                    session.commit()
-                    st.success("Job marked complete.")
-                    st.rerun()
-
-            if job.final_story:
-                st.markdown("### Warranty story (saved on this WO)")
-                st.text_area("Copy into the warranty claim", value=job.final_story, height=280, key=f"final_story_{job.id}")
-                st.caption("This story is stored on the work order. Resume the same WO later and it will still be here.")
-
-            if st.button("Close active job view", key="clear_active"):
-                st.session_state.active_job_id = None
-                st.rerun()
-
+            for j in past:
+                st.write(
+                    f"WO {j.wo_number} · {j.status} · {j.category_name or '-'} · "
+                    f"{(j.concern or '')[:90]}"
+                )
 
 # =========================================================
 # ASK TECHTRACK
