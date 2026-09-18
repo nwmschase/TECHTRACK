@@ -4,6 +4,7 @@ import unittest
 from gd_library_coach import (
     AC_PRODUCT_LOCK,
     AC_SEARCH_BOOST,
+    FACR_FREEZE_SEARCH_BOOST,
     ac_search_symptom,
     claims_ac_library_empty,
     drop_unity_chunks_for_ac,
@@ -12,6 +13,10 @@ from gd_library_coach import (
     format_ac_library_honesty,
     is_ac_library_title,
     is_air_conditioning_context,
+    is_dometic_only_rooftop_ac,
+    is_facr_freeze_library_title,
+    is_facr_rooftop_freeze_context,
+    is_fridge_ice_moisture_context,
     is_unity_board_manual,
     rank_chunks_for_ac,
     score_ac_product,
@@ -22,6 +27,9 @@ from gd_library_coach import (
 CHASE_MODEL = "Furrion FACT12SA2 rooftop air conditioner"
 CHASE_CONCERN = "No cool. Interior fan runs. Looking for the FACT / rooftop AC procedure."
 CHASE_QUERY = f"{CHASE_MODEL} {CHASE_CONCERN}"
+FACR_MODEL = "Furrion FACR08HESA2-PS"
+FACR_CONCERN = "rooftop freeze / condensate leak from the base pan, ice and frost on the coil"
+FACR_QUERY = f"{FACR_MODEL} {FACR_CONCERN}"
 
 UNITY = {
     "title": "Lippert OneControl M Series Unity Board SM",
@@ -59,8 +67,27 @@ FRIDGE = {
     "excerpt": "12V refrigerator not cooling. Inoperable compressor section.",
     "page": 34,
 }
+CCD_7990 = {
+    "title": "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990",
+    "category": "Air Conditioning",
+    "excerpt": (
+        "Furrion rooftop HVAC troubleshooting and service. "
+        "Freeze, frost, condensate, base pan, suction icing."
+    ),
+    "page": 12,
+}
+CCD_8666 = {
+    "title": "Furrion Chill 8K Rooftop Air Conditioner FACR08HESA2 CCD-0008666",
+    "category": "Air Conditioning",
+    "excerpt": (
+        "Furrion Chill FACR08HESA2-PS rooftop air conditioner. "
+        "Freeze sensor tripped. Condensate drain and base pan."
+    ),
+    "page": 18,
+}
 
 LIBRARY = [UNITY, FACT, BRISK, ADB, FRIDGE]
+FACR_FREEZE_LIBRARY = [UNITY, BRISK, FACT, CCD_8666, CCD_7990, FRIDGE]
 
 
 class TestAcDetect(unittest.TestCase):
@@ -116,6 +143,16 @@ class TestAcDetect(unittest.TestCase):
                 "Lippert Level Up Advantage 807662",
                 "Manual Mode flashes",
             )
+        )
+
+    def test_facr_model_is_ac_not_fridge(self):
+        self.assertTrue(
+            is_air_conditioning_context("Air Conditioning", FACR_MODEL, FACR_CONCERN)
+        )
+        self.assertTrue(is_air_conditioning_context("", FACR_MODEL, "freeze / leak"))
+        self.assertTrue(skip_unity_for_ac("Air Conditioning", FACR_MODEL, FACR_CONCERN))
+        self.assertFalse(
+            is_fridge_ice_moisture_context("Air Conditioning", FACR_MODEL, FACR_CONCERN)
         )
 
 
@@ -239,6 +276,74 @@ class TestAcHonesty(unittest.TestCase):
         unity_note = figure_render_honesty_note(UNITY["title"], True)
         self.assertIn("wrong book", unity_note.lower())
         self.assertIn("air condition", unity_note.lower())
+
+
+class TestFacrFreezeRetrieval(unittest.TestCase):
+    def test_facr_freeze_context(self):
+        self.assertTrue(
+            is_facr_rooftop_freeze_context("Air Conditioning", FACR_MODEL, FACR_CONCERN)
+        )
+        self.assertTrue(
+            is_facr_rooftop_freeze_context("", FACR_MODEL, "base pan ice / melt leak")
+        )
+        self.assertTrue(
+            is_facr_rooftop_freeze_context("", "FACR08HESA2-PS", "suction icing")
+        )
+        self.assertFalse(
+            is_facr_rooftop_freeze_context("Air Conditioning", CHASE_MODEL, CHASE_CONCERN)
+        )
+        self.assertFalse(
+            is_facr_rooftop_freeze_context(
+                "Refrigerators", "Furrion FCR10DCGTA", "icing up on rear wall"
+            )
+        )
+        self.assertFalse(
+            is_facr_rooftop_freeze_context("Air Conditioning", "Dometic B57915", "no cool")
+        )
+
+    def test_boost_prefers_7990_and_8666_titles(self):
+        q = ac_search_symptom("Air Conditioning", FACR_MODEL, FACR_CONCERN)
+        low = q.lower()
+        self.assertIn("ccd-0007990", low)
+        self.assertIn("ccd-0008666", low)
+        self.assertIn("rooftop hvac troubleshooting", low)
+        self.assertIn("furrion chill", low)
+        self.assertIn("condensate", low)
+        self.assertIn("base pan", FACR_FREEZE_SEARCH_BOOST.lower())
+        self.assertNotIn("unity", low)
+
+    def test_facr_freeze_ranks_7990_and_allows_8666(self):
+        ranked = rank_chunks_for_ac(FACR_FREEZE_LIBRARY, FACR_QUERY, limit=4)
+        titles = [r["title"] for r in ranked]
+        self.assertIn(CCD_7990["title"], titles)
+        self.assertIn(CCD_8666["title"], titles)
+        self.assertNotIn(UNITY["title"], titles)
+        self.assertNotIn(BRISK["title"], titles)
+        self.assertGreater(
+            score_ac_product(CCD_7990, FACR_QUERY),
+            score_ac_product(BRISK, FACR_QUERY),
+        )
+        self.assertGreater(
+            score_ac_product(CCD_8666, FACR_QUERY),
+            score_ac_product(BRISK, FACR_QUERY),
+        )
+
+    def test_title_helpers_know_7990_and_8666(self):
+        self.assertTrue(is_facr_freeze_library_title(CCD_7990["title"]))
+        self.assertTrue(is_facr_freeze_library_title(CCD_8666["title"]))
+        self.assertTrue(is_ac_library_title(CCD_7990["title"]))
+        self.assertTrue(is_ac_library_title(CCD_8666["title"]))
+        self.assertTrue(is_dometic_only_rooftop_ac(BRISK["title"]))
+        self.assertFalse(is_dometic_only_rooftop_ac(CCD_7990["title"]))
+        self.assertFalse(is_facr_freeze_library_title(BRISK["title"]))
+        self.assertFalse(is_facr_freeze_library_title(FRIDGE["title"]))
+
+    def test_product_lock_names_existing_facr_titles_only(self):
+        t = AC_PRODUCT_LOCK.lower()
+        self.assertIn("ccd-0007990", t)
+        self.assertIn("ccd-0008666", t)
+        self.assertIn("facr", t)
+        self.assertIn("do not invent", t)
 
 
 if __name__ == "__main__":

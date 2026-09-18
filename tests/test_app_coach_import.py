@@ -66,6 +66,8 @@ class TestCoachModuleLoads(unittest.TestCase):
             "is_fridge_ice_moisture_context",
             "ICE_MOISTURE_PRODUCT_LOCK",
             "ensure_fridge_ice_moisture_path",
+            "is_facr_rooftop_freeze_context",
+            "FACR_FREEZE_SEARCH_BOOST",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -100,6 +102,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", names)
         self.assertIn("is_fridge_ice_moisture_context", names)
         self.assertIn("ensure_fridge_ice_moisture_path", names)
+        self.assertIn("is_facr_rooftop_freeze_context", names)
+        self.assertIn("FACR_FREEZE_SEARCH_BOOST", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -154,6 +158,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
         self.assertTrue(hasattr(loaded, "is_fridge_ice_moisture_context"))
+        self.assertTrue(hasattr(loaded, "is_facr_rooftop_freeze_context"))
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")

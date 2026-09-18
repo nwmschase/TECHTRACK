@@ -111,6 +111,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -201,12 +202,16 @@ LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
     re.I,
 )
 
-# Rooftop Air Conditioning (Furrion FACT*, Dometic B57915 / Brisk, ADB).
+# Rooftop Air Conditioning (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915 / Brisk, ADB).
 # NOT Lippert OneControl Unity M-Series awning/slide reversing — unless the tech
 # explicitly names OneControl / Unity / CAN multiplex for the AC controls.
-AC_MODELS = ("fact12sa2", "fact12", "b57915")
+AC_MODELS = ("fact12sa2", "fact12", "facr08hesa2", "facr08", "facr13", "facr15", "b57915")
 AC_DOC_MARKERS = (
     "fact12", "furrion fact",
+    "facr08", "furrion facr", "furrion chill",
+    "ccd-0007990", "ccd0007990",
+    "ccd-0008666", "ccd0008666",
+    "rooftop hvac",
     "b57915", "brisk",
     "rooftop ac", "roof top ac", "roof ac",
     "air condition", "air-condition",
@@ -215,25 +220,56 @@ AC_DOC_MARKERS = (
 )
 AC_SEARCH_BOOST = (
     "Furrion FACT rooftop air conditioner FACT12SA2 FACT12 "
+    "Furrion FACR Chill rooftop HVAC "
     "Dometic Brisk B57915 ADB air distribution box "
     "rooftop AC no cool E2 E3"
 )
 AC_FIGURE_SEARCH_BOOST = (
-    "Furrion FACT Dometic Brisk rooftop AC ADB "
+    "Furrion FACT FACR Chill Dometic Brisk rooftop AC ADB "
     "air distribution box wiring diagram Fig. figure"
 )
 AC_HINT_TITLES = (
     "Furrion FACT12SA2",
     "Furrion FACT rooftop air conditioner",
+    "Furrion Rooftop HVAC Troubleshooting & Service Manual",
+    "CCD-0007990",
+    "CCD-0008666",
+    "Furrion Chill FACR",
     "Dometic Brisk B57915",
     "Dometic Brisk rooftop AC",
 )
+# Furrion FACR* rooftop freeze / condensate / base-pan / ice (live HIT 2026-09-18
+# cited CCD-0008666 only). Prefer existing 7990 + 8666 titles — do not invent OEM text.
+FACR_MODEL_RE = re.compile(r"\bfacr\d", re.I)
+FACR_FREEZE_DOC_MARKERS = (
+    "ccd-0007990", "ccd0007990",
+    "ccd-0008666", "ccd0008666",
+    "furrion rooftop hvac",
+    "rooftop hvac troubleshooting",
+    "furrion chill",
+)
+FACR_FREEZE_SEARCH_BOOST = (
+    "CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual "
+    "CCD-0008666 Furrion Chill FACR rooftop air conditioner "
+    "freeze ice frost condensate base pan suction icing melt leak"
+)
+FACR_FREEZE_FIGURE_SEARCH_BOOST = (
+    "CCD-0007990 Furrion Rooftop HVAC Troubleshooting "
+    "CCD-0008666 Furrion Chill FACR rooftop AC Fig. figure"
+)
+FACR_FREEZE_HINT_TITLES = (
+    "CCD-0007990",
+    "Furrion Rooftop HVAC Troubleshooting & Service Manual",
+    "CCD-0008666",
+    "Furrion Chill FACR",
+)
 AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
-- Furrion FACT* (FACT12SA2), Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
-- Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT manuals FIRST.
+- Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
+- Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
-- Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / Brisk / ADB title exists in the catalog or this turn's excerpts.
+- Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
 - If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
 - If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the AC procedure.
 """
@@ -534,6 +570,8 @@ def figure_library_search_boost(user_msg: str) -> str:
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
         if is_air_conditioning_context("", "", user_msg):
             extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
+            if is_facr_rooftop_freeze_context("", "", user_msg):
+                extra = f"{FACR_FREEZE_FIGURE_SEARCH_BOOST} {extra}"
         if is_water_heater_context("", "", user_msg):
             extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
         return extra
@@ -543,6 +581,8 @@ def figure_library_search_boost(user_msg: str) -> str:
             extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
         if is_air_conditioning_context("", "", user_msg):
             extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
+            if is_facr_rooftop_freeze_context("", "", user_msg):
+                extra = f"{FACR_FREEZE_FIGURE_SEARCH_BOOST} {extra}"
         if is_water_heater_context("", "", user_msg):
             extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
         return extra
@@ -637,11 +677,32 @@ def skip_unity_for_level_up(
     return is_level_up_advantage_context(category_name, model_text, symptom)
 
 
+def _compact_ccd(text: str) -> str:
+    """ccd-0007990 / CCD 0007990 → ccd0007990 for title matching."""
+    return re.sub(r"[^a-z0-9]", "", _norm(text))
+
+
+def _looks_like_furrion_fcr_fridge(text: str) -> bool:
+    """Furrion FCR08/FCR10 fridge — not rooftop FACR* (which contains the letters fcr)."""
+    t = _norm(text)
+    if not t or FACR_MODEL_RE.search(t):
+        return False
+    if "furrion fcr" in t or re.search(r"\bfcr\d", t):
+        return True
+    return "furrion" in t and bool(re.search(r"\bfcr\b", t))
+
+
 def _fridge_blob_not_ac(blob: str) -> bool:
     """True when this looks like a refrigerator job, not rooftop AC."""
+    if FACR_MODEL_RE.search(blob):
+        return False
     if any(k in blob for k in ("fridge", "reefer", "refriger", "fcr0", "fcr1", "norcold")):
-        if re.search(r"\bfact\d", blob):
+        if re.search(r"\bfact\d", blob) or FACR_MODEL_RE.search(blob):
             return False
+        if "air condition" in blob or "rooftop" in blob:
+            return False
+        return True
+    if _looks_like_furrion_fcr_fridge(blob) and not FACR_MODEL_RE.search(blob):
         if "air condition" in blob or "rooftop" in blob:
             return False
         return True
@@ -672,8 +733,8 @@ def is_air_conditioning_context(
     symptom: str = "",
 ) -> bool:
     """
-    Rooftop Air Conditioning: category, Furrion FACT*, Dometic B57915/Brisk,
-    ADB, E2/E3 AC codes, no-cool AC. Fridge 'not cooling' is not AC.
+    Rooftop Air Conditioning: category, Furrion FACT*, Furrion FACR* / Chill,
+    Dometic B57915/Brisk, ADB, E2/E3 AC codes, no-cool AC. Fridge 'not cooling' is not AC.
     """
     cat = _norm(category_name)
     if "air condition" in cat or cat in ("a/c", "ac", "hvac"):
@@ -683,7 +744,7 @@ def is_air_conditioning_context(
         return False
     if any(m in blob for m in AC_MODELS):
         return True
-    if re.search(r"\bfact\d", blob):
+    if re.search(r"\bfact\d", blob) or FACR_MODEL_RE.search(blob):
         return True
     if "brisk" in blob or "b57915" in blob:
         return True
@@ -723,27 +784,132 @@ def skip_unity_for_ac(
 
 
 def is_ac_library_title(title: str) -> bool:
-    """Catalog titles that are rooftop AC / FACT / Brisk / ADB — not Unity."""
+    """Catalog titles that are rooftop AC / FACT / FACR / Brisk / ADB — not Unity."""
     t = _norm(title)
     if not t or is_unity_board_manual(t):
         return False
-    if any(m in t for m in AC_MODELS) or re.search(r"\bfact\d", t):
+    if any(m in t for m in AC_MODELS) or re.search(r"\bfact\d", t) or FACR_MODEL_RE.search(t):
         return True
     if any(p in t for p in AC_DOC_MARKERS):
         return True
-    if "furrion" in t and any(k in t for k in ("fact", "air condition", "rooftop", "a/c")):
+    if is_facr_freeze_library_title(title):
+        return True
+    if "furrion" in t and any(k in t for k in ("fact", "facr", "chill", "air condition", "rooftop", "a/c", "hvac")):
         return True
     if "dometic" in t and any(k in t for k in ("brisk", "penguin", "air condition", "rooftop", "b57915", "adb")):
         return True
     return False
 
 
+def looks_like_facr_rooftop(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """True for Furrion FACR* / Chill rooftop HVAC — not fridge FCR08/FCR10."""
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    if FACR_MODEL_RE.search(blob) or any(
+        m in blob for m in ("facr08hesa2", "facr08", "facr13", "facr15")
+    ):
+        return True
+    if "facr" in blob and any(
+        k in blob for k in ("furrion", "chill", "rooftop", "hvac", "air condition")
+    ):
+        return True
+    return False
+
+
+def looks_like_rooftop_freeze_complaint(text: str) -> bool:
+    """Freeze / ice / frost / condensate / base-pan / suction icing / melt-leak wording."""
+    t = _norm(text)
+    if not t:
+        return False
+    if any(
+        k in t
+        for k in (
+            "condensate",
+            "condensation",
+            "base pan",
+            "base-pan",
+            "basepan",
+            "melt leak",
+            "melt-leak",
+            "suction ic",
+        )
+    ):
+        return True
+    return bool(re.search(r"\b(freeze|freezing|frozen|ice|icing|frost|frosting)\b", t))
+
+
+def is_facr_rooftop_freeze_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Furrion FACR* rooftop + freeze / ice / frost / condensate / base pan / melt leak.
+    Fridge FCR ice/moisture and Dometic-only rooftop jobs lose.
+    """
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_stabilizer_override_pin_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if _looks_like_furrion_fcr_fridge(blob) and not looks_like_facr_rooftop(
+        category_name, model_text, symptom
+    ):
+        return False
+    if not looks_like_facr_rooftop(category_name, model_text, symptom):
+        return False
+    return looks_like_rooftop_freeze_complaint(blob)
+
+
+def is_facr_freeze_library_title(title: str) -> bool:
+    """Existing shop titles for CCD-0007990 and CCD-0008666 — no invented names."""
+    t = _norm(title)
+    if not t:
+        return False
+    compact = _compact_ccd(t)
+    if "ccd0007990" in compact or "ccd0008666" in compact:
+        return True
+    if any(p in t for p in FACR_FREEZE_DOC_MARKERS):
+        return True
+    if "furrion" in t and "rooftop" in t and "hvac" in t and any(
+        k in t for k in ("troubleshoot", "service")
+    ):
+        return True
+    if "furrion" in t and "chill" in t and any(
+        k in t for k in ("facr", "rooftop", "air condition")
+    ):
+        return True
+    if FACR_MODEL_RE.search(t) and any(k in t for k in ("rooftop", "air condition", "hvac", "chill")):
+        return True
+    return False
+
+
+def is_dometic_only_rooftop_ac(title: str) -> bool:
+    """Dometic Brisk / Penguin / B57915 rooftop books — not Furrion FACR 7990/8666."""
+    t = _norm(title)
+    if not t or is_facr_freeze_library_title(t):
+        return False
+    if "furrion" in t or FACR_MODEL_RE.search(t) or "facr" in t:
+        return False
+    return any(k in t for k in ("dometic", "brisk", "b57915", "penguin"))
+
+
 def ac_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward FACT / Brisk / ADB rooftop AC. Never add Unity terms."""
+    """Rewrite the library query toward FACT / FACR / Brisk / ADB rooftop AC. Never add Unity terms."""
     symptom = (symptom or "").strip()
     if not is_air_conditioning_context(category_name, model_text, symptom):
         return symptom
-    return f"{symptom} {AC_SEARCH_BOOST}".strip()
+    extra = AC_SEARCH_BOOST
+    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+        extra = f"{extra} {FACR_FREEZE_SEARCH_BOOST}"
+    return f"{symptom} {extra}".strip()
 
 
 def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
@@ -842,8 +1008,10 @@ def drop_unity_chunks_for_level_up(chunks) -> list:
 
 def score_ac_product(page, query: str = "", category: str = "") -> int:
     """
-    Higher = Furrion/Dometic rooftop AC / ADB / Brisk / FACT doc.
+    Higher = Furrion/Dometic rooftop AC / ADB / Brisk / FACT / FACR doc.
     Unity M-Series awning/slide reversing must lose on AC jobs.
+    FACR freeze / condensate / base-pan prefers CCD-0007990 + CCD-0008666
+    over Dometic-only rooftop books.
     """
     raw = _page_text_blob(page)
     title = _page_title(page)
@@ -859,9 +1027,11 @@ def score_ac_product(page, query: str = "", category: str = "") -> int:
         score += 22
     if any(m in t or m in q for m in AC_MODELS) or re.search(r"\bfact\d", t) or re.search(r"\bfact\d", q):
         score += 12
+    if FACR_MODEL_RE.search(t) or FACR_MODEL_RE.search(q):
+        score += 12
     if "brisk" in t or "b57915" in t:
         score += 12
-    if "air condition" in t or "rooftop" in t:
+    if "air condition" in t or "rooftop" in t or "hvac" in t:
         score += 10
     if re.search(r"\badb\b", t) or "air distribution" in t:
         score += 8
@@ -869,6 +1039,24 @@ def score_ac_product(page, query: str = "", category: str = "") -> int:
         score += 8
     if any(k in t for k in ("e2", "e3", "no cool", "not cool")):
         score += 4
+    compact = _compact_ccd(t)
+    if "ccd0007990" in compact or "ccd0008666" in compact:
+        score += 10
+    if is_facr_freeze_library_title(title) or is_facr_freeze_library_title(t):
+        score += 8
+    if is_facr_rooftop_freeze_context("", "", q or query):
+        if is_facr_freeze_library_title(title) or is_facr_freeze_library_title(t):
+            score += 16
+        if any(
+            k in t
+            for k in (
+                "freeze", "ice", "frost", "condensate", "base pan",
+                "icing", "melt leak", "suction",
+            )
+        ):
+            score += 6
+        if is_dometic_only_rooftop_ac(title) or is_dometic_only_rooftop_ac(t):
+            score -= 22
     if is_unity_board_manual(title) or is_unity_board_manual(t):
         score -= 36
     if "awning" in t and "slide" in t:
@@ -882,13 +1070,49 @@ def score_ac_product(page, query: str = "", category: str = "") -> int:
     return score
 
 
+def _chunk_has_ccd(page, ccd_compact: str) -> bool:
+    blob = _compact_ccd(f"{_page_title(page)} {_page_text_blob(page)}")
+    return ccd_compact in blob
+
+
+def _ensure_facr_freeze_pair(out: list, scored: list, limit: int) -> list:
+    """Keep both CCD-0007990 and CCD-0008666 in FACR freeze ranking when present."""
+    missing = []
+    for needle in ("ccd0007990", "ccd0008666"):
+        if any(_chunk_has_ccd(ch, needle) for ch in out):
+            continue
+        for _sc, ch in scored:
+            if _chunk_has_ccd(ch, needle):
+                missing.append(ch)
+                break
+    if not missing:
+        return out
+    merged = list(missing) + list(out)
+    seen = set()
+    deduped = []
+    for ch in merged:
+        key = (_page_title(ch), _page_number(ch), _page_text_blob(ch)[:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ch)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
 def rank_chunks_for_ac(chunks, query: str, limit: int = 8) -> list:
-    """Prefer rooftop AC / FACT / Brisk / ADB pages; drop Unity board SM when an AC hit exists."""
+    """Prefer rooftop AC / FACT / FACR / Brisk / ADB pages; drop Unity board SM when an AC hit exists."""
     scored = [(score_ac_product(ch, query), ch) for ch in (chunks or [])]
     scored.sort(key=lambda x: x[0], reverse=True)
     has_ac = any(
         sc > 0 and is_ac_library_title(_page_title(ch) or _page_text_blob(ch))
         for sc, ch in scored
+    )
+    facr_freeze = is_facr_rooftop_freeze_context("", "", query)
+    has_facr_docs = any(
+        is_facr_freeze_library_title(_page_title(ch) or _page_text_blob(ch))
+        for _sc, ch in scored
     )
     out = []
     for sc, ch in scored:
@@ -897,9 +1121,15 @@ def rank_chunks_for_ac(chunks, query: str, limit: int = 8) -> list:
         if is_unity_board_manual(title) or is_unity_board_manual(blob):
             if has_ac or sc < 0:
                 continue
+        if facr_freeze and has_facr_docs and (
+            is_dometic_only_rooftop_ac(title) or is_dometic_only_rooftop_ac(blob)
+        ):
+            continue
         out.append(ch)
         if len(out) >= limit:
             break
+    if facr_freeze:
+        out = _ensure_facr_freeze_pair(out, scored, limit)
     if out:
         return out
     return [
@@ -1364,7 +1594,7 @@ def is_fcr_e2_fan_fault_context(
         or any(k in blob for k in ("fridge", "reefer", "refriger", "fcr08", "fcr10", "fcr0", "fcr1"))
         or "ccd-0008122" in blob
         or "ccd0008122" in blob
-        or ("furrion" in blob and "fcr" in blob)
+        or _looks_like_furrion_fcr_fridge(blob)
     )
     if not fridge:
         return False
@@ -1428,7 +1658,7 @@ def score_fcr_fan_fault_chunk(page, query: str = "") -> int:
     )
     if board_rr and "fan" not in t:
         score -= 12
-    if any(k in t for k in ("rooftop", "air condition", "fact12", "brisk", "b57915")):
+    if any(k in t for k in ("rooftop", "air condition", "fact12", "facr", "brisk", "b57915")):
         score -= 16
     q = _norm(query)
     if q and any(k in q for k in ("e2", "fan fault", "2 flash", "freezer")):
@@ -1989,11 +2219,13 @@ def _is_fridge_job_blob(category_name: str = "", blob: str = "") -> bool:
     t = _norm(blob)
     if "refriger" in cat or "fridge" in cat:
         return True
+    if FACR_MODEL_RE.search(t):
+        return False
     if any(k in t for k in ("fridge", "reefer", "refriger", "fcr08", "fcr10", "fcr0", "fcr1")):
         return True
     if "ccd-0008122" in t or "ccd0008122" in t:
         return True
-    if "furrion" in t and "fcr" in t:
+    if _looks_like_furrion_fcr_fridge(t):
         return True
     if "arctic" in t and any(
         k in t for k in ("fridge", "refriger", "ice", "icing", "frost", "moisture")
