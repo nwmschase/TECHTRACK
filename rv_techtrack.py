@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.10
+RV TechTrack v4.13.11
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -55,6 +55,7 @@ RV TechTrack v4.13.10
 - v4.13.8: cooktop pan-on flame-out checks thermocouple tip with pan on; PSX1 seized override pin is complete jack assembly R&R
 - v4.13.9: reload stale gd_library_coach when category constants are missing (Streamlit AttributeError)
 - v4.13.10: fridge rear/back-wall ice/frost retrieves CCD-0008122 Ice and Moisture p.36 / Fig.36 (not fuse/12V)
+- v4.13.11: Furrion FACR* rooftop freeze/condensate/base-pan ranks CCD-0007990 with CCD-0008666
 - Mobile-friendly
 """
 import streamlit as st
@@ -125,6 +126,7 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_cooktop_pan_on_flameout_context",
     "is_stabilizer_override_pin_context",
     "is_fridge_ice_moisture_context",
+    "is_facr_rooftop_freeze_context",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -175,6 +177,8 @@ def _load_gd_library_coach():
 _gdc = _load_gd_library_coach()
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES
 AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
+FACR_FREEZE_HINT_TITLES = _gdc.FACR_FREEZE_HINT_TITLES
+FACR_FREEZE_SEARCH_BOOST = _gdc.FACR_FREEZE_SEARCH_BOOST
 COOKTOP_HINT_TITLES = _gdc.COOKTOP_HINT_TITLES
 COOKTOP_PRODUCT_LOCK = _gdc.COOKTOP_PRODUCT_LOCK
 COOKTOP_SEARCH_BOOST = _gdc.COOKTOP_SEARCH_BOOST
@@ -204,6 +208,9 @@ WATER_HEATERS_CATEGORY = _gdc.WATER_HEATERS_CATEGORY
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
 ac_search_symptom = _gdc.ac_search_symptom
+is_facr_freeze_library_title = _gdc.is_facr_freeze_library_title
+is_facr_rooftop_freeze_context = _gdc.is_facr_rooftop_freeze_context
+is_dometic_only_rooftop_ac = _gdc.is_dometic_only_rooftop_ac
 cooktop_search_symptom = _gdc.cooktop_search_symptom
 error_code_query_terms = _gdc.error_code_query_terms
 claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
@@ -1658,8 +1665,9 @@ def search_manual_chunks(
     pages and do not let procedure-voltage scoring crown Quick Notes.
     level_up_context is GD-chat only (Jobs leave it False): search Leveling /
     Level-Up titles first and do not let Unity Electrical SM win 807662 jobs.
-    ac_context: rooftop Air Conditioning — prefer FACT/Brisk/ADB and do not let
+    ac_context: rooftop Air Conditioning — prefer FACT/FACR/Brisk/ADB and do not let
     Unity Electrical SM win unless the tech named OneControl/Unity/CAN.
+    FACR freeze/condensate/base-pan prefers CCD-0007990 + CCD-0008666 over Dometic-only.
     fan_fault_context is GD-chat only (Jobs leave it False): Furrion FCR E2 /
     Fan Fault Current — prefer Fan Fault Diagnostics + Fan Replacement.
     water_heater_context: Girard GSWH-2 / Water Heaters — include that category
@@ -1846,6 +1854,14 @@ def search_manual_chunks(
             "pin", "assembly", "complete",
         ):
             query_terms.add(t)
+    facr_freeze_job = is_facr_rooftop_freeze_context("", model_text or "", symptom or "")
+    if ac_context and facr_freeze_job and not figure_seek:
+        for t in (
+            "facr", "7990", "8666", "ccd0007990", "ccd0008666",
+            "freeze", "ice", "frost", "condensate", "pan",
+            "icing", "hvac", "chill",
+        ):
+            query_terms.add(t)
     # Core path terms for RV furnace - sail switch is first-line, even if the tech
     # only typed "won't light" / "fan runs" / Dometic furnace.
     furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
@@ -1895,8 +1911,18 @@ def search_manual_chunks(
             if any(x in title_kw for x in ("furnace", "rooftop", "chill cube", "air condition")) and "refriger" not in title_kw:
                 sc -= 8
         if ac_context:
-            if any(x in title_kw for x in ("air condition", "rooftop", "fact", "brisk", "b57915", "adb")):
+            if any(
+                x in title_kw
+                for x in (
+                    "air condition", "rooftop", "fact", "facr", "chill",
+                    "hvac", "ccd-0007990", "ccd-0008666", "brisk", "b57915", "adb",
+                )
+            ):
                 sc += 5
+            if facr_freeze_job and is_facr_freeze_library_title(title_kw):
+                sc += 10
+            if facr_freeze_job and is_dometic_only_rooftop_ac(title_kw):
+                sc -= 16
             if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
                 sc -= 20
         if water_heater_context:
@@ -4126,7 +4152,7 @@ Rules:
 15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
+18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
