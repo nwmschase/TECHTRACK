@@ -56,6 +56,7 @@ RV TechTrack v4.14.0
 - v4.13.9: reload stale gd_library_coach when category constants are missing (Streamlit AttributeError)
 - v4.13.10: fridge rear/back-wall ice/frost retrieves CCD-0008122 Ice and Moisture p.36 / Fig.36 (not fuse/12V)
 - v4.13.11: Furrion FACR* rooftop freeze/condensate/base-pan ranks CCD-0007990 with CCD-0008666
+- v4.13.12: Level Up Manual Mode flash-home + Auto works is Firefly/OneControl CAN isolate (terminator in)
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - Mobile-friendly
 """
@@ -129,6 +130,7 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_fridge_ice_moisture_context",
     "is_facr_rooftop_freeze_context",
     "is_firefly_can_path_context",
+    "is_level_up_manual_can_conflict_context",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -196,6 +198,8 @@ FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
 FURRION_FCR_FAN_FAULT_PAGES = _gdc.FURRION_FCR_FAN_FAULT_PAGES
 HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
 LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
+LEVEL_UP_CAN_PRODUCT_LOCK = _gdc.LEVEL_UP_CAN_PRODUCT_LOCK
+LEVEL_UP_CAN_SEARCH_BOOST = _gdc.LEVEL_UP_CAN_SEARCH_BOOST
 LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
 OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
 PSX1_HINT_TITLES = _gdc.PSX1_HINT_TITLES
@@ -222,6 +226,7 @@ coach_library_search_boost = _gdc.coach_library_search_boost
 ensure_cooktop_tip_pan_check = _gdc.ensure_cooktop_tip_pan_check
 ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
 ensure_fridge_ice_moisture_path = _gdc.ensure_fridge_ice_moisture_path
+ensure_level_up_manual_can_path = _gdc.ensure_level_up_manual_can_path
 ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
 fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
@@ -247,6 +252,8 @@ ice_moisture_search_symptom = _gdc.ice_moisture_search_symptom
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
+is_level_up_manual_can_conflict_context = _gdc.is_level_up_manual_can_conflict_context
+is_level_up_manual_dump_context = _gdc.is_level_up_manual_dump_context
 is_stabilizer_override_pin_context = _gdc.is_stabilizer_override_pin_context
 is_unity_board_manual = _gdc.is_unity_board_manual
 is_water_heater_context = _gdc.is_water_heater_context
@@ -263,6 +270,7 @@ rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
 rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
 rank_chunks_for_ice_moisture = _gdc.rank_chunks_for_ice_moisture
 rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
+rank_chunks_for_level_up_can = _gdc.rank_chunks_for_level_up_can
 rank_chunks_for_stabilizer_override = _gdc.rank_chunks_for_stabilizer_override
 rank_chunks_for_water_heater = _gdc.rank_chunks_for_water_heater
 reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
@@ -271,6 +279,7 @@ score_cooktop_pan_on_chunk = _gdc.score_cooktop_pan_on_chunk
 score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
 score_figure_page = _gdc.score_figure_page
 score_ice_moisture_chunk = _gdc.score_ice_moisture_chunk
+score_level_up_can_chunk = _gdc.score_level_up_can_chunk
 score_level_up_product = _gdc.score_level_up_product
 score_stabilizer_override_chunk = _gdc.score_stabilizer_override_chunk
 score_water_heater_product = _gdc.score_water_heater_product
@@ -1860,6 +1869,15 @@ def search_manual_chunks(
             "flame", "sensor", "cooktop", "range",
         ):
             query_terms.add(t)
+    level_up_can_job = is_level_up_manual_can_conflict_context(
+        "", model_text or "", symptom or ""
+    )
+    if (level_up_context or level_up_can_job) and level_up_can_job and not figure_seek:
+        for t in (
+            "firefly", "terminator", "isolate", "wired", "manual",
+            "can", "brinkley", "firmware",
+        ):
+            query_terms.add(t)
     if stabilizer_context and not figure_seek:
         for t in (
             "stabilizer", "jack", "psx1", "override", "roll",
@@ -1894,7 +1912,9 @@ def search_manual_chunks(
         sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
         if figure_seek:
             sc += score_figure_page(ch, symptom or "")
-        if level_up_context:
+        if level_up_can_job:
+            sc += score_level_up_can_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        elif level_up_context:
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         if ac_context:
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
@@ -2011,7 +2031,9 @@ def search_manual_chunks(
         sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
         if figure_seek:
             sc += score_figure_page(ch, symptom or "")
-        if level_up_context:
+        if level_up_can_job:
+            sc += score_level_up_can_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        elif level_up_context:
             sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
         if ac_context:
             sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
@@ -2056,6 +2078,8 @@ def search_manual_chunks(
         out = rank_chunks_for_stabilizer_override(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if ice_moisture_context:
         out = rank_chunks_for_ice_moisture(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if level_up_can_job:
+        out = rank_chunks_for_level_up_can(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
 
 
@@ -3099,6 +3123,12 @@ CRITICAL RULES:
             else ""
         )
         ice_rule = ICE_MOISTURE_PRODUCT_LOCK if ice_job else ""
+        level_up_can_rule = (
+            LEVEL_UP_CAN_PRODUCT_LOCK
+            if is_level_up_manual_can_conflict_context(category_name, model_text, symptom)
+            or is_level_up_manual_dump_context(category_name, model_text, symptom)
+            else ""
+        )
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
@@ -3110,6 +3140,7 @@ SYMPTOM: {symptom}
 {cooktop_rule}
 {stab_rule}
 {ice_rule}
+{level_up_can_rule}
 {DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
@@ -4165,6 +4196,7 @@ Rules:
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
 18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
+18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator); reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless Manual stays CAN-out.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
@@ -4207,6 +4239,7 @@ def _ask_manual_context(
     level_up = is_level_up_advantage_context(
         category_name, model_text, symptom
     ) or is_firefly_can_path_context(category_name, model_text, symptom)
+    level_up_can = is_level_up_manual_can_conflict_context(category_name, model_text, symptom)
     ac_job = is_air_conditioning_context(category_name, model_text, symptom)
     water_heater_job = is_water_heater_context(category_name, model_text, symptom)
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
@@ -4266,9 +4299,14 @@ def _ask_manual_context(
     honesty = ""
     if level_up:
         chunks = drop_unity_chunks_for_level_up(chunks)
-        chunks = rank_chunks_for_level_up(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
+        if level_up_can:
+            chunks = rank_chunks_for_level_up_can(
+                chunks, f"{model_text} {figure_query or symptom}", limit=limit
+            )
+        else:
+            chunks = rank_chunks_for_level_up(
+                chunks, f"{model_text} {figure_query or symptom}", limit=limit
+            )
         honesty = format_level_up_library_honesty(list_library_catalog_docs(), chunks)
         if not chunks:
             return [], honesty
@@ -4323,6 +4361,9 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, search_symptom)
     stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, search_symptom)
     ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, search_symptom)
+    level_up_can_job = is_level_up_manual_can_conflict_context(
+        category_name, model_text, search_symptom
+    ) or is_level_up_manual_dump_context(category_name, model_text, search_symptom)
     if (
         not ice_moisture_job
         and is_fridge_context(category_name, model_text, search_symptom)
@@ -4399,6 +4440,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     water_heater_job = is_water_heater_context(category_name, model_text, search_symptom)
     if level_up_job or firefly_job:
         system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
+    if level_up_can_job or facts.get("manual_dump") or facts.get("can_isolate"):
+        system_prompt += "\n\n" + LEVEL_UP_CAN_PRODUCT_LOCK
     if ac_job:
         system_prompt += "\n\n" + AC_PRODUCT_LOCK
     if water_heater_job:
@@ -4506,6 +4549,13 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ensure_stabilizer_assembly_rr(reply, facts)
     if ice_moisture_job:
         reply = ensure_fridge_ice_moisture_path(reply)
+    if (
+        level_up_can_job
+        or facts.get("manual_dump")
+        or facts.get("can_isolate")
+        or facts.get("auto_level") == "works"
+    ):
+        reply = ensure_level_up_manual_can_path(reply, facts)
     reasked = reply_reasks_stated_facts(reply, facts)
     if reasked:
         retry_rule = (

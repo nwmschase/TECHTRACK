@@ -112,7 +112,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
-- Level-Up Manual Mode flashes or dumps to home while Auto still works: Firefly CAN path — cheap proves, then isolate with the rubber-boot terminator left in (wired CAN out). If Manual stays: Firefly USB firmware, 574-825-4600, stick ≤4 GB + interim. Do not frame it as confirm Manual dump works.
+- Lippert Level Up / 807662 Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator). Reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless CAN-out Manual stays. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -201,12 +201,66 @@ LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
 - Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
 - If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
 - If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.
+- Manual Mode flash/dump-to-home while Auto Level or other pad functions still work is a Firefly/OneControl CAN-isolate prove (terminator stays in; unplug wired coach CAN only). Do not open board/LCD swap first. Firefly USB firmware is the fix only when Manual stays with CAN out. If Manual still dumps with CAN out, stay Lippert — do not swap another 807662 for Firefly blame and do not push Firefly USB.
 """
 LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
     r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
     r"(level[\s-]*up|807662|leveling controller)|"
     r"(no|not|lack|missing|doesn't have|does not have|do not have).{0,50}"
     r"(level[\s-]*up|807662).{0,40}(manual|procedure|diagnos|controller|guide)",
+    re.I,
+)
+
+# Level Up Manual Mode flash-home while Auto Level still works — Firefly/OneControl
+# CAN isolate. Narrow shop path only. Not a Firefly encyclopedia. Not Unity SM.
+LEVEL_UP_CAN_SEARCH_BOOST = (
+    "Manual Mode flash home Auto Level Firefly CAN terminator "
+    "wired coach CAN isolate 807662 Brinkley USB firmware"
+)
+LEVEL_UP_CAN_PRODUCT_LOCK = """
+LEVEL UP MANUAL MODE / FIREFLY CAN PRODUCT LOCK (807662, Auto Level still works):
+- Manual Mode flashes then dumps to home while Auto Level or other pad functions still work is a CAN-isolate prove. It is NOT a board/LCD swap-first path.
+- Cheap proves first: power looks sane / no brownout; Auto Level works; dump is not sticky Low Voltage / Excess Angle / External Sensor (clear those first if present).
+- Then: leave the rubber-boot terminator plugged in. Unplug only the wired coach CAN (Firefly/OneControl). Retry Manual Mode.
+- Manual stays with CAN out → Firefly/CAN conflict confirmed. Tell the tech to reconnect wired CAN after the prove unless using the interim. Real fix = Firefly USB firmware update: read GUI + CCM from Settings, call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch OFF (solar can stay ON) so Firefly drops, OR leave wired CAN unplugged with the terminator in.
+- Manual still dumps with CAN out → NOT this issue. Stay Lippert sensor / harness / support. Do NOT swap another 807662 for Firefly blame alone. Do NOT push Firefly USB as the fix.
+- Do not build a Firefly encyclopedia. Do not cite Unity awning/slide reversing SM as the Level Up procedure.
+"""
+LEVEL_UP_CAN_ISOLATE_SHOP_LINE = (
+    "Cheap proves look sane (power / no brownout; Auto Level or other pad functions still work; "
+    "dump is not sticky Low Voltage / Excess Angle / External Sensor — clear those first if present). "
+    "Next: leave the rubber-boot terminator plugged in. Unplug only the wired coach CAN "
+    "(Firefly/OneControl). Retry Manual Mode.\n"
+    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+)
+LEVEL_UP_CAN_FIREFLY_SHOP_LINE = (
+    "Manual Mode stays with wired coach CAN unplugged (terminator still in) — Firefly/OneControl "
+    "CAN conflict is confirmed. Reconnect the wired CAN after this prove unless you are using "
+    "the interim below. Real fix: Firefly USB firmware update — read GUI and CCM from Settings, "
+    "call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch "
+    "OFF (solar can stay ON) so Firefly drops, OR leave wired CAN unplugged with the terminator in.\n"
+    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+)
+LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE = (
+    "Manual Mode still dumps with wired coach CAN unplugged (terminator still in) — this is NOT "
+    "a Firefly/OneControl CAN conflict. Stay on the Lippert sensor / harness / support path. "
+    "Do not swap another 807662 for Firefly blame alone. Do not push a Firefly USB firmware "
+    "update as the fix.\n"
+    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+)
+LEVEL_UP_CAN_CHEAP_PROVES_SHOP_LINE = (
+    "Manual Mode flashes then dumps to home on Level Up. Before CAN isolate or parts: confirm "
+    "power looks sane / no brownout, Auto Level (or other pad functions) still work, and the dump "
+    "is not sticky Low Voltage / Excess Angle / External Sensor (clear those first if present).\n"
+    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+)
+LEVEL_UP_BOARD_SWAP_RE = re.compile(
+    r"(replace|swap|r\s*&\s*r|r and r).{0,50}"
+    r"(another\s+)?(807662|controller|level(?:ing)?\s+board|\blcd\b)",
+    re.I,
+)
+FIREFLY_USB_PUSH_RE = re.compile(
+    r"(firefly.{0,60}usb|usb.{0,40}(firmware|firefly|stick)|574[\s-]*825[\s-]*4600)",
     re.I,
 )
 
@@ -685,15 +739,143 @@ def skip_unity_for_level_up(
     return is_level_up_advantage_context(category_name, model_text, symptom)
 
 
-def is_firefly_can_path_context(
+
+def _has_manual_mode_dump_marker(blob: str) -> bool:
+    """Manual Mode flashes / dumps / won't stay / returns to home on a Level Up pad."""
+    t = _norm(blob)
+    if not t:
+        return False
+    manual = bool(
+        re.search(r"\bmanual\s+mode\b", t)
+        or (
+            re.search(r"\bmanual\b", t)
+            and any(
+                k in t
+                for k in (
+                    "level up",
+                    "level-up",
+                    "levelup",
+                    "leveling",
+                    "807662",
+                    "octp",
+                    "advantage",
+                )
+            )
+        )
+    )
+    dump = bool(
+        re.search(
+            r"\b("
+            r"flash(?:es|ing|ed)?|"
+            r"dumps?|dumped|"
+            r"won'?t\s+stay|will\s+not\s+stay|wont\s+stay|"
+            r"returns?\s+(?:to\s+)?(?:home|first\s+screen)|"
+            r"kicks?\s+(?:back|home|to\s+home)|"
+            r"drops?\s+(?:to\s+)?home|"
+            r"goes?\s+(?:back\s+)?(?:to\s+)?home|"
+            r"home\s+screen"
+            r")\b",
+            t,
+        )
+        or "flash home" in t
+        or "flash-home" in t
+        or "flash then home" in t
+    )
+    return bool(manual and dump)
+
+
+def _has_auto_level_fail(blob: str) -> bool:
+    t = _norm(blob)
+    if not t:
+        return False
+    return bool(
+        re.search(
+            r"\bauto(?:\s+level)?\b.{0,40}\b("
+            r"won'?t|will\s+not|wont|doesn'?t|does\s+not|failed|fails|not\s+work"
+            r")\b",
+            t,
+        )
+        or re.search(
+            r"\b("
+            r"won'?t|will\s+not|wont|doesn'?t|does\s+not|failed|fails|not\s+work"
+            r")\b.{0,40}\bauto(?:\s+level)?\b",
+            t,
+        )
+    )
+
+
+def _has_auto_or_other_pad_works(blob: str) -> bool:
+    """Auto Level or other pad functions still work."""
+    t = _norm(blob)
+    if not t or _has_auto_level_fail(t):
+        return False
+    if re.search(
+        r"\bauto(?:\s+level)?\b.{0,40}\b(works?|working|ok|okay|fine|good|still)\b",
+        t,
+    ):
+        return True
+    if re.search(
+        r"\b(works?|working|ok|okay|fine|good|still)\b.{0,40}\bauto(?:\s+level)?\b",
+        t,
+    ):
+        return True
+    if re.search(
+        r"\b(other|everything else|other pad|other functions?|other leveling)\b"
+        r".{0,40}\b(works?|working|ok|fine|good)\b",
+        t,
+    ):
+        return True
+    if "auto level still work" in t or "auto still work" in t:
+        return True
+    return False
+
+
+def is_level_up_manual_dump_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Level Up / 807662 Manual Mode flash-then-home. Fridge / AC / cooktop / stab lose."""
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_stabilizer_override_pin_context(category_name, model_text, symptom):
+        return False
+    if not is_level_up_advantage_context(category_name, model_text, symptom):
+        return False
+    return _has_manual_mode_dump_marker(_blob(category_name, model_text, symptom))
+
+
+def is_level_up_manual_can_conflict_context(
     category_name: str = "",
     model_text: str = "",
     symptom: str = "",
 ) -> bool:
     """
-    Level-Up / Firefly: Manual Mode dump works + Auto works → CAN isolate / terminator.
-    Do not steal fridge, rooftop AC, water heater, or cooktop jobs.
+    Manual Mode dumps to home AND Auto Level / other pad functions still work.
+    This is the Firefly/OneControl CAN-isolate pathway — not board/LCD first.
     """
+    if not is_level_up_manual_dump_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if _has_auto_level_fail(blob):
+        return False
+    return _has_auto_or_other_pad_works(blob)
+
+
+def is_firefly_can_path_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Bay procedure + coach: Firefly CAN isolate path for Level-Up Manual Mode."""
+    if is_level_up_manual_can_conflict_context(category_name, model_text, symptom):
+        return True
     blob = _blob(category_name, model_text, symptom)
     if not blob:
         return False
@@ -706,7 +888,7 @@ def is_firefly_can_path_context(
         )
     ):
         return False
-    dump = bool(re.search(r"\bdump\b", blob))
+    dump = bool(re.search(r"\bdump", blob))
     auto_works = bool(
         re.search(r"\bauto(?:\s+level|\s+mode)?\s+works\b", blob)
         or re.search(r"\bauto\b.{0,24}\bworks\b", blob)
@@ -969,6 +1151,8 @@ def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -
         extras.append(LEVEL_UP_SEARCH_BOOST)
     if is_firefly_can_path_context(category_name, model_text, symptom):
         extras.append(FIREFLY_CAN_SEARCH_BOOST)
+    if is_level_up_manual_can_conflict_context(category_name, model_text, symptom):
+        extras.append(LEVEL_UP_CAN_SEARCH_BOOST)
     if not extras:
         return symptom
     return f"{symptom} {' '.join(extras)}".strip()
@@ -1063,6 +1247,259 @@ def drop_unity_chunks_for_level_up(chunks) -> list:
             continue
         kept.append(ch)
     return kept
+
+
+def score_level_up_can_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = CAN isolate / terminator / Firefly Manual Mode notes.
+    Board/LCD swap-first pages lose when Auto Level still works.
+    """
+    score = score_level_up_product(page, query, category)
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    if "terminator" in t:
+        score += 16
+    if "firefly" in t:
+        score += 14
+    if "wired can" in t or "coach can" in t:
+        score += 12
+    if "can isolate" in t and "no can isolate" not in t:
+        score += 8
+    if "manual mode" in t and any(k in t for k in ("flash", "home", "dump")):
+        score += 10
+    if "auto level" in t:
+        score += 6
+    if re.search(r"\b(replace|swap).{0,30}(807662|controller|lcd)\b", t):
+        if "terminator" not in t and "firefly" not in t:
+            score -= 20
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 10
+    return score
+
+
+def rank_chunks_for_level_up_can(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer CAN isolate / Firefly writeup over board/LCD swap-first pages."""
+    scored = [(score_level_up_can_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _sc, ch in scored:
+        title = _page_title(ch)
+        blob = _page_text_blob(ch)
+        if is_unity_board_manual(title) or is_unity_board_manual(blob):
+            continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _claim_is_negated(text: str, match) -> bool:
+    """True when the match sits behind never / do not / don't / unless."""
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    prefix = text[line_start:match.start()].lower()
+    window = text[max(0, match.start() - 90):match.start()].lower()
+    return bool(
+        re.search(
+            r"(never|do not|don't|not a |not the |not push|not swap|"
+            r"not replace|not conclude|unless )",
+            f"{window} {prefix}",
+        )
+    )
+
+
+def reply_offers_can_isolate(reply: str) -> bool:
+    """True when the reply tells the tech to leave the terminator and unplug wired CAN."""
+    t = _norm(reply)
+    if not t:
+        return False
+    terminator = "terminator" in t
+    unplug = bool(re.search(r"\b(unplug|unplugg|disconnect)\b", t))
+    wired_can = bool(
+        re.search(r"\b(wired|coach)\b.{0,24}\bcan\b", t)
+        or "wired can" in t
+        or "coach can" in t
+        or ("unplug" in t and "can" in t)
+    )
+    return bool(terminator and unplug and wired_can)
+
+
+def reply_names_firefly_usb_fix(reply: str) -> bool:
+    """True when Firefly USB firmware is the recommended fix (not a do-not)."""
+    t = reply or ""
+    if not t:
+        return False
+    n = _norm(t)
+    if "firefly" not in n and "574-825-4600" not in n and "5748254600" not in n.replace("-", ""):
+        if not ("usb" in n and "firmware" in n):
+            return False
+    found = False
+    for m in FIREFLY_USB_PUSH_RE.finditer(t):
+        if _claim_is_negated(t, m):
+            continue
+        found = True
+        break
+    if not found and "574-825-4600" in n:
+        idx = n.find("574-825-4600")
+        window = n[max(0, idx - 80):idx]
+        if not re.search(r"(never|do not|don't|not push|unless)", window):
+            found = True
+    if not found:
+        return False
+    return bool(
+        ("usb" in n and ("firmware" in n or "firefly" in n or "4 gb" in n or "4gb" in n))
+        or "574-825-4600" in n
+    )
+
+
+def reply_names_firefly_interim(reply: str) -> bool:
+    t = _norm(reply)
+    if not t:
+        return False
+    battery = ("battery" in t and any(k in t for k in ("off", "switch"))) or "main battery" in t
+    can_out = "can" in t and any(k in t for k in ("unplug", "unplugg", "out")) and "terminator" in t
+    return bool(battery or can_out)
+
+
+def reply_names_can_reconnect(reply: str) -> bool:
+    t = _norm(reply)
+    if not t:
+        return False
+    return bool(
+        re.search(r"\breconnect\b.{0,48}\bcan\b", t)
+        or re.search(r"\bcan\b.{0,48}\breconnect\b", t)
+    )
+
+
+def reply_swaps_807662_for_firefly(reply: str) -> bool:
+    """True when the reply treats another 807662 / board / LCD swap as the Firefly fix."""
+    t = reply or ""
+    if not t:
+        return False
+    for m in LEVEL_UP_BOARD_SWAP_RE.finditer(t):
+        if _claim_is_negated(t, m):
+            continue
+        return True
+    return False
+
+
+def reply_stays_lippert_path(reply: str) -> bool:
+    t = _norm(reply)
+    if not t:
+        return False
+    return bool(
+        any(k in t for k in ("sensor", "harness", "support"))
+        and any(k in t for k in ("lippert", "not this", "not a firefly", "not firefly"))
+    )
+
+
+def level_up_can_stage(facts: dict = None) -> str:
+    """isolate | firefly | not_firefly | cheap_proves | ''."""
+    facts = facts or {}
+    if facts.get("can_isolate") == "stays":
+        return "firefly"
+    if facts.get("can_isolate") == "still_dumps":
+        return "not_firefly"
+    if facts.get("sticky_level_error") == "present" and facts.get("manual_dump") == "reported":
+        return "cheap_proves"
+    if facts.get("auto_level") == "works" and facts.get("manual_dump") == "reported":
+        return "isolate"
+    if facts.get("manual_dump") == "reported":
+        return "cheap_proves"
+    return ""
+
+
+def level_up_can_reply_needs_guard(reply: str, facts: dict = None) -> bool:
+    """True when this turn would miss the locked CAN / Firefly branch."""
+    if not (reply or "").strip():
+        return False
+    stage = level_up_can_stage(facts)
+    if not stage:
+        return False
+    if stage == "isolate":
+        if reply_swaps_807662_for_firefly(reply) and not reply_offers_can_isolate(reply):
+            return True
+        if reply_names_firefly_usb_fix(reply) and not reply_offers_can_isolate(reply):
+            return True
+        return not reply_offers_can_isolate(reply)
+    if stage == "firefly":
+        if reply_swaps_807662_for_firefly(reply):
+            return True
+        return not (
+            reply_names_firefly_usb_fix(reply)
+            and reply_names_firefly_interim(reply)
+            and reply_names_can_reconnect(reply)
+        )
+    if stage == "not_firefly":
+        if reply_names_firefly_usb_fix(reply) or reply_swaps_807662_for_firefly(reply):
+            return True
+        return not reply_stays_lippert_path(reply)
+    if stage == "cheap_proves":
+        if reply_names_firefly_usb_fix(reply) or reply_swaps_807662_for_firefly(reply):
+            return True
+        if facts and facts.get("sticky_level_error") == "present":
+            return "clear" not in _norm(reply) and "low voltage" not in _norm(reply)
+        return False
+    return False
+
+
+def strip_level_up_board_swap_claims(reply: str) -> str:
+    if not reply or not reply_swaps_807662_for_firefly(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
+        if part and not reply_swaps_807662_for_firefly(part):
+            kept.append(part)
+    return " ".join(kept).strip()
+
+
+def strip_firefly_usb_push_claims(reply: str) -> str:
+    if not reply or not reply_names_firefly_usb_fix(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
+        if part and not reply_names_firefly_usb_fix(part):
+            kept.append(part)
+    return " ".join(kept).strip()
+
+
+def ensure_level_up_manual_can_path(reply: str, facts: dict = None) -> str:
+    """
+    Deterministic shop lines so Manual-dump + Auto-works cannot skip CAN isolate,
+    and so the CAN-out branch cannot ship the wrong Firefly / board-swap fix.
+    """
+    if not reply or not level_up_can_reply_needs_guard(reply, facts):
+        return reply
+    stage = level_up_can_stage(facts)
+    if stage == "isolate":
+        cleaned = strip_level_up_board_swap_claims(reply)
+        if reply_offers_can_isolate(cleaned) and not reply_swaps_807662_for_firefly(cleaned):
+            return cleaned
+        return f"{LEVEL_UP_CAN_ISOLATE_SHOP_LINE}\n\n{cleaned}".strip()
+    if stage == "firefly":
+        cleaned = strip_level_up_board_swap_claims(reply)
+        if (
+            reply_names_firefly_usb_fix(cleaned)
+            and reply_names_firefly_interim(cleaned)
+            and reply_names_can_reconnect(cleaned)
+            and not reply_swaps_807662_for_firefly(cleaned)
+        ):
+            return cleaned
+        return f"{cleaned.rstrip()}\n\n{LEVEL_UP_CAN_FIREFLY_SHOP_LINE}".strip()
+    if stage == "not_firefly":
+        cleaned = strip_firefly_usb_push_claims(strip_level_up_board_swap_claims(reply))
+        if (
+            cleaned
+            and reply_stays_lippert_path(cleaned)
+            and not reply_names_firefly_usb_fix(cleaned)
+            and not reply_swaps_807662_for_firefly(cleaned)
+        ):
+            return cleaned
+        return f"{cleaned.rstrip()}\n\n{LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE}".strip()
+    if stage == "cheap_proves":
+        cleaned = strip_firefly_usb_push_claims(strip_level_up_board_swap_claims(reply))
+        return f"{LEVEL_UP_CAN_CHEAP_PROVES_SHOP_LINE}\n\n{cleaned}".strip()
+    return reply
 
 
 def score_ac_product(page, query: str = "", category: str = "") -> int:
@@ -2854,6 +3291,93 @@ def extract_stated_facts(text: str) -> dict:
     if _has_ice_moisture_marker(raw) and not FRIDGE_NO_POWER_RE.search(raw):
         facts["ice_moisture"] = "rear_wall"
 
+    levelingish = any(
+        k in raw
+        for k in (
+            "manual mode",
+            "level up",
+            "level-up",
+            "levelup",
+            "807662",
+            "leveling pad",
+            "auto level",
+            "firefly",
+            "octp",
+        )
+    )
+    if _has_manual_mode_dump_marker(raw):
+        facts["manual_dump"] = "reported"
+    if _has_auto_level_fail(raw):
+        facts["auto_level"] = "fails"
+    elif _has_auto_or_other_pad_works(raw):
+        facts["auto_level"] = "works"
+    if re.search(
+        r"\b(no\s+brownout|power\s+(?:is\s+)?(?:good|sane|ok|fine)|"
+        r"voltage\s+(?:is\s+)?(?:good|ok|fine)|power\s+looks\s+sane)\b",
+        raw,
+    ):
+        facts["level_up_power"] = "good"
+    elif levelingish and re.search(r"\b(brownout|voltage\s+collapse)\b", raw):
+        facts["level_up_power"] = "brownout"
+    if re.search(
+        r"\b(no|not|without|cleared|clear(?:ed)?\s+(?:those|them|it))\b.{0,48}"
+        r"\b(low\s+voltage|excess\s+angle|external\s+sensor)\b",
+        raw,
+    ) or re.search(
+        r"\b(low\s+voltage|excess\s+angle|external\s+sensor)\b.{0,32}"
+        r"\b(cleared|not\s+present|none|no\s+error)\b",
+        raw,
+    ) or re.search(r"\bno\s+(?:sticky\s+)?(?:error\s+text|errors?)\b", raw):
+        facts["sticky_level_error"] = "none"
+    elif re.search(r"\b(excess\s+angle|external\s+sensor)\b", raw) or (
+        levelingish and re.search(r"\blow\s+voltage\b", raw)
+    ):
+        facts["sticky_level_error"] = "present"
+
+    can_unplug = bool(
+        (
+            re.search(r"\bunplug", raw)
+            or re.search(r"\bdisconnect", raw)
+            or "can-out" in raw
+            or "can out" in raw
+        )
+        and re.search(r"\bcan\b", raw)
+    )
+    manual_stays = bool(
+        re.search(
+            r"\bmanual(?:\s+mode)?\b.{0,56}\b("
+            r"stays?|stayed|holds?|held|works?|worked|ok|good|"
+            r"did\s+not\s+dump|doesn'?t\s+dump|does\s+not\s+dump"
+            r")\b",
+            raw,
+        )
+        or re.search(
+            r"\b(stays?|stayed|holds?|held|works?|worked)\b.{0,40}\bmanual(?:\s+mode)?\b",
+            raw,
+        )
+        or "manual works can-out" in raw
+        or "manual works with can" in raw
+        or "manual stayed" in raw
+    )
+    manual_still_dumps = bool(
+        re.search(
+            r"\bmanual(?:\s+mode)?\b.{0,56}\b(still\s+(?:dumps?|flash|returns?|home))\b",
+            raw,
+        )
+        or re.search(
+            r"\b(still\s+(?:dumps?|flashes?|returns?|homes?))\b.{0,40}\bmanual",
+            raw,
+        )
+        or (
+            can_unplug
+            and re.search(r"\b(still\s+dumps?|still\s+dumped|still\s+flashes?|still\s+returns?\s+home)\b", raw)
+        )
+    )
+    if can_unplug and manual_stays:
+        facts["can_isolate"] = "stays"
+    elif can_unplug and manual_still_dumps:
+        facts["can_isolate"] = "still_dumps"
+
     return facts
 
 
@@ -2890,6 +3414,25 @@ def format_stated_facts_rule(facts: dict) -> str:
         },
         "ice_moisture": {
             "rear_wall": "rear/back-wall ice, frost, or moisture in the fridge cavity"
+        },
+        "manual_dump": {
+            "reported": "Level Up Manual Mode flashes then dumps / returns to home"
+        },
+        "auto_level": {
+            "works": "Auto Level (or other pad functions) still work",
+            "fails": "Auto Level does not work",
+        },
+        "level_up_power": {
+            "good": "Level Up power looks sane / no brownout",
+            "brownout": "Level Up power brownout / voltage collapse",
+        },
+        "sticky_level_error": {
+            "none": "no sticky Low Voltage / Excess Angle / External Sensor text",
+            "present": "sticky Low Voltage / Excess Angle / External Sensor is present — clear first",
+        },
+        "can_isolate": {
+            "stays": "Manual Mode STAYS with wired coach CAN unplugged (terminator in)",
+            "still_dumps": "Manual Mode STILL DUMPS with wired coach CAN unplugged",
         },
     }
     lines = [
@@ -2958,6 +3501,42 @@ def format_stated_facts_rule(facts: dict) -> str:
             "no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a "
             "fake Fuse location title with no page."
         )
+    if facts.get("can_isolate") == "stays":
+        lines.append(
+            "CAN isolate already proved Manual Mode STAYS with wired coach CAN unplugged "
+            "(terminator left in). Firefly/OneControl CAN conflict is confirmed. "
+            "Tell the tech to reconnect wired CAN after the prove unless using interim. "
+            "Real fix: Firefly USB firmware — GUI + CCM from Settings, Firefly 574-825-4600, "
+            "USB stick ≤4 GB. Interim: front-bay main battery OFF (solar OK) or leave wired "
+            "CAN unplugged with terminator in. Do NOT swap another 807662 for Firefly blame."
+        )
+    elif facts.get("can_isolate") == "still_dumps":
+        lines.append(
+            "CAN isolate already proved Manual Mode STILL DUMPS with wired coach CAN "
+            "unplugged. This is NOT a Firefly/OneControl CAN conflict. Stay Lippert "
+            "sensor / harness / support. Do NOT swap another 807662 for Firefly blame. "
+            "Do NOT push Firefly USB as the fix."
+        )
+    elif facts.get("auto_level") == "works" and facts.get("manual_dump") == "reported":
+        if facts.get("sticky_level_error") == "present":
+            lines.append(
+                "Clear sticky Low Voltage / Excess Angle / External Sensor first. "
+                "Do not jump to Firefly USB or another 807662 swap."
+            )
+        else:
+            lines.append(
+                "Manual Mode dumps while Auto Level still works. Cheap proves first "
+                "(power / no brownout; no sticky LV / Excess Angle / External Sensor). "
+                "Then leave the rubber-boot terminator plugged in and unplug only the "
+                "wired coach CAN (Firefly/OneControl). Retry Manual Mode. Do not open "
+                "board/LCD swap first. Do not push Firefly USB until Manual stays CAN-out."
+            )
+    elif facts.get("manual_dump") == "reported":
+        lines.append(
+            "Manual Mode flash/dump-to-home is already in play. Ask/confirm Auto Level "
+            "still works, power looks sane / no brownout, and the dump is not sticky "
+            "Low Voltage / Excess Angle / External Sensor before CAN isolate or parts."
+        )
     return "\n".join(lines)
 
 
@@ -2991,6 +3570,14 @@ def coach_library_search_boost(facts: dict) -> str:
         parts.append(COOKTOP_SEARCH_BOOST)
     if facts.get("override_pin") == "broken_or_seized":
         parts.append(PSX1_SEARCH_BOOST)
+    if (
+        facts.get("can_isolate")
+        or (
+            facts.get("manual_dump") == "reported"
+            and facts.get("auto_level") == "works"
+        )
+    ):
+        parts.append(LEVEL_UP_CAN_SEARCH_BOOST)
     return " ".join(parts).strip()
 
 
@@ -3027,6 +3614,13 @@ def reply_reasks_stated_facts(reply: str, facts: dict) -> list:
             t,
         ):
             hits.append("fuse")
+    if facts.get("auto_level") == "works":
+        if re.search(r"does auto level (?:still )?work|is auto level working", t):
+            hits.append("auto_level")
+    if facts.get("can_isolate") in ("stays", "still_dumps"):
+        if re.search(r"unplug (?:only )?(?:the )?wired coach can|retry manual mode", t):
+            if "reconnect" not in t:
+                hits.append("can_isolate")
     return hits
 
 

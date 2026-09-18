@@ -70,6 +70,9 @@ class TestCoachModuleLoads(unittest.TestCase):
             "FACR_FREEZE_SEARCH_BOOST",
             "is_firefly_can_path_context",
             "FIREFLY_CAN_SEARCH_BOOST",
+            "is_level_up_manual_can_conflict_context",
+            "LEVEL_UP_CAN_PRODUCT_LOCK",
+            "ensure_level_up_manual_can_path",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -108,6 +111,9 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("is_firefly_can_path_context", names)
         self.assertIn("FIREFLY_CAN_SEARCH_BOOST", names)
         self.assertIn("FACR_FREEZE_SEARCH_BOOST", names)
+        self.assertIn("is_level_up_manual_can_conflict_context", names)
+        self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", names)
+        self.assertIn("ensure_level_up_manual_can_path", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
