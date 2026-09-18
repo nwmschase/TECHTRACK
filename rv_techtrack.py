@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.13.9
+RV TechTrack v4.13.10
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -54,6 +54,7 @@ RV TechTrack v4.13.9
 - v4.13.7: GD category picker includes Water Heaters and Range & Cooktops (seed upserts missing names)
 - v4.13.8: cooktop pan-on flame-out checks thermocouple tip with pan on; PSX1 seized override pin is complete jack assembly R&R
 - v4.13.9: reload stale gd_library_coach when category constants are missing (Streamlit AttributeError)
+- v4.13.10: fridge rear/back-wall ice/frost retrieves CCD-0008122 Ice and Moisture p.36 / Fig.36 (not fuse/12V)
 - Mobile-friendly
 """
 import streamlit as st
@@ -123,6 +124,7 @@ _GDC_STALE_GUARD_ATTRS = (
     "skip_unity_for_water_heater",
     "is_cooktop_pan_on_flameout_context",
     "is_stabilizer_override_pin_context",
+    "is_fridge_ice_moisture_context",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -178,6 +180,9 @@ COOKTOP_PRODUCT_LOCK = _gdc.COOKTOP_PRODUCT_LOCK
 COOKTOP_SEARCH_BOOST = _gdc.COOKTOP_SEARCH_BOOST
 FCR_E2_FAN_FAULT_PRODUCT_LOCK = _gdc.FCR_E2_FAN_FAULT_PRODUCT_LOCK
 FAN_FAULT_SEARCH_BOOST = _gdc.FAN_FAULT_SEARCH_BOOST
+FURRION_FCR_ICE_MOISTURE_PAGES = _gdc.FURRION_FCR_ICE_MOISTURE_PAGES
+ICE_MOISTURE_PRODUCT_LOCK = _gdc.ICE_MOISTURE_PRODUCT_LOCK
+ICE_MOISTURE_SEARCH_BOOST = _gdc.ICE_MOISTURE_SEARCH_BOOST
 FIGURE_PAGE_HONESTY = _gdc.FIGURE_PAGE_HONESTY
 FIGURE_QUERY_TERMS = _gdc.FIGURE_QUERY_TERMS
 FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
@@ -205,6 +210,7 @@ claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
 ensure_cooktop_tip_pan_check = _gdc.ensure_cooktop_tip_pan_check
 ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
+ensure_fridge_ice_moisture_path = _gdc.ensure_fridge_ice_moisture_path
 ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
 fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
@@ -224,6 +230,9 @@ is_air_conditioning_context = _gdc.is_air_conditioning_context
 is_cooktop_pan_on_flameout_context = _gdc.is_cooktop_pan_on_flameout_context
 is_cooktop_range_context = _gdc.is_cooktop_range_context
 is_fcr_e2_fan_fault_context = _gdc.is_fcr_e2_fan_fault_context
+is_fridge_ice_moisture_context = _gdc.is_fridge_ice_moisture_context
+is_fridge_no_power_complaint = _gdc.is_fridge_no_power_complaint
+ice_moisture_search_symptom = _gdc.ice_moisture_search_symptom
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
@@ -241,6 +250,7 @@ rank_chunks_for_ac = _gdc.rank_chunks_for_ac
 rank_chunks_for_cooktop_pan_on = _gdc.rank_chunks_for_cooktop_pan_on
 rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
 rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
+rank_chunks_for_ice_moisture = _gdc.rank_chunks_for_ice_moisture
 rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
 rank_chunks_for_stabilizer_override = _gdc.rank_chunks_for_stabilizer_override
 rank_chunks_for_water_heater = _gdc.rank_chunks_for_water_heater
@@ -249,6 +259,7 @@ score_ac_product = _gdc.score_ac_product
 score_cooktop_pan_on_chunk = _gdc.score_cooktop_pan_on_chunk
 score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
 score_figure_page = _gdc.score_figure_page
+score_ice_moisture_chunk = _gdc.score_ice_moisture_chunk
 score_level_up_product = _gdc.score_level_up_product
 score_stabilizer_override_chunk = _gdc.score_stabilizer_override_chunk
 score_water_heater_product = _gdc.score_water_heater_product
@@ -1446,6 +1457,10 @@ def is_fridge_context(category_name: str = "", model_text: str = "", symptom: st
         return True
     if "furrion fcr" in blob or re.search(r"\bfcr\d", blob):
         return True
+    if "arctic" in blob and any(
+        w in blob for w in ("fridge", "refrigerator", "reefer", "ice", "icing", "frost", "moisture")
+    ):
+        return True
     if "dometic rm" in blob or re.search(r"\brm\d{3,}", blob):
         return True
     if "12v" in blob and any(w in blob for w in ("fridge", "refrigerator", "reefer")):
@@ -1635,6 +1650,7 @@ def search_manual_chunks(
     water_heater_context: bool = False,
     cooktop_context: bool = False,
     stabilizer_context: bool = False,
+    ice_moisture_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1653,6 +1669,8 @@ def search_manual_chunks(
     over furnace sail-switch / igniter-first pages.
     stabilizer_context: Lippert PSX1 / front stabilizer override pin — prefer
     complete jack assembly over coupler-only / override-usage-only pages.
+    ice_moisture_context: fridge rear/back-wall ice/frost/moisture — prefer
+    CCD-0008122 Ice and Moisture p.36 / Fig.36 over fuse / 12V no-power pages.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1795,7 +1813,8 @@ def search_manual_chunks(
     # Core path terms for reefer no-cool (skip on figure_seek — "voltage" crowns Quick Notes)
     # Fan-fault E2 must not inherit fuse/no-power + generic "board" terms that crown
     # driver-board R&R over Fan Replacement.
-    if not figure_seek and not fan_fault_context:
+    # Rear-wall ice/frost must not inherit fuse / 12V no-power terms that crown p.19.
+    if not figure_seek and not fan_fault_context and not ice_moisture_context:
         if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
             for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
                       "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
@@ -1803,6 +1822,12 @@ def search_manual_chunks(
         if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
             for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
                 query_terms.add(t)
+    if ice_moisture_context and not figure_seek:
+        for t in (
+            "ice", "moisture", "frost", "icing", "gasket", "wall",
+            "rear", "back", "fridge", "refrigerator", "fig.",
+        ):
+            query_terms.add(t)
     if fan_fault_context and not figure_seek:
         for t in (
             "fan", "fault", "f+", "f-", "replacement", "inverter",
@@ -1853,6 +1878,8 @@ def search_manual_chunks(
             sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if stabilizer_context:
             sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if ice_moisture_context:
+            sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_set and any(b in title_kw for b in asked_set):
@@ -1886,6 +1913,13 @@ def search_manual_chunks(
             if any(x in title_kw for x in ("psx1", "ccd-0007345", "stabilizer")):
                 sc += 5
             if any(x in title_kw for x in ("level-up", "level up", "octp", "807662")):
+                sc -= 8
+        if ice_moisture_context:
+            if any(x in title_kw for x in ("refriger", "fridge", "fcr", "ccd-0008122")):
+                sc += 5
+            if any(x in hay for x in ("ice and moisture", "ice or moisture", "fig. 36", "figure 36")):
+                sc += 8
+            if any(x in hay for x in ("fuse location", "front vent", "15a")) and "moisture" not in hay:
                 sc -= 8
         if sc > 0:
             scored.append((sc, ch))
@@ -1951,6 +1985,8 @@ def search_manual_chunks(
             sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if stabilizer_context:
             sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if ice_moisture_context:
+            sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if (ch.title or "").lower() in top_titles:
             sc += 3
         rescored.append((sc, ch))
@@ -1980,6 +2016,8 @@ def search_manual_chunks(
         out = rank_chunks_for_cooktop_pan_on(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if stabilizer_context:
         out = rank_chunks_for_stabilizer_override(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    if ice_moisture_context:
+        out = rank_chunks_for_ice_moisture(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     return out
 
 
@@ -2405,6 +2443,46 @@ def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
             .filter(
                 DocChunk.document_id == int(doc_id),
                 DocChunk.page.in_(list(FURRION_FCR_FAN_FAULT_PAGES)),
+            )
+            .all()
+        )
+    except Exception:
+        extra = []
+    for ch in extra:
+        key = (ch.document_id, int(ch.page or 0))
+        if key not in have:
+            chunks.append(ch)
+            have.add(key)
+    return chunks
+
+
+def supplement_ice_moisture_pages(chunks, model_text: str, user_msg: str):
+    """Pull known CCD-0008122 Ice and Moisture p.36 into GD excerpts."""
+    chunks = list(chunks or [])
+    if not is_fridge_ice_moisture_context("", model_text, user_msg):
+        return chunks
+    doc_id = None
+    for ch in chunks:
+        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
+            doc_id = getattr(ch, "document_id", None)
+            if doc_id:
+                break
+    if not doc_id:
+        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
+        if seed:
+            doc_id = seed.get("document_id")
+    if not doc_id:
+        return chunks
+    have = {
+        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
+        for ch in chunks
+    }
+    try:
+        extra = (
+            session.query(DocChunk)
+            .filter(
+                DocChunk.document_id == int(doc_id),
+                DocChunk.page.in_(list(FURRION_FCR_ICE_MOISTURE_PAGES)),
             )
             .all()
         )
@@ -2964,7 +3042,12 @@ CRITICAL RULES:
             and not skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
             else ""
         )
-        fridge_rule = FRIDGE_OEM_ORDER if is_fridge_context(category_name, model_text, symptom) else ""
+        ice_job = is_fridge_ice_moisture_context(category_name, model_text, symptom)
+        fridge_rule = (
+            FRIDGE_OEM_ORDER
+            if is_fridge_context(category_name, model_text, symptom) and not ice_job
+            else ""
+        )
         ac_rule = AC_PRODUCT_LOCK if is_air_conditioning_context(category_name, model_text, symptom) else ""
         wh_rule = WATER_HEATER_PRODUCT_LOCK if is_water_heater_context(category_name, model_text, symptom) else ""
         cooktop_rule = (
@@ -2977,6 +3060,7 @@ CRITICAL RULES:
             if is_stabilizer_override_pin_context(category_name, model_text, symptom)
             else ""
         )
+        ice_rule = ICE_MOISTURE_PRODUCT_LOCK if ice_job else ""
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
@@ -2987,6 +3071,7 @@ SYMPTOM: {symptom}
 {wh_rule}
 {cooktop_rule}
 {stab_rule}
+{ice_rule}
 {DIAG_LED_HONESTY}
 
 MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
@@ -3047,9 +3132,13 @@ def furnace_search_symptom(category_name: str, model_text: str, symptom: str) ->
 
 def fridge_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
     symptom = (symptom or "").strip()
-    if is_fridge_context(category_name, model_text, symptom):
-        return f"{symptom} refrigerator fridge fuse voltage front vent no power display".strip()
-    return symptom
+    if not is_fridge_context(category_name, model_text, symptom):
+        return symptom
+    if is_fridge_ice_moisture_context(category_name, model_text, symptom):
+        return ice_moisture_search_symptom(category_name, model_text, symptom)
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} refrigerator fridge fuse voltage front vent no power display".strip()
 
 
 FURNACE_OEM_ORDER = """
@@ -3068,7 +3157,7 @@ When the concern is fan runs / no light / no heat / airflow or 1-flash limit fau
 
 
 FRIDGE_OEM_ORDER = """
-FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V residential-style RV fridges) - only when this is a refrigerator job:
+FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V residential-style RV fridges) - only when this is a refrigerator job AND the complaint is no power / dead / won't run / no light. Do NOT use this fuse-first order for rear/back-wall ice, frost, icing, or moisture in the fridge cavity — those use CCD-0008122 Ice and Moisture p.36 / Fig.36.
 1) Do NOT remove the fridge first.
 2) Check accessible customer/tech fuse first (Furrion FCR08/FCR10: front vent cover, left side of front vent cavity, 15A ATC blade fuse / cartridge - follow the shop SM excerpt). If blown, replace and retest before any teardown.
 3) Confirm dial is ON (not OFF), about 4-5. Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt - say so from the manual). If still no cool: hard reset / lockout path from the SM (disconnect all power at the fridge, wait, restore, wait 5-10 minutes) when that path is in the excerpts.
@@ -4038,7 +4127,7 @@ Rules:
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
 18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
-19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
+19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
 22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
@@ -4083,6 +4172,7 @@ def _ask_manual_context(
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
     cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
     stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, symptom)
+    ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, symptom)
     skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
     skip_wh_unity = skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
     unity_on = (
@@ -4108,6 +4198,7 @@ def _ask_manual_context(
         water_heater_context=water_heater_job,
         cooktop_context=cooktop_job,
         stabilizer_context=stabilizer_job,
+        ice_moisture_context=ice_moisture_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
@@ -4117,6 +4208,11 @@ def _ask_manual_context(
     elif fan_fault_job:
         chunks = supplement_fcr_fan_fault_pages(chunks, model_text, figure_query or symptom)
         chunks = rank_chunks_for_fcr_fan_fault(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
+    elif ice_moisture_job:
+        chunks = supplement_ice_moisture_pages(chunks, model_text, figure_query or symptom)
+        chunks = rank_chunks_for_ice_moisture(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
     elif cooktop_job:
@@ -4186,6 +4282,15 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, search_symptom)
     cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, search_symptom)
     stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, search_symptom)
+    ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, search_symptom)
+    if (
+        not ice_moisture_job
+        and is_fridge_context(category_name, model_text, search_symptom)
+        and facts.get("ice_moisture") == "rear_wall"
+        and not is_fridge_no_power_complaint(category_name, model_text, search_symptom)
+        and not fan_fault_job
+    ):
+        ice_moisture_job = True
     if (
         not fan_fault_job
         and is_fridge_context(category_name, model_text, search_symptom)
@@ -4193,8 +4298,9 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     ):
         fan_fault_job = True
     # Jobs still uses fridge_search_symptom (no-power fuse boost). Coach skips that
-    # bias once the tech already reported power + not cooling, and on FCR E2 /
-    # Fan Fault Current (do not crown fuse/board-only pages over Fan Replacement).
+    # bias once the tech already reported power + not cooling, on FCR E2 /
+    # Fan Fault Current (do not crown fuse/board-only pages over Fan Replacement),
+    # and on rear-wall ice/frost (Ice and Moisture p.36 — not fuse/12V).
     # Figure/terminal asks must NOT inherit "voltage" / Quick Notes bias.
     if figure_seek:
         fig_boost = figure_library_search_boost(user_msg)
@@ -4206,6 +4312,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         search_symptom = fcr_e2_search_symptom(category_name, model_text, search_symptom)
         if FAN_FAULT_SEARCH_BOOST not in search_symptom:
             search_symptom = f"{search_symptom} {FAN_FAULT_SEARCH_BOOST}".strip()
+    elif ice_moisture_job:
+        search_symptom = ice_moisture_search_symptom(category_name, model_text, search_symptom)
+        if ICE_MOISTURE_SEARCH_BOOST not in search_symptom:
+            search_symptom = f"{search_symptom} {ICE_MOISTURE_SEARCH_BOOST}".strip()
     elif powered_not_cooling(facts) and is_fridge_context(category_name, model_text, search_symptom):
         search_symptom = f"{search_symptom} refrigerator fridge not cooling compressor inoperable"
     else:
@@ -4258,6 +4368,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + COOKTOP_PRODUCT_LOCK
     if stabilizer_job:
         system_prompt += "\n\n" + PSX1_PRODUCT_LOCK
+    if ice_moisture_job:
+        system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
     if (
         is_unity_context(category_name, model_text, search_symptom, unity_gate)
         and not level_up_job
@@ -4265,7 +4377,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         and not skip_unity_for_water_heater(category_name, model_text, search_symptom, unity_gate)
     ):
         system_prompt += "\n\n" + UNITY_OEM_ORDER
-    if is_fridge_context(category_name, model_text, search_symptom):
+    if is_fridge_context(category_name, model_text, search_symptom) and not ice_moisture_job:
         system_prompt += "\n\n" + FRIDGE_OEM_ORDER
     system_prompt += "\n\n" + DIAG_LED_HONESTY
     if figure_seek or wants_library_page_shown(user_msg):
@@ -4351,6 +4463,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ensure_cooktop_tip_pan_check(reply)
     if stabilizer_job:
         reply = ensure_stabilizer_assembly_rr(reply, facts)
+    if ice_moisture_job:
+        reply = ensure_fridge_ice_moisture_path(reply)
     reasked = reply_reasks_stated_facts(reply, facts)
     if reasked:
         retry_rule = (
@@ -4749,6 +4863,9 @@ with tab_jobs:
                                 stabilizer_context=is_stabilizer_override_pin_context(
                                     nj_cat, nj_model, nj_concern
                                 ),
+                                ice_moisture_context=is_fridge_ice_moisture_context(
+                                    nj_cat, nj_model, nj_concern
+                                ),
                             )
                             plan, sources, sources_json = run_guided_diagnostics(
                                 nj_cat, nj_model, nj_concern, hits, unity_gate=nj_unity
@@ -4973,6 +5090,9 @@ with tab_jobs:
                                 job.category_name, job.model_text or "", job.concern
                             ),
                             stabilizer_context=is_stabilizer_override_pin_context(
+                                job.category_name, job.model_text or "", job.concern
+                            ),
+                            ice_moisture_context=is_fridge_ice_moisture_context(
                                 job.category_name, job.model_text or "", job.concern
                             ),
                         )

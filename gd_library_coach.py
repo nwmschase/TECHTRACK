@@ -110,6 +110,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
+- Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -416,6 +417,58 @@ COMPLETE_JACK_ASSEMBLY_RE = re.compile(
     r"(complete|entire|whole).{0,20}"
     r"(front )?(stabilizer )?jack assembly.{0,30}"
     r"(replace|r\s*&\s*r|r and r)",
+    re.I,
+)
+
+# Furrion FCR / Arctic fridge rear-wall ice / frost / moisture (CCD-0008122 p.36 / Fig.36).
+# Shop SM page already in the library. Do not invent other OEM pages.
+FURRION_FCR_ICE_MOISTURE_PAGES = (36,)
+ICE_MOISTURE_SEARCH_BOOST = (
+    "Ice and Moisture Ice or Moisture in the Fridge "
+    "rear wall back wall frost gasket Fig. 36 figure 36"
+)
+ICE_MOISTURE_PRODUCT_LOCK = """
+FURRION FCR / ARCTIC FRIDGE ICE AND MOISTURE PRODUCT LOCK (CCD-0008122 p.36 / Fig.36):
+- Ice, frost, or icing on the rear/back wall (including about half from the top down) or moisture in the fridge cavity is Ice and Moisture → Ice or Moisture in the Fridge. It is NOT a No Power / 15A fuse / 12V inverter tree.
+- Search and cite Furrion FCR08/FCR10 SM CCD-0008122 Ice and Moisture (page 36, Fig. 36) FIRST.
+- Coach order — open language, one clarifying ask or 1–2 next checks per turn, not a quiz cage: pattern note → dial max? → gasket → cooling verify → watch/replace.
+- Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light.
+- Cite the real page and figure: 📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36). Never invent a "Fuse location" title with no page.
+- Never invent other OEM steps or page numbers. Use the Ice and Moisture excerpt actually retrieved.
+"""
+ICE_MOISTURE_SHOP_LINE = (
+    "CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). "
+    "Rear/back-wall ice or frost (including half from the top) is a moisture path, "
+    "not a no-power fuse / 12V inverter tree. Next from that section: note the frost "
+    "pattern, then check whether the dial is at max, then the door gasket, then verify "
+    "cooling — watch/replace only from that Ice and Moisture page. Do not open the "
+    "15A fuse / 12V inverter path unless the complaint is no power / dead / won't run "
+    "/ no light.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36"
+)
+FRIDGE_NO_POWER_RE = re.compile(
+    r"\b("
+    r"no\s+power|completely\s+dead|no\s+light|no\s+juice|"
+    r"won'?t\s+turn(?:\s+on)?|wont\s+turn(?:\s+on)?|"
+    r"won'?t\s+run|wont\s+run|"
+    r"blank\s+(?:display|screen)|"
+    r"dead\s+(?:fridge|unit|refriger\w*)|"
+    r"(?:fridge|refriger\w*|unit)\s+(?:is\s+)?dead"
+    r")\b",
+    re.I,
+)
+FUSE_12V_PATH_RE = re.compile(
+    r"("
+    r"15\s*a(?:tc)?(?:\s+blade)?(?:\s*/\s*cartridge)?(?:\s+fuse)?|"
+    r"front\s+vent(?:\s+cover|\s+cavity)?|"
+    r"fuse\s+location|"
+    r"locate(?:\s+the)?\s+fuse|"
+    r"pull\s+the\s+front\s+vent|"
+    r"check(?:\s+the)?\s+(?:accessible\s+)?(?:customer/tech\s+)?fuse|"
+    r"12\s*v(?:dc)?\s+inverter|"
+    r"inverter\s+(?:pcb|board|path)|"
+    r"no[\s-]*power\s+(?:path|tree|oem|order)"
+    r")",
     re.I,
 )
 
@@ -1930,6 +1983,259 @@ def ensure_stabilizer_assembly_rr(reply: str, facts: dict = None) -> str:
     return f"{cleaned.rstrip()}\n\n{PSX1_ASSEMBLY_RR_SHOP_LINE}".strip()
 
 
+def _is_fridge_job_blob(category_name: str = "", blob: str = "") -> bool:
+    """True when category/model/symptom is a fridge job (Furrion FCR / Arctic / similar)."""
+    cat = _norm(category_name)
+    t = _norm(blob)
+    if "refriger" in cat or "fridge" in cat:
+        return True
+    if any(k in t for k in ("fridge", "reefer", "refriger", "fcr08", "fcr10", "fcr0", "fcr1")):
+        return True
+    if "ccd-0008122" in t or "ccd0008122" in t:
+        return True
+    if "furrion" in t and "fcr" in t:
+        return True
+    if "arctic" in t and any(
+        k in t for k in ("fridge", "refriger", "ice", "icing", "frost", "moisture")
+    ):
+        return True
+    return False
+
+
+def _has_ice_moisture_marker(blob: str) -> bool:
+    """
+    Rear/back-wall ice, frost, icing (incl. half from the top), or moisture
+    in the fridge cavity. Does not treat 'freezes contents' / E2 as this path.
+    """
+    t = _norm(blob)
+    if not t:
+        return False
+    if "ice and moisture" in t or "ice or moisture" in t:
+        return True
+    if re.search(r"\bmoisture\b", t) and any(
+        k in t for k in ("cavity", "fridge", "refriger", "in the fridge")
+    ):
+        return True
+    ice = bool(re.search(r"\b(ice|icing|frost|frosting)\b", t))
+    if not ice:
+        return False
+    if re.search(r"\b(rear|back)\s+wall\b", t):
+        return True
+    if re.search(r"\b(rear|back)\b", t) and re.search(r"\bwall\b", t):
+        return True
+    if re.search(r"\bhalf\b.{0,28}(top|from the top)", t) or "from the top" in t:
+        return True
+    if ice and any(k in t for k in ("cavity", "in the fridge", "rear", "back")):
+        return True
+    return False
+
+
+def is_fridge_no_power_complaint(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """True when the complaint is no power / dead / won't run / no light."""
+    blob = _blob(category_name, model_text, symptom)
+    return bool(FRIDGE_NO_POWER_RE.search(blob))
+
+
+def is_fridge_ice_moisture_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Fridge rear/back-wall ice/frost/moisture → CCD-0008122 Ice and Moisture p.36.
+    Explicit no-power / E2 / AC / water-heater / cooktop / stab jobs lose.
+    """
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_stabilizer_override_pin_context(category_name, model_text, symptom):
+        return False
+    if is_fridge_no_power_complaint(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if not _is_fridge_job_blob(category_name, blob):
+        return False
+    return _has_ice_moisture_marker(blob)
+
+
+def ice_moisture_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward Ice and Moisture p.36 / Fig.36 — not fuse/12V."""
+    symptom = (symptom or "").strip()
+    if not is_fridge_ice_moisture_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {ICE_MOISTURE_SEARCH_BOOST}".strip()
+
+
+def score_ice_moisture_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = CCD-0008122 Ice and Moisture / Ice or Moisture in the Fridge p.36 / Fig.36.
+    Fuse / 12V / no-power inverter pages lose.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    cat = _norm(category)
+    if isinstance(page, dict):
+        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
+    else:
+        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
+    page_no = _page_number(page)
+    score = 0
+    if "ice and moisture" in t or "ice or moisture" in t:
+        score += 22
+    if "moisture in the fridge" in t or "moisture in fridge" in t:
+        score += 16
+    if any(k in t for k in ("rear wall", "back wall", "frost", "icing")):
+        score += 12
+    if "gasket" in t or "door seal" in t:
+        score += 10
+    if "dial" in t and "max" in t:
+        score += 6
+    if page_no in FURRION_FCR_ICE_MOISTURE_PAGES:
+        score += 18
+    if "fig. 36" in t or "fig 36" in t or "figure 36" in t:
+        score += 12
+    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
+        score += 6
+    if "refriger" in cat or "fridge" in cat:
+        score += 4
+    if q and any(k in q for k in ("ice", "frost", "moisture", "rear wall", "gasket")):
+        if any(k in t for k in ("ice", "moisture", "frost", "gasket")):
+            score += 4
+    fuse_or_power = any(
+        k in t
+        for k in (
+            "15a",
+            "15 a",
+            "front vent",
+            "fuse location",
+            "no power",
+            "inverter pcb",
+            "12v inverter",
+        )
+    )
+    ice_page = any(k in t for k in ("ice and moisture", "ice or moisture", "moisture in the fridge"))
+    if fuse_or_power and not ice_page:
+        score -= 16
+    if "fuse" in t and not ice_page:
+        score -= 10
+    if "fan fault" in t or "fan replacement" in t:
+        score -= 8
+    if is_unity_board_manual(title) or is_unity_board_manual(t):
+        score -= 20
+    return score
+
+
+def rank_chunks_for_ice_moisture(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer Ice and Moisture p.36 / Fig.36 over fuse / 12V no-power pages."""
+    scored = [(score_ice_moisture_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for _sc, ch in scored:
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def reply_opens_fuse_12v_no_power(reply: str) -> bool:
+    """True when a coach reply opens the No Power / fuse / 12V inverter tree."""
+    t = reply or ""
+    if not t:
+        return False
+    for m in FUSE_12V_PATH_RE.finditer(t):
+        line_start = t.rfind("\n", 0, m.start()) + 1
+        prefix = t[line_start:m.start()].lower()
+        window = t[max(0, m.start() - 90):m.start()].lower()
+        if re.search(
+            r"(never|do not|don't|not a |not the |unless |not open|"
+            r"do not open|not a no-power|not no-power|not a no power)",
+            f"{window} {prefix}",
+        ):
+            continue
+        return True
+    return False
+
+
+def reply_names_ice_moisture_p36(reply: str) -> bool:
+    """True when the reply already cites Ice and Moisture p.36 / Fig.36."""
+    t = _norm(reply)
+    if not t:
+        return False
+    ice = (
+        "ice and moisture" in t
+        or "ice or moisture" in t
+        or ("moisture" in t and "fridge" in t)
+    )
+    page = any(
+        k in t
+        for k in (
+            "page 36",
+            "p.36",
+            "p. 36",
+            "fig. 36",
+            "fig 36",
+            "figure 36",
+            "fig.36",
+        )
+    )
+    return bool(ice and page)
+
+
+def ice_moisture_reply_needs_guard(reply: str) -> bool:
+    """True when a rear-wall ice turn would ship on fuse/12V or without p.36."""
+    if not (reply or "").strip():
+        return False
+    if reply_names_ice_moisture_p36(reply) and not reply_opens_fuse_12v_no_power(reply):
+        return False
+    if reply_opens_fuse_12v_no_power(reply):
+        return True
+    if not reply_names_ice_moisture_p36(reply):
+        return True
+    return False
+
+
+def strip_fuse_12v_no_power_claims(reply: str) -> str:
+    """Drop sentences that open the fuse / 12V no-power tree."""
+    if not reply or not reply_opens_fuse_12v_no_power(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
+        if part and not reply_opens_fuse_12v_no_power(part):
+            kept.append(part)
+    return " ".join(kept).strip()
+
+
+def ensure_fridge_ice_moisture_path(reply: str) -> str:
+    """
+    Deterministic shop line so rear-wall ice cannot ship as fuse / 12V no-power.
+    Uses CCD-0008122 Ice and Moisture p.36 / Fig.36 already in-library.
+    """
+    if not reply or not ice_moisture_reply_needs_guard(reply):
+        return reply
+    cleaned = strip_fuse_12v_no_power_claims(reply)
+    if cleaned and reply_opens_fuse_12v_no_power(cleaned):
+        cleaned = ""
+    if reply_names_ice_moisture_p36(cleaned) and not reply_opens_fuse_12v_no_power(cleaned):
+        return cleaned
+    if "ice and moisture" in _norm(cleaned) and any(
+        k in _norm(cleaned) for k in ("page 36", "p.36", "p. 36", "fig. 36", "fig 36")
+    ):
+        if not reply_opens_fuse_12v_no_power(cleaned):
+            return cleaned
+    return f"{ICE_MOISTURE_SHOP_LINE}\n\n{cleaned}".strip()
+
+
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
     """Shop-floor line when a library figure page did not display."""
     if not render_failed:
@@ -2254,6 +2560,9 @@ def extract_stated_facts(text: str) -> dict:
     ) and re.search(r"\b(broken|seized|seize|sheared|destroyed|not serviceable)\b", raw):
         facts["override_pin"] = "broken_or_seized"
 
+    if _has_ice_moisture_marker(raw) and not FRIDGE_NO_POWER_RE.search(raw):
+        facts["ice_moisture"] = "rear_wall"
+
     return facts
 
 
@@ -2287,6 +2596,9 @@ def format_stated_facts_rule(facts: dict) -> str:
         },
         "override_pin": {
             "broken_or_seized": "stabilizer override roll pin / coupler is broken or seized"
+        },
+        "ice_moisture": {
+            "rear_wall": "rear/back-wall ice, frost, or moisture in the fridge cavity"
         },
     }
     lines = [
@@ -2346,6 +2658,15 @@ def format_stated_facts_rule(facts: dict) -> str:
             "retest power and manual). Do NOT recommend coupler-only. CCD-0007345 override "
             "usage is not the end fix."
         )
+    if facts.get("ice_moisture") == "rear_wall":
+        lines.append(
+            "Rear/back-wall ice, frost, or moisture is already in play. Follow "
+            "CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). "
+            "Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. "
+            "Do NOT restart at fuse / 12V inverter / No Power unless the complaint is "
+            "no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a "
+            "fake Fuse location title with no page."
+        )
     return "\n".join(lines)
 
 
@@ -2360,13 +2681,20 @@ def coach_library_search_boost(facts: dict) -> str:
         return ""
     parts = []
     fan_fault = bool(facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
+    ice_moisture = facts.get("ice_moisture") == "rear_wall"
     if fan_fault:
         parts.append(FAN_FAULT_SEARCH_BOOST)
+    elif ice_moisture:
+        parts.append(ICE_MOISTURE_SEARCH_BOOST)
     elif facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
         parts.append("not cooling inoperable compressor section 2 powered")
-    if (facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor") and not fan_fault:
+    if (
+        (facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor")
+        and not fan_fault
+        and not ice_moisture
+    ):
         parts.append("inoperable compressor compressor diagnostics")
-    if facts.get("dial") == "on_4_5" and not fan_fault:
+    if facts.get("dial") == "on_4_5" and not fan_fault and not ice_moisture:
         parts.append("thermostat dial not cooling")
     if facts.get("pan_on_flameout"):
         parts.append(COOKTOP_SEARCH_BOOST)
