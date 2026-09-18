@@ -60,6 +60,9 @@ class TestProductPath(unittest.TestCase):
         self.assertIn("complete stabilizer jack assembly", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("ice and moisture", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("page 36", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("terminator", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("firefly", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("wired coach can", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
         self.assertTrue(
             is_path_complete_trap(
@@ -260,6 +263,7 @@ class TestProductSource(unittest.TestCase):
         self.assertNotIn("stabilizer_context=True", src.split("def run_guided_diagnostics")[1][:2200])
         self.assertIn("ice_moisture_context: bool = False", src)
         self.assertNotIn("ice_moisture_context=True", src.split("def run_guided_diagnostics")[1][:2400])
+        self.assertNotIn("level_up_can_context=True", src.split("def run_guided_diagnostics")[1][:2600])
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
@@ -300,6 +304,10 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("FACR_FREEZE_SEARCH_BOOST", src)
         self.assertIn("CCD-0007990", src)
         self.assertIn("CCD-0008666", src)
+        self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", src)
+        self.assertIn("is_level_up_manual_can_conflict_context", src)
+        self.assertIn("ensure_level_up_manual_can_path", src)
+        self.assertIn("rank_chunks_for_level_up_can", src)
         self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
         self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
         self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
