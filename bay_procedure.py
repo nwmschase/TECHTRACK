@@ -30,20 +30,13 @@ import textwrap
 import zlib
 
 from gd_library_coach import (
-    AC_PRODUCT_LOCK,
-    COOKTOP_PRODUCT_LOCK,
     FACR_FREEZE_SEARCH_BOOST,
-    FCR_E2_FAN_FAULT_PRODUCT_LOCK,
     FIREFLY_CAN_SEARCH_BOOST,
     ICE_MOISTURE_SEARCH_BOOST,
     ICE_MOISTURE_SHOP_LINE,
-    FIREFLY_HOLDS_FIX,
     FIREFLY_STILL_DUMPS,
     FIREFLY_TWO_PLUG_PROVE,
-    LEVEL_UP_PRODUCT_LOCK,
     WIRED_COACH_CAN_RE,
-    PSX1_PRODUCT_LOCK,
-    WATER_HEATER_PRODUCT_LOCK,
     ac_search_symptom,
     cooktop_search_symptom,
     ice_moisture_search_symptom,
@@ -53,7 +46,6 @@ from gd_library_coach import (
     is_fcr_e2_fan_fault_context,
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
-    is_furrion_ccd_0008122,
     is_level_up_advantage_context,
     is_stabilizer_override_pin_context,
     is_water_heater_context,
@@ -91,7 +83,7 @@ MARGIN = 36.0
 FURRION_8122_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
 FACR_7990_TITLE = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 FACR_8666_TITLE = "Furrion Chill FACR CCD-0008666"
-FIREFLY_PATH_TITLE = "shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
+FIREFLY_PATH_TITLE = "Shop writeup — Level Up Advantage Manual Mode flash-home and Firefly"
 
 FIG_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 MODULES_ONE_AT_A_TIME_RE = re.compile(
@@ -248,12 +240,12 @@ class BayProcedure:
 # ---------------------------------------------------------------------------
 def _ice_path() -> dict:
     return {
-        "primary_cite": "CCD-0008122 p.36 / page 36 (Fig. 36) — Ice and Moisture",
+        "primary_cite": "Furrion FCR08/FCR10 SM CCD-0008122, page 36, Ice and Moisture (Fig. 36).",
         "pattern_means": (
             "Ice or frost on the rear wall, including a pattern that starts about halfway "
             "down from the top, is an Ice and Moisture problem. Follow Ice or Moisture in "
-            "the Fridge. This is a moisture, door gasket, and cooling path. It is not a "
-            "dead-unit fuse or 12-volt inverter tree."
+            "the Fridge on CCD-0008122. This is a moisture, door gasket, and cooling path. "
+            "It is not a dead-unit fuse check, and it is not a 12-volt inverter path."
         ),
         "flowchart": Flowchart(
             nodes=[
@@ -262,8 +254,8 @@ def _ice_path() -> dict:
                 FlowNode("a1", "process", "Back the dial off and\nrecheck the frost pattern.", 0.18, 0.28, w=156, h=38),
                 FlowNode("d2", "decision", "Is the door\ngasket leaking?", 0.50, 0.52),
                 FlowNode("a2", "process", "Repair or reseat\nthe door gasket.", 0.18, 0.52, w=150, h=36),
-                FlowNode("p", "process", "Verify cooling from Ice and Moisture.\nUse CCD-0008122 page 36 / Fig.36.", 0.50, 0.74),
-                FlowNode("e", "end", "Watch or replace only from\nthe Ice and Moisture section.", 0.50, 0.92),
+                FlowNode("p", "process", "Verify cooling from Ice and Moisture.\nUse CCD-0008122 page 36.", 0.50, 0.74),
+                FlowNode("e", "end", "Watch or replace the unit only from\nthe Ice and Moisture section.", 0.50, 0.92),
             ],
             edges=[
                 FlowEdge("s", "d1"),
@@ -280,7 +272,7 @@ def _ice_path() -> dict:
             "Look at the frost pattern on the rear wall, including whether it starts about halfway from the top.",
             "Check whether the temperature dial is all the way at max. If it is, back the dial off and recheck the frost pattern.",
             "Inspect the door gasket and reseat or repair it before you condemn the cooling unit.",
-            "Verify cooling from the Ice and Moisture section (CCD-0008122 page 36 / Fig. 36). Watch or replace only from that section.",
+            "Verify cooling from the Ice and Moisture section on CCD-0008122 page 36. Watch or replace the unit only from that section.",
         ],
         "do_not": [
             "Do not open the no-power or 15A fuse path for this frost pattern.",
@@ -291,7 +283,10 @@ def _ice_path() -> dict:
             {
                 "title": FURRION_8122_TITLE,
                 "page": 36,
-                "excerpt": "Ice and Moisture / Ice or Moisture in the Fridge / Fig. 36",
+                "excerpt": (
+                    "Ice and Moisture. Ice or Moisture in the Fridge. "
+                    "Figure 36 shows the rear-wall frost pattern."
+                ),
             }
         ],
     }
@@ -299,12 +294,15 @@ def _ice_path() -> dict:
 
 def _facr_path() -> dict:
     return {
-        "primary_cite": "CCD-0007990 — assembly / condensate (CCD-0008666 OK)",
+        "primary_cite": (
+            "Furrion rooftop HVAC book CCD-0007990, assembly and condensate. "
+            "CCD-0008666 is the Chill layout book."
+        ),
         "pattern_means": (
             "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Work from CCD-0007990 (base pan, drain, freeze or suction icing). "
-            "CCD-0008666 is the Furrion Chill model book for layout. This is not a Dometic-only "
-            "rooftop job and it is not a Unity board job."
+            "condensate problem. Work from CCD-0007990 for the base pan, the drain, and freeze "
+            "or suction icing. CCD-0008666 is the Furrion Chill model book for layout. This is "
+            "not a Dometic rooftop job, and it is not a Unity or OneControl board job."
         ),
         "flowchart": Flowchart(
             nodes=[
@@ -312,7 +310,7 @@ def _facr_path() -> dict:
                 FlowNode("p1", "process", "Inspect the rooftop assembly, the\nevaporator pan, and the condensate drain.", 0.50, 0.32, w=250, h=40),
                 FlowNode("d1", "decision", "Is the drain\nrestricted or\nthe pan iced?", 0.50, 0.54),
                 FlowNode("a1", "process", "Clear the drain or ice.\nConfirm the drain path.", 0.18, 0.54, w=150, h=40),
-                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on CCD-0007990 (8666 OK).", 0.50, 0.76),
+                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on CCD-0007990.", 0.50, 0.76),
                 FlowNode("e", "end", "Stay on the assembly and\ncondensate path in CCD-0007990.", 0.50, 0.93),
             ],
             edges=[
@@ -333,18 +331,24 @@ def _facr_path() -> dict:
         "do_not": [
             "Do not start at Unity or OneControl board manuals for this rooftop freeze.",
             "Do not start at a Dometic-only rooftop manual for a Furrion rooftop unit.",
-            "Do not invent OEM steps or skip the drain and base-pan prove.",
+            "Do not invent OEM steps, and do not skip the drain and base-pan check.",
         ],
         "sources": [
             {
                 "title": FACR_7990_TITLE,
                 "page": None,
-                "excerpt": "Assembly / condensate / freeze / base-pan / suction icing path.",
+                "excerpt": (
+                    "Use this book for the rooftop assembly, the condensate drain, "
+                    "the base pan, and the freeze path."
+                ),
             },
             {
                 "title": FACR_8666_TITLE,
                 "page": None,
-                "excerpt": "Furrion Chill FACR08 model book — drain / base pan / freeze sensor.",
+                "excerpt": (
+                    "This is the Furrion Chill model book for drain, base-pan, "
+                    "and freeze-sensor layout."
+                ),
             },
         ],
     }
@@ -352,19 +356,20 @@ def _facr_path() -> dict:
 
 def _firefly_path() -> dict:
     return {
-        "primary_cite": "Level Up controller / Firefly panel — leave the rubber-boot plug in",
+        "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot plug in.",
         "pattern_means": (
             "When Manual Mode flashes back to the home screen and Auto Level still works, "
             "this is usually a Firefly / OneControl conflict on the Level Up controller. "
-            "It is not a hydraulic dump test and it is not a board-swap-first job. "
+            "It is not a hydraulic dump test, and you should not start by swapping the "
+            "Level Up controller. "
             + FIREFLY_TWO_PLUG_PROVE
         ),
         "flowchart": Flowchart(
             nodes=[
-                FlowNode("s", "start", "Manual Mode flashes home.\nAuto Level still works.", 0.42, 0.08),
-                FlowNode("p1", "process", "Prove power looks sane and Auto still works.\nClear sticky error text first.", 0.42, 0.26, w=250, h=38),
+                FlowNode("s", "start", "Manual Mode flashes back to home.\nAuto Level still works.", 0.42, 0.08),
+                FlowNode("p1", "process", "Confirm power looks sane and Auto still works.\nClear sticky error text first.", 0.42, 0.26, w=250, h=38),
                 FlowNode("d1", "decision", "Does Auto\nstill work?", 0.42, 0.46),
-                FlowNode("n1", "end", "Not this path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=148, h=36),
+                FlowNode("n1", "end", "This is not the Firefly path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=148, h=36),
                 FlowNode("p2", "process", "Leave the rubber-boot plug alone.\nUnplug the Firefly cable only.", 0.42, 0.66, w=250, h=40),
                 FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.42, 0.84),
                 FlowNode("y2", "end", "Call Firefly at 574-825-4600\nfor the USB firmware update.", 0.16, 0.84, w=156, h=44),
@@ -388,7 +393,7 @@ def _firefly_path() -> dict:
         ],
         "do_not": [
             "Do not pull the rubber-boot plug.",
-            "Do not condemn the Level Up controller or start pump and valve R&R while Auto Level still works.",
+            "Do not condemn the Level Up controller or start pump and valve replacement while Auto Level still works.",
             "Do not swap another Level Up controller for Firefly blame.",
             "Do not push Firefly USB firmware unless Manual Mode holds with the Firefly cable unplugged.",
         ],
@@ -397,9 +402,9 @@ def _firefly_path() -> dict:
                 "title": FIREFLY_PATH_TITLE,
                 "page": None,
                 "excerpt": (
-                    "The Level Up controller has two network plugs. Leave the rubber-boot "
-                    "plug alone. Unplug the Firefly cable only. Firefly USB firmware "
-                    "574-825-4600, stick 4 GB or smaller + interim."
+                    FIREFLY_TWO_PLUG_PROVE
+                    + " Call Firefly at 574-825-4600 for USB firmware. "
+                    "Use a stick 4 GB or smaller plus the interim file they specify."
                 ),
             }
         ],
@@ -618,19 +623,39 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
             "CCD-0008666 is fine for Furrion Chill layout."
         )
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
-        notes.append(FCR_E2_FAN_FAULT_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "Furrion FCR E2 or Fan Fault Current is a freezer-fan and airflow path "
+            "on CCD-0008122. It is not a rooftop air-conditioner code."
+        )
     if is_air_conditioning_context(category_name, model_text, concern) and not is_facr_rooftop_freeze_context(
         category_name, model_text, concern
     ):
-        notes.append(AC_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "This is a rooftop air-conditioning job. Stay on the Furrion or Dometic "
+            "rooftop manuals. It is not a Unity board job."
+        )
     if is_water_heater_context(category_name, model_text, concern):
-        notes.append(WATER_HEATER_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "This is a Girard tankless water-heater path. Stay on the water-heater "
+            "manual. It is not a fridge E2 path and it is not a Unity board job."
+        )
     if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
-        notes.append(COOKTOP_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "If the burner lights and then goes out when a pan is set on it, check "
+            "the flame-sensor tip in the flame with cookware on. It is not a furnace path."
+        )
     if is_stabilizer_override_pin_context(category_name, model_text, concern):
-        notes.append(PSX1_PRODUCT_LOCK.strip().splitlines()[0])
-    if is_level_up_advantage_context(category_name, model_text, concern):
-        notes.append(LEVEL_UP_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "If power works but the manual override will not engage because the roll "
+            "pin is broken, replace the complete stabilizer jack. It is not a coupler-only repair."
+        )
+    if is_level_up_advantage_context(category_name, model_text, concern) and not is_firefly_can_path_context(
+        category_name, model_text, concern
+    ):
+        notes.append(
+            "The Level Up controller is the Lippert towable hydraulic leveling controller. "
+            "It is not a Unity awning board."
+        )
     return notes
 
 
@@ -706,7 +731,7 @@ def compile_bay_procedure(
         spec = {
             "primary_cite": _generic_primary_cite(ranked),
             "pattern_means": (
-                "Use this shop's Document Library for the next prove. "
+                "Use this shop's Document Library for the next check. "
                 "Do not invent OEM steps from the live web."
             ),
             "flowchart": _generic_flowchart(concern or "Customer concern", extra_steps),

@@ -376,15 +376,41 @@ class TestFireflyServiceNamesNotPartNumbers(unittest.TestCase):
 class TestServiceBayVoiceEntireSheet(unittest.TestCase):
     """Entire bay sheet stays in complete-sentence service voice — not only Firefly."""
 
+    BANNED_FRAGMENTS = (
+        "inverter tree",
+        "8666 OK",
+        "assembly / condensate",
+        "PRODUCT LOCK",
+        "board-swap-first",
+        "Not this path.",
+        "Prove power looks sane",
+        "Watch or replace only from",
+        "wired coach CAN",
+        "wired coach can",
+        "Find the connector",
+        "labeled CAN",
+    )
+
     def _assert_human_steps(self, steps):
         for step in steps:
             self.assertTrue(step.strip().endswith("."), step)
             self.assertFalse(step.lstrip().startswith("807662"), step)
             self.assertNotIn("→", step)
-            self.assertNotIn("wired coach CAN", step)
-            self.assertNotIn("wired coach can", step)
+            for banned in self.BANNED_FRAGMENTS:
+                self.assertNotIn(banned, step)
 
-    def test_ice_facr_firefly_punch_lists_are_complete_sentences(self):
+    def _assert_flowchart_voice(self, proc):
+        for node in proc.flowchart.nodes:
+            blob = node.text.replace("\n", " ").strip()
+            if node.kind == "decision":
+                self.assertTrue(blob.endswith("?"), node.text)
+            else:
+                self.assertTrue(blob.endswith("."), node.text)
+            self.assertNotIn(" / ", blob.replace("Firefly / OneControl", ""))
+            for banned in self.BANNED_FRAGMENTS:
+                self.assertNotIn(banned, node.text)
+
+    def test_ice_facr_firefly_entire_sheet_is_service_bay_voice(self):
         cases = (
             (WO_COMPLAINT, "Furrion", WO_MODEL, "Refrigerators"),
             ("FACR08 freeze up interior leak condensate", "Furrion", "FACR08", "Air Conditioning"),
@@ -394,12 +420,23 @@ class TestServiceBayVoiceEntireSheet(unittest.TestCase):
             proc = compile_bay_procedure(
                 concern=concern, brand=brand, model=model, category=category
             )
+            text = procedure_plain_text(proc)
             self._assert_human_steps(proc.bay_order)
             self._assert_human_steps(proc.do_not)
             self.assertTrue(proc.pattern_means.strip().endswith("."), proc.pattern_means)
-            self.assertNotIn("Find the connector", procedure_plain_text(proc))
-            self.assertNotIn("labeled CAN", procedure_plain_text(proc))
-            self.assertFalse(uses_wired_coach_can_jargon(procedure_plain_text(proc)))
+            self.assertTrue(proc.primary_cite.strip().endswith("."), proc.primary_cite)
+            self._assert_flowchart_voice(proc)
+            for note in proc.notes:
+                self.assertTrue(note.strip().endswith("."), note)
+                self.assertNotIn("PRODUCT LOCK", note)
+            for src in proc.sources:
+                excerpt = (src.get("excerpt") or "").strip()
+                if excerpt:
+                    self.assertTrue(excerpt.endswith("."), excerpt)
+            self.assertFalse(uses_wired_coach_can_jargon(text))
+            pdf_text = _pdf_text(render_bay_procedure_pdf(proc))
+            for banned in self.BANNED_FRAGMENTS:
+                self.assertNotIn(banned.lower(), pdf_text.lower(), banned)
 
     def test_firefly_prove_stays_short_two_plug_not_silkscreen(self):
         proc = compile_bay_procedure(
@@ -409,6 +446,8 @@ class TestServiceBayVoiceEntireSheet(unittest.TestCase):
         )
         text = procedure_plain_text(proc)
         self.assertIn(EXACT_TWO_PLUG, text)
+        self.assertEqual(proc.bay_order[1], EXACT_TWO_PLUG)
+        self.assertIn(EXACT_TWO_PLUG, proc.pattern_means)
         self.assertIn("rubber boot", text.lower())
         self.assertIn("firefly", text.lower())
         self.assertIn("cable", text.lower())
