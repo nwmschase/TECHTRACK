@@ -294,10 +294,7 @@ def _ice_path() -> dict:
 
 def _facr_path() -> dict:
     return {
-        "primary_cite": (
-            "Furrion rooftop HVAC book CCD-0007990, assembly and condensate. "
-            "CCD-0008666 is the Chill layout book."
-        ),
+        "primary_cite": "Furrion CCD-0007990 for assembly and condensate. CCD-0008666 is the Chill book.",
         "pattern_means": (
             "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
             "condensate problem. Work from CCD-0007990 for the base pan, the drain, and freeze "
@@ -1155,7 +1152,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     for s in src_rows:
         page_bit = ""
         if s.get("page"):
-            page_bit = f"  p.{s['page']} / page {s['page']}"
+            page_bit = f"  page {s['page']}"
         line = f"- {s.get('title') or 'Manual'}{page_bit}"
         page.texts.append(DrawnText(_clip(line, 110), MARGIN + 8, y, w=520, size=8, color=INK))
         y -= 11
