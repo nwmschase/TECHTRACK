@@ -117,8 +117,18 @@ FIREFLY_CAN_PORT_PROVE = (
     "The other is the CAN cable to Firefly / OneControl — unplug that one only. "
     "Then try Manual Mode again."
 )
+FIREFLY_HOLDS_BRANCH = (
+    "If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN "
+    "is in the dump. Do not start a Level Up controller fault path. Next, call Firefly at "
+    "574-825-4600 for USB firmware plus interim."
+)
+FIREFLY_STILL_DUMPS_BRANCH = (
+    "If Manual Mode still dumps home with the Firefly CAN cable unplugged, Firefly CAN is "
+    "ruled out. Diagnose the remaining Level Up path."
+)
 NETWORK_PLUGS_RE = re.compile(r"network\s+plugs", re.I)
 POWER_LOOKS_SANE_RE = re.compile(r"power looks sane", re.I)
+STAYS_OPEN_RE = re.compile(r"stay[s]?\s+open", re.I)
 
 
 def uses_wired_coach_can_jargon(text: str) -> bool:
@@ -171,6 +181,11 @@ def body_uses_network_plugs(text: str) -> bool:
 def body_uses_power_looks_sane(text: str) -> bool:
     """Banned vibe check — Bay PDF must cite the POWER CONNECTOR prove."""
     return bool(POWER_LOOKS_SANE_RE.search(text or ""))
+
+
+def body_uses_stays_open(text: str) -> bool:
+    """Banned — 'stays open' reads backwards. Use holds / still dumps home."""
+    return bool(STAYS_OPEN_RE.search(text or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -550,7 +565,7 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "y2",
                     "end",
-                    "Firefly CAN is in the dump.\nDo not start a Level Up\ncontroller fault path.",
+                    "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
                     0.18,
                     0.84,
                     w=226,
@@ -559,7 +574,7 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "n2",
                     "end",
-                    "Firefly CAN is ruled out.\nDiagnose the Level Up path.",
+                    "Firefly CAN is ruled out.\nDiagnose the remaining\nLevel Up path.",
                     0.82,
                     0.84,
                     w=220,
@@ -579,7 +594,7 @@ def _firefly_path() -> dict:
             "Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present. If Auto is dead, this is not the Firefly path — stay on Level Up hydraulics. If Auto works, check the POWER CONNECTOR next.",
             "Back-probe the labeled POWER CONNECTOR. Measure Red versus Green ground. You want solid 12V+. Note Yellow. If you do not have solid 12V+, fix power first. If power is solid 12V+, do the CAN prove next.",
             FIREFLY_CAN_PORT_PROVE,
-            "If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN communication is in the dump. Do not start diagnosing a Level Up controller fault. If Manual Mode still dumps, Firefly / OneControl CAN is ruled out — now diagnose the Level Up path that remains.",
+            FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
         ],
         "do_not": [
             "Do not pull the rubber-boot terminator.",

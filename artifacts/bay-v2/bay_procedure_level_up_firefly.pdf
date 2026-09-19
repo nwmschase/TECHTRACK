@@ -52,7 +52,7 @@ endobj
 endobj
 8 0 obj
 <<
-/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919154906+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919154906+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919155548+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919155548+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (unspecified) /Title (Bay procedure PDF - WO-FIREFLY) /Trapped /False
 >>
 endobj
@@ -63,7 +63,7 @@ endobj
 endobj
 10 0 obj
 <<
-/Length 10043
+/Length 10234
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -216,7 +216,7 @@ f*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 143 540 154 re B*
+n 36 133 540 164 re B*
 .012 .537 .282 rg
 .012 .537 .282 RG
 .4 w
@@ -240,19 +240,19 @@ n 44 169 8 8 re B*
 1 .984 .941 rg
 .875 .122 .149 RG
 1.1 w
-n 36 57 540 80 re B*
+n 36 47 540 80 re B*
 .875 .122 .149 rg
 .875 .122 .149 RG
 .4 w
-n 36 121 540 16 re B*
+n 36 111 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 44 540 5 re B*
+n 36 44 540 -5 re B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 .4 w
-n 36 33 540 16 re B*
+n 36 23 540 16 re B*
 1 1 1 rg
 BT /F2 13 Tf 15.6 TL ET
 BT 1 0 0 1 46 737 Tm (BAY PROCEDURE) Tj T* ET
@@ -337,12 +337,13 @@ BT 1 0 0 1 279.3478 352.9 Tm (Mode hold?) Tj T* ET
 1 1 1 rg
 BT /F1 9 Tf 10.8 TL ET
 BT 1 0 0 1 113.486 364.3 Tm (Firefly CAN is in the dump.) Tj T* ET
-BT 1 0 0 1 120.9785 352.3 Tm (Do not start a Level Up) Tj T* ET
-BT 1 0 0 1 127.481 340.3 Tm (controller fault path.) Tj T* ET
+BT 1 0 0 1 111.479 352.3 Tm (Call Firefly at 574-825-4600) Tj T* ET
+BT 1 0 0 1 125.7395 340.3 Tm (for USB plus interim.) Tj T* ET
 1 1 1 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 400.489 354.3 Tm (Firefly CAN is ruled out.) Tj T* ET
-BT 1 0 0 1 391.219 342.3 Tm (Diagnose the Level Up path.) Tj T* ET
+BT 1 0 0 1 400.489 360.3 Tm (Firefly CAN is ruled out.) Tj T* ET
+BT 1 0 0 1 400.48 348.3 Tm (Diagnose the remaining) Tj T* ET
+BT 1 0 0 1 418.984 336.3 Tm (Level Up path.) Tj T* ET
 .012 .537 .282 rg
 BT /F2 9 Tf 10.8 TL ET
 BT 1 0 0 1 255 439.48 Tm (YES) Tj T* ET
@@ -387,37 +388,40 @@ BT /F1 7.5 Tf 9 TL ET
 BT 1 0 0 1 58 183 Tm (Then try Manual Mode again.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 170 Tm (4. If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN) Tj T* ET
+BT 1 0 0 1 58 170 Tm (4. If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN is in the) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 160 Tm (communication is in the dump. Do not start diagnosing a Level Up controller fault. If Manual Mode) Tj T* ET
+BT 1 0 0 1 58 160 Tm (dump. Do not start a Level Up controller fault path. Next, call Firefly at 574-825-4600 for USB) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 150 Tm (still dumps, Firefly / OneControl CAN is ruled out - now diagnose the Level Up path that remains.) Tj T* ET
+BT 1 0 0 1 58 150 Tm (firmware plus interim. If Manual Mode still dumps home with the Firefly CAN cable unplugged,) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 140 Tm (Firefly CAN is ruled out. Diagnose the remaining Level Up path.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 125.5 Tm (DO NOT) Tj T* ET
+BT 1 0 0 1 42 115.5 Tm (DO NOT) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 109 Tm (- Do not pull the rubber-boot terminator.) Tj T* ET
+BT 1 0 0 1 44 99 Tm (- Do not pull the rubber-boot terminator.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 97 Tm (- Do not condemn the Level Up controller or start pump and valve replacement while Auto Level) Tj T* ET
+BT 1 0 0 1 44 87 Tm (- Do not condemn the Level Up controller or start pump and valve replacement while Auto Level) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 87 Tm (still works.) Tj T* ET
+BT 1 0 0 1 44 77 Tm (still works.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 75 Tm (- Do not swap another Level Up controller for Firefly blame.) Tj T* ET
+BT 1 0 0 1 44 65 Tm (- Do not swap another Level Up controller for Firefly blame.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 63 Tm (- Do not push Firefly USB firmware unless Manual Mode holds with the Firefly CAN cable unplugged.) Tj T* ET
+BT 1 0 0 1 44 53 Tm (- Do not push Firefly USB firmware unless Manual Mode holds with the Firefly CAN cable unplugged.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 37.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
+BT 1 0 0 1 42 27.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 21 Tm (- Shop writeup - Level Up Advantage Manual Mode flash-home and Firefly) Tj T* ET
+BT 1 0 0 1 44 11 Tm (- Shop writeup - Level Up Advantage Manual Mode flash-home and Firefly) Tj T* ET
  
 endstream
 endobj
@@ -465,11 +469,11 @@ xref
 0000041679 00000 n 
 0000041981 00000 n 
 0000042046 00000 n 
-0000052142 00000 n 
+0000052333 00000 n 
 trailer
 <<
 /ID 
-[<b569dbbca9349e6c37c4dcc3f12fd28b><b569dbbca9349e6c37c4dcc3f12fd28b>]
+[<6774f372a98321311e4f92805d886d08><6774f372a98321311e4f92805d886d08>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 8 0 R
@@ -477,5 +481,5 @@ trailer
 /Size 12
 >>
 startxref
-52740
+52931
 %%EOF
