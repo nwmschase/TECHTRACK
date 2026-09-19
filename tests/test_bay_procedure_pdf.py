@@ -28,9 +28,11 @@ from bay_procedure import (
     procedure_plain_text,
     render_bay_procedure_pdf,
     is_long_appliance_path,
+    load_oem_figure_png,
     rewrite_bay_search_symptom,
     scrub_sheet_text,
     sheet_standard_violations,
+    _seed_figure_png,
     suggested_pdf_filename,
     uses_wired_coach_can_jargon,
 )
@@ -163,7 +165,14 @@ class TestIceRearWallBayProcedure(unittest.TestCase):
         for banned in ("fuse", "12-volt", "12v", "inverter", "dead-unit", "15a"):
             self.assertNotIn(banned, body)
         self.assertTrue(proc.flowchart.readable)
-        self.assertLessEqual(len(proc.flowchart.nodes), 6)
+        decisions = [n for n in proc.flowchart.nodes if n.kind == "decision"]
+        self.assertGreaterEqual(len(decisions), 4)
+        mashed = [n.text for n in decisions if "light sheet" in n.text.lower() and "dial" in n.text.lower()]
+        self.assertEqual(mashed, [])
+        self.assertTrue(any("light sheet" in n.text.lower() for n in decisions))
+        self.assertTrue(any("dial" in n.text.lower() for n in decisions))
+        self.assertTrue(any("gasket" in n.text.lower() for n in decisions))
+        self.assertTrue(any("frost return" in n.text.lower() for n in decisions))
         self.assertTrue(any(n.w >= 170 for n in proc.flowchart.nodes))
         order = " ".join(proc.bay_order).lower()
         self.assertIn("if it is only a light sheet", order)
@@ -250,6 +259,18 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
         self.assertTrue(proc.flowchart.readable)
         self.assertTrue(any(fig.image_png for fig in proc.figures))
+        decisions = [n.text.lower() for n in proc.flowchart.nodes if n.kind == "decision"]
+        self.assertGreaterEqual(len(decisions), 4)
+        self.assertTrue(any("drain" in t or "pan" in t for t in decisions))
+        self.assertTrue(any("retest" in t or "return" in t for t in decisions))
+        self.assertTrue(any("slope" in t for t in decisions))
+        self.assertTrue(any("suction" in t for t in decisions))
+        mashed = [
+            n.text
+            for n in proc.flowchart.nodes
+            if "slope" in n.text.lower() and "suction" in n.text.lower()
+        ]
+        self.assertEqual(mashed, [])
         order = " ".join(proc.bay_order).lower()
         self.assertIn("if the drain is restricted", order)
         self.assertIn("base-pan", order)
@@ -625,7 +646,12 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
                 self.assertIn("dollar-bill", body.lower())
                 src = " ".join(s.get("title") or "" for s in proc.sources)
                 self.assertIn("CCD-0008122", src)
-            self.assertLessEqual(len(proc.flowchart.nodes), 7)
+            if category == "Leveling":
+                self.assertLessEqual(len(proc.flowchart.nodes), 7)
+            else:
+                self.assertGreaterEqual(
+                    len([n for n in proc.flowchart.nodes if n.kind == "decision"]), 4, concern
+                )
             self.assertTrue(any(n.w >= 170 for n in proc.flowchart.nodes), concern)
 
 
@@ -792,8 +818,13 @@ class TestOemFlowchartLayout(unittest.TestCase):
             rects = flowchart_node_rects(proc.flowchart, *self.FRAME)
             hits = flowchart_boxes_overlap(rects, gap=14.0)
             self.assertEqual(hits, [], (concern, hits, rects))
-            self.assertTrue(any(n.kind == "decision" and n.w >= 200 and n.h >= 90 for n in proc.flowchart.nodes))
-            self.assertTrue(any(n.w >= 250 for n in proc.flowchart.nodes))
+            decisions = [n for n in proc.flowchart.nodes if n.kind == "decision"]
+            self.assertTrue(decisions)
+            if category == "Leveling":
+                self.assertTrue(any(n.w >= 200 and n.h >= 90 for n in decisions))
+            else:
+                self.assertGreaterEqual(len(decisions), 4, concern)
+            self.assertTrue(any(n.w >= 230 for n in proc.flowchart.nodes))
             pages = compose_sheet(proc)
             flow_h = max(
                 sh.h for sh in pages[0].shapes if sh.kind == "roundrect" and sh.h > 200
@@ -819,6 +850,39 @@ class TestNavAndGdUntouched(unittest.TestCase):
         self.assertIn("with tab_ask:", src)
         self.assertIn("💬 Guided Diagnostics", src)
         self.assertIn("full A to Z", src)
+
+
+class TestRealOemLibraryFigures(unittest.TestCase):
+    """Ice and FACR page-3 art is the OEM manual page, not a drawn cartoon."""
+
+    def test_ice_embeds_ccd_0008122_page_36(self):
+        proc = compile_bay_procedure(
+            concern=WO_COMPLAINT, brand="Furrion", model=WO_MODEL, category="Refrigerators"
+        )
+        self.assertGreaterEqual(len(proc.figures), 2)
+        self.assertTrue(all(fig.image_png for fig in proc.figures[:2]))
+        self.assertEqual(proc.figures[0].page, 36)
+        self.assertIn("fig. 36", proc.figures[0].caption.lower())
+        self.assertEqual(proc.figures[0].image_png, load_oem_figure_png("ccd8122-fig36.png"))
+        self.assertEqual(proc.figures[1].image_png, load_oem_figure_png("ccd8122-p36.png"))
+        self.assertNotEqual(proc.figures[0].image_png, _seed_figure_png("ice"))
+
+    def test_facr_embeds_7990_and_8666_pages(self):
+        proc = compile_bay_procedure(
+            concern="FACR08 freeze up interior leak condensate",
+            brand="Furrion",
+            model="FACR08",
+            category="Air Conditioning",
+        )
+        self.assertGreaterEqual(len(proc.figures), 2)
+        titles = " ".join((f.title or "") for f in proc.figures).lower()
+        self.assertIn("ccd-0007990", titles)
+        self.assertIn("ccd-0008666", titles)
+        pages = {f.page for f in proc.figures}
+        self.assertTrue(7 in pages or 4 in pages)
+        self.assertIn(10, pages)
+        self.assertNotEqual(proc.figures[0].image_png, _seed_figure_png("facr"))
+        self.assertEqual(proc.figures[0].image_png, load_oem_figure_png("ccd7990-p7.png"))
 
 
 class TestNewConcernsInheritStandard(unittest.TestCase):
