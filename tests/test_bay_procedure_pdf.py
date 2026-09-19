@@ -4,11 +4,14 @@ import unittest
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
     FIREFLY_CAN_PORT_PROVE,
+    FIREFLY_HOLDS_BRANCH,
+    FIREFLY_STILL_DUMPS_BRANCH,
     body_tells_tech_to_open_manual,
     body_uses_coach_donots,
     body_uses_manual_codes,
     body_uses_network_plugs,
     body_uses_power_looks_sane,
+    body_uses_stays_open,
     check_text_leads_with_bare_pn,
     compile_bay_procedure,
     count_pdf_draw_ops,
@@ -184,6 +187,10 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("rubber-boot", low)
         self.assertIn("terminator", low)
         self.assertIn("firefly usb", low)
+        self.assertIn("574-825-4600", low)
+        self.assertIn("interim", low)
+        self.assertIn("still dumps home", low)
+        self.assertNotIn("stays open", low)
         self.assertIn("firefly", low)
         self.assertIn("level up controller", low)
         self.assertIn("ports labeled can", low)
@@ -200,6 +207,7 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
         self.assertFalse(body_uses_network_plugs(procedure_body_text(proc)))
         self.assertFalse(body_uses_power_looks_sane(procedure_body_text(proc)))
+        self.assertFalse(body_uses_stays_open(procedure_body_text(proc)))
         self.assertTrue(proc.flowchart.readable)
         self.assertLessEqual(len(proc.flowchart.nodes), 7)
         self.assertTrue(any(fig.image_png for fig in proc.figures))
@@ -266,9 +274,12 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
         self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
         self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+        self.assertFalse(body_uses_stays_open(procedure_body_text(proc)))
         self.assertTrue(proc.flowchart.readable)
         self.assertFalse(uses_wired_coach_can_jargon(text))
         self.assertIn(FIREFLY_CAN_PORT_PROVE.split(".")[0].lower(), low)
+        self.assertIn("574-825-4600", low)
+        self.assertIn("still dumps home", low)
         self.assertNotIn(FIREFLY_TWO_PLUG_PROVE.split(".")[0].lower(), procedure_body_text(proc).lower())
         self.assertNotIn("confirm manual dump works", low)
         self.assertNotIn("no matching manual excerpt", low)
@@ -284,6 +295,11 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("power connector", pdf_low)
         self.assertNotIn("network plugs", pdf_low)
         self.assertNotIn("power looks sane", pdf_low)
+        self.assertNotIn("stays open", pdf_low)
+        self.assertNotIn("stay open", pdf_low)
+        self.assertIn("574-825-4600", pdf_low)
+        self.assertIn("interim", pdf_low)
+        self.assertIn("still dumps home", pdf_low)
         self.assertNotIn("one at a time", pdf_low)
         self.assertFalse(firefly_has_forbidden_module_hunt(pdf_low))
 
@@ -384,10 +400,18 @@ class TestExactFireflyTwoPlugLock(unittest.TestCase):
         text = procedure_plain_text(proc)
         body = procedure_body_text(proc)
         self.assertEqual(proc.bay_order[2], FIREFLY_CAN_PORT_PROVE)
+        self.assertEqual(
+            proc.bay_order[3],
+            FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
+        )
         self.assertIn(FIREFLY_CAN_PORT_PROVE, proc.pattern_means)
         self.assertNotIn(EXACT_TWO_PLUG, body)
         self.assertFalse(body_uses_network_plugs(body))
         self.assertFalse(body_uses_power_looks_sane(body))
+        self.assertFalse(body_uses_stays_open(body))
+        self.assertIn("574-825-4600", body)
+        self.assertIn("interim", body.lower())
+        self.assertIn("still dumps home", body.lower())
         self.assertIn("ports labeled can", body.lower())
         self.assertIn("power connector", body.lower())
         self.assertIn("rubber-boot terminator", body.lower())
@@ -470,6 +494,8 @@ class TestServiceBayVoiceEntireSheet(unittest.TestCase):
         "Find the connector",
         "network plugs",
         "power looks sane",
+        "stays open",
+        "stay open",
     )
 
     def _assert_human_steps(self, steps):
@@ -529,8 +555,16 @@ class TestServiceBayVoiceEntireSheet(unittest.TestCase):
         body = procedure_body_text(proc)
         self.assertIn(FIREFLY_CAN_PORT_PROVE, text)
         self.assertEqual(proc.bay_order[2], FIREFLY_CAN_PORT_PROVE)
+        self.assertEqual(
+            proc.bay_order[3],
+            FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
+        )
         self.assertIn(FIREFLY_CAN_PORT_PROVE, proc.pattern_means)
         self.assertNotIn(EXACT_TWO_PLUG, body)
+        self.assertFalse(body_uses_stays_open(body))
+        self.assertIn("574-825-4600", body)
+        self.assertIn("interim", body.lower())
+        self.assertIn("still dumps home", body.lower())
         self.assertIn("rubber-boot", text.lower())
         self.assertIn("terminator", text.lower())
         self.assertIn("firefly", text.lower())
@@ -570,8 +604,11 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
                 self.assertIn("807662", src)
                 self.assertFalse(body_uses_network_plugs(body))
                 self.assertFalse(body_uses_power_looks_sane(body))
+                self.assertFalse(body_uses_stays_open(body))
                 self.assertIn("ports labeled can", body.lower())
                 self.assertIn("power connector", body.lower())
+                self.assertIn("574-825-4600", body)
+                self.assertIn("still dumps home", body.lower())
             self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
             self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
             self.assertTrue(proc.flowchart.readable, concern)
@@ -599,6 +636,7 @@ class TestSheetProvidesChecksNotOpenManual(unittest.TestCase):
             body = procedure_body_text(proc)
             self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
             self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+            self.assertFalse(body_uses_stays_open(body), body[:400])
             self.assertNotIn("see the sm", body.lower())
             self.assertNotIn("open ccd-", body.lower())
             self.assertTrue(proc.flowchart.readable, concern)
@@ -622,9 +660,15 @@ class TestSheetProvidesChecksNotOpenManual(unittest.TestCase):
             self.assertNotIn("invent oem", donot)
             if category == "Leveling":
                 self.assertEqual(proc.bay_order[2], FIREFLY_CAN_PORT_PROVE)
+                self.assertEqual(
+                    proc.bay_order[3],
+                    FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
+                )
                 self.assertFalse(body_uses_network_plugs(body))
                 self.assertFalse(body_uses_power_looks_sane(body))
                 self.assertIn("power connector", body.lower())
+                self.assertIn("574-825-4600", body)
+                self.assertIn("still dumps home", body.lower())
                 donot = " ".join(proc.do_not).lower()
                 self.assertIn("rubber-boot terminator", donot)
                 self.assertIn("pump and valve", donot)
