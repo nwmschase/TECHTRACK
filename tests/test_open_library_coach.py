@@ -60,9 +60,11 @@ class TestProductPath(unittest.TestCase):
         self.assertIn("complete stabilizer jack assembly", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("ice and moisture", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("page 36", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("terminator", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("rubber boot", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertIn("firefly", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("wired coach can", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("two network plugs", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertIn("unplug that cable only", OPEN_LIBRARY_COACH_RULE.lower())
+        self.assertNotIn("wired coach can", OPEN_LIBRARY_COACH_RULE.lower())
         self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
         self.assertTrue(
             is_path_complete_trap(

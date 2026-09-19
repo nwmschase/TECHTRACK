@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.14.0
+RV TechTrack v4.15.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -58,6 +58,7 @@ RV TechTrack v4.14.0
 - v4.13.11: Furrion FACR* rooftop freeze/condensate/base-pan ranks CCD-0007990 with CCD-0008666
 - v4.13.12: Level Up Manual Mode flash-home + Auto works is Firefly/OneControl CAN isolate (terminator in)
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
+- v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
 - Mobile-friendly
 """
 import streamlit as st
@@ -4196,7 +4197,7 @@ Rules:
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
 18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
-18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator); reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless Manual stays CAN-out.
+18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
@@ -4902,9 +4903,13 @@ with tab_jobs:
     st.subheader(f"🧾 {BAY_PROCEDURE_LABEL}")
     st.caption(
         "Enter the customer concern. TechTrack retrieves from this shop's Document Library "
-        "(same stack as Guided Diagnostics — no live web) and compiles a printable bay procedure: "
-        "header, ordered diagnostic checks, cited library figures when available, "
-        "and an optional blank Concern / Cause / Correction block. "
+        "(same stack as Guided Diagnostics — no live web) and compiles a printable bay sheet: "
+        "header (concern, model, date, WO#, primary OEM cite), what this pattern usually means, "
+        "a drawn yes/no flowchart, bay-order punch list, do-not list, cited library figures "
+        "when available, and sources with real IDs/pages. "
+        "Optional blank 3C is a small footer only — never the body. "
+        "Short paths stay short but complete. Long appliance paths are full A to Z, "
+        "not hint cards. Checks, thresholds, and pass or fail stay on the page. "
         "Guided Diagnostics chat is unchanged. This does not write a warranty story."
     )
 
@@ -4940,10 +4945,10 @@ with tab_jobs:
             st.image(bay_img, caption="Plate photo", width=280)
             apply_plate_read_to_model_key("bay_model", bay_img, "bay_plate_read_btn")
     bay_include_3c = st.checkbox(
-        "Include blank Concern / Cause / Correction block",
-        value=True,
+        "Include blank 3C footer (small — not the body)",
+        value=False,
         key="bay_include_3c",
-        help="Left blank on purpose. TechTrack does not auto-write the warranty story.",
+        help="Tiny Concern / Cause / Correction line at the bottom. TechTrack does not write the warranty story.",
     )
     if st.button(f"Generate {BAY_PROCEDURE_LABEL}", type="primary", key="bay_generate"):
         if not (bay_concern or "").strip():
@@ -4969,8 +4974,9 @@ with tab_jobs:
             st.session_state["bay_pdf_preview"] = {
                 "concern": proc.concern,
                 "model": proc.model_line,
+                "primary_cite": proc.primary_cite,
                 "sources": proc.sources,
-                "check_count": len(proc.checks),
+                "check_count": len(proc.bay_order),
                 "figure_count": len(proc.figures),
             }
             st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
@@ -4982,7 +4988,8 @@ with tab_jobs:
             st.markdown(
                 f"**Concern:** {preview.get('concern') or '—'}  \n"
                 f"**Model:** {preview.get('model') or '—'}  \n"
-                f"**Checks:** {preview.get('check_count') or 0} · "
+                f"**Primary OEM cite:** {preview.get('primary_cite') or '—'}  \n"
+                f"**Bay-order steps:** {preview.get('check_count') or 0} · "
                 f"**Cited figures:** {preview.get('figure_count') or 0}"
             )
             srcs = preview.get("sources") or []
