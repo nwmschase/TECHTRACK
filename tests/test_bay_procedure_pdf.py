@@ -373,6 +373,52 @@ class TestFireflyServiceNamesNotPartNumbers(unittest.TestCase):
             self.assertFalse(step.lstrip().startswith("807662"), step)
 
 
+class TestServiceBayVoiceEntireSheet(unittest.TestCase):
+    """Entire bay sheet stays in complete-sentence service voice — not only Firefly."""
+
+    def _assert_human_steps(self, steps):
+        for step in steps:
+            self.assertTrue(step.strip().endswith("."), step)
+            self.assertFalse(step.lstrip().startswith("807662"), step)
+            self.assertNotIn("→", step)
+            self.assertNotIn("wired coach CAN", step)
+            self.assertNotIn("wired coach can", step)
+
+    def test_ice_facr_firefly_punch_lists_are_complete_sentences(self):
+        cases = (
+            (WO_COMPLAINT, "Furrion", WO_MODEL, "Refrigerators"),
+            ("FACR08 freeze up interior leak condensate", "Furrion", "FACR08", "Air Conditioning"),
+            (MANUAL_MODE_DUMP_AUTO, "", "Level Up Advantage 807662", "Leveling"),
+        )
+        for concern, brand, model, category in cases:
+            proc = compile_bay_procedure(
+                concern=concern, brand=brand, model=model, category=category
+            )
+            self._assert_human_steps(proc.bay_order)
+            self._assert_human_steps(proc.do_not)
+            self.assertTrue(proc.pattern_means.strip().endswith("."), proc.pattern_means)
+            self.assertNotIn("Find the connector", procedure_plain_text(proc))
+            self.assertNotIn("labeled CAN", procedure_plain_text(proc))
+            self.assertFalse(uses_wired_coach_can_jargon(procedure_plain_text(proc)))
+
+    def test_firefly_prove_stays_short_two_plug_not_silkscreen(self):
+        proc = compile_bay_procedure(
+            concern=MANUAL_MODE_DUMP_AUTO,
+            category="Leveling",
+            model="Level Up Advantage 807662",
+        )
+        text = procedure_plain_text(proc)
+        self.assertIn(EXACT_TWO_PLUG, text)
+        self.assertIn("rubber boot", text.lower())
+        self.assertIn("firefly", text.lower())
+        self.assertIn("cable", text.lower())
+        self.assertIn("then try manual mode again", text.lower())
+        self.assertNotIn("Find the connector", text)
+        self.assertNotIn("labeled CAN", text)
+        self.assertNotIn("Go back to the touchpad", text)
+        self.assertNotIn("wired coach CAN", text)
+
+
 class TestNavAndGdUntouched(unittest.TestCase):
     def test_nav_label_and_gd_chat_untouched(self):
         from pathlib import Path
