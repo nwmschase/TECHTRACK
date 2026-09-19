@@ -154,6 +154,7 @@ class FlowEdge:
 class Flowchart:
     nodes: list[FlowNode] = field(default_factory=list)
     edges: list[FlowEdge] = field(default_factory=list)
+    readable: bool = False
 
 
 @dataclass
@@ -236,6 +237,7 @@ class BayProcedure:
     include_3c: bool = False
     notes: list[str] = field(default_factory=list)
     display_model: str = ""
+    flow_tall: bool = False
 
     @property
     def model_line(self) -> str:
@@ -255,42 +257,85 @@ def _ice_path() -> dict:
             "Ice or frost on the rear wall, including a pattern that starts about halfway "
             "down from the top, is an Ice and Moisture problem. Follow the Ice and Moisture "
             "section of the Furrion fridge service manual. A light sheet on the back wall "
-            "alone can be normal cycling. This is a moisture, door gasket, and cooling path. "
-            "It is not a dead-unit fuse check."
+            "alone can be normal cycling. This is a moisture, door gasket, drain, and cooling path."
         ),
         "flowchart": Flowchart(
+            readable=True,
             nodes=[
-                FlowNode("s", "start", "Ice or frost is on the\nrear wall of the fridge.", 0.50, 0.08),
-                FlowNode("d1", "decision", "Is the dial\nat max?", 0.50, 0.28),
-                FlowNode("a1", "process", "Set the dial to about 4 to 5\nand run it overnight.", 0.18, 0.28, w=156, h=38),
-                FlowNode("d2", "decision", "Does the gasket fail\na dollar-bill test?", 0.50, 0.52),
-                FlowNode("a2", "process", "Repair the gasket.\nClear the rear drain.", 0.18, 0.52, w=150, h=36),
-                FlowNode("p", "process", "Verify 12-volt under load.\nRecheck in 24 to 48 hours.", 0.50, 0.74),
-                FlowNode("e", "end", "Stay on the Ice and Moisture\nsection of the fridge manual.", 0.50, 0.92),
+                FlowNode(
+                    "s",
+                    "start",
+                    "Ice or frost is on the rear wall of the fridge.",
+                    0.50,
+                    0.10,
+                    w=280,
+                    h=50,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Light sheet only,\nor dial at max?",
+                    0.50,
+                    0.36,
+                    w=176,
+                    h=78,
+                ),
+                FlowNode(
+                    "a1",
+                    "process",
+                    "Set the dial to about 4 to 5.\nRun overnight, then check the gasket.",
+                    0.16,
+                    0.36,
+                    w=220,
+                    h=58,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Does the gasket fail\na dollar-bill test?",
+                    0.50,
+                    0.62,
+                    w=176,
+                    h=78,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "Repair or reseat the gasket.\nClear the rear drain and trough.\nRecheck in 24 to 48 hours.",
+                    0.16,
+                    0.62,
+                    w=228,
+                    h=62,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Clear the rear drain and trough.\nRecheck in 24 to 48 hours.\nReplace only from Ice and Moisture.",
+                    0.50,
+                    0.88,
+                    w=280,
+                    h=58,
+                ),
             ],
             edges=[
                 FlowEdge("s", "d1"),
                 FlowEdge("d1", "a1", "YES", "left", "right"),
                 FlowEdge("d1", "d2", "NO", "bottom", "top"),
                 FlowEdge("a1", "d2", "", "bottom", "left"),
-                FlowEdge("d2", "a2", "YES", "left", "right"),
-                FlowEdge("d2", "p", "NO", "bottom", "top"),
-                FlowEdge("a2", "p", "", "bottom", "left"),
-                FlowEdge("p", "e"),
+                FlowEdge("d2", "y2", "YES", "left", "right"),
+                FlowEdge("d2", "n2", "NO", "bottom", "top"),
             ],
         ),
         "bay_order": [
-            "Look at the frost pattern on the rear wall. A light sheet on the back wall alone can be normal cycling.",
-            "If the temperature dial is at max, set it to mid, about 4 to 5, and let the fridge run overnight.",
-            "Check the door gasket with a dollar-bill test, then reseat or repair the gasket before you condemn the cooling unit.",
-            "Clear the rear drain and trough so melt water can leave. Verify 12-volt supply under load at the fridge.",
-            "Recheck the frost pattern in 24 to 48 hours. Watch or replace the unit only from the Ice and Moisture section of the Furrion fridge service manual.",
+            "Look at the frost pattern on the rear wall. If it is only a light sheet, that can be normal cycling: set the dial to mid, about 4 to 5, run overnight, then look again. If frost is heavy or starts halfway down, keep going.",
+            "Check the temperature dial. If it is at max, set it to about 4 to 5, let the fridge run overnight, then look at the pattern again. If the dial is already mid, go to the gasket next.",
+            "Check the door gasket with a dollar-bill test. If the bill slides out with no drag, reseat or repair the gasket, then clear the rear drain and trough and recheck in 24 to 48 hours. If the gasket holds, clear the rear drain and trough next.",
+            "Clear the rear drain and trough so melt water can leave. If the drain is open and the gasket is good, recheck the frost pattern in 24 to 48 hours.",
+            "After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If heavy frost returns, replace the unit from the Ice and Moisture section of the Furrion fridge service manual.",
         ],
         "do_not": [
             "Do not knife the ice off the rear wall.",
             "Do not assume a sealed-system failure from top-half frost alone.",
-            "Do not open the no-power or 15A fuse path for this frost pattern.",
-            "Do not start at the 12-volt inverter unless the unit is dead, has no light, or will not run.",
         ],
         "sources": [
             {
@@ -303,6 +348,7 @@ def _ice_path() -> dict:
             }
         ],
         "display_model": "",
+        "flow_tall": True,
     }
 
 
@@ -587,58 +633,80 @@ def _png_bytes(image) -> bytes:
     return buf.getvalue()
 
 
+def _figure_font(size: int = 18):
+    from PIL import ImageFont
+
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
+
+
 def _seed_figure_png(kind: str) -> bytes:
     """Ship ice-pattern / data-plate schematics so HIT sheets are not figure-empty."""
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
-    img = Image.new("RGB", (720, 420), (248, 250, 252))
+    img = Image.new("RGB", (900, 520), (248, 250, 252))
     draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.load_default()
-    except Exception:
-        font = None
-    draw.rectangle((8, 8, 711, 411), outline=(1, 20, 124), width=3)
+    title_f = _figure_font(22)
+    body_f = _figure_font(18)
+    small_f = _figure_font(16)
+    draw.rectangle((10, 10, 889, 509), outline=(1, 20, 124), width=4)
     if kind == "ice":
-        draw.rectangle((80, 40, 360, 380), outline=(18, 18, 36), width=3, fill=(255, 255, 255))
-        draw.rectangle((88, 200, 352, 372), fill=(186, 214, 240))
-        for y in range(210, 370, 14):
-            draw.line((96, y, 344, y + 6), fill=(90, 140, 190), width=2)
-        draw.line((80, 200, 360, 200), fill=(200, 40, 40), width=3)
-        draw.text((380, 50), "Fig. 36  rear-wall frost pattern", fill=(1, 20, 124), font=font)
-        draw.text((380, 90), "Light sheet on the back wall", fill=(18, 18, 36), font=font)
-        draw.text((380, 120), "alone can be normal cycling.", fill=(18, 18, 36), font=font)
-        draw.text((380, 170), "Top half clear / frost from mid-down", fill=(18, 18, 36), font=font)
-        draw.text((380, 210), "is the Ice and Moisture pattern.", fill=(18, 18, 36), font=font)
-        draw.text((380, 270), "Furrion fridge service manual", fill=(18, 18, 36), font=font)
-        draw.text((380, 300), "Ice and Moisture section", fill=(18, 18, 36), font=font)
+        draw.rectangle((70, 50, 400, 470), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.rectangle((82, 250, 388, 458), fill=(186, 214, 240))
+        for y in range(262, 450, 16):
+            draw.line((92, y, 378, y + 6), fill=(70, 120, 175), width=3)
+        draw.line((70, 250, 400, 250), fill=(200, 40, 40), width=4)
+        draw.text((82, 80), "TOP  clear", fill=(18, 18, 36), font=body_f)
+        draw.text((82, 270), "FROST from mid-down", fill=(1, 20, 124), font=body_f)
+        draw.text((430, 60), "Fig. 36  Rear-wall frost pattern", fill=(1, 20, 124), font=title_f)
+        draw.text((430, 120), "A light sheet on the back wall", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 150), "alone can be normal cycling.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 210), "Heavy frost starting halfway", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 240), "down is the Ice and Moisture", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 270), "pattern. Stay on that section.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 340), "Furrion fridge service manual", fill=(18, 18, 36), font=small_f)
+        draw.text((430, 370), "Ice and Moisture section", fill=(18, 18, 36), font=small_f)
     elif kind == "facr":
-        draw.rectangle((70, 50, 340, 160), outline=(18, 18, 36), width=3, fill=(230, 236, 245))
-        draw.rectangle((90, 160, 320, 210), outline=(18, 18, 36), width=2, fill=(210, 220, 230))
-        draw.polygon([(200, 210), (190, 300), (210, 300)], fill=(80, 80, 90))
-        draw.ellipse((175, 300, 225, 330), outline=(1, 20, 124), width=2)
-        draw.text((380, 50), "Rooftop assembly / base pan", fill=(1, 20, 124), font=font)
-        draw.text((380, 90), "Evaporator pan and condensate drain", fill=(18, 18, 36), font=font)
-        draw.text((380, 140), "Clear ice or a restricted drain", fill=(18, 18, 36), font=font)
-        draw.text((380, 170), "before you condemn the sealed system.", fill=(18, 18, 36), font=font)
-        draw.text((380, 230), "Furrion rooftop HVAC service manual", fill=(18, 18, 36), font=font)
-        draw.text((90, 350), "Drain path", fill=(18, 18, 36), font=font)
+        draw.rectangle((80, 60, 400, 190), outline=(18, 18, 36), width=4, fill=(230, 236, 245))
+        draw.rectangle((110, 190, 370, 250), outline=(18, 18, 36), width=3, fill=(210, 220, 230))
+        draw.polygon([(240, 250), (225, 360), (255, 360)], fill=(80, 80, 90))
+        draw.ellipse((210, 360, 270, 400), outline=(1, 20, 124), width=3)
+        draw.text((430, 60), "Rooftop assembly / base pan", fill=(1, 20, 124), font=title_f)
+        draw.text((430, 110), "Inspect the evaporator pan", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 145), "and the condensate drain.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 200), "If the drain is restricted or", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 235), "the pan is iced, clear it,", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 270), "then retest cooling.", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 430), "Drain path", fill=(18, 18, 36), font=small_f)
     else:
-        draw.rectangle((60, 70, 360, 300), outline=(18, 18, 36), width=3, fill=(255, 255, 255))
-        draw.rectangle((80, 90, 340, 140), fill=(1, 20, 124))
-        draw.text((92, 105), "Level Up Advantage controller", fill=(255, 255, 255), font=font)
-        draw.rectangle((90, 180, 170, 230), outline=(18, 18, 36), width=2, fill=(230, 230, 230))
-        draw.rectangle((96, 186, 164, 224), fill=(40, 40, 40))
-        draw.rectangle((210, 180, 290, 230), outline=(18, 18, 36), width=2, fill=(250, 250, 250))
-        draw.line((250, 230, 250, 310), fill=(180, 40, 40), width=4)
-        draw.text((88, 240), "Rubber-boot", fill=(18, 18, 36), font=font)
-        draw.text((92, 258), "plug  LEAVE IN", fill=(1, 20, 124), font=font)
-        draw.text((208, 240), "Firefly cable", fill=(18, 18, 36), font=font)
-        draw.text((214, 258), "UNPLUG ONLY", fill=(200, 30, 40), font=font)
-        draw.text((400, 80), "Data plate / connector layout", fill=(1, 20, 124), font=font)
-        draw.text((400, 120), "Two network plugs on the", fill=(18, 18, 36), font=font)
-        draw.text((400, 150), "Level Up Advantage controller.", fill=(18, 18, 36), font=font)
-        draw.text((400, 200), "Brinkley / Firefly coach", fill=(18, 18, 36), font=font)
-        draw.text((400, 250), "Shop PN 807662  (sources only)", fill=(90, 90, 90), font=font)
+        draw.rectangle((70, 80, 420, 360), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.rectangle((90, 100, 400, 160), fill=(1, 20, 124))
+        draw.text((104, 118), "Level Up Advantage controller", fill=(255, 255, 255), font=title_f)
+        draw.rectangle((100, 210, 200, 270), outline=(18, 18, 36), width=3, fill=(230, 230, 230))
+        draw.rectangle((110, 220, 190, 260), fill=(40, 40, 40))
+        draw.rectangle((250, 210, 350, 270), outline=(18, 18, 36), width=3, fill=(250, 250, 250))
+        draw.line((300, 270, 300, 370), fill=(180, 40, 40), width=6)
+        draw.text((100, 284), "Rubber-boot plug", fill=(18, 18, 36), font=small_f)
+        draw.text((108, 310), "LEAVE IN", fill=(1, 20, 124), font=body_f)
+        draw.text((250, 284), "Firefly cable", fill=(18, 18, 36), font=small_f)
+        draw.text((258, 310), "UNPLUG ONLY", fill=(200, 30, 40), font=body_f)
+        draw.text((450, 90), "Data plate / two plugs", fill=(1, 20, 124), font=title_f)
+        draw.text((450, 150), "Leave the rubber-boot", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 185), "plug in. Unplug only the", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 220), "Firefly / OneControl cable.", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 300), "Brinkley / Firefly coach", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 340), "Shop PN 807662 (Sources only)", fill=(90, 90, 90), font=small_f)
     return _png_bytes(img)
 
 
@@ -732,7 +800,7 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         notes.append(
             "Ice or frost on the rear wall is an Ice and Moisture problem. "
-            "Stay on CCD-0008122 page 36. This is not a fuse or 12-volt path."
+            "Follow the Ice and Moisture section of the Furrion fridge service manual."
         )
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
         category_name, model_text, concern
@@ -922,6 +990,7 @@ def compile_bay_procedure(
         include_3c=include_3c,
         notes=notes,
         display_model=display_model,
+        flow_tall=bool(spec.get("flow_tall")),
     )
 
 
@@ -1055,14 +1124,14 @@ def _latin1_safe(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Visual flowchart + sheet composition (shared by all renderers)
 # ---------------------------------------------------------------------------
-def _node_size(node: FlowNode) -> tuple[float, float]:
+def _node_size(node: FlowNode, *, readable: bool = False) -> tuple[float, float]:
     if node.w and node.h:
         return node.w, node.h
     if node.kind == "decision":
-        return 132.0, 58.0
+        return (176.0, 76.0) if readable else (132.0, 58.0)
     if node.kind in ("start", "end"):
-        return 210.0, 38.0
-    return 230.0, 40.0
+        return (260.0, 50.0) if readable else (210.0, 38.0)
+    return (230.0, 52.0) if readable else (230.0, 40.0)
 
 
 def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, float]:
@@ -1103,38 +1172,40 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
     inner_w = frame_w - 20
     inner_h = frame_h - 28
 
+    readable = bool(getattr(flow, "readable", False))
     for node in flow.nodes:
-        w, h = _node_size(node)
+        w, h = _node_size(node, readable=readable)
         cx = inner_x + node.x * inner_w
         # node.y is top-to-bottom fraction; PDF y is bottom-up
         cy = inner_y + inner_h - node.y * inner_h
         # Keep shapes inside the frame.
-        cx = min(max(cx, inner_x + w / 2 + 2), inner_x + inner_w - w / 2 - 2)
-        cy = min(max(cy, inner_y + h / 2 + 2), inner_y + inner_h - h / 2 - 2)
+        pad = 8 if readable else 2
+        cx = min(max(cx, inner_x + w / 2 + pad), inner_x + inner_w - w / 2 - pad)
+        cy = min(max(cy, inner_y + h / 2 + pad), inner_y + inner_h - h / 2 - pad)
         placed[node.id] = (cx, cy, w, h)
         x, y = cx - w / 2, cy - h / 2
         if node.kind == "decision":
-            shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=1.5))
-            size = 7.5
+            shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=1.7))
+            size = 9.5 if readable else 7.5
         elif node.kind in ("start", "end"):
             fill = GREEN if node.kind == "start" else NAVY
-            shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.4))
-            size = 7.5
+            shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.5))
+            size = 9.0 if readable else 7.5
         else:
-            shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.3, radius=5))
-            size = 7.5
+            shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.4, radius=6))
+            size = 9.0 if readable else 7.5
         color = WHITE if node.kind in ("start", "end") else INK
         texts.append(
             DrawnText(
                 node.text,
                 cx,
                 cy,
-                w=w - 14,
+                w=w - (22 if readable else 14),
                 size=size,
                 bold=node.kind == "decision",
                 color=color,
                 align="center",
-                leading=size + 1.5,
+                leading=size + (3.0 if readable else 1.5),
             )
         )
 
@@ -1160,8 +1231,8 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
                     edge.label.upper(),
                     mx,
                     my,
-                    w=28,
-                    size=7,
+                    w=36,
+                    size=9 if readable else 7,
                     bold=True,
                     color=color,
                     align="left",
@@ -1253,7 +1324,12 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     # Flowchart frame — the product, not a paragraph list
     flow_top = means_y - 8
-    flow_h = 188 if len(proc.bay_order) > 4 else 210
+    if proc.flow_tall or getattr(proc.flowchart, "readable", False):
+        flow_h = 252
+    elif len(proc.bay_order) > 4:
+        flow_h = 188
+    else:
+        flow_h = 210
     flow_y = flow_top - flow_h
     f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
     page.shapes.extend(f_shapes)
@@ -1366,10 +1442,10 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
             page2.texts.append(DrawnText(_clip(cap, 100), MARGIN + 8, y, w=520, size=9, bold=True, color=NAVY))
             y -= 12
-            img_h = 240
+            img_h = 320
             if y - img_h < MARGIN + 40:
                 img_h = max(80, y - (MARGIN + 40))
-            page2.images.append(DrawnImage(fig.image_png, MARGIN + 20, y - img_h, 400, img_h))
+            page2.images.append(DrawnImage(fig.image_png, MARGIN + 16, y - img_h, 520, img_h))
             y -= img_h + 10
             if y < MARGIN + 80:
                 break
