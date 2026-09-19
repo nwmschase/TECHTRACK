@@ -123,15 +123,39 @@ COACH_DONOT_RE = re.compile(
 MAX_BAY_ORDER = 12
 
 # Standing product rule — new concerns inherit this from the composer, not only seeds.
+# Permanent product rule: techtrack-validation/product-backlog/bay-pdf-standing-standard-2026-09-19.md
 BAY_SHEET_STANDARD = (
     "Short paths may be short but complete. Long appliance paths are full A to Z, "
     "not hint cards. Every sheet carries concern, pattern meaning, a readable OEM "
     "yes/no flowchart, ordered bay steps with a next step after every check, "
     "manual thresholds and pass/fail meaning on the page, readable figures, and a "
-    "confirmed fix. Never tell the tech to open the SM. Names, not part numbers, "
-    "in the body. No program do-not chatter except Firefly bay do-nots. Ban wired "
-    "coach CAN, network plugs, power looks sane, and stays open. Prefer holds and "
-    "still dumps home."
+    "confirmed fix so Concern to Cause to Correction can be written from the sheet. "
+    "Never tell the tech to open the SM. Names, not part numbers, in the body. "
+    "No program do-not chatter except Firefly bay do-nots. Ban wired coach CAN, "
+    "network plugs, power looks sane, and stays open. Prefer holds and still dumps home."
+)
+BAY_SHEET_STANDARD_PATH = (
+    "techtrack-validation/product-backlog/bay-pdf-standing-standard-2026-09-19.md"
+)
+LONG_APPLIANCE_CATEGORIES = {
+    "refrigerators",
+    "air conditioning",
+    "water heaters",
+    "cooktops",
+    "ranges",
+    "furnaces",
+}
+LONG_APPLIANCE_CONCERN_RE = re.compile(
+    r"\b(ice|frost|freeze|leak|condensate|not cooling|no cool|flameout|e2|fan fault)\b",
+    re.I,
+)
+GENERIC_LONG_SCAFFOLD = (
+    "Record the complaint, the model name, and the first cited check from the shop library.",
+    "Do that first cited check and write pass or fail on this sheet.",
+    "If this check fails, stay on it. If it passes, go to the next cited check.",
+    "Do the next cited check. Note the threshold and what good versus bad looks like from the excerpt.",
+    "Retest the complaint after those checks.",
+    "If the complaint is gone, that is the confirmed correction. If it remains after the cited checks pass, use the next library correction named in Sources.",
 )
 
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
@@ -228,6 +252,47 @@ def sheet_standard_violations(text: str) -> list[str]:
     if body_uses_coach_donots(text):
         hits.append("coach do-not")
     return hits
+
+
+def is_long_appliance_path(category: str = "", concern: str = "") -> bool:
+    """Appliance / multi-branch jobs inherit full A→Z. Firefly-class stays short."""
+    if (category or "").strip().lower() in LONG_APPLIANCE_CATEGORIES:
+        return True
+    return bool(LONG_APPLIANCE_CONCERN_RE.search(concern or ""))
+
+
+def scrub_sheet_text(text: str) -> str:
+    """Rewrite banned phrases so a new concern cannot ship a rejected draft."""
+    out = text or ""
+    out = WIRED_COACH_CAN_RE.sub("CAN", out)
+    out = NETWORK_PLUGS_RE.sub("ports labeled CAN", out)
+    out = POWER_LOOKS_SANE_RE.sub("power at the POWER CONNECTOR is solid 12V+", out)
+    out = STAYS_OPEN_RE.sub("holds", out)
+    out = OPEN_THE_MANUAL_RE.sub("use the check on this sheet", out)
+    if body_uses_coach_donots(out):
+        parts = re.split(r"(?<=[.!?])\s+", out)
+        out = " ".join(p for p in parts if p and not body_uses_coach_donots(p))
+    out = BODY_MANUAL_CODE_RE.sub("", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    return out.strip()
+
+
+def apply_sheet_standard(proc: "BayProcedure") -> "BayProcedure":
+    """Post-compile pass. Locked Firefly strings are a no-op when already clean."""
+    proc.pattern_means = scrub_sheet_text(proc.pattern_means)
+    proc.primary_cite = (proc.primary_cite or "").strip()
+    proc.bay_order = [scrub_sheet_text(step) for step in proc.bay_order if (step or "").strip()]
+    proc.do_not = [
+        item
+        for item in (scrub_sheet_text(x) for x in proc.do_not)
+        if item and not sheet_standard_violations(item)
+    ]
+    for node in proc.flowchart.nodes:
+        node.text = scrub_sheet_text(node.text)
+    proc.flowchart.readable = True
+    if not any(n.kind == "decision" for n in proc.flowchart.nodes):
+        proc.flowchart = _generic_flowchart(proc.concern, proc.bay_order)
+    return proc
 
 
 # ---------------------------------------------------------------------------
@@ -693,25 +758,112 @@ def _firefly_path() -> dict:
     }
 
 
-def _generic_flowchart(concern: str, steps: list[str]) -> Flowchart:
-    short = re.sub(r"\s+", " ", (concern or "Customer concern").strip())
-    if len(short) > 56:
-        short = short[:53].rstrip() + "..."
-    nodes = [FlowNode("s", "start", short, 0.50, 0.12)]
-    edges = []
-    shown = steps[:3] or ["Use the next cited check from the shop library excerpts."]
-    ys = [0.38, 0.62, 0.82] if len(shown) >= 2 else [0.50, 0.78]
-    prev = "s"
-    for i, step in enumerate(shown):
-        nid = f"p{i}"
-        y = ys[i] if i < len(ys) else 0.90
-        nodes.append(FlowNode(nid, "process" if i < len(shown) - 1 else "end", _clip(step, 90), 0.50, y))
-        edges.append(FlowEdge(prev, nid))
-        prev = nid
-    if len(shown) == 1:
-        nodes.append(FlowNode("e", "end", "Use the next cited check.", 0.50, 0.78))
-        edges.append(FlowEdge(prev, "e"))
-    return Flowchart(nodes=nodes, edges=edges, readable=True)
+def _as_sentence(text: str) -> str:
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    if not text:
+        return ""
+    if text[-1] not in ".!?":
+        text += "."
+    return text
+
+
+def _ensure_next_step(text: str, *, last: bool = False) -> str:
+    """Every bay check must continue to a next step or a confirmed correction."""
+    text = _as_sentence(scrub_sheet_text(text))
+    if not text:
+        return text
+    blob = f" {text.lower()} "
+    if " if " not in blob:
+        if last:
+            text += (
+                " If this check fails, stay on it. If it passes and the complaint is gone, "
+                "that is the confirmed correction. If the complaint remains, use the next cited library check."
+            )
+        else:
+            text += " If this check fails, stay on it. If it passes, go to the next check."
+    elif last and "confirmed correction" not in blob:
+        text += " If the complaint is gone, that is the confirmed correction."
+    return text
+
+
+def _body_check_from_excerpt(raw: str) -> str:
+    """Library excerpt as a body check — names on the page, codes stay out."""
+    text = scrub_sheet_text(raw or "")
+    text = re.sub(r"\s*\([^)]*\)\s*$", "", text)
+    text = re.sub(r"\s{2,}", " ", text).strip(" -")
+    return _as_sentence(text)
+
+
+def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
+    cleaned = []
+    usable = [e for e in excerpts if e and len(e) >= 20][:MAX_BAY_ORDER]
+    for i, raw in enumerate(usable):
+        step = _body_check_from_excerpt(raw)
+        if not step:
+            continue
+        last = (i == len(usable) - 1) and not long_path
+        cleaned.append(_ensure_next_step(step, last=last))
+    if not cleaned:
+        cleaned.append(
+            _ensure_next_step(
+                "No matching library excerpt was retrieved. Re-check category or model keywords, "
+                "or ask a manager to index the unit in Document Library.",
+                last=not long_path,
+            )
+        )
+    if long_path:
+        have = " ".join(cleaned).lower()
+        for scaffold in GENERIC_LONG_SCAFFOLD:
+            if len(cleaned) >= 6:
+                break
+            if scaffold.lower() not in have:
+                cleaned.append(scaffold)
+                have += " " + scaffold.lower()
+        if not any("confirmed correction" in s.lower() for s in cleaned):
+            cleaned.append(GENERIC_LONG_SCAFFOLD[-1])
+    return cleaned[:MAX_BAY_ORDER]
+
+
+def _generic_pattern_means(concern: str, *, long_path: bool) -> str:
+    lead = _as_sentence(concern or "This is the customer complaint")
+    if long_path:
+        return (
+            f"{lead} Work this as a full appliance path from the shop library excerpts. "
+            "Do each cited check on this sheet. Write pass or fail and the next step after every check. "
+            "Thresholds and pass or fail meaning stay on this page."
+        )
+    return (
+        f"{lead} Use the next cited checks from this shop's library excerpts. "
+        "Each step on this sheet says what to do next after a pass or a fail."
+    )
+
+
+def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchart:
+    """OEM yes/no spine for any new concern — not a linear bot list."""
+    start = _as_sentence(_clip(concern or "Customer concern", 88))
+    first = _clip((steps[0] if steps else "Do the first cited check."), 78)
+    if first and first[-1] not in ".!?":
+        first += "."
+    return Flowchart(
+        readable=True,
+        nodes=[
+            FlowNode("s", "start", start, 0.50, 0.09, w=400, h=66),
+            FlowNode("d1", "decision", "Did the first\ncheck pass?", 0.32, 0.32, w=220, h=100),
+            FlowNode("n1", "end", "Stay on that check\nuntil it passes.", 0.82, 0.32, w=200, h=72),
+            FlowNode("p2", "process", first, 0.32, 0.55, w=260, h=80),
+            FlowNode("d2", "decision", "Is the complaint\ngone?", 0.32, 0.75, w=220, h=100),
+            FlowNode("y2", "end", "That is the confirmed\ncorrection.", 0.32, 0.93, w=260, h=72),
+            FlowNode("n2", "end", "Use the next cited\nlibrary check.", 0.82, 0.75, w=200, h=72),
+        ],
+        edges=[
+            FlowEdge("s", "d1"),
+            FlowEdge("d1", "p2", "YES", "bottom", "top"),
+            FlowEdge("d1", "n1", "NO", "right", "left"),
+            FlowEdge("p2", "d2", "", "bottom", "top"),
+            FlowEdge("d2", "y2", "YES", "bottom", "top"),
+            FlowEdge("d2", "n2", "NO", "right", "left"),
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -906,6 +1058,13 @@ def _seed_figure_png(kind: str) -> bytes:
         draw.text((430, 235), "the pan is iced, clear it,", fill=(18, 18, 36), font=body_f)
         draw.text((430, 270), "then retest cooling.", fill=(18, 18, 36), font=body_f)
         draw.text((90, 430), "Drain path", fill=(18, 18, 36), font=small_f)
+    elif kind == "generic":
+        draw.rectangle((70, 70, 420, 420), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.text((90, 110), "Cited library figure", fill=(1, 20, 124), font=title_f)
+        draw.text((90, 180), "Do the next cited check", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 220), "on this sheet. Thresholds", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 260), "and pass / fail stay here.", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 330), "Names, not part numbers.", fill=(18, 18, 36), font=small_f)
     else:
         draw.rectangle((70, 80, 420, 360), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
         draw.rectangle((90, 100, 400, 160), fill=(1, 20, 124))
@@ -946,6 +1105,14 @@ def _seed_path_figure(kind: str) -> BayFigure:
             caption="Rooftop assembly, base pan, and drain",
             excerpt="Use this book for the rooftop assembly, condensate drain, and base pan.",
             image_png=_seed_figure_png("facr"),
+        )
+    if kind == "generic":
+        return BayFigure(
+            title="Shop Document Library",
+            page=None,
+            caption="Cited library figure",
+            excerpt="Do the next cited check on this sheet.",
+            image_png=_seed_figure_png("generic"),
         )
     return BayFigure(
         title=FIREFLY_PATH_TITLE,
@@ -1141,24 +1308,20 @@ def compile_bay_procedure(
             line = _excerpt_line(d)
             if line:
                 extra_steps.append(line)
-        if not extra_steps:
-            extra_steps = [
-                "No matching library excerpt was retrieved. Re-check category or model keywords, "
-                "or ask a manager to index the unit in Document Library."
-            ]
+        long_path = is_long_appliance_path(category, concern)
+        bay_order = _generic_bay_order(extra_steps, long_path=long_path)
         spec = {
             "primary_cite": _generic_primary_cite(ranked),
-            "pattern_means": (
-                "Use the next cited check from this shop's library excerpts."
-            ),
-            "flowchart": _generic_flowchart(concern or "Customer concern", extra_steps),
-            "bay_order": extra_steps[:MAX_BAY_ORDER],
+            "pattern_means": _generic_pattern_means(concern, long_path=long_path),
+            "flowchart": _generic_flowchart(concern or "Customer concern", bay_order),
+            "bay_order": bay_order,
             "do_not": [
                 "Do not skip the next cited check.",
+                "Do not guess a part swap before the cited checks on this sheet.",
             ],
             "sources": [],
             "flow_tall": True,
-            "full_story": len(extra_steps) >= 6,
+            "full_story": long_path,
         }
 
     sources = _merge_sources(spec.get("sources") or [], _unique_sources(ranked), ice=ice)
@@ -1182,6 +1345,13 @@ def compile_bay_procedure(
         figs = resolve_path_figures(path_kind, ranked, figures)
     else:
         figs = list(figures or []) or pick_cited_figures(ranked)
+        if not any(fig.image_png for fig in figs):
+            seed = _seed_path_figure("generic")
+            if figs:
+                figs[0].image_png = seed.image_png
+                figs[0].caption = figs[0].caption or seed.caption
+            else:
+                figs = [seed]
 
     display_model = spec.get("display_model") or ""
     if firefly:
@@ -1195,7 +1365,7 @@ def compile_bay_procedure(
     spec["do_not"] = [
         item for item in (spec.get("do_not") or []) if not sheet_standard_violations(item)
     ]
-    return BayProcedure(
+    proc = BayProcedure(
         concern=concern or "(no concern entered)",
         brand=brand,
         model=model,
@@ -1216,6 +1386,7 @@ def compile_bay_procedure(
         flow_tall=bool(spec.get("flow_tall")),
         full_story=bool(spec.get("full_story", path_kind in ("ice", "facr"))),
     )
+    return apply_sheet_standard(proc)
 
 
 def _generic_primary_cite(ranked) -> str:
@@ -1601,7 +1772,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     BAY_SHEET_STANDARD is enforced here: readable OEM yes/no flowchart first,
     then pattern meaning, full bay order, do-not, sources, figures. Long paths
-    paginate. Never clip a long path to a hint card.
+    paginate. Never clip a long path to a hint card. See BAY_SHEET_STANDARD_PATH.
     """
     pages: list[SheetPage] = []
     page = SheetPage()

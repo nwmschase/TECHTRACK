@@ -4,6 +4,7 @@ import unittest
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
     BAY_SHEET_STANDARD,
+    BAY_SHEET_STANDARD_PATH,
     FIREFLY_CAN_PORT_PROVE,
     FIREFLY_HOLDS_BRANCH,
     FIREFLY_STILL_DUMPS_BRANCH,
@@ -14,6 +15,7 @@ from bay_procedure import (
     body_uses_power_looks_sane,
     body_uses_stays_open,
     check_text_leads_with_bare_pn,
+    apply_sheet_standard,
     compile_bay_procedure,
     compose_sheet,
     count_pdf_draw_ops,
@@ -25,7 +27,9 @@ from bay_procedure import (
     procedure_body_text,
     procedure_plain_text,
     render_bay_procedure_pdf,
+    is_long_appliance_path,
     rewrite_bay_search_symptom,
+    scrub_sheet_text,
     sheet_standard_violations,
     suggested_pdf_filename,
     uses_wired_coach_can_jargon,
@@ -696,6 +700,15 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         self.assertIn("Standing sheet standard", src)
         self.assertIn("inherit BAY_SHEET_STANDARD", src)
         self.assertIn("def sheet_standard_violations", src)
+        self.assertIn("def apply_sheet_standard", src)
+        self.assertIn("def is_long_appliance_path", src)
+        self.assertIn("def scrub_sheet_text", src)
+        root = Path(__file__).resolve().parents[1]
+        self.assertTrue((root / BAY_SHEET_STANDARD_PATH).is_file())
+        rule = (root / BAY_SHEET_STANDARD_PATH).read_text()
+        self.assertIn("full A", rule)
+        self.assertIn("open the SM", rule)
+        self.assertIn("still dumps home", rule)
 
     def test_ice_and_facr_are_full_story_not_tip_cards(self):
         ice = compile_bay_procedure(
@@ -805,6 +818,107 @@ class TestNavAndGdUntouched(unittest.TestCase):
         self.assertIn("OPEN LIBRARY COACH", src)
         self.assertIn("with tab_ask:", src)
         self.assertIn("💬 Guided Diagnostics", src)
+        self.assertIn("full A to Z", src)
+
+
+class TestNewConcernsInheritStandard(unittest.TestCase):
+    """Generic / future concerns inherit the standing sheet standard automatically."""
+
+    GENERIC_SEEDS = (
+        (
+            "Customer states the air conditioner is not cooling.",
+            "Furrion",
+            "FACT12SA2",
+            "Air Conditioning",
+        ),
+        (
+            "Girard GSWH-2 E8 lockout after flame",
+            "Girard",
+            "GSWH-2",
+            "Water Heaters",
+        ),
+        (
+            "Cooktop lights then flameout when the pan is set on it",
+            "Suburban",
+            "SGR10",
+            "Cooktops",
+        ),
+    )
+
+    def test_generic_appliance_paths_are_full_story_with_flowchart(self):
+        chunks = [
+            {
+                "title": "Shop service excerpt",
+                "page": 4,
+                "excerpt": (
+                    "Inspect the assembly and write the first reading. "
+                    "If the first check fails, stay on it until it passes."
+                ),
+            },
+            {
+                "title": "Shop service excerpt",
+                "page": 8,
+                "excerpt": (
+                    "Open the service manual. Power looks sane. "
+                    "If the valve stays open, replace it. Do not start at Unity."
+                ),
+            },
+            {
+                "title": "Shop service excerpt CCD-0001111",
+                "page": 10,
+                "excerpt": (
+                    "Retest the complaint after the cited checks. "
+                    "Network plugs are not the label to use."
+                ),
+            },
+        ]
+        for concern, brand, model, category in self.GENERIC_SEEDS:
+            self.assertTrue(is_long_appliance_path(category, concern), concern)
+            proc = compile_bay_procedure(
+                concern=concern,
+                brand=brand,
+                model=model,
+                category=category,
+                chunks=chunks,
+            )
+            body = procedure_body_text(proc)
+            self.assertTrue(proc.full_story, concern)
+            self.assertGreaterEqual(len(proc.bay_order), 6, concern)
+            self.assertTrue(proc.flowchart.readable, concern)
+            self.assertTrue(any(n.kind == "decision" for n in proc.flowchart.nodes), concern)
+            yes_no = {e.label.upper() for e in proc.flowchart.edges if e.label}
+            self.assertEqual(yes_no, {"YES", "NO"}, concern)
+            self.assertIn("confirmed correction", " ".join(proc.bay_order).lower(), concern)
+            self.assertEqual(sheet_standard_violations(body), [], body[:400])
+            self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
+            self.assertFalse(body_uses_stays_open(body))
+            self.assertFalse(body_uses_network_plugs(body))
+            self.assertFalse(body_uses_power_looks_sane(body))
+            self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+            self.assertFalse(body_uses_manual_codes(body), body[:400])
+            self.assertTrue(any(fig.image_png for fig in proc.figures), concern)
+            self.assertGreater(len(render_bay_procedure_pdf(proc)), 2000)
+
+    def test_scrub_rewrites_rejected_draft_language(self):
+        cleaned = scrub_sheet_text(
+            "Unplug the network plugs. Power looks sane. Manual Mode stays open. "
+            "See the service manual. Do not start at Unity."
+        )
+        self.assertEqual(sheet_standard_violations(cleaned), [])
+        self.assertIn("ports labeled CAN", cleaned)
+        self.assertIn("POWER CONNECTOR", cleaned)
+        self.assertIn("holds", cleaned)
+        self.assertNotIn("Unity", cleaned)
+
+    def test_apply_sheet_standard_does_not_rewrite_locked_firefly(self):
+        proc = compile_bay_procedure(
+            concern=MANUAL_MODE_DUMP_AUTO,
+            category="Leveling",
+            model="Level Up Advantage 807662",
+        )
+        locked = [n.text for n in proc.flowchart.nodes]
+        apply_sheet_standard(proc)
+        self.assertEqual([n.text for n in proc.flowchart.nodes], locked)
 
 
 if __name__ == "__main__":

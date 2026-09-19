@@ -4908,6 +4908,8 @@ with tab_jobs:
         "a drawn yes/no flowchart, bay-order punch list, do-not list, cited library figures "
         "when available, and sources with real IDs/pages. "
         "Optional blank 3C is a small footer only — never the body. "
+        "Short paths stay short but complete. Long appliance paths are full A to Z, "
+        "not hint cards. Checks, thresholds, and pass or fail stay on the page. "
         "Guided Diagnostics chat is unchanged. This does not write a warranty story."
     )
 
