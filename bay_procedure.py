@@ -13,6 +13,10 @@ Product (Chase-locked, v2):
     cited library figures when available
     sources with real IDs/pages
     optional blank 3C as a small footer only — never the body
+  Voice: complete sentences, human service-tech wording — not fragments or bot outlines.
+  Labels: common service names (Level Up controller, Firefly panel, door gasket,
+    rubber-boot plug). Do not lead with a bare part number. Never use the old
+    network-jargon isolate label.
   Nav/button label is always "Bay procedure PDF" — never "AI report".
   Do not auto-write a warranty story.
 """
@@ -34,7 +38,11 @@ from gd_library_coach import (
     ICE_MOISTURE_PRODUCT_LOCK,
     ICE_MOISTURE_SEARCH_BOOST,
     ICE_MOISTURE_SHOP_LINE,
+    FIREFLY_HOLDS_FIX,
+    FIREFLY_STILL_DUMPS,
+    FIREFLY_TWO_PLUG_PROVE,
     LEVEL_UP_PRODUCT_LOCK,
+    WIRED_COACH_CAN_RE,
     PSX1_PRODUCT_LOCK,
     WATER_HEATER_PRODUCT_LOCK,
     ac_search_symptom,
@@ -84,7 +92,7 @@ MARGIN = 36.0
 FURRION_8122_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
 FACR_7990_TITLE = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 FACR_8666_TITLE = "Furrion Chill FACR CCD-0008666"
-FIREFLY_PATH_TITLE = "shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+FIREFLY_PATH_TITLE = "shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
 
 FIG_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 MODULES_ONE_AT_A_TIME_RE = re.compile(
@@ -93,6 +101,32 @@ MODULES_ONE_AT_A_TIME_RE = re.compile(
     r"one\s+at\s+a\s+time",
     re.I,
 )
+BARE_PN_LEAD_RE = re.compile(r"^\s*(?:[-*•]|\d+\.)?\s*(?:the\s+)?807662\b", re.I)
+
+
+def uses_wired_coach_can_jargon(text: str) -> bool:
+    """Banned isolate jargon — human copy must not use this label."""
+    return bool(WIRED_COACH_CAN_RE.search(text or ""))
+
+
+def check_text_leads_with_bare_pn(text: str) -> bool:
+    """True when a line leads with 807662 as the component name."""
+    for line in (text or "").splitlines():
+        if BARE_PN_LEAD_RE.match(line):
+            return True
+    return False
+
+
+def firefly_sheet_uses_service_names(text: str) -> bool:
+    """Level Up / Firefly copy should name the controller, cable, and rubber-boot plug."""
+    t = (text or "").lower()
+    return (
+        "controller" in t
+        and "firefly" in t
+        and ("rubber boot" in t or "rubber-boot" in t)
+        and "two network plugs" in t
+        and "unplug that cable only" in t
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,19 +251,20 @@ def _ice_path() -> dict:
     return {
         "primary_cite": "CCD-0008122 p.36 / page 36 (Fig. 36) — Ice and Moisture",
         "pattern_means": (
-            "Rear/back-wall ice or frost (including about half from the top) is Ice and Moisture "
-            "→ Ice or Moisture in the Fridge. Moisture / gasket / cooling path — not a dead-unit "
-            "fuse or 12V inverter tree."
+            "Ice or frost on the rear wall, including a pattern that starts about halfway "
+            "down from the top, is an Ice and Moisture problem. Follow Ice or Moisture in "
+            "the Fridge. This is a moisture, door gasket, and cooling path. It is not a "
+            "dead-unit fuse or 12-volt inverter tree."
         ),
         "flowchart": Flowchart(
             nodes=[
-                FlowNode("s", "start", "Rear/back-wall ice or frost\n(incl. half from the top)", 0.50, 0.08),
-                FlowNode("d1", "decision", "Dial at max?", 0.50, 0.28),
-                FlowNode("a1", "process", "Back off dial.\nRecheck frost pattern.", 0.18, 0.28, w=150, h=36),
-                FlowNode("d2", "decision", "Gasket leak?", 0.50, 0.52),
-                FlowNode("a2", "process", "Repair or reseat\ndoor gasket.", 0.18, 0.52, w=150, h=36),
-                FlowNode("p", "process", "Verify cooling from Ice and Moisture\nCCD-0008122 p.36 / Fig.36", 0.50, 0.74),
-                FlowNode("e", "end", "Watch / replace only from\nIce and Moisture section", 0.50, 0.92),
+                FlowNode("s", "start", "Ice or frost is on the\nrear wall of the fridge.", 0.50, 0.08),
+                FlowNode("d1", "decision", "Is the dial\nat max?", 0.50, 0.28),
+                FlowNode("a1", "process", "Back the dial off and\nrecheck the frost pattern.", 0.18, 0.28, w=156, h=38),
+                FlowNode("d2", "decision", "Is the door\ngasket leaking?", 0.50, 0.52),
+                FlowNode("a2", "process", "Repair or reseat\nthe door gasket.", 0.18, 0.52, w=150, h=36),
+                FlowNode("p", "process", "Verify cooling from Ice and Moisture.\nUse CCD-0008122 page 36 / Fig.36.", 0.50, 0.74),
+                FlowNode("e", "end", "Watch or replace only from\nthe Ice and Moisture section.", 0.50, 0.92),
             ],
             edges=[
                 FlowEdge("s", "d1"),
@@ -243,15 +278,15 @@ def _ice_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Note the rear/back-wall frost pattern (including half from the top).",
-            "Dial at max? Back it off and recheck the pattern.",
-            "Inspect / reseat the door gasket before condemning the cooling unit.",
-            "Verify cooling from Ice and Moisture (CCD-0008122 p.36 / page 36 / Fig.36).",
+            "Look at the frost pattern on the rear wall, including whether it starts about halfway from the top.",
+            "Check whether the temperature dial is all the way at max. If it is, back the dial off and recheck the frost pattern.",
+            "Inspect the door gasket and reseat or repair it before you condemn the cooling unit.",
+            "Verify cooling from the Ice and Moisture section (CCD-0008122 page 36 / Fig. 36). Watch or replace only from that section.",
         ],
         "do_not": [
-            "Do not open the No Power / 15A fuse / fuse-location path.",
-            "Do not start at the 12V inverter unless the unit is dead / no light / won't run.",
-            "Do not invent other OEM pages. Stay on Ice and Moisture.",
+            "Do not open the no-power or 15A fuse path for this frost pattern.",
+            "Do not start at the 12-volt inverter unless the unit is dead, has no light, or will not run.",
+            "Do not invent other OEM pages. Stay on the Ice and Moisture section.",
         ],
         "sources": [
             {
@@ -267,18 +302,19 @@ def _facr_path() -> dict:
     return {
         "primary_cite": "CCD-0007990 — assembly / condensate (CCD-0008666 OK)",
         "pattern_means": (
-            "FACR rooftop freeze / interior leak / condensate is the CCD-0007990 assembly / "
-            "condensate path (base pan, drain, freeze / suction icing). CCD-0008666 is the "
-            "Furrion Chill FACR model book — not a Dometic-only rooftop SM and not Unity."
+            "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
+            "condensate problem. Work from CCD-0007990 (base pan, drain, freeze or suction icing). "
+            "CCD-0008666 is the Furrion Chill model book for layout. This is not a Dometic-only "
+            "rooftop job and it is not a Unity board job."
         ),
         "flowchart": Flowchart(
             nodes=[
-                FlowNode("s", "start", "FACR freeze / interior leak\n/ condensate", 0.50, 0.10),
-                FlowNode("p1", "process", "Inspect rooftop assembly, evaporator\n/ base pan, and condensate drain", 0.50, 0.32),
-                FlowNode("d1", "decision", "Drain restricted\nor pan iced?", 0.50, 0.54),
-                FlowNode("a1", "process", "Clear drain / ice.\nConfirm drain path.", 0.18, 0.54, w=150, h=40),
-                FlowNode("p2", "process", "Retest cooling. Watch pan / drain.\nStay on CCD-0007990 (8666 OK).", 0.50, 0.76),
-                FlowNode("e", "end", "Assembly / condensate path\nCCD-0007990", 0.50, 0.93),
+                FlowNode("s", "start", "The rooftop unit is freezing\nor leaking into the coach.", 0.50, 0.10),
+                FlowNode("p1", "process", "Inspect the rooftop assembly, the\nevaporator pan, and the condensate drain.", 0.50, 0.32, w=250, h=40),
+                FlowNode("d1", "decision", "Is the drain\nrestricted or\nthe pan iced?", 0.50, 0.54),
+                FlowNode("a1", "process", "Clear the drain or ice.\nConfirm the drain path.", 0.18, 0.54, w=150, h=40),
+                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on CCD-0007990 (8666 OK).", 0.50, 0.76),
+                FlowNode("e", "end", "Stay on the assembly and\ncondensate path in CCD-0007990.", 0.50, 0.93),
             ],
             edges=[
                 FlowEdge("s", "p1"),
@@ -290,15 +326,15 @@ def _facr_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Open CCD-0007990 assembly / condensate (CCD-0008666 OK for Chill layout).",
-            "Inspect assembly, evaporator / base pan, and condensate drain.",
-            "Clear drain / ice. Confirm the drain before condemning the sealed system.",
-            "Retest cooling. If freeze or leak returns, stay on CCD-0007990.",
+            "Open CCD-0007990 for the assembly and condensate path. CCD-0008666 is fine for Furrion Chill layout.",
+            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain.",
+            "Clear ice or a restricted drain and confirm the drain path before you condemn the sealed system.",
+            "Retest cooling. If the freeze or leak returns, stay on CCD-0007990.",
         ],
         "do_not": [
-            "Do not start at Unity / OneControl board manuals.",
-            "Do not start at a Dometic-only rooftop SM for a Furrion FACR.",
-            "Do not invent OEM steps or skip the drain / base-pan prove.",
+            "Do not start at Unity or OneControl board manuals for this rooftop freeze.",
+            "Do not start at a Dometic-only rooftop manual for a Furrion rooftop unit.",
+            "Do not invent OEM steps or skip the drain and base-pan prove.",
         ],
         "sources": [
             {
@@ -317,22 +353,23 @@ def _facr_path() -> dict:
 
 def _firefly_path() -> dict:
     return {
-        "primary_cite": "Firefly CAN prove — terminator stays in; wired coach CAN out",
+        "primary_cite": "Level Up controller / Firefly panel — leave the rubber-boot plug in",
         "pattern_means": (
-            "Manual Mode flash-to-home while Auto Level still works is a Firefly/OneControl "
-            "CAN isolate prove — not a hydraulic dump test and not a board/LCD swap-first path. "
-            "Cheap proves first, then unplug wired coach CAN only. Rubber-boot terminator stays plugged in."
+            "When Manual Mode flashes back to the home screen and Auto Level still works, "
+            "this is usually a Firefly / OneControl conflict on the Level Up controller. "
+            "It is not a hydraulic dump test and it is not a board-swap-first job. "
+            + FIREFLY_TWO_PLUG_PROVE
         ),
         "flowchart": Flowchart(
             nodes=[
-                FlowNode("s", "start", "Manual Mode flash → home\nAuto Level still works", 0.42, 0.08),
-                FlowNode("p1", "process", "Cheap proves: power/ground sane.\nAuto works. Not sticky LV / angle / sensor.", 0.42, 0.26, w=250, h=38),
-                FlowNode("d1", "decision", "Auto still\nworks?", 0.42, 0.46),
-                FlowNode("n1", "end", "Not this path.\nHydraulics / Lippert.", 0.82, 0.46, w=140, h=36),
-                FlowNode("p2", "process", "Unplug wired coach CAN only.\nRubber-boot terminator STAYS plugged in.", 0.42, 0.66, w=250, h=40),
-                FlowNode("d2", "decision", "Manual\nholds?", 0.42, 0.84),
-                FlowNode("y2", "end", "Firefly USB FW\n574-825-4600\nstick <= 4 GB + interim", 0.16, 0.84, w=150, h=44),
-                FlowNode("n2", "end", "Lippert sensor / harness.\nDo not swap 807662\nfor Firefly blame.", 0.78, 0.84, w=160, h=44),
+                FlowNode("s", "start", "Manual Mode flashes home.\nAuto Level still works.", 0.42, 0.08),
+                FlowNode("p1", "process", "Prove power looks sane and Auto still works.\nClear sticky error text first.", 0.42, 0.26, w=250, h=38),
+                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.42, 0.46),
+                FlowNode("n1", "end", "Not this path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=148, h=36),
+                FlowNode("p2", "process", "Leave the rubber-boot plug alone.\nUnplug the Firefly cable only.", 0.42, 0.66, w=250, h=40),
+                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.42, 0.84),
+                FlowNode("y2", "end", "Call Firefly for USB firmware.\n574-825-4600. Stick <= 4 GB.", 0.16, 0.84, w=156, h=44),
+                FlowNode("n2", "end", "Stay on Level Up sensors.\nDo not swap the controller.", 0.78, 0.84, w=160, h=44),
             ],
             edges=[
                 FlowEdge("s", "p1"),
@@ -345,25 +382,25 @@ def _firefly_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Cheap proves: power/ground sane, Auto works, not sticky LV / Excess Angle / External Sensor.",
-            "Rubber-boot terminator stays plugged in. Unplug wired coach CAN only. Retry Manual Mode.",
-            "Manual holds: Firefly USB firmware — 574-825-4600, stick 4 GB or smaller + interim.",
-            "Manual still dumps: Lippert sensor / harness. Reconnect wired CAN after the prove.",
+            "Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present.",
+            FIREFLY_TWO_PLUG_PROVE,
+            "If Manual Mode stays open, Firefly is fighting the Level Up controller. Call Firefly at 574-825-4600 for USB firmware. Use a USB stick 4 GB or smaller plus the interim file they specify.",
+            FIREFLY_STILL_DUMPS,
         ],
         "do_not": [
-            "Do not pull the rubber-boot terminator.",
-            "Do not condemn the 807662 or start pump / valve R&R while Auto still works.",
-            "Do not swap another 807662 for Firefly blame.",
-            "Do not push Firefly USB firmware unless Manual holds with wired coach CAN unplugged.",
+            "Do not pull the rubber-boot plug.",
+            "Do not condemn the Level Up controller or start pump and valve R&R while Auto Level still works.",
+            "Do not swap another Level Up controller for Firefly blame.",
+            "Do not push Firefly USB firmware unless Manual Mode holds with the Firefly cable unplugged.",
         ],
         "sources": [
             {
                 "title": FIREFLY_PATH_TITLE,
                 "page": None,
                 "excerpt": (
-                    "CAN isolate prove: rubber-boot terminator stays plugged in; "
-                    "unplug wired coach CAN only. Firefly USB firmware 574-825-4600, "
-                    "stick 4 GB or smaller + interim."
+                    "The Level Up controller has two network plugs. Leave the rubber-boot "
+                    "plug alone. Unplug the Firefly cable only. Firefly USB firmware "
+                    "574-825-4600, stick 4 GB or smaller + interim."
                 ),
             }
         ],
@@ -569,9 +606,9 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
         category_name, model_text, concern
     ):
         notes.append(
-            "Level-Up Manual Mode flash/home → Firefly CAN isolate "
-            "(rubber-boot terminator stays plugged in; unplug wired coach CAN only) "
-            "then USB firmware 574-825-4600."
+            "When Manual Mode flashes home and Auto Level still works, leave the "
+            "rubber-boot plug alone and unplug only the Firefly cable. If Manual "
+            "Mode holds, call Firefly for USB firmware at 574-825-4600."
         )
     if is_facr_rooftop_freeze_context(category_name, model_text, concern):
         notes.append("FACR rooftop freeze/condensate → CCD-0007990 assembly / condensate with CCD-0008666.")
@@ -1030,53 +1067,49 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         DrawnShape("rect", MARGIN, means_y, PAGE_W - 2 * MARGIN, means_h - 16, fill=WHITE, stroke=RULE, stroke_w=0.8)
     )
     ty = means_top - 30
-    for line in means_lines[:5]:
+    for line in means_lines[:8]:
         page.texts.append(DrawnText(line, MARGIN + 8, ty, w=520, size=9, color=INK))
         ty -= 11
 
     # Flowchart frame — the product, not a paragraph list
     flow_top = means_y - 8
-    flow_h = 258
+    flow_h = 220
     flow_y = flow_top - flow_h
     f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
     page.shapes.extend(f_shapes)
     page.texts.extend(f_texts)
 
-    # Bay order + Do not (two columns)
+    # Bay order then Do not — full width so complete sentences are not clipped.
     col_top = flow_y - 8
-    col_h = 138
-    col_y = col_top - col_h
-    gap = 8
-    left_w = 318
-    right_w = PAGE_W - 2 * MARGIN - left_w - gap
-    page.shapes.append(DrawnShape("rect", MARGIN, col_y, left_w, col_h, fill=WHITE, stroke=NAVY, stroke_w=1.0))
-    _add_section_bar(page, MARGIN, col_top - 16, left_w, "BAY ORDER (DO THIS FIRST)", GREEN)
-    y = col_top - 30
-    for i, step in enumerate(proc.bay_order[:5], 1):
+    order_lines = []
+    for i, step in enumerate(proc.bay_order[:4], 1):
+        order_lines.append(_wrap(f"{i}. {step}", 98)[:4])
+    do_lines = [_wrap(f"- {item}", 98)[:2] for item in proc.do_not[:4]]
+    order_h = 22 + sum(len(block) * 10 + 3 for block in order_lines)
+    do_h = 22 + sum(len(block) * 10 + 2 for block in do_lines)
+    order_y = col_top - order_h
+    do_top = order_y - 6
+    do_y = do_top - do_h
+    page.shapes.append(DrawnShape("rect", MARGIN, order_y, PAGE_W - 2 * MARGIN, order_h, fill=WHITE, stroke=NAVY, stroke_w=1.0))
+    _add_section_bar(page, MARGIN, col_top - 16, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
+    y = col_top - 28
+    for i, step in enumerate(proc.bay_order[:4], 1):
         page.shapes.append(DrawnShape("rect", MARGIN + 8, y - 1, 8, 8, fill=WHITE, stroke=NAVY, stroke_w=0.9))
-        wrapped = _wrap(f"{i}. {step}", 52)
-        for j, line in enumerate(wrapped[:2]):
-            page.texts.append(DrawnText(line, MARGIN + 22, y, w=left_w - 30, size=7.5, color=INK))
-            y -= 10
-        y -= 4
-        if y < col_y + 8:
-            break
-
-    page.shapes.append(
-        DrawnShape("rect", MARGIN + left_w + gap, col_y, right_w, col_h, fill=CREAM, stroke=RED, stroke_w=1.1)
-    )
-    _add_section_bar(page, MARGIN + left_w + gap, col_top - 16, right_w, "DO NOT", RED)
-    y = col_top - 30
-    for item in proc.do_not[:5]:
-        wrapped = _wrap(f"- {item}", 36)
-        for line in wrapped[:3]:
-            page.texts.append(
-                DrawnText(line, MARGIN + left_w + gap + 8, y, w=right_w - 16, size=7.5, color=INK)
-            )
+        wrapped = _wrap(f"{i}. {step}", 98)[:4]
+        for line in wrapped:
+            page.texts.append(DrawnText(line, MARGIN + 22, y, w=520, size=7.5, color=INK))
             y -= 10
         y -= 3
-        if y < col_y + 8:
-            break
+    page.shapes.append(DrawnShape("rect", MARGIN, do_y, PAGE_W - 2 * MARGIN, do_h, fill=CREAM, stroke=RED, stroke_w=1.1))
+    _add_section_bar(page, MARGIN, do_top - 16, PAGE_W - 2 * MARGIN, "DO NOT", RED)
+    y = do_top - 28
+    for item in proc.do_not[:4]:
+        for line in _wrap(f"- {item}", 98)[:2]:
+            page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=7.5, color=INK))
+            y -= 10
+        y -= 2
+
+    col_y = do_y
 
     # Sources + figure citations (compact). Page 2 only when a library image exists.
     imaged = [fig for fig in proc.figures if fig.image_png]
