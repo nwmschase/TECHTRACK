@@ -19,9 +19,21 @@ from gd_library_coach import (
     FIREFLY_CAN_SEARCH_BOOST,
     FIREFLY_TWO_PLUG_PROVE,
     ICE_MOISTURE_SEARCH_BOOST,
+    LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
+    LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
+    LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE,
+    LEVEL_UP_CAN_PRODUCT_LOCK,
+    OPEN_LIBRARY_COACH_RULE,
     is_facr_rooftop_freeze_context,
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
+)
+
+EXACT_TWO_PLUG = (
+    "The Level Up controller has two network plugs. "
+    "One has a rubber boot on it — leave that one alone. "
+    "The other has a cable running to the Firefly / OneControl system — unplug that cable only. "
+    "Then try Manual Mode again."
 )
 
 FURRION = "Furrion FCR08/FCR10 SM CCD-0008122"
@@ -287,6 +299,54 @@ class TestVisualFlowchartDrawn(unittest.TestCase):
             ops = count_pdf_draw_ops(pdf)
             self.assertGreaterEqual(ops["rect"] + ops["curve"], 3, (concern, ops))
             self.assertTrue(any(n.kind == "decision" for n in proc.flowchart.nodes), concern)
+
+
+class TestExactFireflyTwoPlugLock(unittest.TestCase):
+    def test_constant_and_sheet_are_character_exact(self):
+        self.assertEqual(FIREFLY_TWO_PLUG_PROVE, EXACT_TWO_PLUG)
+        self.assertNotIn("Find the connector", FIREFLY_TWO_PLUG_PROVE)
+        self.assertNotIn("labeled CAN", FIREFLY_TWO_PLUG_PROVE)
+        proc = compile_bay_procedure(
+            concern=MANUAL_MODE_DUMP_AUTO,
+            category="Leveling",
+            model="Level Up Advantage 807662",
+        )
+        text = procedure_plain_text(proc)
+        self.assertIn(EXACT_TWO_PLUG, text)
+        self.assertEqual(proc.bay_order[1], EXACT_TWO_PLUG)
+        self.assertIn(EXACT_TWO_PLUG, proc.pattern_means)
+        self.assertFalse(uses_wired_coach_can_jargon(text))
+        self.assertNotIn("wired coach can", text.lower())
+        pdf_low = _pdf_text(render_bay_procedure_pdf(proc)).lower()
+        self.assertIn("the level up controller has two network plugs", pdf_low)
+        self.assertIn("unplug that cable only", pdf_low)
+        self.assertIn("then try manual mode again", pdf_low)
+        self.assertNotIn("wired coach can", pdf_low)
+        self.assertNotIn("find the connector", pdf_low)
+
+    def test_gd_path_strings_use_exact_block_and_ban_jargon(self):
+        self.assertIn(EXACT_TWO_PLUG, LEVEL_UP_CAN_ISOLATE_SHOP_LINE)
+        self.assertIn(EXACT_TWO_PLUG, LEVEL_UP_CAN_PRODUCT_LOCK)
+        self.assertIn(EXACT_TWO_PLUG, OPEN_LIBRARY_COACH_RULE)
+        from pathlib import Path
+
+        app = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
+        self.assertIn(EXACT_TWO_PLUG, app)
+        self.assertNotIn("wired coach can", app.lower().split("18b.")[1].split("19.")[0])
+        for blob in (
+            LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
+            LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
+            LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE,
+            LEVEL_UP_CAN_PRODUCT_LOCK,
+            OPEN_LIBRARY_COACH_RULE,
+        ):
+            self.assertNotIn("wired coach can", blob.lower(), blob[:200])
+            self.assertNotIn("find the connector", blob.lower())
+        self.assertIn("gui", LEVEL_UP_CAN_FIREFLY_SHOP_LINE.lower())
+        self.assertIn("ccm", LEVEL_UP_CAN_FIREFLY_SHOP_LINE.lower())
+        self.assertIn("574-825-4600", LEVEL_UP_CAN_FIREFLY_SHOP_LINE)
+        self.assertIn("level up controller", LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE.lower())
+        self.assertIn("do not push", LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE.lower())
 
 
 class TestFireflyServiceNamesNotPartNumbers(unittest.TestCase):
