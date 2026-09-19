@@ -35,7 +35,6 @@ from gd_library_coach import (
     FACR_FREEZE_SEARCH_BOOST,
     FCR_E2_FAN_FAULT_PRODUCT_LOCK,
     FIREFLY_CAN_SEARCH_BOOST,
-    ICE_MOISTURE_PRODUCT_LOCK,
     ICE_MOISTURE_SEARCH_BOOST,
     ICE_MOISTURE_SHOP_LINE,
     FIREFLY_HOLDS_FIX,
@@ -368,8 +367,8 @@ def _firefly_path() -> dict:
                 FlowNode("n1", "end", "Not this path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=148, h=36),
                 FlowNode("p2", "process", "Leave the rubber-boot plug alone.\nUnplug the Firefly cable only.", 0.42, 0.66, w=250, h=40),
                 FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.42, 0.84),
-                FlowNode("y2", "end", "Call Firefly for USB firmware.\n574-825-4600. Stick <= 4 GB.", 0.16, 0.84, w=156, h=44),
-                FlowNode("n2", "end", "Stay on Level Up sensors.\nDo not swap the controller.", 0.78, 0.84, w=160, h=44),
+                FlowNode("y2", "end", "Call Firefly at 574-825-4600\nfor the USB firmware update.", 0.16, 0.84, w=156, h=44),
+                FlowNode("n2", "end", "Stay on the Level Up sensors.\nDo not swap the controller.", 0.78, 0.84, w=160, h=44),
             ],
             edges=[
                 FlowEdge("s", "p1"),
@@ -601,7 +600,10 @@ def _clip(text: str, n: int) -> str:
 def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     notes = []
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
-        notes.append(ICE_MOISTURE_PRODUCT_LOCK.strip().splitlines()[0])
+        notes.append(
+            "Ice or frost on the rear wall is an Ice and Moisture problem. "
+            "Stay on CCD-0008122 page 36. This is not a fuse or 12-volt path."
+        )
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
         category_name, model_text, concern
     ):
@@ -611,7 +613,10 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
             "Mode holds, call Firefly for USB firmware at 574-825-4600."
         )
     if is_facr_rooftop_freeze_context(category_name, model_text, concern):
-        notes.append("FACR rooftop freeze/condensate → CCD-0007990 assembly / condensate with CCD-0008666.")
+        notes.append(
+            "A rooftop freeze or condensate leak belongs on CCD-0007990. "
+            "CCD-0008666 is fine for Furrion Chill layout."
+        )
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
         notes.append(FCR_E2_FAN_FAULT_PRODUCT_LOCK.strip().splitlines()[0])
     if is_air_conditioning_context(category_name, model_text, concern) and not is_facr_rooftop_freeze_context(
