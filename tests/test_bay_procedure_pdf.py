@@ -140,6 +140,19 @@ class TestIceRearWallBayProcedure(unittest.TestCase):
         self.assertIn("24 to 48", " ".join(proc.bay_order).lower())
         self.assertTrue(any("knife" in d.lower() for d in proc.do_not))
         self.assertTrue(any("sealed-system" in d.lower() for d in proc.do_not))
+        body = procedure_body_text(proc).lower()
+        for banned in ("fuse", "12-volt", "12v", "inverter", "dead-unit", "15a"):
+            self.assertNotIn(banned, body)
+        self.assertTrue(proc.flowchart.readable)
+        self.assertLessEqual(len(proc.flowchart.nodes), 6)
+        self.assertTrue(any(n.w >= 170 for n in proc.flowchart.nodes))
+        order = " ".join(proc.bay_order).lower()
+        self.assertIn("if it is only a light sheet", order)
+        self.assertIn("if the bill slides", order)
+        self.assertIn("if heavy frost returns", order)
+        pdf_low = _pdf_text(render_bay_procedure_pdf(proc)).lower()
+        for banned in ("fuse", "12-volt", "12v inverter", "dead-unit", "15a"):
+            self.assertNotIn(banned, pdf_low)
 
 
 class TestManualModeFireflyCan(unittest.TestCase):
