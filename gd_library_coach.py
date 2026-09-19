@@ -176,7 +176,7 @@ LEVEL_UP_SEARCH_BOOST = (
     "hydraulic leveling controller Manual Mode"
 )
 # Manual Mode dump works + Auto works → Firefly isolate / rubber-boot plug (not Unity).
-# Search tokens only. Human copy never says "wired coach CAN".
+# Search tokens only — not printed on the bay sheet.
 FIREFLY_CAN_SEARCH_BOOST = (
     "Firefly isolate can isolate terminator rubber-boot plug left in "
     "Firefly cable network plugs USB firmware 574-825-4600 interim 4 GB "
@@ -3572,7 +3572,8 @@ def format_stated_facts_rule(facts: dict) -> str:
         lines.append(
             "Manual Mode flash/dump-to-home is already in play. Ask/confirm Auto Level "
             "still works, power looks sane / no brownout, and the dump is not sticky "
-            "Low Voltage / Excess Angle / External Sensor before CAN isolate or parts."
+            "Low Voltage / Excess Angle / External Sensor before you unplug the Firefly "
+            "cable or order parts."
         )
     return "\n".join(lines)
 
