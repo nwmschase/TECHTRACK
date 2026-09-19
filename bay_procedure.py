@@ -34,8 +34,6 @@ from gd_library_coach import (
     FIREFLY_CAN_SEARCH_BOOST,
     ICE_MOISTURE_SEARCH_BOOST,
     ICE_MOISTURE_SHOP_LINE,
-    FIREFLY_STILL_DUMPS,
-    FIREFLY_TWO_PLUG_PROVE,
     WIRED_COACH_CAN_RE,
     ac_search_symptom,
     cooktop_search_symptom,
@@ -112,6 +110,16 @@ COACH_DONOT_RE = re.compile(
 )
 MAX_BAY_ORDER = 6
 
+# Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
+FIREFLY_CAN_PORT_PROVE = (
+    "The Level Up controller has two ports labeled CAN. "
+    "One is the rubber-boot terminator — leave that one plugged in. "
+    "The other is the CAN cable to Firefly / OneControl — unplug that one only. "
+    "Then try Manual Mode again."
+)
+NETWORK_PLUGS_RE = re.compile(r"network\s+plugs", re.I)
+POWER_LOOKS_SANE_RE = re.compile(r"power looks sane", re.I)
+
 
 def uses_wired_coach_can_jargon(text: str) -> bool:
     """Banned isolate jargon — human copy must not use this label."""
@@ -142,15 +150,27 @@ def body_uses_coach_donots(text: str) -> bool:
 
 
 def firefly_sheet_uses_service_names(text: str) -> bool:
-    """Level Up / Firefly copy should name the controller, cable, and rubber-boot plug."""
+    """Level Up / Firefly copy should name the controller, CAN ports, and terminator."""
     t = (text or "").lower()
     return (
         "controller" in t
         and "firefly" in t
         and ("rubber boot" in t or "rubber-boot" in t)
-        and "two network plugs" in t
-        and "unplug that cable only" in t
+        and "terminator" in t
+        and "ports labeled can" in t
+        and "can cable" in t
+        and "power connector" in t
     )
+
+
+def body_uses_network_plugs(text: str) -> bool:
+    """Banned on the Bay PDF Firefly sheet — use ports labeled CAN."""
+    return bool(NETWORK_PLUGS_RE.search(text or ""))
+
+
+def body_uses_power_looks_sane(text: str) -> bool:
+    """Banned vibe check — Bay PDF must cite the POWER CONNECTOR prove."""
+    return bool(POWER_LOOKS_SANE_RE.search(text or ""))
 
 
 # ---------------------------------------------------------------------------
@@ -487,13 +507,13 @@ def _facr_path() -> dict:
 
 def _firefly_path() -> dict:
     return {
-        "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot plug in.",
+        "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot terminator in.",
         "pattern_means": (
             "When Manual Mode flashes back to the home screen and Auto Level still works, "
-            "this is usually a Firefly / OneControl conflict on the Level Up Advantage "
-            "controller. It is not a hydraulic dump test, and you should not start by "
-            "swapping the Level Up Advantage controller. "
-            + FIREFLY_TWO_PLUG_PROVE
+            "diagnose Firefly / OneControl CAN communication first. Do not start diagnosing "
+            "a Level Up controller fault until Firefly / OneControl CAN communication is "
+            "ruled out. "
+            + FIREFLY_CAN_PORT_PROVE
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -501,20 +521,20 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "s",
                     "start",
-                    "Manual Mode flashes home. Auto Level still works.\nClear sticky error text first.",
+                    "Manual Mode flashes home. Auto Level still works.\nClear sticky errors. Check POWER CONNECTOR.",
                     0.50,
                     0.14,
-                    w=310,
+                    w=320,
                     h=52,
                 ),
                 FlowNode("d1", "decision", "Does Auto\nstill work?", 0.50, 0.48, w=172, h=78),
                 FlowNode(
                     "p2",
                     "process",
-                    "Leave the rubber-boot plug in.\nUnplug the Firefly cable only.\nThen try Manual Mode again.",
+                    "Leave the rubber-boot terminator in.\nUnplug the Firefly CAN cable only.\nThen try Manual Mode again.",
                     0.18,
                     0.48,
-                    w=230,
+                    w=236,
                     h=64,
                 ),
                 FlowNode(
@@ -530,7 +550,7 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "y2",
                     "end",
-                    "Call Firefly at 574-825-4600\nfor USB firmware. Stick 4 GB\nor smaller plus interim.",
+                    "Firefly CAN is in the dump.\nDo not start a Level Up\ncontroller fault path.",
                     0.18,
                     0.84,
                     w=226,
@@ -539,7 +559,7 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "n2",
                     "end",
-                    "Stay on Level Up sensors.\nDo not swap the controller.",
+                    "Firefly CAN is ruled out.\nDiagnose the Level Up path.",
                     0.82,
                     0.84,
                     w=220,
@@ -556,25 +576,25 @@ def _firefly_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present. If Auto is dead, this is not the Firefly path — stay on Level Up hydraulics. If Auto works, do the two-plug prove next.",
-            FIREFLY_TWO_PLUG_PROVE,
-            "If Manual Mode stays open, Firefly is fighting the Level Up controller. Call Firefly at 574-825-4600 for USB firmware. Use a USB stick 4 GB or smaller plus the interim file they specify.",
-            FIREFLY_STILL_DUMPS,
+            "Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present. If Auto is dead, this is not the Firefly path — stay on Level Up hydraulics. If Auto works, check the POWER CONNECTOR next.",
+            "Back-probe the labeled POWER CONNECTOR. Measure Red versus Green ground. You want solid 12V+. Note Yellow. If you do not have solid 12V+, fix power first. If power is solid 12V+, do the CAN prove next.",
+            FIREFLY_CAN_PORT_PROVE,
+            "If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN communication is in the dump. Do not start diagnosing a Level Up controller fault. If Manual Mode still dumps, Firefly / OneControl CAN is ruled out — now diagnose the Level Up path that remains.",
         ],
         "do_not": [
-            "Do not pull the rubber-boot plug.",
+            "Do not pull the rubber-boot terminator.",
             "Do not condemn the Level Up controller or start pump and valve replacement while Auto Level still works.",
             "Do not swap another Level Up controller for Firefly blame.",
-            "Do not push Firefly USB firmware unless Manual Mode holds with the Firefly cable unplugged.",
+            "Do not push Firefly USB firmware unless Manual Mode holds with the Firefly CAN cable unplugged.",
         ],
         "sources": [
             {
                 "title": FIREFLY_PATH_TITLE,
                 "page": None,
                 "excerpt": (
-                    FIREFLY_TWO_PLUG_PROVE
-                    + " Call Firefly at 574-825-4600 for USB firmware. "
-                    "Use a stick 4 GB or smaller plus the interim file they specify."
+                    "Back-probe the labeled POWER CONNECTOR, Red versus Green ground, "
+                    "solid 12V+. "
+                    + FIREFLY_CAN_PORT_PROVE
                 ),
             },
             {
@@ -809,16 +829,19 @@ def _seed_figure_png(kind: str) -> bytes:
         draw.rectangle((110, 220, 190, 260), fill=(40, 40, 40))
         draw.rectangle((250, 210, 350, 270), outline=(18, 18, 36), width=3, fill=(250, 250, 250))
         draw.line((300, 270, 300, 370), fill=(180, 40, 40), width=6)
-        draw.text((100, 284), "Rubber-boot plug", fill=(18, 18, 36), font=small_f)
-        draw.text((108, 310), "LEAVE IN", fill=(1, 20, 124), font=body_f)
-        draw.text((250, 284), "Firefly cable", fill=(18, 18, 36), font=small_f)
+        draw.text((100, 284), "CAN  rubber-boot", fill=(18, 18, 36), font=small_f)
+        draw.text((108, 310), "TERMINATOR IN", fill=(1, 20, 124), font=body_f)
+        draw.text((250, 284), "CAN  Firefly cable", fill=(18, 18, 36), font=small_f)
         draw.text((258, 310), "UNPLUG ONLY", fill=(200, 30, 40), font=body_f)
-        draw.text((450, 90), "Data plate / two plugs", fill=(1, 20, 124), font=title_f)
-        draw.text((450, 150), "Leave the rubber-boot", fill=(18, 18, 36), font=body_f)
-        draw.text((450, 185), "plug in. Unplug only the", fill=(18, 18, 36), font=body_f)
-        draw.text((450, 220), "Firefly / OneControl cable.", fill=(18, 18, 36), font=body_f)
-        draw.text((450, 300), "Brinkley / Firefly coach", fill=(18, 18, 36), font=small_f)
-        draw.text((450, 340), "Shop PN 807662 (Sources only)", fill=(90, 90, 90), font=small_f)
+        draw.text((450, 60), "Two ports labeled CAN", fill=(1, 20, 124), font=title_f)
+        draw.text((450, 110), "Leave the rubber-boot", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 145), "terminator plugged in.", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 180), "Unplug only the CAN cable", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 215), "to Firefly / OneControl.", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 270), "POWER CONNECTOR", fill=(1, 20, 124), font=body_f)
+        draw.text((450, 305), "Red versus Green ground.", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 335), "Want solid 12V+. Note Yellow.", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 380), "Shop PN 807662 (Sources only)", fill=(90, 90, 90), font=small_f)
     return _png_bytes(img)
 
 
@@ -842,8 +865,8 @@ def _seed_path_figure(kind: str) -> BayFigure:
     return BayFigure(
         title=FIREFLY_PATH_TITLE,
         page=None,
-        caption="Level Up Advantage controller data plate / two network plugs",
-        excerpt="Leave the rubber-boot plug in. Unplug the Firefly cable only.",
+        caption="Level Up Advantage controller — two ports labeled CAN",
+        excerpt="Leave the rubber-boot terminator in. Unplug the Firefly CAN cable only.",
         image_png=_seed_figure_png("firefly"),
     )
 
@@ -918,9 +941,10 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
         category_name, model_text, concern
     ):
         notes.append(
-            "When Manual Mode flashes home and Auto Level still works, leave the "
-            "rubber-boot plug alone and unplug only the Firefly cable. If Manual "
-            "Mode holds, call Firefly for USB firmware at 574-825-4600."
+            "When Manual Mode flashes home and Auto Level still works, confirm Auto, "
+            "clear sticky errors, back-probe the POWER CONNECTOR, then prove the two "
+            "ports labeled CAN. Do not start a Level Up controller fault until Firefly "
+            "CAN is ruled out."
         )
     if is_facr_rooftop_freeze_context(category_name, model_text, concern):
         notes.append(
