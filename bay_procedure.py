@@ -93,6 +93,8 @@ MODULES_ONE_AT_A_TIME_RE = re.compile(
     re.I,
 )
 BARE_PN_LEAD_RE = re.compile(r"^\s*(?:[-*•]|\d+\.)?\s*(?:the\s+)?807662\b", re.I)
+BODY_MANUAL_CODE_RE = re.compile(r"\b(?:CCD-\d{7}|807662)\b", re.I)
+MAX_BAY_ORDER = 6
 
 
 def uses_wired_coach_can_jargon(text: str) -> bool:
@@ -106,6 +108,11 @@ def check_text_leads_with_bare_pn(text: str) -> bool:
         if BARE_PN_LEAD_RE.match(line):
             return True
     return False
+
+
+def body_uses_manual_codes(text: str) -> bool:
+    """True when body copy leads with or leans on a manual / PN code."""
+    return bool(BODY_MANUAL_CODE_RE.search(text or ""))
 
 
 def firefly_sheet_uses_service_names(text: str) -> bool:
@@ -228,9 +235,12 @@ class BayProcedure:
     figures: list[BayFigure] = field(default_factory=list)
     include_3c: bool = False
     notes: list[str] = field(default_factory=list)
+    display_model: str = ""
 
     @property
     def model_line(self) -> str:
+        if (self.display_model or "").strip():
+            return self.display_model.strip()
         parts = [p for p in (self.brand.strip(), self.model.strip()) if p]
         return " ".join(parts) or "—"
 
@@ -240,22 +250,23 @@ class BayProcedure:
 # ---------------------------------------------------------------------------
 def _ice_path() -> dict:
     return {
-        "primary_cite": "Furrion FCR08/FCR10 SM CCD-0008122, page 36, Ice and Moisture (Fig. 36).",
+        "primary_cite": "Furrion fridge service manual, Ice and Moisture section (Fig. 36).",
         "pattern_means": (
             "Ice or frost on the rear wall, including a pattern that starts about halfway "
-            "down from the top, is an Ice and Moisture problem. Follow Ice or Moisture in "
-            "the Fridge on CCD-0008122. This is a moisture, door gasket, and cooling path. "
-            "It is not a dead-unit fuse check, and it is not a 12-volt inverter path."
+            "down from the top, is an Ice and Moisture problem. Follow the Ice and Moisture "
+            "section of the Furrion fridge service manual. A light sheet on the back wall "
+            "alone can be normal cycling. This is a moisture, door gasket, and cooling path. "
+            "It is not a dead-unit fuse check."
         ),
         "flowchart": Flowchart(
             nodes=[
                 FlowNode("s", "start", "Ice or frost is on the\nrear wall of the fridge.", 0.50, 0.08),
                 FlowNode("d1", "decision", "Is the dial\nat max?", 0.50, 0.28),
-                FlowNode("a1", "process", "Back the dial off and\nrecheck the frost pattern.", 0.18, 0.28, w=156, h=38),
-                FlowNode("d2", "decision", "Is the door\ngasket leaking?", 0.50, 0.52),
-                FlowNode("a2", "process", "Repair or reseat\nthe door gasket.", 0.18, 0.52, w=150, h=36),
-                FlowNode("p", "process", "Verify cooling from Ice and Moisture.\nUse CCD-0008122 page 36.", 0.50, 0.74),
-                FlowNode("e", "end", "Watch or replace the unit only from\nthe Ice and Moisture section.", 0.50, 0.92),
+                FlowNode("a1", "process", "Set the dial to about 4 to 5\nand run it overnight.", 0.18, 0.28, w=156, h=38),
+                FlowNode("d2", "decision", "Does the gasket fail\na dollar-bill test?", 0.50, 0.52),
+                FlowNode("a2", "process", "Repair the gasket.\nClear the rear drain.", 0.18, 0.52, w=150, h=36),
+                FlowNode("p", "process", "Verify 12-volt under load.\nRecheck in 24 to 48 hours.", 0.50, 0.74),
+                FlowNode("e", "end", "Stay on the Ice and Moisture\nsection of the fridge manual.", 0.50, 0.92),
             ],
             edges=[
                 FlowEdge("s", "d1"),
@@ -269,15 +280,17 @@ def _ice_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Look at the frost pattern on the rear wall, including whether it starts about halfway from the top.",
-            "Check whether the temperature dial is all the way at max. If it is, back the dial off and recheck the frost pattern.",
-            "Inspect the door gasket and reseat or repair it before you condemn the cooling unit.",
-            "Verify cooling from the Ice and Moisture section on CCD-0008122 page 36. Watch or replace the unit only from that section.",
+            "Look at the frost pattern on the rear wall. A light sheet on the back wall alone can be normal cycling.",
+            "If the temperature dial is at max, set it to mid, about 4 to 5, and let the fridge run overnight.",
+            "Check the door gasket with a dollar-bill test, then reseat or repair the gasket before you condemn the cooling unit.",
+            "Clear the rear drain and trough so melt water can leave. Verify 12-volt supply under load at the fridge.",
+            "Recheck the frost pattern in 24 to 48 hours. Watch or replace the unit only from the Ice and Moisture section of the Furrion fridge service manual.",
         ],
         "do_not": [
+            "Do not knife the ice off the rear wall.",
+            "Do not assume a sealed-system failure from top-half frost alone.",
             "Do not open the no-power or 15A fuse path for this frost pattern.",
             "Do not start at the 12-volt inverter unless the unit is dead, has no light, or will not run.",
-            "Do not invent other OEM pages. Stay on the Ice and Moisture section.",
         ],
         "sources": [
             {
@@ -289,17 +302,19 @@ def _ice_path() -> dict:
                 ),
             }
         ],
+        "display_model": "",
     }
 
 
 def _facr_path() -> dict:
     return {
-        "primary_cite": "Furrion CCD-0007990 for assembly and condensate. CCD-0008666 is the Chill book.",
+        "primary_cite": "Furrion rooftop HVAC service manual, assembly and condensate. The Chill book is for layout.",
         "pattern_means": (
             "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Work from CCD-0007990 for the base pan, the drain, and freeze "
-            "or suction icing. CCD-0008666 is the Furrion Chill model book for layout. This is "
-            "not a Dometic rooftop job, and it is not a Unity or OneControl board job."
+            "condensate problem. Work from the Furrion rooftop HVAC service manual for the "
+            "base pan, the drain, and freeze or suction icing. The Furrion Chill model book "
+            "is fine for layout. This is not a Dometic rooftop job, and it is not a Unity "
+            "or OneControl board job."
         ),
         "flowchart": Flowchart(
             nodes=[
@@ -307,8 +322,8 @@ def _facr_path() -> dict:
                 FlowNode("p1", "process", "Inspect the rooftop assembly, the\nevaporator pan, and the condensate drain.", 0.50, 0.32, w=250, h=40),
                 FlowNode("d1", "decision", "Is the drain\nrestricted or\nthe pan iced?", 0.50, 0.54),
                 FlowNode("a1", "process", "Clear the drain or ice.\nConfirm the drain path.", 0.18, 0.54, w=150, h=40),
-                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on CCD-0007990.", 0.50, 0.76),
-                FlowNode("e", "end", "Stay on the assembly and\ncondensate path in CCD-0007990.", 0.50, 0.93),
+                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on the assembly path.", 0.50, 0.76),
+                FlowNode("e", "end", "Stay on the assembly and\ncondensate path in the rooftop book.", 0.50, 0.93),
             ],
             edges=[
                 FlowEdge("s", "p1"),
@@ -320,10 +335,10 @@ def _facr_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Open CCD-0007990 for the assembly and condensate path. CCD-0008666 is fine for Furrion Chill layout.",
+            "Open the Furrion rooftop HVAC service manual for the assembly and condensate path. The Chill model book is fine for layout.",
             "Inspect the rooftop assembly, the evaporator pan, and the condensate drain.",
             "Clear ice or a restricted drain and confirm the drain path before you condemn the sealed system.",
-            "Retest cooling. If the freeze or leak returns, stay on CCD-0007990.",
+            "Retest cooling. If the freeze or leak returns, stay on the assembly and condensate path.",
         ],
         "do_not": [
             "Do not start at Unity or OneControl board manuals for this rooftop freeze.",
@@ -348,6 +363,7 @@ def _facr_path() -> dict:
                 ),
             },
         ],
+        "display_model": "Furrion Chill rooftop unit",
     }
 
 
@@ -356,9 +372,9 @@ def _firefly_path() -> dict:
         "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot plug in.",
         "pattern_means": (
             "When Manual Mode flashes back to the home screen and Auto Level still works, "
-            "this is usually a Firefly / OneControl conflict on the Level Up controller. "
-            "It is not a hydraulic dump test, and you should not start by swapping the "
-            "Level Up controller. "
+            "this is usually a Firefly / OneControl conflict on the Level Up Advantage "
+            "controller. It is not a hydraulic dump test, and you should not start by "
+            "swapping the Level Up Advantage controller. "
             + FIREFLY_TWO_PLUG_PROVE
         ),
         "flowchart": Flowchart(
@@ -366,7 +382,7 @@ def _firefly_path() -> dict:
                 FlowNode("s", "start", "Manual Mode flashes back to home.\nAuto Level still works.", 0.42, 0.08),
                 FlowNode("p1", "process", "Confirm power looks sane and Auto still works.\nClear sticky error text first.", 0.42, 0.26, w=250, h=38),
                 FlowNode("d1", "decision", "Does Auto\nstill work?", 0.42, 0.46),
-                FlowNode("n1", "end", "This is not the Firefly path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=148, h=36),
+                FlowNode("n1", "end", "This is not the Firefly path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=156, h=36),
                 FlowNode("p2", "process", "Leave the rubber-boot plug alone.\nUnplug the Firefly cable only.", 0.42, 0.66, w=250, h=40),
                 FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.42, 0.84),
                 FlowNode("y2", "end", "Call Firefly at 574-825-4600\nfor the USB firmware update.", 0.16, 0.84, w=156, h=44),
@@ -403,8 +419,14 @@ def _firefly_path() -> dict:
                     + " Call Firefly at 574-825-4600 for USB firmware. "
                     "Use a stick 4 GB or smaller plus the interim file they specify."
                 ),
-            }
+            },
+            {
+                "title": "Level Up Advantage controller shop PN 807662",
+                "page": None,
+                "excerpt": "Listed in Sources only. This is not the MODEL headline.",
+            },
         ],
+        "display_model": "Level Up Advantage controller (Brinkley / Firefly)",
     }
 
 
@@ -559,6 +581,112 @@ def pick_cited_figures(chunks, limit: int = 4) -> list[BayFigure]:
     return out
 
 
+def _png_bytes(image) -> bytes:
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _seed_figure_png(kind: str) -> bytes:
+    """Ship ice-pattern / data-plate schematics so HIT sheets are not figure-empty."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", (720, 420), (248, 250, 252))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+    draw.rectangle((8, 8, 711, 411), outline=(1, 20, 124), width=3)
+    if kind == "ice":
+        draw.rectangle((80, 40, 360, 380), outline=(18, 18, 36), width=3, fill=(255, 255, 255))
+        draw.rectangle((88, 200, 352, 372), fill=(186, 214, 240))
+        for y in range(210, 370, 14):
+            draw.line((96, y, 344, y + 6), fill=(90, 140, 190), width=2)
+        draw.line((80, 200, 360, 200), fill=(200, 40, 40), width=3)
+        draw.text((380, 50), "Fig. 36  rear-wall frost pattern", fill=(1, 20, 124), font=font)
+        draw.text((380, 90), "Light sheet on the back wall", fill=(18, 18, 36), font=font)
+        draw.text((380, 120), "alone can be normal cycling.", fill=(18, 18, 36), font=font)
+        draw.text((380, 170), "Top half clear / frost from mid-down", fill=(18, 18, 36), font=font)
+        draw.text((380, 210), "is the Ice and Moisture pattern.", fill=(18, 18, 36), font=font)
+        draw.text((380, 270), "Furrion fridge service manual", fill=(18, 18, 36), font=font)
+        draw.text((380, 300), "Ice and Moisture section", fill=(18, 18, 36), font=font)
+    elif kind == "facr":
+        draw.rectangle((70, 50, 340, 160), outline=(18, 18, 36), width=3, fill=(230, 236, 245))
+        draw.rectangle((90, 160, 320, 210), outline=(18, 18, 36), width=2, fill=(210, 220, 230))
+        draw.polygon([(200, 210), (190, 300), (210, 300)], fill=(80, 80, 90))
+        draw.ellipse((175, 300, 225, 330), outline=(1, 20, 124), width=2)
+        draw.text((380, 50), "Rooftop assembly / base pan", fill=(1, 20, 124), font=font)
+        draw.text((380, 90), "Evaporator pan and condensate drain", fill=(18, 18, 36), font=font)
+        draw.text((380, 140), "Clear ice or a restricted drain", fill=(18, 18, 36), font=font)
+        draw.text((380, 170), "before you condemn the sealed system.", fill=(18, 18, 36), font=font)
+        draw.text((380, 230), "Furrion rooftop HVAC service manual", fill=(18, 18, 36), font=font)
+        draw.text((90, 350), "Drain path", fill=(18, 18, 36), font=font)
+    else:
+        draw.rectangle((60, 70, 360, 300), outline=(18, 18, 36), width=3, fill=(255, 255, 255))
+        draw.rectangle((80, 90, 340, 140), fill=(1, 20, 124))
+        draw.text((92, 105), "Level Up Advantage controller", fill=(255, 255, 255), font=font)
+        draw.rectangle((90, 180, 170, 230), outline=(18, 18, 36), width=2, fill=(230, 230, 230))
+        draw.rectangle((96, 186, 164, 224), fill=(40, 40, 40))
+        draw.rectangle((210, 180, 290, 230), outline=(18, 18, 36), width=2, fill=(250, 250, 250))
+        draw.line((250, 230, 250, 310), fill=(180, 40, 40), width=4)
+        draw.text((88, 240), "Rubber-boot", fill=(18, 18, 36), font=font)
+        draw.text((92, 258), "plug  LEAVE IN", fill=(1, 20, 124), font=font)
+        draw.text((208, 240), "Firefly cable", fill=(18, 18, 36), font=font)
+        draw.text((214, 258), "UNPLUG ONLY", fill=(200, 30, 40), font=font)
+        draw.text((400, 80), "Data plate / connector layout", fill=(1, 20, 124), font=font)
+        draw.text((400, 120), "Two network plugs on the", fill=(18, 18, 36), font=font)
+        draw.text((400, 150), "Level Up Advantage controller.", fill=(18, 18, 36), font=font)
+        draw.text((400, 200), "Brinkley / Firefly coach", fill=(18, 18, 36), font=font)
+        draw.text((400, 250), "Shop PN 807662  (sources only)", fill=(90, 90, 90), font=font)
+    return _png_bytes(img)
+
+
+def _seed_path_figure(kind: str) -> BayFigure:
+    if kind == "ice":
+        return BayFigure(
+            title=FURRION_8122_TITLE,
+            page=36,
+            caption="Fig. 36 rear-wall frost pattern",
+            excerpt="Ice and Moisture. Figure 36 shows the rear-wall frost pattern.",
+            image_png=_seed_figure_png("ice"),
+        )
+    if kind == "facr":
+        return BayFigure(
+            title=FACR_7990_TITLE,
+            page=None,
+            caption="Rooftop assembly, base pan, and drain",
+            excerpt="Use this book for the rooftop assembly, condensate drain, and base pan.",
+            image_png=_seed_figure_png("facr"),
+        )
+    return BayFigure(
+        title=FIREFLY_PATH_TITLE,
+        page=None,
+        caption="Level Up Advantage controller data plate / two network plugs",
+        excerpt="Leave the rubber-boot plug in. Unplug the Firefly cable only.",
+        image_png=_seed_figure_png("firefly"),
+    )
+
+
+def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = None) -> list[BayFigure]:
+    """Prefer library page images. If none, ship the path seed figure so the sheet is not empty."""
+    if explicit:
+        if any(fig.image_png for fig in explicit):
+            return list(explicit)
+        seeded = _seed_path_figure(kind)
+        explicit[0].image_png = seeded.image_png
+        return list(explicit)
+    library = pick_cited_figures(ranked)
+    if any(fig.image_png for fig in library):
+        return library
+    seed = _seed_path_figure(kind)
+    if library:
+        library[0].image_png = seed.image_png
+        library[0].caption = library[0].caption or seed.caption
+        return library
+    return [seed]
+
+
 def _unique_sources(chunks) -> list[dict]:
     out = []
     seen = set()
@@ -707,12 +835,16 @@ def compile_bay_procedure(
     firefly = is_firefly_can_path_context(category, model_text, concern)
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
 
+    path_kind = ""
     if ice:
         spec = _ice_path()
+        path_kind = "ice"
     elif facr:
         spec = _facr_path()
+        path_kind = "facr"
     elif firefly:
         spec = _firefly_path()
+        path_kind = "firefly"
     else:
         extra_steps = []
         for d in ranked:
@@ -758,9 +890,18 @@ def compile_bay_procedure(
             )
         )
 
-    figs = list(figures or [])
-    if not figs:
-        figs = pick_cited_figures(ranked)
+    if path_kind:
+        figs = resolve_path_figures(path_kind, ranked, figures)
+    else:
+        figs = list(figures or []) or pick_cited_figures(ranked)
+
+    display_model = spec.get("display_model") or ""
+    if firefly:
+        display_model = "Level Up Advantage controller (Brinkley / Firefly)"
+    elif facr and not display_model:
+        display_model = "Furrion Chill rooftop unit"
+    elif ice and not display_model:
+        display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
 
     notes = _lock_note(category, model_text, concern)
     return BayProcedure(
@@ -780,6 +921,7 @@ def compile_bay_procedure(
         figures=figs,
         include_3c=include_3c,
         notes=notes,
+        display_model=display_model,
     )
 
 
@@ -796,6 +938,17 @@ def _generic_primary_cite(ranked) -> str:
 # ---------------------------------------------------------------------------
 # Plain text (tests + filename helpers)
 # ---------------------------------------------------------------------------
+def procedure_body_text(proc: BayProcedure) -> str:
+    """Flowchart / pattern / bay order / Do-not only — no Sources footer."""
+    parts = [
+        proc.pattern_means or "",
+        *proc.bay_order,
+        *proc.do_not,
+        *(n.text for n in proc.flowchart.nodes),
+    ]
+    return "\n".join(parts)
+
+
 def procedure_plain_text(proc: BayProcedure) -> str:
     """Single string for unit tests. Mirrors the bay sheet, not v1 bot-flow paragraphs."""
     lines = [
@@ -1075,7 +1228,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         page.texts.append(DrawnText(concern_lines[1], MARGIN + 78, y, w=450, size=9, bold=True, color=INK))
         y -= 12
     page.texts.append(DrawnText("MODEL", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
-    page.texts.append(DrawnText(_clip(proc.model_line, 42), MARGIN + 78, y, w=220, size=9, bold=True, color=INK))
+    page.texts.append(DrawnText(_clip(proc.model_line, 56), MARGIN + 78, y, w=230, size=9, bold=True, color=INK))
     page.texts.append(DrawnText("DATE", MARGIN + 310, y, w=36, size=7, bold=True, color=GREEN))
     page.texts.append(DrawnText(proc.created.strftime("%Y-%m-%d"), MARGIN + 348, y, w=80, size=9, bold=True, color=INK))
     page.texts.append(DrawnText("WO#", MARGIN + 440, y, w=28, size=7, bold=True, color=GREEN))
@@ -1100,7 +1253,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     # Flowchart frame — the product, not a paragraph list
     flow_top = means_y - 8
-    flow_h = 220
+    flow_h = 188 if len(proc.bay_order) > 4 else 210
     flow_y = flow_top - flow_h
     f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
     page.shapes.extend(f_shapes)
@@ -1108,8 +1261,9 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     # Bay order then Do not — full width so complete sentences are not clipped.
     col_top = flow_y - 8
+    shown_order = proc.bay_order[:MAX_BAY_ORDER]
     order_lines = []
-    for i, step in enumerate(proc.bay_order[:4], 1):
+    for i, step in enumerate(shown_order, 1):
         order_lines.append(_wrap(f"{i}. {step}", 98)[:4])
     do_lines = [_wrap(f"- {item}", 98)[:2] for item in proc.do_not[:4]]
     order_h = 22 + sum(len(block) * 10 + 3 for block in order_lines)
@@ -1120,7 +1274,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     page.shapes.append(DrawnShape("rect", MARGIN, order_y, PAGE_W - 2 * MARGIN, order_h, fill=WHITE, stroke=NAVY, stroke_w=1.0))
     _add_section_bar(page, MARGIN, col_top - 16, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
     y = col_top - 28
-    for i, step in enumerate(proc.bay_order[:4], 1):
+    for i, step in enumerate(shown_order, 1):
         page.shapes.append(DrawnShape("rect", MARGIN + 8, y - 1, 8, 8, fill=WHITE, stroke=NAVY, stroke_w=0.9))
         wrapped = _wrap(f"{i}. {step}", 98)[:4]
         for line in wrapped:
@@ -1169,6 +1323,21 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             fig_bits.append(bit)
         page.texts.append(
             DrawnText(_clip("Figures: " + "; ".join(fig_bits), 110), MARGIN + 8, y, w=520, size=8, color=MUTED)
+        )
+        y -= 11
+    if imaged and y > src_y + 36:
+        thumb = imaged[0]
+        thumb_h = min(48, max(28, y - src_y - 8))
+        page.images.append(DrawnImage(thumb.image_png, MARGIN + 8, src_y + 6, 90, thumb_h))
+        page.texts.append(
+            DrawnText(
+                "Library figure on next page.",
+                MARGIN + 106,
+                src_y + 16,
+                w=400,
+                size=8,
+                color=MUTED,
+            )
         )
 
     if proc.include_3c and not imaged:
@@ -1642,6 +1811,17 @@ def write_sample_pdfs(out_dir) -> list:
         path = dest / name
         path.write_bytes(render_bay_procedure_pdf(proc))
         written.append(path)
+        try:
+            import pymupdf
+
+            doc = pymupdf.open(path)
+            for i, page in enumerate(doc):
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(1.6, 1.6))
+                png = dest / f"{path.stem}_p{i + 1}.png"
+                pix.save(png)
+                written.append(png)
+        except Exception:
+            continue
     return written
 
 

@@ -3,12 +3,14 @@ import unittest
 
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
+    body_uses_manual_codes,
     check_text_leads_with_bare_pn,
     compile_bay_procedure,
     count_pdf_draw_ops,
     firefly_has_forbidden_module_hunt,
     firefly_sheet_uses_service_names,
     pdf_content_operators,
+    procedure_body_text,
     procedure_plain_text,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
@@ -122,11 +124,22 @@ class TestIceRearWallBayProcedure(unittest.TestCase):
         fuse_hits = [i for i, s in enumerate(proc.sources) if s.get("page") == 19]
         if fuse_hits:
             self.assertLess(ice_idx, fuse_hits[0])
-        # Fuse / 12V is not the path.
+        # Fuse / 12V is not the path. Manual codes stay in Sources, not body copy.
         blob = f"{proc.primary_cite} {proc.pattern_means} {' '.join(proc.bay_order)}".lower()
-        self.assertIn("ccd-0008122", blob)
-        self.assertTrue("p.36" in blob or "page 36" in blob)
+        self.assertIn("ice and moisture", blob)
+        self.assertIn("furrion fridge service manual", blob)
+        self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        src = " ".join(f"{s.get('title')} {s.get('page')}" for s in proc.sources).lower()
+        self.assertIn("ccd-0008122", src)
+        self.assertTrue("36" in src or "page 36" in text)
         self.assertTrue(any(n.kind == "decision" for n in proc.flowchart.nodes))
+        self.assertTrue(any(fig.image_png for fig in proc.figures), "ice sheet must embed a figure")
+        self.assertIn("light sheet", " ".join(proc.bay_order).lower())
+        self.assertIn("dollar-bill", " ".join(proc.bay_order).lower())
+        self.assertIn("rear drain", " ".join(proc.bay_order).lower())
+        self.assertIn("24 to 48", " ".join(proc.bay_order).lower())
+        self.assertTrue(any("knife" in d.lower() for d in proc.do_not))
+        self.assertTrue(any("sealed-system" in d.lower() for d in proc.do_not))
 
 
 class TestManualModeFireflyCan(unittest.TestCase):
@@ -156,7 +169,11 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("level up controller", low)
         self.assertIn("two network plugs", low)
         self.assertIn("unplug that cable only", low)
+        self.assertIn("level up advantage controller (brinkley / firefly)", proc.model_line.lower())
+        self.assertNotIn("807662", proc.model_line)
         self.assertTrue(firefly_sheet_uses_service_names(text), text[:1200])
+        self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertTrue(any(fig.image_png for fig in proc.figures))
         self.assertFalse(uses_wired_coach_can_jargon(text), text[:800])
         self.assertNotIn("ai report", low)
         self.assertNotIn("confirm manual dump works", low)
@@ -181,7 +198,9 @@ class TestManualModeFireflyCan(unittest.TestCase):
         titles = " ".join(s.get("title") or "" for s in proc.sources).lower()
         self.assertIn("ccd-0007990", titles)
         self.assertEqual(proc.checks[0].kind, "check")
-        self.assertIn("ccd-0007990", proc.primary_cite.lower())
+        self.assertIn("rooftop", proc.primary_cite.lower())
+        self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertTrue(any(fig.image_png for fig in proc.figures))
 
     def test_seed_807662_flash_home_has_usb_and_terminator(self):
         concern = (
@@ -201,7 +220,10 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("two network plugs", low)
         self.assertIn("unplug that cable only", low)
         self.assertIn("level up controller", low)
+        self.assertIn("level up advantage controller (brinkley / firefly)", proc.model_line.lower())
+        self.assertNotIn("807662", proc.model_line)
         self.assertTrue(firefly_sheet_uses_service_names(text))
+        self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
         self.assertFalse(uses_wired_coach_can_jargon(text))
         self.assertIn(FIREFLY_TWO_PLUG_PROVE.split(".")[0].lower(), low)
         self.assertNotIn("confirm manual dump works", low)
@@ -456,6 +478,37 @@ class TestServiceBayVoiceEntireSheet(unittest.TestCase):
         self.assertNotIn("labeled CAN", text)
         self.assertNotIn("Go back to the touchpad", text)
         self.assertNotIn("wired coach CAN", text)
+
+
+class TestQualityGateNamesAndFigures(unittest.TestCase):
+    def test_body_is_names_first_and_figures_are_embedded(self):
+        cases = (
+            (WO_COMPLAINT, "Furrion", WO_MODEL, "Refrigerators"),
+            ("FACR08 freeze up interior leak condensate", "Furrion", "FACR08", "Air Conditioning"),
+            (MANUAL_MODE_DUMP_AUTO, "", "Level Up Advantage 807662", "Leveling"),
+        )
+        for concern, brand, model, category in cases:
+            proc = compile_bay_procedure(
+                concern=concern, brand=brand, model=model, category=category
+            )
+            body = procedure_body_text(proc)
+            self.assertFalse(body_uses_manual_codes(body), body[:400])
+            self.assertTrue(any(fig.image_png for fig in proc.figures), concern)
+            pdf = render_bay_procedure_pdf(proc)
+            self.assertGreater(len(pdf), 2000)
+            if category == "Leveling":
+                self.assertEqual(
+                    proc.model_line,
+                    "Level Up Advantage controller (Brinkley / Firefly)",
+                )
+                self.assertNotIn("807662", proc.model_line)
+                src = " ".join((s.get("excerpt") or "") + (s.get("title") or "") for s in proc.sources)
+                self.assertIn("807662", src)
+            if category == "Refrigerators":
+                self.assertIn("furrion fridge service manual", body.lower())
+                self.assertIn("dollar-bill", body.lower())
+                src = " ".join(s.get("title") or "" for s in proc.sources)
+                self.assertIn("CCD-0008122", src)
 
 
 class TestNavAndGdUntouched(unittest.TestCase):
