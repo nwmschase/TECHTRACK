@@ -94,6 +94,22 @@ MODULES_ONE_AT_A_TIME_RE = re.compile(
 )
 BARE_PN_LEAD_RE = re.compile(r"^\s*(?:[-*•]|\d+\.)?\s*(?:the\s+)?807662\b", re.I)
 BODY_MANUAL_CODE_RE = re.compile(r"\b(?:CCD-\d{7}|807662)\b", re.I)
+OPEN_THE_MANUAL_RE = re.compile(
+    r"\b(?:open|see|work from|follow|stay on|consult|read)\b.{0,48}"
+    r"(?:service manual|rooftop book|the sm\b|ccd-\d{7}|the manual)\b|"
+    r"\b(?:open|see)\s+ccd-\d{7}\b|"
+    r"\bsee the sm\b|"
+    r"\bfrom (?:the )?(?:ice and moisture )?sm\b",
+    re.I,
+)
+COACH_DONOT_RE = re.compile(
+    r"do not start at (?:unity|dometic|the 12-volt|the no-power|fuse|12v|inverter)|"
+    r"do not invent oem|"
+    r"do not open the no-power|"
+    r"it is not a unity|"
+    r"not a unity board",
+    re.I,
+)
 MAX_BAY_ORDER = 6
 
 
@@ -113,6 +129,16 @@ def check_text_leads_with_bare_pn(text: str) -> bool:
 def body_uses_manual_codes(text: str) -> bool:
     """True when body copy leads with or leans on a manual / PN code."""
     return bool(BODY_MANUAL_CODE_RE.search(text or ""))
+
+
+def body_tells_tech_to_open_manual(text: str) -> bool:
+    """True when the sheet sends the tech to open a book instead of giving the check."""
+    return bool(OPEN_THE_MANUAL_RE.search(text or ""))
+
+
+def body_uses_coach_donots(text: str) -> bool:
+    """True when Do-not is program path-reinforcement, not a real bay mistake."""
+    return bool(COACH_DONOT_RE.search(text or ""))
 
 
 def firefly_sheet_uses_service_names(text: str) -> bool:
@@ -255,9 +281,9 @@ def _ice_path() -> dict:
         "primary_cite": "Furrion fridge service manual, Ice and Moisture section (Fig. 36).",
         "pattern_means": (
             "Ice or frost on the rear wall, including a pattern that starts about halfway "
-            "down from the top, is an Ice and Moisture problem. Follow the Ice and Moisture "
-            "section of the Furrion fridge service manual. A light sheet on the back wall "
-            "alone can be normal cycling. This is a moisture, door gasket, drain, and cooling path."
+            "down from the top, is an Ice and Moisture problem. A light sheet on the back "
+            "wall alone can be normal cycling. This is a moisture, door gasket, drain, and "
+            "cooling path."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -267,8 +293,8 @@ def _ice_path() -> dict:
                     "start",
                     "Ice or frost is on the rear wall of the fridge.",
                     0.50,
-                    0.10,
-                    w=280,
+                    0.14,
+                    w=300,
                     h=50,
                 ),
                 FlowNode(
@@ -276,45 +302,45 @@ def _ice_path() -> dict:
                     "decision",
                     "Light sheet only,\nor dial at max?",
                     0.50,
-                    0.36,
-                    w=176,
-                    h=78,
+                    0.48,
+                    w=180,
+                    h=80,
                 ),
                 FlowNode(
                     "a1",
                     "process",
                     "Set the dial to about 4 to 5.\nRun overnight, then check the gasket.",
-                    0.16,
-                    0.36,
-                    w=220,
-                    h=58,
+                    0.18,
+                    0.48,
+                    w=230,
+                    h=62,
                 ),
                 FlowNode(
                     "d2",
                     "decision",
                     "Does the gasket fail\na dollar-bill test?",
                     0.50,
-                    0.62,
-                    w=176,
-                    h=78,
+                    0.84,
+                    w=180,
+                    h=80,
                 ),
                 FlowNode(
                     "y2",
                     "end",
                     "Repair or reseat the gasket.\nClear the rear drain and trough.\nRecheck in 24 to 48 hours.",
-                    0.16,
-                    0.62,
-                    w=228,
-                    h=62,
+                    0.18,
+                    0.84,
+                    w=230,
+                    h=66,
                 ),
                 FlowNode(
                     "n2",
                     "end",
-                    "Clear the rear drain and trough.\nRecheck in 24 to 48 hours.\nReplace only from Ice and Moisture.",
-                    0.50,
-                    0.88,
-                    w=280,
-                    h=58,
+                    "Clear the rear drain and trough.\nRecheck in 24 to 48 hours.\nIf heavy frost returns, replace the cooling unit.",
+                    0.82,
+                    0.84,
+                    w=236,
+                    h=66,
                 ),
             ],
             edges=[
@@ -323,7 +349,7 @@ def _ice_path() -> dict:
                 FlowEdge("d1", "d2", "NO", "bottom", "top"),
                 FlowEdge("a1", "d2", "", "bottom", "left"),
                 FlowEdge("d2", "y2", "YES", "left", "right"),
-                FlowEdge("d2", "n2", "NO", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
         "bay_order": [
@@ -331,7 +357,7 @@ def _ice_path() -> dict:
             "Check the temperature dial. If it is at max, set it to about 4 to 5, let the fridge run overnight, then look at the pattern again. If the dial is already mid, go to the gasket next.",
             "Check the door gasket with a dollar-bill test. If the bill slides out with no drag, reseat or repair the gasket, then clear the rear drain and trough and recheck in 24 to 48 hours. If the gasket holds, clear the rear drain and trough next.",
             "Clear the rear drain and trough so melt water can leave. If the drain is open and the gasket is good, recheck the frost pattern in 24 to 48 hours.",
-            "After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If heavy frost returns, replace the unit from the Ice and Moisture section of the Furrion fridge service manual.",
+            "After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If heavy frost returns, replace the cooling unit.",
         ],
         "do_not": [
             "Do not knife the ice off the rear wall.",
@@ -354,42 +380,87 @@ def _ice_path() -> dict:
 
 def _facr_path() -> dict:
     return {
-        "primary_cite": "Furrion rooftop HVAC service manual, assembly and condensate. The Chill book is for layout.",
+        "primary_cite": "Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.",
         "pattern_means": (
             "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Work from the Furrion rooftop HVAC service manual for the "
-            "base pan, the drain, and freeze or suction icing. The Furrion Chill model book "
-            "is fine for layout. This is not a Dometic rooftop job, and it is not a Unity "
-            "or OneControl board job."
+            "condensate problem. Prove the evaporator pan, the drain, the base-pan slope, and "
+            "suction-line icing before you condemn the sealed system."
         ),
         "flowchart": Flowchart(
+            readable=True,
             nodes=[
-                FlowNode("s", "start", "The rooftop unit is freezing\nor leaking into the coach.", 0.50, 0.10),
-                FlowNode("p1", "process", "Inspect the rooftop assembly, the\nevaporator pan, and the condensate drain.", 0.50, 0.32, w=250, h=40),
-                FlowNode("d1", "decision", "Is the drain\nrestricted or\nthe pan iced?", 0.50, 0.54),
-                FlowNode("a1", "process", "Clear the drain or ice.\nConfirm the drain path.", 0.18, 0.54, w=150, h=40),
-                FlowNode("p2", "process", "Retest cooling and watch the pan.\nStay on the assembly path.", 0.50, 0.76),
-                FlowNode("e", "end", "Stay on the assembly and\ncondensate path in the rooftop book.", 0.50, 0.93),
+                FlowNode(
+                    "s",
+                    "start",
+                    "The rooftop unit is freezing or leaking into the coach.",
+                    0.50,
+                    0.14,
+                    w=310,
+                    h=50,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Drain restricted\nor pan iced?",
+                    0.50,
+                    0.48,
+                    w=180,
+                    h=80,
+                ),
+                FlowNode(
+                    "a1",
+                    "process",
+                    "Clear the ice or restriction.\nConfirm water leaves the drain.\nThen retest cooling.",
+                    0.18,
+                    0.48,
+                    w=230,
+                    h=64,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Does freeze or leak\nreturn on retest?",
+                    0.50,
+                    0.84,
+                    w=180,
+                    h=80,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "Check base-pan slope and\nsuction-line icing. Correct that,\nthen retest. Replace only after.",
+                    0.18,
+                    0.84,
+                    w=236,
+                    h=66,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Drain is clear and cooling holds.\nYou are done.",
+                    0.82,
+                    0.84,
+                    w=230,
+                    h=56,
+                ),
             ],
             edges=[
-                FlowEdge("s", "p1"),
-                FlowEdge("p1", "d1"),
+                FlowEdge("s", "d1"),
                 FlowEdge("d1", "a1", "YES", "left", "right"),
-                FlowEdge("d1", "p2", "NO", "bottom", "top"),
-                FlowEdge("a1", "p2", "", "bottom", "left"),
-                FlowEdge("p2", "e"),
+                FlowEdge("d1", "d2", "NO", "bottom", "top"),
+                FlowEdge("a1", "d2", "", "bottom", "left"),
+                FlowEdge("d2", "y2", "YES", "left", "right"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
         "bay_order": [
-            "Open the Furrion rooftop HVAC service manual for the assembly and condensate path. The Chill model book is fine for layout.",
-            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain.",
-            "Clear ice or a restricted drain and confirm the drain path before you condemn the sealed system.",
-            "Retest cooling. If the freeze or leak returns, stay on the assembly and condensate path.",
+            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the drain, then retest cooling. If the pan is dry and the drain is open, go to the next check.",
+            "Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up, clear the trough and the hose, then retest cooling. If water leaves freely, run cooling and watch the pan.",
+            "Retest cooling and watch the pan and the interior. If the freeze or leak is gone, you are done. If ice or drip returns with a clear drain, check the base-pan slope and suction-line icing next.",
+            "If the base pan is tilted or the suction line is iced, correct that and retest. If the pan is level, the suction line is clear, and the freeze or leak still returns, replace the rooftop unit after that assembly prove.",
         ],
         "do_not": [
-            "Do not start at Unity or OneControl board manuals for this rooftop freeze.",
-            "Do not start at a Dometic-only rooftop manual for a Furrion rooftop unit.",
-            "Do not invent OEM steps, and do not skip the drain and base-pan check.",
+            "Do not condemn the sealed system before you clear the drain and the pan.",
         ],
         "sources": [
             {
@@ -410,6 +481,7 @@ def _facr_path() -> dict:
             },
         ],
         "display_model": "Furrion Chill rooftop unit",
+        "flow_tall": True,
     }
 
 
@@ -424,28 +496,67 @@ def _firefly_path() -> dict:
             + FIREFLY_TWO_PLUG_PROVE
         ),
         "flowchart": Flowchart(
+            readable=True,
             nodes=[
-                FlowNode("s", "start", "Manual Mode flashes back to home.\nAuto Level still works.", 0.42, 0.08),
-                FlowNode("p1", "process", "Confirm power looks sane and Auto still works.\nClear sticky error text first.", 0.42, 0.26, w=250, h=38),
-                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.42, 0.46),
-                FlowNode("n1", "end", "This is not the Firefly path.\nStay on Level Up hydraulics.", 0.82, 0.46, w=156, h=36),
-                FlowNode("p2", "process", "Leave the rubber-boot plug alone.\nUnplug the Firefly cable only.", 0.42, 0.66, w=250, h=40),
-                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.42, 0.84),
-                FlowNode("y2", "end", "Call Firefly at 574-825-4600\nfor the USB firmware update.", 0.16, 0.84, w=156, h=44),
-                FlowNode("n2", "end", "Stay on the Level Up sensors.\nDo not swap the controller.", 0.78, 0.84, w=160, h=44),
+                FlowNode(
+                    "s",
+                    "start",
+                    "Manual Mode flashes home. Auto Level still works.\nClear sticky error text first.",
+                    0.50,
+                    0.14,
+                    w=310,
+                    h=52,
+                ),
+                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.50, 0.48, w=172, h=78),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Leave the rubber-boot plug in.\nUnplug the Firefly cable only.\nThen try Manual Mode again.",
+                    0.18,
+                    0.48,
+                    w=230,
+                    h=64,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "This is not the Firefly path.\nStay on Level Up hydraulics.",
+                    0.82,
+                    0.48,
+                    w=220,
+                    h=56,
+                ),
+                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.50, 0.84, w=172, h=78),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "Call Firefly at 574-825-4600\nfor USB firmware. Stick 4 GB\nor smaller plus interim.",
+                    0.18,
+                    0.84,
+                    w=226,
+                    h=64,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Stay on Level Up sensors.\nDo not swap the controller.",
+                    0.82,
+                    0.84,
+                    w=220,
+                    h=56,
+                ),
             ],
             edges=[
-                FlowEdge("s", "p1"),
-                FlowEdge("p1", "d1"),
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "left", "right"),
                 FlowEdge("d1", "n1", "NO", "right", "left"),
-                FlowEdge("d1", "p2", "YES", "bottom", "top"),
-                FlowEdge("p2", "d2"),
+                FlowEdge("p2", "d2", "", "bottom", "left"),
                 FlowEdge("d2", "y2", "YES", "left", "right"),
                 FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
         "bay_order": [
-            "Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present.",
+            "Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present. If Auto is dead, this is not the Firefly path — stay on Level Up hydraulics. If Auto works, do the two-plug prove next.",
             FIREFLY_TWO_PLUG_PROVE,
             "If Manual Mode stays open, Firefly is fighting the Level Up controller. Call Firefly at 574-825-4600 for USB firmware. Use a USB stick 4 GB or smaller plus the interim file they specify.",
             FIREFLY_STILL_DUMPS,
@@ -473,6 +584,7 @@ def _firefly_path() -> dict:
             },
         ],
         "display_model": "Level Up Advantage controller (Brinkley / Firefly)",
+        "flow_tall": True,
     }
 
 
@@ -482,7 +594,7 @@ def _generic_flowchart(concern: str, steps: list[str]) -> Flowchart:
         short = short[:53].rstrip() + "..."
     nodes = [FlowNode("s", "start", short, 0.50, 0.12)]
     edges = []
-    shown = steps[:3] or ["Use cited Document Library pages. Do not invent OEM steps."]
+    shown = steps[:3] or ["Use the next cited check from the shop library excerpts."]
     ys = [0.38, 0.62, 0.82] if len(shown) >= 2 else [0.50, 0.78]
     prev = "s"
     for i, step in enumerate(shown):
@@ -492,7 +604,7 @@ def _generic_flowchart(concern: str, steps: list[str]) -> Flowchart:
         edges.append(FlowEdge(prev, nid))
         prev = nid
     if len(shown) == 1:
-        nodes.append(FlowNode("e", "end", "Cite shop library pages.\nDo not invent OEM steps.", 0.50, 0.78))
+        nodes.append(FlowNode("e", "end", "Use the next cited check.", 0.50, 0.78))
         edges.append(FlowEdge(prev, "e"))
     return Flowchart(nodes=nodes, edges=edges)
 
@@ -800,7 +912,7 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         notes.append(
             "Ice or frost on the rear wall is an Ice and Moisture problem. "
-            "Follow the Ice and Moisture section of the Furrion fridge service manual."
+            "A light sheet can be normal cycling. Check the dial, the gasket, and the rear drain."
         )
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
         category_name, model_text, concern
@@ -812,25 +924,25 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
         )
     if is_facr_rooftop_freeze_context(category_name, model_text, concern):
         notes.append(
-            "A rooftop freeze or condensate leak belongs on CCD-0007990. "
-            "CCD-0008666 is fine for Furrion Chill layout."
+            "A rooftop freeze or condensate leak is an assembly and drain path. "
+            "Clear the pan and the drain, then check base-pan slope and suction-line icing."
         )
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
         notes.append(
-            "Furrion FCR E2 or Fan Fault Current is a freezer-fan and airflow path "
-            "on CCD-0008122. It is not a rooftop air-conditioner code."
+            "Furrion FCR E2 or Fan Fault Current is a freezer-fan and airflow path. "
+            "It is not a rooftop air-conditioner code."
         )
     if is_air_conditioning_context(category_name, model_text, concern) and not is_facr_rooftop_freeze_context(
         category_name, model_text, concern
     ):
         notes.append(
-            "This is a rooftop air-conditioning job. Stay on the Furrion or Dometic "
-            "rooftop manuals. It is not a Unity board job."
+            "This is a rooftop air-conditioning job. Use the rooftop cooling checks "
+            "from the shop library."
         )
     if is_water_heater_context(category_name, model_text, concern):
         notes.append(
-            "This is a Girard tankless water-heater path. Stay on the water-heater "
-            "manual. It is not a fridge E2 path and it is not a Unity board job."
+            "This is a Girard tankless water-heater path. Use the water-heater checks. "
+            "It is not a fridge E2 path."
         )
     if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
         notes.append(
@@ -846,8 +958,7 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
         category_name, model_text, concern
     ):
         notes.append(
-            "The Level Up controller is the Lippert towable hydraulic leveling controller. "
-            "It is not a Unity awning board."
+            "The Level Up controller is the Lippert towable hydraulic leveling controller."
         )
     return notes
 
@@ -921,22 +1032,18 @@ def compile_bay_procedure(
                 extra_steps.append(line)
         if not extra_steps:
             extra_steps = [
-                "No matching manual excerpt was retrieved. Re-check category / model keywords, "
-                "or ask a manager to index the service manual in Document Library. "
-                "Do not invent OEM steps from the live web."
+                "No matching library excerpt was retrieved. Re-check category or model keywords, "
+                "or ask a manager to index the unit in Document Library."
             ]
         spec = {
             "primary_cite": _generic_primary_cite(ranked),
             "pattern_means": (
-                "Use this shop's Document Library for the next check. "
-                "Do not invent OEM steps from the live web."
+                "Use the next cited check from this shop's library excerpts."
             ),
             "flowchart": _generic_flowchart(concern or "Customer concern", extra_steps),
             "bay_order": extra_steps[:6],
             "do_not": [
-                "Do not invent OEM steps or page numbers.",
-                "Do not start from the live web.",
-                "Do not skip the cited shop-library page.",
+                "Do not skip the next cited check.",
             ],
             "sources": [],
         }
@@ -952,7 +1059,7 @@ def compile_bay_procedure(
     if not checks:
         checks.append(
             BayCheck(
-                text="No matching manual excerpt was retrieved. Do not invent OEM steps from the live web.",
+                text="No matching library excerpt was retrieved. Re-check category or model keywords.",
                 source_title="Document Library",
                 kind="note",
             )

@@ -52,7 +52,7 @@ endobj
 endobj
 8 0 obj
 <<
-/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919153958+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919153958+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919154503+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919154503+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (unspecified) /Title (Bay procedure PDF - WO-FIREFLY) /Trapped /False
 >>
 endobj
@@ -63,7 +63,7 @@ endobj
 endobj
 10 0 obj
 <<
-/Length 10629
+/Length 9964
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -95,186 +95,164 @@ n 36 554 540 76 re B*
 .004 .078 .486 RG
 1.4 w
 n
-42 336 m
-570 336 l
-573.3168 336 576 338.6832 576 342 c
+42 294 m
+570 294 l
+573.3168 294 576 296.6832 576 300 c
 576 540 l
 576 543.3168 573.3168 546 570 546 c
 42 546 l
 38.6832 546 36 543.3168 36 540 c
-36 342 l
-36 338.6832 38.6832 336 42 336 c
+36 300 l
+36 296.6832 38.6832 294 42 294 c
 h
 B*
 .012 .537 .282 rg
 .004 .078 .486 RG
 1.5 w
 n
-369.4 507 m
-369.4 517.4934 322.3899 526 264.4 526 c
-206.4101 526 159.4 517.4934 159.4 507 c
-159.4 496.5066 206.4101 488 264.4 488 c
-322.3899 488 369.4 496.5066 369.4 507 c
+461 494 m
+461 508.3594 391.6041 520 306 520 c
+220.3959 520 151 508.3594 151 494 c
+151 479.6406 220.3959 468 306 468 c
+391.6041 468 461 479.6406 461 494 c
+B*
+1 .949 .82 rg
+.004 .078 .486 RG
+1.7 w
+n 306 459.48 m 392 420.48 l 306 381.48 l 220 420.48 l h
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.4 w
 n
-145.4 461.68 m
-383.4 461.68 l
-386.7168 461.68 389.4 464.3632 389.4 467.68 c
-389.4 493.68 l
-389.4 496.9968 386.7168 499.68 383.4 499.68 c
-145.4 499.68 l
-142.0832 499.68 139.4 496.9968 139.4 493.68 c
-139.4 467.68 l
-139.4 464.3632 142.0832 461.68 145.4 461.68 c
+60 388.48 m
+278 388.48 l
+281.3168 388.48 284 391.1632 284 394.48 c
+284 446.48 l
+284 449.7968 281.3168 452.48 278 452.48 c
+60 452.48 l
+56.6832 452.48 54 449.7968 54 446.48 c
+54 394.48 l
+54 391.1632 56.6832 388.48 60 388.48 c
 h
+B*
+.004 .078 .486 rg
+.004 .078 .486 RG
+1.5 w
+n
+558 420.48 m
+558 435.944 508.7513 448.48 448 448.48 c
+387.2487 448.48 338 435.944 338 420.48 c
+338 405.016 387.2487 392.48 448 392.48 c
+508.7513 392.48 558 405.016 558 420.48 c
 B*
 1 .949 .82 rg
 .004 .078 .486 RG
 1.7 w
-n 264.4 473.28 m 330.4 444.28 l 264.4 415.28 l 198.4 444.28 l h
+n 306 390 m 392 351 l 306 312 l 220 351 l h
 B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 1.5 w
 n
-550.4 444.28 m
-550.4 454.2211 515.4782 462.28 472.4 462.28 c
-429.3218 462.28 394.4 454.2211 394.4 444.28 c
-394.4 434.3389 429.3218 426.28 472.4 426.28 c
-515.4782 426.28 550.4 434.3389 550.4 444.28 c
-B*
-1 1 1 rg
-.004 .078 .486 RG
-1.4 w
-n
-145.4 387.88 m
-383.4 387.88 l
-386.7168 387.88 389.4 390.5632 389.4 393.88 c
-389.4 421.88 l
-389.4 425.1968 386.7168 427.88 383.4 427.88 c
-145.4 427.88 l
-142.0832 427.88 139.4 425.1968 139.4 421.88 c
-139.4 393.88 l
-139.4 390.5632 142.0832 387.88 145.4 387.88 c
-h
-B*
-1 .949 .82 rg
-.004 .078 .486 RG
-1.7 w
-n 264.4 406 m 330.4 377 l 264.4 348 l 198.4 377 l h
+280 344 m
+280 361.6731 229.4082 376 167 376 c
+104.5918 376 54 361.6731 54 344 c
+54 326.3269 104.5918 312 167 312 c
+229.4082 312 280 326.3269 280 344 c
 B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 1.5 w
 n
-207.2 375.12 m
-207.2 387.2703 172.2782 397.12 129.2 397.12 c
-86.12179 397.12 51.2 387.2703 51.2 375.12 c
-51.2 362.9697 86.12179 353.12 129.2 353.12 c
-172.2782 353.12 207.2 362.9697 207.2 375.12 c
-B*
-.004 .078 .486 rg
-.004 .078 .486 RG
-1.5 w
-n
-531.6 375.12 m
-531.6 387.2703 495.7828 397.12 451.6 397.12 c
-407.4172 397.12 371.6 387.2703 371.6 375.12 c
-371.6 362.9697 407.4172 353.12 451.6 353.12 c
-495.7828 353.12 531.6 362.9697 531.6 375.12 c
+558 340 m
+558 355.464 508.7513 368 448 368 c
+387.2487 368 338 355.464 338 340 c
+338 324.536 387.2487 312 448 312 c
+508.7513 312 558 324.536 558 340 c
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 264.4 488 m 264.4 499.68 l S
+n 306 468 m 306 459.48 l S
 .004 .078 .486 rg
-n 264.4 499.68 m 261.7 493.68 l 267.1 493.68 l h
+n 306 459.48 m 308.7 465.48 l 303.3 465.48 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 264.4 461.68 m 264.4 473.28 l S
+n 220 420.48 m 284 420.48 l S
 .004 .078 .486 rg
-n 264.4 473.28 m 261.7 467.28 l 267.1 467.28 l h
+n 284 420.48 m 278 423.18 l 278 417.78 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 330.4 444.28 m 394.4 444.28 l S
+n 392 420.48 m 338 420.48 l S
 .004 .078 .486 rg
-n 394.4 444.28 m 388.4 446.98 l 388.4 441.58 l h
+n 338 420.48 m 344 417.78 l 344 423.18 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 264.4 415.28 m 264.4 427.88 l S
+n 169 388.48 m 220 351 l S
 .004 .078 .486 rg
-n 264.4 427.88 m 261.7 421.88 l 267.1 421.88 l h
+n 220 351 m 216.7641 356.7288 l 213.5663 352.3774 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 264.4 387.88 m 264.4 406 l S
+n 220 351 m 280 344 l S
 .004 .078 .486 rg
-n 264.4 406 m 261.7 400 l 267.1 400 l h
+n 280 344 m 274.3533 347.3771 l 273.7275 342.0135 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 198.4 377 m 207.2 375.12 l S
+n 392 351 m 338 340 l S
 .004 .078 .486 rg
-n 207.2 375.12 m 201.8965 379.0139 l 200.7683 373.7331 l h
-f*
-1 1 1 rg
-.004 .078 .486 RG
-1.15 w
-n 330.4 377 m 371.6 375.12 l S
-.004 .078 .486 rg
-n 371.6 375.12 m 365.7293 378.0907 l 365.4832 372.6963 l h
+n 338 340 m 344.4182 338.552 l 343.3403 343.8433 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 194 540 134 re B*
+n 36 142 540 144 re B*
 .012 .537 .282 rg
 .012 .537 .282 RG
 .4 w
-n 36 312 540 16 re B*
+n 36 270 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 299 8 8 re B*
+n 44 257 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 276 8 8 re B*
+n 44 224 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 243 8 8 re B*
+n 44 191 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 220 8 8 re B*
+n 44 168 8 8 re B*
 1 .984 .941 rg
 .875 .122 .149 RG
 1.1 w
-n 36 108 540 80 re B*
+n 36 56 540 80 re B*
 .875 .122 .149 rg
 .875 .122 .149 RG
 .4 w
-n 36 172 540 16 re B*
+n 36 120 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 44 540 56 re B*
+n 36 44 540 4 re B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 .4 w
-n 36 84 540 16 re B*
+n 36 32 540 16 re B*
 1 1 1 rg
 BT /F2 13 Tf 15.6 TL ET
 BT 1 0 0 1 46 737 Tm (BAY PROCEDURE) Tj T* ET
@@ -339,109 +317,107 @@ BT 1 0 0 1 44 561 Tm (Mode again.) Tj T* ET
 BT /F2 8 Tf 9.6 TL ET
 BT 1 0 0 1 46 530 Tm (VISUAL FLOWCHART) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 204.1637 509.25 Tm (Manual Mode flashes back to home.) Tj T* ET
-BT 1 0 0 1 228.3475 500.25 Tm (Auto Level still works.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 204.9615 497.3 Tm (Manual Mode flashes home. Auto Level still works.) Tj T* ET
+BT 1 0 0 1 253.7415 485.3 Tm (Clear sticky error text first.) Tj T* ET
 .122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 186.6662 482.93 Tm (Confirm power looks sane and Auto still works.) Tj T* ET
-BT 1 0 0 1 220.8512 473.93 Tm (Clear sticky error text first.) Tj T* ET
+BT /F2 9.5 Tf 11.4 TL ET
+BT 1 0 0 1 282.25 423.88 Tm (Does Auto) Tj T* ET
+BT 1 0 0 1 282.5065 411.38 Tm (still work?) Tj T* ET
 .122 .122 .141 rg
-BT /F2 7.5 Tf 9 TL ET
-BT 1 0 0 1 245.65 446.53 Tm (Does Auto) Tj T* ET
-BT 1 0 0 1 245.8525 437.53 Tm (still work?) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 108.9655 429.78 Tm (Leave the rubber-boot plug in.) Tj T* ET
+BT 1 0 0 1 110.977 417.78 Tm (Unplug the Firefly cable only.) Tj T* ET
+BT 1 0 0 1 110.473 405.78 Tm (Then try Manual Mode again.) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 428.4237 446.53 Tm (This is not the Firefly path.) Tj T* ET
-BT 1 0 0 1 424.88 437.53 Tm (Stay on Level Up hydraulics.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 395.2285 423.78 Tm (This is not the Firefly path.) Tj T* ET
+BT 1 0 0 1 390.976 411.78 Tm (Stay on Level Up hydraulics.) Tj T* ET
 .122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 208.1162 410.13 Tm (Leave the rubber-boot plug alone.) Tj T* ET
-BT 1 0 0 1 216.0475 401.13 Tm (Unplug the Firefly cable only.) Tj T* ET
-.122 .122 .141 rg
-BT /F2 7.5 Tf 9 TL ET
-BT 1 0 0 1 241.27 379.25 Tm (Does Manual) Tj T* ET
-BT 1 0 0 1 243.3587 370.25 Tm (Mode hold?) Tj T* ET
+BT /F2 9.5 Tf 11.4 TL ET
+BT 1 0 0 1 276.702 354.4 Tm (Does Manual) Tj T* ET
+BT 1 0 0 1 279.3478 341.9 Tm (Mode hold?) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 82.9325 377.37 Tm (Call Firefly at 574-825-4600) Tj T* ET
-BT 1 0 0 1 80.8475 368.37 Tm (for the USB firmware update.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 111.479 353.3 Tm (Call Firefly at 574-825-4600) Tj T* ET
+BT 1 0 0 1 108.986 341.3 Tm (for USB firmware. Stick 4 GB) Tj T* ET
+BT 1 0 0 1 121.7435 329.3 Tm (or smaller plus interim.) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 401.575 377.37 Tm (Stay on the Level Up sensors.) Tj T* ET
-BT 1 0 0 1 406.9975 368.37 Tm (Do not swap the controller.) Tj T* ET
-.875 .122 .149 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 362.4 452.28 Tm (NO) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 395.476 343.3 Tm (Stay on Level Up sensors.) Tj T* ET
+BT 1 0 0 1 394.477 331.3 Tm (Do not swap the controller.) Tj T* ET
 .012 .537 .282 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 276.4 421.58 Tm (YES) Tj T* ET
-.012 .537 .282 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 202.8 384.06 Tm (YES) Tj T* ET
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 252 428.48 Tm (YES) Tj T* ET
 .875 .122 .149 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 351 384.06 Tm (NO) Tj T* ET
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 365 428.48 Tm (NO) Tj T* ET
+.012 .537 .282 rg
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 250 355.5 Tm (YES) Tj T* ET
+.875 .122 .149 rg
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 365 353.5 Tm (NO) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 316.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
+BT 1 0 0 1 42 274.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 300 Tm (1. Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, Excess Angle, or) Tj T* ET
+BT 1 0 0 1 58 258 Tm (1. Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 290 Tm (External Sensor text if it is present.) Tj T* ET
+BT 1 0 0 1 58 248 Tm (text if it is present. If Auto is dead, this is not the Firefly path - stay on Level Up) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 277 Tm (2. The Level Up controller has two network plugs. One has a rubber boot on it - leave that one) Tj T* ET
+BT 1 0 0 1 58 238 Tm (hydraulics. If Auto works, do the two-plug prove next.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 267 Tm (alone. The other has a cable running to the Firefly / OneControl system - unplug that cable only.) Tj T* ET
+BT 1 0 0 1 58 225 Tm (2. The Level Up controller has two network plugs. One has a rubber boot on it - leave that one) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 257 Tm (Then try Manual Mode again.) Tj T* ET
+BT 1 0 0 1 58 215 Tm (alone. The other has a cable running to the Firefly / OneControl system - unplug that cable only.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 244 Tm (3. If Manual Mode stays open, Firefly is fighting the Level Up controller. Call Firefly at) Tj T* ET
+BT 1 0 0 1 58 205 Tm (Then try Manual Mode again.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 234 Tm (574-825-4600 for USB firmware. Use a USB stick 4 GB or smaller plus the interim file they specify.) Tj T* ET
+BT 1 0 0 1 58 192 Tm (3. If Manual Mode stays open, Firefly is fighting the Level Up controller. Call Firefly at) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 221 Tm (4. If Manual Mode still dumps home, this is not the Firefly path. Stay on the Level Up sensor and) Tj T* ET
+BT 1 0 0 1 58 182 Tm (574-825-4600 for USB firmware. Use a USB stick 4 GB or smaller plus the interim file they specify.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 211 Tm (harness path. Do not swap another Level Up controller for Firefly blame. Do not push a Firefly USB) Tj T* ET
+BT 1 0 0 1 58 169 Tm (4. If Manual Mode still dumps home, this is not the Firefly path. Stay on the Level Up sensor and) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 201 Tm (firmware update as the fix.) Tj T* ET
+BT 1 0 0 1 58 159 Tm (harness path. Do not swap another Level Up controller for Firefly blame. Do not push a Firefly USB) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 149 Tm (firmware update as the fix.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 176.5 Tm (DO NOT) Tj T* ET
+BT 1 0 0 1 42 124.5 Tm (DO NOT) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 160 Tm (- Do not pull the rubber-boot plug.) Tj T* ET
+BT 1 0 0 1 44 108 Tm (- Do not pull the rubber-boot plug.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 148 Tm (- Do not condemn the Level Up controller or start pump and valve replacement while Auto Level) Tj T* ET
+BT 1 0 0 1 44 96 Tm (- Do not condemn the Level Up controller or start pump and valve replacement while Auto Level) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 138 Tm (still works.) Tj T* ET
+BT 1 0 0 1 44 86 Tm (still works.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 126 Tm (- Do not swap another Level Up controller for Firefly blame.) Tj T* ET
+BT 1 0 0 1 44 74 Tm (- Do not swap another Level Up controller for Firefly blame.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 114 Tm (- Do not push Firefly USB firmware unless Manual Mode holds with the Firefly cable unplugged.) Tj T* ET
+BT 1 0 0 1 44 62 Tm (- Do not push Firefly USB firmware unless Manual Mode holds with the Firefly cable unplugged.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 88.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
+BT 1 0 0 1 42 36.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 72 Tm (- Shop writeup - Level Up Advantage Manual Mode flash-home and Firefly) Tj T* ET
-.122 .122 .141 rg
-BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 61 Tm (- Level Up Advantage controller shop PN 807662) Tj T* ET
+BT 1 0 0 1 44 20 Tm (- Shop writeup - Level Up Advantage Manual Mode flash-home and Firefly) Tj T* ET
  
 endstream
 endobj
@@ -489,11 +465,11 @@ xref
 0000032277 00000 n 
 0000032579 00000 n 
 0000032644 00000 n 
-0000043326 00000 n 
+0000042660 00000 n 
 trailer
 <<
 /ID 
-[<55107c0713ab659e123b319e8976b290><55107c0713ab659e123b319e8976b290>]
+[<f9eed13fe2202bf4091c40a2f3ab7e78><f9eed13fe2202bf4091c40a2f3ab7e78>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 8 0 R
@@ -501,5 +477,5 @@ trailer
 /Size 12
 >>
 startxref
-43924
+43258
 %%EOF
