@@ -37,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 import re
 import textwrap
 import zlib
@@ -94,6 +95,7 @@ FURRION_8122_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
 FACR_7990_TITLE = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 FACR_8666_TITLE = "Furrion Chill FACR CCD-0008666"
 FIREFLY_PATH_TITLE = "Shop writeup — Level Up Advantage Manual Mode flash-home and Firefly"
+OEM_FIGURE_DIR = Path(__file__).resolve().parent / "assets" / "bay-oem"
 
 FIG_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 MODULES_ONE_AT_A_TIME_RE = re.compile(
@@ -439,63 +441,113 @@ def _ice_path() -> dict:
                     "start",
                     "Ice or frost is on the rear wall of the fridge.",
                     0.50,
-                    0.09,
-                    w=400,
-                    h=66,
+                    0.07,
+                    w=390,
+                    h=48,
                 ),
                 FlowNode(
-                    "d1",
+                    "d_light",
                     "decision",
-                    "Light sheet only,\nor dial at max?",
-                    0.32,
-                    0.29,
-                    w=220,
-                    h=100,
+                    "Light sheet only\non the back wall?",
+                    0.30,
+                    0.20,
+                    w=196,
+                    h=68,
                 ),
                 FlowNode(
-                    "a1",
+                    "e_norm",
+                    "end",
+                    "Normal cycling.\nYou are done.",
+                    0.82,
+                    0.20,
+                    w=188,
+                    h=52,
+                ),
+                FlowNode(
+                    "d_dial",
+                    "decision",
+                    "Is the dial\nat max?",
+                    0.30,
+                    0.36,
+                    w=196,
+                    h=68,
+                ),
+                FlowNode(
+                    "p_dial",
                     "process",
-                    "Set the dial to about 4 to 5.\nDefrost, dry, and clear the drain.",
-                    0.32,
-                    0.49,
-                    w=250,
-                    h=80,
+                    "Set the dial to about 4 to 5.\nDry. Run overnight.",
+                    0.82,
+                    0.36,
+                    w=188,
+                    h=56,
                 ),
                 FlowNode(
-                    "d2",
+                    "p_def",
+                    "process",
+                    "Full defrost. Dry.\nClear the rear drain and trough.",
+                    0.30,
+                    0.52,
+                    w=236,
+                    h=56,
+                ),
+                FlowNode(
+                    "d_gask",
                     "decision",
                     "Does the gasket fail\na dollar-bill test?",
-                    0.32,
-                    0.70,
-                    w=220,
-                    h=100,
+                    0.30,
+                    0.66,
+                    w=196,
+                    h=68,
                 ),
                 FlowNode(
-                    "y2",
+                    "e_gask",
                     "end",
-                    "Repair or reseat the gasket.\nClear the drain. Recheck 24 to 48 hours.",
-                    0.32,
-                    0.91,
-                    w=270,
-                    h=78,
-                ),
-                FlowNode(
-                    "n2",
-                    "end",
-                    "Clear the drain. Recheck 24 to 48 hours.\nIf heavy frost returns, replace the cooling unit.",
+                    "Repair or reseat the gasket.\nRecheck 24 to 48 hours.",
                     0.82,
-                    0.70,
-                    w=200,
-                    h=78,
+                    0.66,
+                    w=188,
+                    h=56,
+                ),
+                FlowNode(
+                    "d_ret",
+                    "decision",
+                    "Heavy frost return\nafter 24 to 48 hours?",
+                    0.30,
+                    0.82,
+                    w=196,
+                    h=68,
+                ),
+                FlowNode(
+                    "e_rep",
+                    "end",
+                    "Replace the cooling unit\nafter that prove.",
+                    0.82,
+                    0.80,
+                    w=188,
+                    h=52,
+                ),
+                FlowNode(
+                    "e_moist",
+                    "end",
+                    "Moisture path confirmed.\nYou are done.",
+                    0.82,
+                    0.94,
+                    w=188,
+                    h=48,
                 ),
             ],
             edges=[
-                FlowEdge("s", "d1"),
-                FlowEdge("d1", "a1", "YES", "bottom", "top"),
-                FlowEdge("d1", "d2", "NO", "right", "top"),
-                FlowEdge("a1", "d2", "", "bottom", "top"),
-                FlowEdge("d2", "y2", "YES", "bottom", "top"),
-                FlowEdge("d2", "n2", "NO", "right", "left"),
+                FlowEdge("s", "d_light"),
+                FlowEdge("d_light", "e_norm", "YES", "right", "left"),
+                FlowEdge("d_light", "d_dial", "NO", "bottom", "top"),
+                FlowEdge("d_dial", "p_dial", "YES", "right", "left"),
+                FlowEdge("d_dial", "p_def", "NO", "bottom", "top"),
+                FlowEdge("p_dial", "p_def", "", "bottom", "right"),
+                FlowEdge("p_def", "d_gask"),
+                FlowEdge("d_gask", "e_gask", "YES", "right", "left"),
+                FlowEdge("d_gask", "d_ret", "NO", "bottom", "top"),
+                FlowEdge("d_ret", "e_rep", "YES", "right", "left"),
+                FlowEdge("d_ret", "e_moist", "NO", "bottom", "left"),
             ],
         ),
         "bay_order": [
@@ -562,63 +614,105 @@ def _facr_path() -> dict:
                     "start",
                     "The rooftop unit is freezing or leaking into the coach.",
                     0.50,
-                    0.09,
-                    w=420,
-                    h=66,
+                    0.07,
+                    w=400,
+                    h=52,
                 ),
                 FlowNode(
-                    "d1",
+                    "d_drain",
                     "decision",
                     "Drain restricted\nor pan iced?",
-                    0.32,
-                    0.29,
-                    w=220,
-                    h=100,
+                    0.30,
+                    0.22,
+                    w=200,
+                    h=84,
                 ),
                 FlowNode(
-                    "a1",
+                    "p_clear",
                     "process",
-                    "Clear the ice or restriction.\nConfirm water leaves the drain.\nThen retest cooling.",
-                    0.32,
-                    0.49,
-                    w=250,
-                    h=84,
+                    "Clear the ice or restriction.\nConfirm water leaves the drain.",
+                    0.82,
+                    0.22,
+                    w=188,
+                    h=60,
                 ),
                 FlowNode(
-                    "d2",
+                    "d_retest",
                     "decision",
-                    "Does freeze or leak\nreturn on retest?",
-                    0.32,
-                    0.70,
-                    w=220,
-                    h=100,
-                ),
-                FlowNode(
-                    "y2",
-                    "end",
-                    "Check slope and suction icing.\nCorrect that, then retest.\nReplace the rooftop only after.",
-                    0.32,
-                    0.91,
-                    w=280,
+                    "Freeze or leak\nreturn on retest?",
+                    0.30,
+                    0.40,
+                    w=200,
                     h=84,
                 ),
                 FlowNode(
-                    "n2",
+                    "e_ok",
                     "end",
                     "Drain is clear and cooling holds.\nThat is the confirmed correction.",
                     0.82,
-                    0.70,
+                    0.40,
+                    w=188,
+                    h=60,
+                ),
+                FlowNode(
+                    "d_slope",
+                    "decision",
+                    "Is the base-pan\nslope wrong?",
+                    0.30,
+                    0.58,
                     w=200,
-                    h=72,
+                    h=84,
+                ),
+                FlowNode(
+                    "p_slope",
+                    "process",
+                    "Correct the base-pan slope.\nThen retest cooling.",
+                    0.82,
+                    0.58,
+                    w=188,
+                    h=60,
+                ),
+                FlowNode(
+                    "d_suc",
+                    "decision",
+                    "Is the suction\nline iced?",
+                    0.30,
+                    0.76,
+                    w=200,
+                    h=84,
+                ),
+                FlowNode(
+                    "p_suc",
+                    "process",
+                    "Correct the suction icing.\nThen retest cooling.",
+                    0.82,
+                    0.76,
+                    w=188,
+                    h=60,
+                ),
+                FlowNode(
+                    "e_rep",
+                    "end",
+                    "Replace the rooftop unit\nafter that assembly prove.",
+                    0.30,
+                    0.93,
+                    w=250,
+                    h=52,
                 ),
             ],
             edges=[
-                FlowEdge("s", "d1"),
-                FlowEdge("d1", "a1", "YES", "bottom", "top"),
-                FlowEdge("d1", "d2", "NO", "right", "top"),
-                FlowEdge("a1", "d2", "", "bottom", "top"),
-                FlowEdge("d2", "y2", "YES", "bottom", "top"),
-                FlowEdge("d2", "n2", "NO", "right", "left"),
+                FlowEdge("s", "d_drain"),
+                FlowEdge("d_drain", "p_clear", "YES", "right", "left"),
+                FlowEdge("d_drain", "d_retest", "NO", "bottom", "top"),
+                FlowEdge("p_clear", "d_retest", "", "bottom", "right"),
+                FlowEdge("d_retest", "e_ok", "NO", "right", "left"),
+                FlowEdge("d_retest", "d_slope", "YES", "bottom", "top"),
+                FlowEdge("d_slope", "p_slope", "YES", "right", "left"),
+                FlowEdge("d_slope", "d_suc", "NO", "bottom", "top"),
+                FlowEdge("p_slope", "d_suc", "", "bottom", "right"),
+                FlowEdge("d_suc", "p_suc", "YES", "right", "left"),
+                FlowEdge("d_suc", "e_rep", "NO", "bottom", "top"),
+                FlowEdge("p_suc", "e_rep", "", "bottom", "right"),
             ],
         ),
         "bay_order": [
@@ -1089,6 +1183,56 @@ def _seed_figure_png(kind: str) -> bytes:
     return _png_bytes(img)
 
 
+def load_oem_figure_png(name: str) -> bytes:
+    """Real library-page art from the OEM manuals. Never a drawn cartoon."""
+    return (OEM_FIGURE_DIR / name).read_bytes()
+
+
+def _oem_library_figures(kind: str) -> list[BayFigure]:
+    if kind == "ice":
+        return [
+            BayFigure(
+                title=FURRION_8122_TITLE,
+                page=36,
+                caption="Fig. 36 rear-wall frost pattern, views A and B",
+                excerpt="Ice and Moisture. Figure 36 shows the rear-wall frost pattern.",
+                image_png=load_oem_figure_png("ccd8122-fig36.png"),
+            ),
+            BayFigure(
+                title=FURRION_8122_TITLE,
+                page=36,
+                caption="CCD-0008122 page 36 Ice and Moisture",
+                excerpt="Ice and Moisture. Ice or Moisture in the Fridge. Figure 36.",
+                image_png=load_oem_figure_png("ccd8122-p36.png"),
+            ),
+        ]
+    if kind == "facr":
+        return [
+            BayFigure(
+                title=FACR_7990_TITLE,
+                page=7,
+                caption="CCD-0007990 page 7. Water enters the vehicle. Clean the drainage openings.",
+                excerpt="Water enters the vehicle. Condensation water drainage openings are clogged.",
+                image_png=load_oem_figure_png("ccd7990-p7.png"),
+            ),
+            BayFigure(
+                title=FACR_8666_TITLE,
+                page=10,
+                caption="CCD-0008666 page 10. Rooftop unit base and roof opening.",
+                excerpt="Installing the rooftop unit. Check gasket alignment at the roof opening.",
+                image_png=load_oem_figure_png("ccd8666-p10.png"),
+            ),
+            BayFigure(
+                title=FACR_7990_TITLE,
+                page=4,
+                caption="CCD-0007990 page 4. Assembly, decoration plate, and filters.",
+                excerpt="Cleaning and Maintenance. Remove the decoration plate and the filters.",
+                image_png=load_oem_figure_png("ccd7990-p4.png"),
+            ),
+        ]
+    return []
+
+
 def _seed_path_figure(kind: str) -> BayFigure:
     if kind == "ice":
         return BayFigure(
@@ -1124,7 +1268,11 @@ def _seed_path_figure(kind: str) -> BayFigure:
 
 
 def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = None) -> list[BayFigure]:
-    """Prefer library page images. If none, ship the path seed figure so the sheet is not empty."""
+    """Ice and FACR always use real OEM library art. Firefly may use the path seed."""
+    if kind in ("ice", "facr"):
+        if explicit and any(fig.image_png for fig in explicit):
+            return list(explicit)
+        return _oem_library_figures(kind)
     if explicit:
         if any(fig.image_png for fig in explicit):
             return list(explicit)
@@ -1936,25 +2084,20 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     imaged = [fig for fig in proc.figures if fig.image_png]
     if imaged:
-        fig_page = _new_sheet_page()
-        pages.append(fig_page)
-        _paint_top_bar(fig_page, "Cited library figures")
-        top = PAGE_H - MARGIN - 50
-        _add_section_bar(fig_page, MARGIN, top, PAGE_W - 2 * MARGIN, "CITED LIBRARY FIGURES")
-        y = top - 18
-        for fig in imaged[:3]:
+        for i, fig in enumerate(imaged[:3]):
+            fig_page = _new_sheet_page()
+            pages.append(fig_page)
+            _paint_top_bar(fig_page, "Cited library figures")
+            top = PAGE_H - MARGIN - 50
+            _add_section_bar(fig_page, MARGIN, top, PAGE_W - 2 * MARGIN, "CITED LIBRARY FIGURES")
+            y = top - 18
             cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
             fig_page.texts.append(DrawnText(_clip(cap, 100), MARGIN + 8, y, w=520, size=9, bold=True, color=NAVY))
-            y -= 14
-            img_h = 380
-            if y - img_h < MARGIN + 36:
-                img_h = max(120, y - (MARGIN + 36))
+            y -= 16
+            img_h = max(220.0, y - (MARGIN + 36))
             fig_page.images.append(DrawnImage(fig.image_png, MARGIN + 16, y - img_h, 520, img_h))
-            y -= img_h + 12
-            if y < MARGIN + 80:
-                break
-        if proc.include_3c:
-            _add_3c_footer(fig_page)
+            if proc.include_3c and i == min(len(imaged), 3) - 1:
+                _add_3c_footer(fig_page)
     elif proc.include_3c:
         _add_3c_footer(body_page)
 
