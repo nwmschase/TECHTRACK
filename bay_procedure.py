@@ -19,6 +19,18 @@ Product (Chase-locked, v2):
     network-jargon isolate label.
   Nav/button label is always "Bay procedure PDF" — never "AI report".
   Do not auto-write a warranty story.
+
+Standing sheet standard (Chase 2026-09-19, all future concerns inherit this):
+  Short paths (Firefly-class) may be short but must be complete.
+  Long / multi-branch appliance paths are full A→Z, not hint PDFs.
+  A→Z: concern; pattern meaning; readable OEM yes/no flowchart; ordered bay
+  steps with a continued next step after every check; manual thresholds/tests/
+  good-bad ON the page (never "open the SM"); readable library figures; lands
+  at a confirmed fix so Concern → Cause → Correction can be written from the
+  sheet; names not PNs in the body.
+  Bans: program/coach do-not chatter (Firefly tech do-nots are the exception);
+  "wired coach CAN"; "network plugs"; "power looks sane"; "stays open".
+  Prefer holds / still dumps home. Firefly locked voice stays locked.
 """
 from __future__ import annotations
 
@@ -108,7 +120,19 @@ COACH_DONOT_RE = re.compile(
     r"not a unity board",
     re.I,
 )
-MAX_BAY_ORDER = 6
+MAX_BAY_ORDER = 12
+
+# Standing product rule — new concerns inherit this from the composer, not only seeds.
+BAY_SHEET_STANDARD = (
+    "Short paths may be short but complete. Long appliance paths are full A to Z, "
+    "not hint cards. Every sheet carries concern, pattern meaning, a readable OEM "
+    "yes/no flowchart, ordered bay steps with a next step after every check, "
+    "manual thresholds and pass/fail meaning on the page, readable figures, and a "
+    "confirmed fix. Never tell the tech to open the SM. Names, not part numbers, "
+    "in the body. No program do-not chatter except Firefly bay do-nots. Ban wired "
+    "coach CAN, network plugs, power looks sane, and stays open. Prefer holds and "
+    "still dumps home."
+)
 
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
 FIREFLY_CAN_PORT_PROVE = (
@@ -299,6 +323,7 @@ class BayProcedure:
     notes: list[str] = field(default_factory=list)
     display_model: str = ""
     flow_tall: bool = False
+    full_story: bool = False
 
     @property
     def model_line(self) -> str:
@@ -315,10 +340,12 @@ def _ice_path() -> dict:
     return {
         "primary_cite": "Furrion fridge service manual, Ice and Moisture section (Fig. 36).",
         "pattern_means": (
-            "Ice or frost on the rear wall, including a pattern that starts about halfway "
-            "down from the top, is an Ice and Moisture problem. A light sheet on the back "
-            "wall alone can be normal cycling. This is a moisture, door gasket, drain, and "
-            "cooling path."
+            "A frost or ice band on the upper rear wall, with the lower rear often clearer, "
+            "is a common Furrion fridge complaint. It is usually moisture on a cold evaporator "
+            "surface from the door seal, humidity, setpoint, airflow, or the drain. A light "
+            "sheet of ice or moisture only on the back wall is normal cycling: the cabinet "
+            "condenses, freezes, and thaws. This pattern by itself is not proof of a "
+            "sealed-system failure."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -344,7 +371,7 @@ def _ice_path() -> dict:
                 FlowNode(
                     "a1",
                     "process",
-                    "Set the dial to about 4 to 5.\nRun overnight, then check the gasket.",
+                    "Set the dial to about 4 to 5.\nDefrost, dry, and clear the drain.",
                     0.18,
                     0.48,
                     w=230,
@@ -362,7 +389,7 @@ def _ice_path() -> dict:
                 FlowNode(
                     "y2",
                     "end",
-                    "Repair or reseat the gasket.\nClear the rear drain and trough.\nRecheck in 24 to 48 hours.",
+                    "Repair or reseat the gasket.\nClear the drain. Recheck 24 to 48 hours.",
                     0.18,
                     0.84,
                     w=230,
@@ -371,7 +398,7 @@ def _ice_path() -> dict:
                 FlowNode(
                     "n2",
                     "end",
-                    "Clear the rear drain and trough.\nRecheck in 24 to 48 hours.\nIf heavy frost returns, replace the cooling unit.",
+                    "Clear the drain. Recheck 24 to 48 hours.\nIf heavy frost returns, replace the cooling unit.",
                     0.82,
                     0.84,
                     w=236,
@@ -388,15 +415,18 @@ def _ice_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Look at the frost pattern on the rear wall. If it is only a light sheet, that can be normal cycling: set the dial to mid, about 4 to 5, run overnight, then look again. If frost is heavy or starts halfway down, keep going.",
-            "Check the temperature dial. If it is at max, set it to about 4 to 5, let the fridge run overnight, then look at the pattern again. If the dial is already mid, go to the gasket next.",
-            "Check the door gasket with a dollar-bill test. If the bill slides out with no drag, reseat or repair the gasket, then clear the rear drain and trough and recheck in 24 to 48 hours. If the gasket holds, clear the rear drain and trough next.",
-            "Clear the rear drain and trough so melt water can leave. If the drain is open and the gasket is good, recheck the frost pattern in 24 to 48 hours.",
-            "After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If heavy frost returns, replace the cooling unit.",
+            "Open the fridge and note the ice or moisture pattern. Photograph it. If it is only a light sheet on the back wall and nowhere else, that is normal cycling: no further action is required for that alone, and you are done. If frost is heavy, starts halfway down, or shows on other surfaces, keep going.",
+            "Record the dial setting and the fridge and freezer cavity temperatures. If the dial is at max, set it to about 4 to 5, towel-dry the melt, let the fridge run overnight, then look at the pattern again. If the ice begins to melt at mid setpoint, stay on the moisture path. If the dial is already mid, go to the defrost next.",
+            "Do a full manual defrost. Power the unit off, open both doors, and use towels. Do not scrape, do not use a heat gun, and do not set hot-water pans in the cabinet. When the ice is gone, go to the dry-and-drain step.",
+            "Dry the cabinet completely. Clear the rear drain and trough with a soft plastic probe only so melt water can leave. If water backs up, keep clearing until it leaves, then go to the gasket. If the drain is already open, go to the gasket next.",
+            "Check the door gasket with a dollar-bill test around the full perimeter, and check the hinges, latch, and door alignment. If the bill slides out with no drag, reseat or replace the gasket, set the dial to about 4 to 5, leave an air gap at the rear wall, and recheck in 24 to 48 hours. If the gasket holds, set the dial mid, leave the air gap, and recheck in 24 to 48 hours.",
+            "After 24 to 48 hours, if the frost is gone or only a light sheet remains on the back wall, the correction is the moisture path: mid setpoint, a holding gasket, and a clear drain. You are done. If heavy frost returns with a mid dial, a good gasket, and a clear drain, the unit is not cooling to target: replace the cooling unit.",
+            "If cooling is good but the same heavy frost still returns after the moisture path is cleared, dry the cabinet again and watch door-open time and humidity for about a month. If the heavy frost returns hard after that watch, replace the cooling unit. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not knife the ice off the rear wall.",
             "Do not assume a sealed-system failure from top-half frost alone.",
+            "Do not leave the cabinet wet after defrost.",
         ],
         "sources": [
             {
@@ -406,10 +436,27 @@ def _ice_path() -> dict:
                     "Ice and Moisture. Ice or Moisture in the Fridge. "
                     "Figure 36 shows the rear-wall frost pattern."
                 ),
-            }
+            },
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 6,
+                "excerpt": (
+                    "Defrosting. Power the unit off, open the doors, and use towels. "
+                    "Do not scrape, do not use a heat gun, and do not set hot-water pans."
+                ),
+            },
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 51,
+                "excerpt": (
+                    "Door gasket. Dollar-bill test around the full perimeter. "
+                    "Check hinges, latch, and door alignment."
+                ),
+            },
         ],
         "display_model": "",
         "flow_tall": True,
+        "full_story": True,
     }
 
 
@@ -418,8 +465,10 @@ def _facr_path() -> dict:
         "primary_cite": "Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.",
         "pattern_means": (
             "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Prove the evaporator pan, the drain, the base-pan slope, and "
-            "suction-line icing before you condemn the sealed system."
+            "condensate problem. Melt water that cannot leave the evaporator pan ices the pan, "
+            "backs up, and drips into the coach. Prove the evaporator pan, the condensate drain, "
+            "the base-pan slope, and suction-line icing before you condemn the sealed system. "
+            "A clear drain and a dry interior after a full cool cycle is a passed assembly prove."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -463,16 +512,16 @@ def _facr_path() -> dict:
                 FlowNode(
                     "y2",
                     "end",
-                    "Check base-pan slope and\nsuction-line icing. Correct that,\nthen retest. Replace only after.",
+                    "Check slope and suction icing.\nCorrect that, then retest.\nReplace the rooftop only after.",
                     0.18,
                     0.84,
-                    w=236,
-                    h=66,
+                    w=250,
+                    h=78,
                 ),
                 FlowNode(
                     "n2",
                     "end",
-                    "Drain is clear and cooling holds.\nYou are done.",
+                    "Drain is clear and cooling holds.\nThat is the confirmed correction.",
                     0.82,
                     0.84,
                     w=230,
@@ -489,10 +538,13 @@ def _facr_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the drain, then retest cooling. If the pan is dry and the drain is open, go to the next check.",
-            "Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up, clear the trough and the hose, then retest cooling. If water leaves freely, run cooling and watch the pan.",
-            "Retest cooling and watch the pan and the interior. If the freeze or leak is gone, you are done. If ice or drip returns with a clear drain, check the base-pan slope and suction-line icing next.",
-            "If the base pan is tilted or the suction line is iced, correct that and retest. If the pan is level, the suction line is clear, and the freeze or leak still returns, replace the rooftop unit after that assembly prove.",
+            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the drain, then retest cooling. If the pan is dry and the drain is open, go to the drain-path confirm next.",
+            "Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up, clear the trough and the hose, then retest cooling. Water leaving freely is a pass: run cooling and watch the pan. Water that stands or overflows is a fail: stay on the drain until it leaves.",
+            "Watch the pan and the freeze-sensor area through a full cool cycle. If ice reforms in the pan or the drain ices shut, clear it again and prove the drain remains clear on the next cycle. If the drain remains clear and the pan stays dry, check the base-pan slope next.",
+            "Check the base-pan slope. If the pan is tilted so water cannot reach the drain, correct the slope and retest cooling. If the pan is level and water still reaches the drain, check suction-line icing next.",
+            "Check the suction line for icing. If the suction line is iced, correct that icing and retest cooling. If the suction line is clear, run a full cool cycle and watch the interior.",
+            "Retest cooling and watch the pan and the interior. If the freeze or leak is gone, the correction is the drain, pan, slope, or suction work you just proved. You are done.",
+            "If ice or drip returns with a clear drain, a level base pan, and a clear suction line, replace the rooftop unit after that assembly prove. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
@@ -502,21 +554,20 @@ def _facr_path() -> dict:
                 "title": FACR_7990_TITLE,
                 "page": None,
                 "excerpt": (
-                    "Use this book for the rooftop assembly, the condensate drain, "
-                    "the base pan, and the freeze path."
+                    "Rooftop assembly, condensate drain, base pan, and freeze path."
                 ),
             },
             {
                 "title": FACR_8666_TITLE,
                 "page": None,
                 "excerpt": (
-                    "This is the Furrion Chill model book for drain, base-pan, "
-                    "and freeze-sensor layout."
+                    "Furrion Chill drain, base-pan, and freeze-sensor layout."
                 ),
             },
         ],
         "display_model": "Furrion Chill rooftop unit",
         "flow_tall": True,
+        "full_story": True,
     }
 
 
@@ -539,46 +590,46 @@ def _firefly_path() -> dict:
                     "Manual Mode flashes home. Auto Level still works.\nClear sticky errors. Check POWER CONNECTOR.",
                     0.50,
                     0.14,
-                    w=320,
-                    h=52,
+                    w=360,
+                    h=64,
                 ),
-                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.50, 0.48, w=172, h=78),
+                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.50, 0.48, w=196, h=90),
                 FlowNode(
                     "p2",
                     "process",
                     "Leave the rubber-boot terminator in.\nUnplug the Firefly CAN cable only.\nThen try Manual Mode again.",
-                    0.18,
+                    0.17,
                     0.48,
-                    w=236,
-                    h=64,
+                    w=258,
+                    h=78,
                 ),
                 FlowNode(
                     "n1",
                     "end",
                     "This is not the Firefly path.\nStay on Level Up hydraulics.",
-                    0.82,
+                    0.83,
                     0.48,
-                    w=220,
-                    h=56,
+                    w=248,
+                    h=70,
                 ),
-                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.50, 0.84, w=172, h=78),
+                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.50, 0.84, w=196, h=90),
                 FlowNode(
                     "y2",
                     "end",
                     "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
-                    0.18,
+                    0.17,
                     0.84,
-                    w=226,
-                    h=64,
+                    w=258,
+                    h=78,
                 ),
                 FlowNode(
                     "n2",
                     "end",
                     "Firefly CAN is ruled out.\nDiagnose the remaining\nLevel Up path.",
-                    0.82,
+                    0.83,
                     0.84,
-                    w=220,
-                    h=56,
+                    w=248,
+                    h=70,
                 ),
             ],
             edges=[
@@ -641,7 +692,7 @@ def _generic_flowchart(concern: str, steps: list[str]) -> Flowchart:
     if len(shown) == 1:
         nodes.append(FlowNode("e", "end", "Use the next cited check.", 0.50, 0.78))
         edges.append(FlowEdge(prev, "e"))
-    return Flowchart(nodes=nodes, edges=edges)
+    return Flowchart(nodes=nodes, edges=edges, readable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1137,6 +1188,7 @@ def compile_bay_procedure(
         notes=notes,
         display_model=display_model,
         flow_tall=bool(spec.get("flow_tall")),
+        full_story=bool(spec.get("full_story", path_kind in ("ice", "facr"))),
     )
 
 
@@ -1274,10 +1326,10 @@ def _node_size(node: FlowNode, *, readable: bool = False) -> tuple[float, float]
     if node.w and node.h:
         return node.w, node.h
     if node.kind == "decision":
-        return (176.0, 76.0) if readable else (132.0, 58.0)
+        return (196.0, 90.0) if readable else (132.0, 58.0)
     if node.kind in ("start", "end"):
-        return (260.0, 50.0) if readable else (210.0, 38.0)
-    return (230.0, 52.0) if readable else (230.0, 40.0)
+        return (300.0, 60.0) if readable else (210.0, 38.0)
+    return (250.0, 68.0) if readable else (230.0, 40.0)
 
 
 def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, float]:
@@ -1332,26 +1384,26 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
         x, y = cx - w / 2, cy - h / 2
         if node.kind == "decision":
             shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=1.7))
-            size = 9.5 if readable else 7.5
+            size = 11.0 if readable else 7.5
         elif node.kind in ("start", "end"):
             fill = GREEN if node.kind == "start" else NAVY
             shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.5))
-            size = 9.0 if readable else 7.5
+            size = 10.5 if readable else 7.5
         else:
             shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.4, radius=6))
-            size = 9.0 if readable else 7.5
+            size = 10.5 if readable else 7.5
         color = WHITE if node.kind in ("start", "end") else INK
         texts.append(
             DrawnText(
                 node.text,
                 cx,
                 cy,
-                w=w - (22 if readable else 14),
-                size=size,
-                bold=node.kind == "decision",
-                color=color,
-                align="center",
-                leading=size + (3.0 if readable else 1.5),
+                    w=w - (26 if readable else 14),
+                    size=size,
+                    bold=node.kind == "decision",
+                    color=color,
+                    align="center",
+                    leading=size + (4.0 if readable else 1.5),
             )
         )
 
@@ -1378,7 +1430,7 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
                     mx,
                     my,
                     w=36,
-                    size=9 if readable else 7,
+                    size=11 if readable else 7,
                     bold=True,
                     color=color,
                     align="left",
@@ -1468,137 +1520,136 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         page.texts.append(DrawnText(line, MARGIN + 8, ty, w=520, size=9, color=INK))
         ty -= 11
 
-    # Flowchart frame — the product, not a paragraph list
+    # Flowchart uses the rest of page 1 — OEM SM finger-walk size, not a tip-card strip.
     flow_top = means_y - 8
-    if proc.flow_tall or getattr(proc.flowchart, "readable", False):
-        flow_h = 252
-    elif len(proc.bay_order) > 4:
-        flow_h = 188
-    else:
-        flow_h = 210
-    flow_y = flow_top - flow_h
+    flow_y = MARGIN + 16
+    flow_h = max(240.0, flow_top - flow_y)
     f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
     page.shapes.extend(f_shapes)
     page.texts.extend(f_texts)
 
-    # Bay order then Do not — full width so complete sentences are not clipped.
-    col_top = flow_y - 8
+    # Page 2+: full bay order, do-not, sources. Never clip a long path to a hint card.
+    body_page = _new_sheet_page()
+    pages.append(body_page)
+    _paint_top_bar(body_page, "Bay order  ·  Tacoma RV Center")
+    y = PAGE_H - MARGIN - 50
+    floor = MARGIN + 28
+    _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
+    y -= 22
     shown_order = proc.bay_order[:MAX_BAY_ORDER]
-    order_lines = []
     for i, step in enumerate(shown_order, 1):
-        order_lines.append(_wrap(f"{i}. {step}", 98)[:4])
-    do_lines = [_wrap(f"- {item}", 98)[:2] for item in proc.do_not[:4]]
-    order_h = 22 + sum(len(block) * 10 + 3 for block in order_lines)
-    do_h = 22 + sum(len(block) * 10 + 2 for block in do_lines)
-    order_y = col_top - order_h
-    do_top = order_y - 6
-    do_y = do_top - do_h
-    page.shapes.append(DrawnShape("rect", MARGIN, order_y, PAGE_W - 2 * MARGIN, order_h, fill=WHITE, stroke=NAVY, stroke_w=1.0))
-    _add_section_bar(page, MARGIN, col_top - 16, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
-    y = col_top - 28
-    for i, step in enumerate(shown_order, 1):
-        page.shapes.append(DrawnShape("rect", MARGIN + 8, y - 1, 8, 8, fill=WHITE, stroke=NAVY, stroke_w=0.9))
-        wrapped = _wrap(f"{i}. {step}", 98)[:4]
+        wrapped = _wrap(f"{i}. {step}", 96)[:10]
+        need = len(wrapped) * 11 + 6
+        if y - need < floor:
+            body_page = _new_sheet_page()
+            pages.append(body_page)
+            _paint_top_bar(body_page, "Bay order continued")
+            y = PAGE_H - MARGIN - 50
+            _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "BAY ORDER (CONTINUED)", GREEN)
+            y -= 22
+        body_page.shapes.append(DrawnShape("rect", MARGIN + 8, y - 1, 8, 8, fill=WHITE, stroke=NAVY, stroke_w=0.9))
         for line in wrapped:
-            page.texts.append(DrawnText(line, MARGIN + 22, y, w=520, size=7.5, color=INK))
-            y -= 10
-        y -= 3
-    page.shapes.append(DrawnShape("rect", MARGIN, do_y, PAGE_W - 2 * MARGIN, do_h, fill=CREAM, stroke=RED, stroke_w=1.1))
-    _add_section_bar(page, MARGIN, do_top - 16, PAGE_W - 2 * MARGIN, "DO NOT", RED)
-    y = do_top - 28
-    for item in proc.do_not[:4]:
-        for line in _wrap(f"- {item}", 98)[:2]:
-            page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=7.5, color=INK))
-            y -= 10
-        y -= 2
+            body_page.texts.append(DrawnText(line, MARGIN + 22, y, w=520, size=8.5, color=INK))
+            y -= 11
+        y -= 6
 
-    col_y = do_y
+    if proc.do_not:
+        need = 28 + 14 * min(len(proc.do_not), 6)
+        if y - need < floor:
+            body_page = _new_sheet_page()
+            pages.append(body_page)
+            _paint_top_bar(body_page, "Do not  ·  Tacoma RV Center")
+            y = PAGE_H - MARGIN - 50
+        _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "DO NOT", RED)
+        y -= 22
+        for item in proc.do_not[:6]:
+            for line in _wrap(f"- {item}", 96)[:4]:
+                body_page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=8.5, color=INK))
+                y -= 11
+            y -= 4
 
-    # Sources + figure citations (compact). Page 2 only when a library image exists.
-    imaged = [fig for fig in proc.figures if fig.image_png]
-    src_top = col_y - 8
-    src_h = 78 if not proc.include_3c else 58
-    src_y = max(MARGIN + (22 if proc.include_3c else 8), src_top - src_h)
-    page.shapes.append(
-        DrawnShape("rect", MARGIN, src_y, PAGE_W - 2 * MARGIN, src_top - src_y, fill=WHITE, stroke=NAVY, stroke_w=1.0)
-    )
-    _add_section_bar(page, MARGIN, src_top - 16, PAGE_W - 2 * MARGIN, "SOURCES (SHOP DOCUMENT LIBRARY)")
-    y = src_top - 28
-    src_rows = proc.sources[:3] or [{"title": "(no indexed excerpt retrieved this pass)", "page": None}]
+    if y - 60 < floor:
+        body_page = _new_sheet_page()
+        pages.append(body_page)
+        _paint_top_bar(body_page, "Sources  ·  Tacoma RV Center")
+        y = PAGE_H - MARGIN - 50
+    _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "SOURCES (SHOP DOCUMENT LIBRARY)")
+    y -= 22
+    src_rows = proc.sources[:5] or [{"title": "(no indexed excerpt retrieved this pass)", "page": None}]
     for s in src_rows:
-        page_bit = ""
-        if s.get("page"):
-            page_bit = f"  page {s['page']}"
+        page_bit = f"  page {s['page']}" if s.get("page") else ""
         line = f"- {s.get('title') or 'Manual'}{page_bit}"
-        page.texts.append(DrawnText(_clip(line, 110), MARGIN + 8, y, w=520, size=8, color=INK))
-        y -= 11
-        if y < src_y + 16:
+        body_page.texts.append(DrawnText(_clip(line, 110), MARGIN + 8, y, w=520, size=8.5, color=INK))
+        y -= 12
+        excerpt = (s.get("excerpt") or "").strip()
+        if excerpt:
+            for line in _wrap(excerpt, 96)[:3]:
+                body_page.texts.append(DrawnText(line, MARGIN + 18, y, w=510, size=8, color=MUTED))
+                y -= 10
+        if y < floor + 20:
             break
-    if proc.figures and y > src_y + 14:
-        fig_bits = []
-        for fig in proc.figures[:3]:
-            bit = fig.caption or "Figure"
-            if fig.title:
-                bit += f" — {fig.title}"
-            if fig.page:
-                bit += f" p.{fig.page}"
-            fig_bits.append(bit)
-        page.texts.append(
-            DrawnText(_clip("Figures: " + "; ".join(fig_bits), 110), MARGIN + 8, y, w=520, size=8, color=MUTED)
-        )
-        y -= 11
-    if imaged and y > src_y + 36:
-        thumb = imaged[0]
-        thumb_h = min(48, max(28, y - src_y - 8))
-        page.images.append(DrawnImage(thumb.image_png, MARGIN + 8, src_y + 6, 90, thumb_h))
-        page.texts.append(
-            DrawnText(
-                "Library figure on next page.",
-                MARGIN + 106,
-                src_y + 16,
-                w=400,
-                size=8,
-                color=MUTED,
-            )
-        )
 
-    if proc.include_3c and not imaged:
-        _add_3c_footer(page)
-
+    imaged = [fig for fig in proc.figures if fig.image_png]
     if imaged:
-        page2 = SheetPage()
-        pages.append(page2)
-        page2.shapes.append(DrawnShape("rect", 0, 0, PAGE_W, PAGE_H, fill=WHITE, stroke=WHITE, stroke_w=0))
-        page2.shapes.append(
-            DrawnShape(
-                "rect",
-                MARGIN - 4,
-                MARGIN - 4,
-                PAGE_W - 2 * MARGIN + 8,
-                PAGE_H - 2 * MARGIN + 8,
-                fill=WHITE,
-                stroke=NAVY,
-                stroke_w=1.6,
-            )
-        )
-        top = PAGE_H - MARGIN - 16
-        _add_section_bar(page2, MARGIN, top, PAGE_W - 2 * MARGIN, "CITED LIBRARY FIGURES")
-        y = top - 14
+        fig_page = _new_sheet_page()
+        pages.append(fig_page)
+        _paint_top_bar(fig_page, "Cited library figures")
+        top = PAGE_H - MARGIN - 50
+        _add_section_bar(fig_page, MARGIN, top, PAGE_W - 2 * MARGIN, "CITED LIBRARY FIGURES")
+        y = top - 18
         for fig in imaged[:3]:
             cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
-            page2.texts.append(DrawnText(_clip(cap, 100), MARGIN + 8, y, w=520, size=9, bold=True, color=NAVY))
-            y -= 12
-            img_h = 320
-            if y - img_h < MARGIN + 40:
-                img_h = max(80, y - (MARGIN + 40))
-            page2.images.append(DrawnImage(fig.image_png, MARGIN + 16, y - img_h, 520, img_h))
-            y -= img_h + 10
+            fig_page.texts.append(DrawnText(_clip(cap, 100), MARGIN + 8, y, w=520, size=9, bold=True, color=NAVY))
+            y -= 14
+            img_h = 380
+            if y - img_h < MARGIN + 36:
+                img_h = max(120, y - (MARGIN + 36))
+            fig_page.images.append(DrawnImage(fig.image_png, MARGIN + 16, y - img_h, 520, img_h))
+            y -= img_h + 12
             if y < MARGIN + 80:
                 break
         if proc.include_3c:
-            _add_3c_footer(page2)
+            _add_3c_footer(fig_page)
+    elif proc.include_3c:
+        _add_3c_footer(body_page)
 
     return pages
+
+
+def _new_sheet_page() -> SheetPage:
+    page = SheetPage()
+    page.shapes.append(DrawnShape("rect", 0, 0, PAGE_W, PAGE_H, fill=WHITE, stroke=WHITE, stroke_w=0))
+    page.shapes.append(
+        DrawnShape(
+            "rect",
+            MARGIN - 4,
+            MARGIN - 4,
+            PAGE_W - 2 * MARGIN + 8,
+            PAGE_H - 2 * MARGIN + 8,
+            fill=WHITE,
+            stroke=NAVY,
+            stroke_w=1.6,
+        )
+    )
+    return page
+
+
+def _paint_top_bar(page: SheetPage, subtitle: str = "") -> float:
+    bar_y = PAGE_H - MARGIN - 28
+    page.shapes.append(DrawnShape("rect", MARGIN, bar_y, PAGE_W - 2 * MARGIN, 28, fill=NAVY, stroke=NAVY, stroke_w=0.3))
+    page.texts.append(DrawnText("BAY PROCEDURE", MARGIN + 10, bar_y + 9, w=220, size=13, bold=True, color=WHITE))
+    page.texts.append(
+        DrawnText(
+            subtitle or "Tacoma RV Center  ·  Document Library",
+            PAGE_W - MARGIN - 10,
+            bar_y + 10,
+            w=300,
+            size=8,
+            color=WHITE,
+            align="right",
+        )
+    )
+    return bar_y
 
 
 def _add_3c_footer(page: SheetPage):
