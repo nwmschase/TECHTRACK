@@ -3,6 +3,7 @@ import unittest
 
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
+    BAY_SHEET_STANDARD,
     FIREFLY_CAN_PORT_PROVE,
     FIREFLY_HOLDS_BRANCH,
     FIREFLY_STILL_DUMPS_BRANCH,
@@ -14,6 +15,7 @@ from bay_procedure import (
     body_uses_stays_open,
     check_text_leads_with_bare_pn,
     compile_bay_procedure,
+    compose_sheet,
     count_pdf_draw_ops,
     firefly_has_forbidden_module_hunt,
     firefly_sheet_uses_service_names,
@@ -674,6 +676,68 @@ class TestSheetProvidesChecksNotOpenManual(unittest.TestCase):
                 self.assertIn("pump and valve", donot)
                 self.assertIn("firefly blame", donot)
                 self.assertIn("usb firmware", donot)
+
+
+class TestFullAzAndStandingStandard(unittest.TestCase):
+    """Long appliance seeds are full A→Z sheets. Builder carries the standing rule."""
+
+    def test_builder_standard_is_wired_for_future_concerns(self):
+        self.assertIn("full a to z", BAY_SHEET_STANDARD.lower())
+        self.assertIn("hint", BAY_SHEET_STANDARD.lower())
+        self.assertIn("open the sm", BAY_SHEET_STANDARD.lower())
+        self.assertIn("stays open", BAY_SHEET_STANDARD.lower())
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[1].joinpath("bay_procedure.py").read_text()
+        self.assertIn("BAY_SHEET_STANDARD", src)
+        self.assertIn("Standing sheet standard", src)
+
+    def test_ice_and_facr_are_full_story_not_tip_cards(self):
+        ice = compile_bay_procedure(
+            concern=WO_COMPLAINT, brand="Furrion", model=WO_MODEL, category="Refrigerators"
+        )
+        facr = compile_bay_procedure(
+            concern="FACR08 freeze up interior leak condensate",
+            brand="Furrion",
+            model="FACR08",
+            category="Air Conditioning",
+        )
+        self.assertTrue(ice.full_story)
+        self.assertTrue(facr.full_story)
+        self.assertGreaterEqual(len(ice.bay_order), 6)
+        self.assertGreaterEqual(len(facr.bay_order), 6)
+        ice_order = " ".join(ice.bay_order).lower()
+        self.assertIn("defrost", ice_order)
+        self.assertIn("towel", ice_order)
+        self.assertIn("dollar-bill", ice_order)
+        self.assertIn("replace the cooling unit", ice_order)
+        self.assertIn("confirmed correction", ice_order)
+        facr_order = " ".join(facr.bay_order).lower()
+        self.assertIn("cool cycle", facr_order)
+        self.assertIn("replace the rooftop", facr_order)
+        self.assertIn("confirmed correction", facr_order)
+        self.assertGreaterEqual(len(compose_sheet(ice)), 3)
+        self.assertGreaterEqual(len(compose_sheet(facr)), 3)
+        for proc in (ice, facr):
+            body = procedure_body_text(proc)
+            self.assertFalse(body_tells_tech_to_open_manual(body))
+            self.assertFalse(body_uses_stays_open(body))
+            self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+
+    def test_firefly_locked_wording_stays(self):
+        proc = compile_bay_procedure(
+            concern=MANUAL_MODE_DUMP_AUTO,
+            category="Leveling",
+            model="Level Up Advantage 807662",
+        )
+        self.assertEqual(proc.bay_order[2], FIREFLY_CAN_PORT_PROVE)
+        self.assertEqual(
+            proc.bay_order[3],
+            FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
+        )
+        self.assertFalse(body_uses_stays_open(procedure_body_text(proc)))
+        self.assertTrue(proc.flowchart.readable)
+        self.assertGreaterEqual(len(compose_sheet(proc)), 2)
 
 
 class TestNavAndGdUntouched(unittest.TestCase):
