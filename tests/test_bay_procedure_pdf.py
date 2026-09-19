@@ -3,17 +3,21 @@ import unittest
 
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
+    check_text_leads_with_bare_pn,
     compile_bay_procedure,
     count_pdf_draw_ops,
     firefly_has_forbidden_module_hunt,
+    firefly_sheet_uses_service_names,
     pdf_content_operators,
     procedure_plain_text,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
     suggested_pdf_filename,
+    uses_wired_coach_can_jargon,
 )
 from gd_library_coach import (
     FIREFLY_CAN_SEARCH_BOOST,
+    FIREFLY_TWO_PLUG_PROVE,
     ICE_MOISTURE_SEARCH_BOOST,
     is_facr_rooftop_freeze_context,
     is_firefly_can_path_context,
@@ -121,7 +125,8 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertTrue(is_firefly_can_path_context("", "", MANUAL_MODE_DUMP_AUTO))
         q = rewrite_bay_search_symptom("Leveling", "807662", MANUAL_MODE_DUMP_AUTO)
         self.assertIn("terminator", q.lower())
-        self.assertIn("can isolate", FIREFLY_CAN_SEARCH_BOOST.lower())
+        self.assertIn("firefly", FIREFLY_CAN_SEARCH_BOOST.lower())
+        self.assertIn("rubber-boot", FIREFLY_CAN_SEARCH_BOOST.lower())
 
         proc = compile_bay_procedure(
             concern=MANUAL_MODE_DUMP_AUTO,
@@ -131,23 +136,24 @@ class TestManualModeFireflyCan(unittest.TestCase):
         )
         text = _sheet_text(proc)
         low = text.lower()
-        self.assertIn("can isolate", low)
-        self.assertIn("terminator", low)
         self.assertIn("rubber-boot", low)
+        self.assertIn("rubber boot", low)
         self.assertIn("firefly usb", low)
         self.assertIn("574-825-4600", low)
         self.assertIn("firefly", low)
-        self.assertIn("wired coach can", low)
-        self.assertTrue(
-            "stays plugged" in low or "stays in" in low or "terminator stays" in low,
-            text[:1200],
-        )
+        self.assertIn("level up controller", low)
+        self.assertIn("two network plugs", low)
+        self.assertIn("unplug that cable only", low)
+        self.assertTrue(firefly_sheet_uses_service_names(text), text[:1200])
+        self.assertFalse(uses_wired_coach_can_jargon(text), text[:800])
         self.assertNotIn("ai report", low)
         self.assertNotIn("confirm manual dump works", low)
         self.assertNotIn("confirm manual mode dump works", low)
         self.assertFalse(firefly_has_forbidden_module_hunt(text), text[:800])
         self.assertNotIn(FORBIDDEN_MODULE_HUNT.lower(), low)
         self.assertNotIn("one at a time", low)
+        self.assertFalse(check_text_leads_with_bare_pn("\n".join(proc.bay_order)))
+        self.assertFalse(check_text_leads_with_bare_pn("\n".join(proc.do_not)))
 
     def test_seed_facr08_freeze_surfaces_ccd_0007990(self):
         concern = "FACR08 freeze up interior leak condensate"
@@ -174,23 +180,29 @@ class TestManualModeFireflyCan(unittest.TestCase):
         proc = compile_bay_procedure(concern=concern)
         text = _sheet_text(proc)
         low = text.lower()
-        self.assertIn("can isolate", low)
-        self.assertIn("terminator", low)
         self.assertIn("rubber-boot", low)
+        self.assertIn("rubber boot", low)
         self.assertIn("firefly usb", low)
         self.assertIn("574-825-4600", low)
         self.assertIn("4 gb", low)
         self.assertIn("interim", low)
-        self.assertIn("wired coach can", low)
-        self.assertTrue("stays plugged" in low or "stays in" in low)
+        self.assertIn("two network plugs", low)
+        self.assertIn("unplug that cable only", low)
+        self.assertIn("level up controller", low)
+        self.assertTrue(firefly_sheet_uses_service_names(text))
+        self.assertFalse(uses_wired_coach_can_jargon(text))
+        self.assertIn(FIREFLY_TWO_PLUG_PROVE.split(".")[0].lower(), low)
         self.assertNotIn("confirm manual dump works", low)
         self.assertNotIn("no matching manual excerpt", low)
         self.assertNotIn("one at a time", low)
         self.assertFalse(firefly_has_forbidden_module_hunt(text))
+        self.assertFalse(check_text_leads_with_bare_pn("\n".join(proc.bay_order + proc.do_not)))
         pdf = render_bay_procedure_pdf(proc)
         pdf_low = _pdf_text(pdf).lower()
-        self.assertIn("wired coach can", pdf_low)
-        self.assertTrue("stays plugged" in pdf_low or "stays in" in pdf_low)
+        self.assertFalse(uses_wired_coach_can_jargon(pdf_low))
+        self.assertIn("two network plugs", pdf_low)
+        self.assertIn("unplug that cable only", pdf_low)
+        self.assertIn("rubber-boot", pdf_low)
         self.assertIn("574-825-4600", pdf_low)
         self.assertNotIn("one at a time", pdf_low)
         self.assertFalse(firefly_has_forbidden_module_hunt(pdf_low))
@@ -275,6 +287,30 @@ class TestVisualFlowchartDrawn(unittest.TestCase):
             ops = count_pdf_draw_ops(pdf)
             self.assertGreaterEqual(ops["rect"] + ops["curve"], 3, (concern, ops))
             self.assertTrue(any(n.kind == "decision" for n in proc.flowchart.nodes), concern)
+
+
+class TestFireflyServiceNamesNotPartNumbers(unittest.TestCase):
+    def test_firefly_checks_use_names_not_bare_pn(self):
+        proc = compile_bay_procedure(
+            concern=MANUAL_MODE_DUMP_AUTO,
+            category="Leveling",
+            model="Level Up Advantage 807662",
+        )
+        body = "\n".join(
+            [proc.pattern_means, *proc.bay_order, *proc.do_not]
+            + [n.text for n in proc.flowchart.nodes]
+        )
+        self.assertTrue(firefly_sheet_uses_service_names(procedure_plain_text(proc)))
+        self.assertIn("level up controller", body.lower())
+        self.assertIn("firefly", body.lower())
+        self.assertTrue("rubber boot" in body.lower() or "rubber-boot" in body.lower())
+        self.assertFalse(check_text_leads_with_bare_pn(body), body)
+        self.assertFalse(uses_wired_coach_can_jargon(body), body)
+        self.assertIn("The Level Up controller has two network plugs.", proc.bay_order[1])
+        self.assertIn("unplug that cable only", proc.bay_order[1])
+        for step in proc.bay_order:
+            self.assertTrue(step.strip().endswith("."), step)
+            self.assertFalse(step.lstrip().startswith("807662"), step)
 
 
 class TestNavAndGdUntouched(unittest.TestCase):

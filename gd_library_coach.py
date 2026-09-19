@@ -112,7 +112,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
-- Lippert Level Up / 807662 Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator). Reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless CAN-out Manual stays. Do not frame it as confirm Manual dump works.
+- Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
 - If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
@@ -175,12 +175,36 @@ LEVEL_UP_SEARCH_BOOST = (
     "QR-092 Level-Up OCTP wiring QR-059 touch pad LCD "
     "hydraulic leveling controller Manual Mode"
 )
-# Manual Mode dump works + Auto works → Firefly CAN isolate / terminator (not Unity).
+# Manual Mode dump works + Auto works → Firefly isolate / rubber-boot plug (not Unity).
+# Search tokens only. Human copy never says "wired coach CAN".
 FIREFLY_CAN_SEARCH_BOOST = (
-    "Firefly CAN isolate terminator rubber-boot terminator left in "
-    "wired CAN out USB firmware 574-825-4600 interim 4 GB "
+    "Firefly isolate can isolate terminator rubber-boot plug left in "
+    "Firefly cable network plugs USB firmware 574-825-4600 interim 4 GB "
     "Manual Mode flashes home Auto Level works"
 )
+
+# Exact bay voice for the Firefly / Level Up Manual Mode prove.
+FIREFLY_TWO_PLUG_PROVE = (
+    "The Level Up controller has two network plugs. "
+    "One has a rubber boot on it — leave that one alone. "
+    "The other has a cable running to the Firefly / OneControl system — unplug that cable only. "
+    "Then try Manual Mode again."
+)
+FIREFLY_HOLDS_FIX = (
+    "If Manual Mode stays open, Firefly is fighting the Level Up controller. "
+    "Reconnect the Firefly cable after this prove unless you are using the interim. "
+    "The real fix is a Firefly USB firmware update: read GUI and CCM from Settings, "
+    "call Firefly 574-825-4600, and use a USB stick 4 GB or smaller plus the interim file they specify. "
+    "Interim: turn the front-bay main battery switch OFF (solar can stay ON) so Firefly drops, "
+    "or leave the Firefly cable unplugged with the rubber-boot plug still in."
+)
+FIREFLY_STILL_DUMPS = (
+    "If Manual Mode still dumps home, this is not the Firefly path. "
+    "Stay on the Level Up sensor and harness path. "
+    "Do not swap another Level Up controller for Firefly blame. "
+    "Do not push a Firefly USB firmware update as the fix."
+)
+WIRED_COACH_CAN_RE = re.compile(r"wired\s+coach\s+can", re.I)
 LEVEL_UP_FIGURE_SEARCH_BOOST = (
     "Level-Up OCTP TI-005 QR-092 touch pad LCD wiring diagram "
     "hydraulic leveling controller 807662 Fig. figure"
@@ -197,11 +221,11 @@ LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
 - 807662 / 25499 / 24999 is the Lippert Level Up (Level-Up) towable hydraulic leveling controller with slide output. It is NOT Ground Control electric and NOT a Lippert OneControl Unity M-Series awning/slide reversing board.
 - Search and cite Leveling Level-Up / OCTP / TI-005 / TI-170 / QR-092 / QR-059 / touch-pad leveling manuals FIRST.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the Level Up Advantage controller manual.
-- Manual Mode flashes / dumps to home while Auto still works is the Firefly CAN path — not a hydraulic dump test. Cheap-prove Auto, then CAN isolate with the rubber-boot terminator left in (wired CAN out). If Manual stays on flash/home: Firefly USB firmware, 574-825-4600, stick 4 GB or smaller + interim file. Do not start at pump R&R.
+- Manual Mode flashes / dumps to home while Auto still works is the Firefly path — not a hydraulic dump test. Cheap-prove Auto, then leave the rubber-boot plug alone and unplug only the Firefly cable. If Manual stays on flash/home: Firefly USB firmware, 574-825-4600, stick 4 GB or smaller + interim file. Do not start at pump R&R.
 - Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
 - If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
 - If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.
-- Manual Mode flash/dump-to-home while Auto Level or other pad functions still work is a Firefly/OneControl CAN-isolate prove (terminator stays in; unplug wired coach CAN only). Do not open board/LCD swap first. Firefly USB firmware is the fix only when Manual stays with CAN out. If Manual still dumps with CAN out, stay Lippert — do not swap another 807662 for Firefly blame and do not push Firefly USB.
+- Manual Mode flash/dump-to-home while Auto Level or other pad functions still work is a Firefly / OneControl prove: leave the rubber-boot plug alone and unplug only the Firefly cable. Do not open board/LCD swap first. Firefly USB firmware is the fix only when Manual holds with the Firefly cable unplugged. If Manual still dumps, stay on the Level Up sensor / harness path — do not swap another Level Up controller for Firefly blame and do not push Firefly USB.
 """
 LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
     r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
@@ -214,45 +238,43 @@ LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
 # Level Up Manual Mode flash-home while Auto Level still works — Firefly/OneControl
 # CAN isolate. Narrow shop path only. Not a Firefly encyclopedia. Not Unity SM.
 LEVEL_UP_CAN_SEARCH_BOOST = (
-    "Manual Mode flash home Auto Level Firefly CAN terminator "
-    "wired coach CAN isolate 807662 Brinkley USB firmware"
+    "Manual Mode flash home Auto Level Firefly terminator "
+    "rubber boot network plugs Firefly cable isolate Level Up controller USB firmware"
 )
 LEVEL_UP_CAN_PRODUCT_LOCK = """
-LEVEL UP MANUAL MODE / FIREFLY CAN PRODUCT LOCK (807662, Auto Level still works):
-- Manual Mode flashes then dumps to home while Auto Level or other pad functions still work is a CAN-isolate prove. It is NOT a board/LCD swap-first path.
+LEVEL UP MANUAL MODE / FIREFLY PRODUCT LOCK (Level Up controller, Auto Level still works):
+- Manual Mode flashes then dumps to home while Auto Level or other pad functions still work is a Firefly / OneControl prove. It is NOT a board/LCD swap-first path.
 - Cheap proves first: power looks sane / no brownout; Auto Level works; dump is not sticky Low Voltage / Excess Angle / External Sensor (clear those first if present).
-- Then: leave the rubber-boot terminator plugged in. Unplug only the wired coach CAN (Firefly/OneControl). Retry Manual Mode.
-- Manual stays with CAN out → Firefly/CAN conflict confirmed. Tell the tech to reconnect wired CAN after the prove unless using the interim. Real fix = Firefly USB firmware update: read GUI + CCM from Settings, call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch OFF (solar can stay ON) so Firefly drops, OR leave wired CAN unplugged with the terminator in.
-- Manual still dumps with CAN out → NOT this issue. Stay Lippert sensor / harness / support. Do NOT swap another 807662 for Firefly blame alone. Do NOT push Firefly USB as the fix.
+- Then use the two-plug prove: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again.
+- Manual holds with the Firefly cable unplugged → Firefly / OneControl conflict confirmed. Tell the tech to reconnect the Firefly cable after the prove unless using the interim. Real fix = Firefly USB firmware update: read GUI + CCM from Settings, call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch OFF (solar can stay ON) so Firefly drops, OR leave the Firefly cable unplugged with the rubber-boot plug still in.
+- Manual still dumps with the Firefly cable unplugged → NOT this issue. Stay on the Level Up sensor / harness / support path. Do NOT swap another Level Up controller for Firefly blame alone. Do NOT push Firefly USB as the fix.
 - Do not build a Firefly encyclopedia. Do not cite Unity awning/slide reversing SM as the Level Up procedure.
 """
 LEVEL_UP_CAN_ISOLATE_SHOP_LINE = (
-    "Cheap proves look sane (power / no brownout; Auto Level or other pad functions still work; "
-    "dump is not sticky Low Voltage / Excess Angle / External Sensor — clear those first if present). "
-    "Next: leave the rubber-boot terminator plugged in. Unplug only the wired coach CAN "
-    "(Firefly/OneControl). Retry Manual Mode.\n"
-    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+    "Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, "
+    "Excess Angle, or External Sensor text if it is present. "
+    + FIREFLY_TWO_PLUG_PROVE
+    + "\n"
+    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
 )
 LEVEL_UP_CAN_FIREFLY_SHOP_LINE = (
-    "Manual Mode stays with wired coach CAN unplugged (terminator still in) — Firefly/OneControl "
-    "CAN conflict is confirmed. Reconnect the wired CAN after this prove unless you are using "
-    "the interim below. Real fix: Firefly USB firmware update — read GUI and CCM from Settings, "
-    "call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch "
-    "OFF (solar can stay ON) so Firefly drops, OR leave wired CAN unplugged with the terminator in.\n"
-    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+    "Manual Mode holds with the Firefly cable unplugged and the rubber-boot plug still in. "
+    + FIREFLY_HOLDS_FIX
+    + "\n"
+    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
 )
 LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE = (
-    "Manual Mode still dumps with wired coach CAN unplugged (terminator still in) — this is NOT "
-    "a Firefly/OneControl CAN conflict. Stay on the Lippert sensor / harness / support path. "
-    "Do not swap another 807662 for Firefly blame alone. Do not push a Firefly USB firmware "
-    "update as the fix.\n"
-    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+    "Manual Mode still dumps with the Firefly cable unplugged and the rubber-boot plug still in. "
+    + FIREFLY_STILL_DUMPS
+    + "\n"
+    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
 )
 LEVEL_UP_CAN_CHEAP_PROVES_SHOP_LINE = (
-    "Manual Mode flashes then dumps to home on Level Up. Before CAN isolate or parts: confirm "
-    "power looks sane / no brownout, Auto Level (or other pad functions) still work, and the dump "
-    "is not sticky Low Voltage / Excess Angle / External Sensor (clear those first if present).\n"
-    "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+    "Manual Mode flashes then dumps to home on the Level Up controller. Before you unplug "
+    "the Firefly cable or order parts, confirm power looks sane / no brownout, Auto Level "
+    "(or other pad functions) still work, and the dump is not sticky Low Voltage / Excess "
+    "Angle / External Sensor (clear those first if they are present).\n"
+    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
 )
 LEVEL_UP_BOARD_SWAP_RE = re.compile(
     r"(replace|swap|r\s*&\s*r|r and r).{0,50}"
@@ -1262,7 +1284,7 @@ def score_level_up_can_chunk(page, query: str = "", category: str = "") -> int:
         score += 16
     if "firefly" in t:
         score += 14
-    if "wired can" in t or "coach can" in t:
+    if "wired can" in t or "coach can" in t or "firefly cable" in t or "rubber boot" in t:
         score += 12
     if "can isolate" in t and "no can isolate" not in t:
         score += 8
@@ -1309,19 +1331,22 @@ def _claim_is_negated(text: str, match) -> bool:
 
 
 def reply_offers_can_isolate(reply: str) -> bool:
-    """True when the reply tells the tech to leave the terminator and unplug wired CAN."""
+    """True when the reply tells the tech to leave the rubber-boot plug and unplug the Firefly cable."""
     t = _norm(reply)
     if not t:
         return False
-    terminator = "terminator" in t
+    boot = "rubber boot" in t or "rubber-boot" in t or "terminator" in t
     unplug = bool(re.search(r"\b(unplug|unplugg|disconnect)\b", t))
-    wired_can = bool(
-        re.search(r"\b(wired|coach)\b.{0,24}\bcan\b", t)
+    firefly_cable = bool(
+        ("firefly" in t and "cable" in t)
+        or "network plug" in t
+        or "two network" in t
+        or re.search(r"\b(wired|coach)\b.{0,24}\bcan\b", t)
         or "wired can" in t
         or "coach can" in t
         or ("unplug" in t and "can" in t)
     )
-    return bool(terminator and unplug and wired_can)
+    return bool(boot and unplug and firefly_cable)
 
 
 def reply_names_firefly_usb_fix(reply: str) -> bool:
@@ -1357,7 +1382,10 @@ def reply_names_firefly_interim(reply: str) -> bool:
     if not t:
         return False
     battery = ("battery" in t and any(k in t for k in ("off", "switch"))) or "main battery" in t
-    can_out = "can" in t and any(k in t for k in ("unplug", "unplugg", "out")) and "terminator" in t
+    can_out = (
+        ("can" in t and any(k in t for k in ("unplug", "unplugg", "out")) and ("terminator" in t or "rubber" in t))
+        or ("firefly" in t and "cable" in t and any(k in t for k in ("unplug", "unplugg")) and ("rubber" in t or "boot" in t or "terminator" in t))
+    )
     return bool(battery or can_out)
 
 
@@ -1368,6 +1396,8 @@ def reply_names_can_reconnect(reply: str) -> bool:
     return bool(
         re.search(r"\breconnect\b.{0,48}\bcan\b", t)
         or re.search(r"\bcan\b.{0,48}\breconnect\b", t)
+        or re.search(r"\breconnect\b.{0,48}(firefly|cable)", t)
+        or re.search(r"(firefly|cable).{0,48}\breconnect\b", t)
     )
 
 
@@ -3336,12 +3366,18 @@ def extract_stated_facts(text: str) -> dict:
 
     can_unplug = bool(
         (
-            re.search(r"\bunplug", raw)
-            or re.search(r"\bdisconnect", raw)
-            or "can-out" in raw
-            or "can out" in raw
+            (
+                re.search(r"\bunplug", raw)
+                or re.search(r"\bdisconnect", raw)
+                or "can-out" in raw
+                or "can out" in raw
+            )
+            and re.search(r"\bcan\b", raw)
         )
-        and re.search(r"\bcan\b", raw)
+        or (
+            re.search(r"\bunplug", raw)
+            and re.search(r"\b(firefly|onecontrol).{0,32}cable|cable.{0,32}(firefly|onecontrol)", raw)
+        )
     )
     manual_stays = bool(
         re.search(
@@ -3431,8 +3467,8 @@ def format_stated_facts_rule(facts: dict) -> str:
             "present": "sticky Low Voltage / Excess Angle / External Sensor is present — clear first",
         },
         "can_isolate": {
-            "stays": "Manual Mode STAYS with wired coach CAN unplugged (terminator in)",
-            "still_dumps": "Manual Mode STILL DUMPS with wired coach CAN unplugged",
+            "stays": "Manual Mode STAYS with the Firefly cable unplugged (rubber-boot plug still in)",
+            "still_dumps": "Manual Mode STILL DUMPS with the Firefly cable unplugged",
         },
     }
     lines = [
@@ -3503,33 +3539,34 @@ def format_stated_facts_rule(facts: dict) -> str:
         )
     if facts.get("can_isolate") == "stays":
         lines.append(
-            "CAN isolate already proved Manual Mode STAYS with wired coach CAN unplugged "
-            "(terminator left in). Firefly/OneControl CAN conflict is confirmed. "
-            "Tell the tech to reconnect wired CAN after the prove unless using interim. "
-            "Real fix: Firefly USB firmware — GUI + CCM from Settings, Firefly 574-825-4600, "
-            "USB stick ≤4 GB. Interim: front-bay main battery OFF (solar OK) or leave wired "
-            "CAN unplugged with terminator in. Do NOT swap another 807662 for Firefly blame."
+            "The Firefly-cable prove already showed Manual Mode HOLDS with the Firefly "
+            "cable unplugged and the rubber-boot plug still in. Firefly / OneControl "
+            "conflict is confirmed. Tell the tech to reconnect the Firefly cable after "
+            "the prove unless using interim. Real fix: Firefly USB firmware — GUI + CCM "
+            "from Settings, Firefly 574-825-4600, USB stick ≤4 GB. Interim: front-bay "
+            "main battery OFF (solar OK) or leave the Firefly cable unplugged with the "
+            "rubber-boot plug still in. Do NOT swap another Level Up controller for Firefly blame."
         )
     elif facts.get("can_isolate") == "still_dumps":
         lines.append(
-            "CAN isolate already proved Manual Mode STILL DUMPS with wired coach CAN "
-            "unplugged. This is NOT a Firefly/OneControl CAN conflict. Stay Lippert "
-            "sensor / harness / support. Do NOT swap another 807662 for Firefly blame. "
-            "Do NOT push Firefly USB as the fix."
+            "The Firefly-cable prove already showed Manual Mode STILL DUMPS with the "
+            "Firefly cable unplugged. This is NOT a Firefly / OneControl conflict. Stay "
+            "on the Level Up sensor / harness / support path. Do NOT swap another Level "
+            "Up controller for Firefly blame. Do NOT push Firefly USB as the fix."
         )
     elif facts.get("auto_level") == "works" and facts.get("manual_dump") == "reported":
         if facts.get("sticky_level_error") == "present":
             lines.append(
                 "Clear sticky Low Voltage / Excess Angle / External Sensor first. "
-                "Do not jump to Firefly USB or another 807662 swap."
+                "Do not jump to Firefly USB or another Level Up controller swap."
             )
         else:
             lines.append(
                 "Manual Mode dumps while Auto Level still works. Cheap proves first "
                 "(power / no brownout; no sticky LV / Excess Angle / External Sensor). "
-                "Then leave the rubber-boot terminator plugged in and unplug only the "
-                "wired coach CAN (Firefly/OneControl). Retry Manual Mode. Do not open "
-                "board/LCD swap first. Do not push Firefly USB until Manual stays CAN-out."
+                + FIREFLY_TWO_PLUG_PROVE
+                + " Do not open board/LCD swap first. Do not push Firefly USB until "
+                "Manual Mode holds with the Firefly cable unplugged."
             )
     elif facts.get("manual_dump") == "reported":
         lines.append(
@@ -3618,7 +3655,11 @@ def reply_reasks_stated_facts(reply: str, facts: dict) -> list:
         if re.search(r"does auto level (?:still )?work|is auto level working", t):
             hits.append("auto_level")
     if facts.get("can_isolate") in ("stays", "still_dumps"):
-        if re.search(r"unplug (?:only )?(?:the )?wired coach can|retry manual mode", t):
+        if re.search(
+            r"unplug (?:only )?(?:the )?wired coach can|"
+            r"unplug that cable only|two network plugs|retry manual mode",
+            t,
+        ):
             if "reconnect" not in t:
                 hits.append("can_isolate")
     return hits

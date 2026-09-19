@@ -105,6 +105,7 @@ class TestLevelUpDetect(unittest.TestCase):
         q = level_up_search_symptom("Leveling", "807662", concern)
         self.assertIn("terminator", q.lower())
         self.assertIn("can isolate", FIREFLY_CAN_SEARCH_BOOST.lower())
+        self.assertIn("firefly cable", FIREFLY_CAN_SEARCH_BOOST.lower())
         self.assertFalse(
             is_firefly_can_path_context("Refrigerators", "Furrion FCR10", "not cooling")
         )

@@ -171,7 +171,9 @@ class TestLevelUpCanQueryRewrite(unittest.TestCase):
         self.assertIn("terminator", low)
         self.assertIn("firefly", low)
         self.assertIn("807662", low)
-        self.assertIn("wired coach can", LEVEL_UP_CAN_SEARCH_BOOST.lower())
+        self.assertIn("firefly cable", LEVEL_UP_CAN_SEARCH_BOOST.lower())
+        self.assertIn("rubber boot", LEVEL_UP_CAN_SEARCH_BOOST.lower())
+        self.assertNotIn("wired coach can", LEVEL_UP_CAN_SEARCH_BOOST.lower())
         self.assertNotIn("unity", low)
         self.assertNotIn("awning", low)
 
@@ -219,10 +221,12 @@ class TestLevelUpCanGuardBranches(unittest.TestCase):
         fixed = ensure_level_up_manual_can_path(LIVE_BOARD_FIRST, facts)
         self.assertTrue(reply_offers_can_isolate(fixed))
         low = fixed.lower()
-        self.assertIn("terminator", low)
-        self.assertIn("wired", low)
-        self.assertIn("can", low)
+        self.assertIn("rubber boot", low)
+        self.assertIn("firefly", low)
+        self.assertIn("cable", low)
         self.assertIn("unplug", low)
+        self.assertIn("two network plugs", low)
+        self.assertNotIn("wired coach can", low)
         self.assertIn(LEVEL_UP_CAN_ISOLATE_SHOP_LINE.split("\n")[0][:40], fixed)
 
     def test_b_manual_works_can_out_is_firefly_usb_interim_reconnect(self):
@@ -254,7 +258,7 @@ class TestLevelUpCanGuardBranches(unittest.TestCase):
         self.assertFalse(reply_names_firefly_usb_fix(fixed))
         self.assertFalse(reply_swaps_807662_for_firefly(fixed))
         low = fixed.lower()
-        self.assertIn("lippert", low)
+        self.assertIn("level up", low)
         self.assertIn("sensor", low)
         self.assertIn("harness", low)
         self.assertIn("do not swap", low)
@@ -264,9 +268,10 @@ class TestLevelUpCanGuardBranches(unittest.TestCase):
     def test_good_isolate_reply_is_left_alone(self):
         good = (
             "Auto Level still works and there is no sticky Low Voltage text. "
-            "Leave the rubber-boot terminator plugged in. Unplug only the wired "
-            "coach CAN (Firefly/OneControl). Retry Manual Mode.\n"
-            "📖 Source: shop writeup — Level Up Advantage 807662 Manual Mode flash-home / Firefly CAN"
+            "The Level Up controller has two network plugs. One has a rubber boot "
+            "on it — leave that one alone. The other has a cable running to the "
+            "Firefly / OneControl system — unplug that cable only. Then try Manual Mode again.\n"
+            "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
         )
         facts = extract_stated_facts(WO_COMPLAINT)
         self.assertTrue(reply_offers_can_isolate(good))
@@ -275,13 +280,15 @@ class TestLevelUpCanGuardBranches(unittest.TestCase):
 
     def test_product_lock_names_branches_not_encyclopedia(self):
         low = LEVEL_UP_CAN_PRODUCT_LOCK.lower()
-        self.assertIn("terminator", low)
-        self.assertIn("wired coach can", low)
+        self.assertIn("rubber boot", low)
+        self.assertIn("two network plugs", low)
+        self.assertIn("unplug that cable only", low)
         self.assertIn("574-825-4600", low)
         self.assertIn("4 gb", low)
-        self.assertIn("do not swap another 807662", low)
+        self.assertIn("do not swap another level up controller", low)
         self.assertIn("do not push firefly usb", low)
         self.assertIn("do not build a firefly encyclopedia", low)
+        self.assertNotIn("wired coach can", low)
         self.assertNotIn("victron", low)
 
 
