@@ -184,7 +184,7 @@ def body_uses_power_looks_sane(text: str) -> bool:
 
 
 def body_uses_stays_open(text: str) -> bool:
-    """Banned — 'stays open' reads backwards. Use holds / still dumps home."""
+    """Banned backwards phrasing. Use holds / still dumps home."""
     return bool(STAYS_OPEN_RE.search(text or ""))
 
 
