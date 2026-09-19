@@ -271,6 +271,15 @@ class TestManualModeFireflyCan(unittest.TestCase):
             if "slope" in n.text.lower() and "suction" in n.text.lower()
         ]
         self.assertEqual(mashed, [])
+        dest = {(e.from_id, e.label.upper()): e.to_id for e in proc.flowchart.edges}
+        self.assertEqual(dest[("p_clear", "")], "d_retest")
+        self.assertEqual(dest[("p_slope", "")], "d_retest")
+        self.assertEqual(dest[("p_suc", "")], "d_retest")
+        self.assertEqual(dest[("d_retest", "NO")], "e_ok")
+        self.assertEqual(dest[("d_retest", "YES")], "d_slope")
+        self.assertEqual(dest[("d_suc", "NO")], "e_rep")
+        into_replace = [e.from_id for e in proc.flowchart.edges if e.to_id == "e_rep"]
+        self.assertEqual(into_replace, ["d_suc"])
         order = " ".join(proc.bay_order).lower()
         self.assertIn("if the drain is restricted", order)
         self.assertIn("base-pan", order)
