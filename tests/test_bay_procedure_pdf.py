@@ -3,6 +3,8 @@ import unittest
 
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
+    body_tells_tech_to_open_manual,
+    body_uses_coach_donots,
     body_uses_manual_codes,
     check_text_leads_with_bare_pn,
     compile_bay_procedure,
@@ -127,8 +129,10 @@ class TestIceRearWallBayProcedure(unittest.TestCase):
         # Fuse / 12V is not the path. Manual codes stay in Sources, not body copy.
         blob = f"{proc.primary_cite} {proc.pattern_means} {' '.join(proc.bay_order)}".lower()
         self.assertIn("ice and moisture", blob)
-        self.assertIn("furrion fridge service manual", blob)
+        self.assertIn("furrion fridge service manual", proc.primary_cite.lower())
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
+        self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
         src = " ".join(f"{s.get('title')} {s.get('page')}" for s in proc.sources).lower()
         self.assertIn("ccd-0008122", src)
         self.assertTrue("36" in src or "page 36" in text)
@@ -186,6 +190,10 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertNotIn("807662", proc.model_line)
         self.assertTrue(firefly_sheet_uses_service_names(text), text[:1200])
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
+        self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+        self.assertTrue(proc.flowchart.readable)
+        self.assertLessEqual(len(proc.flowchart.nodes), 7)
         self.assertTrue(any(fig.image_png for fig in proc.figures))
         self.assertFalse(uses_wired_coach_can_jargon(text), text[:800])
         self.assertNotIn("ai report", low)
@@ -213,7 +221,17 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertEqual(proc.checks[0].kind, "check")
         self.assertIn("rooftop", proc.primary_cite.lower())
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
+        self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+        self.assertTrue(proc.flowchart.readable)
         self.assertTrue(any(fig.image_png for fig in proc.figures))
+        order = " ".join(proc.bay_order).lower()
+        self.assertIn("if the drain is restricted", order)
+        self.assertIn("base-pan", order)
+        self.assertIn("suction-line", order)
+        self.assertNotIn("open the", order)
+        self.assertNotIn("unity", " ".join(proc.do_not).lower())
+        self.assertNotIn("dometic", " ".join(proc.do_not).lower())
 
     def test_seed_807662_flash_home_has_usb_and_terminator(self):
         concern = (
@@ -237,6 +255,9 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertNotIn("807662", proc.model_line)
         self.assertTrue(firefly_sheet_uses_service_names(text))
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
+        self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
+        self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+        self.assertTrue(proc.flowchart.readable)
         self.assertFalse(uses_wired_coach_can_jargon(text))
         self.assertIn(FIREFLY_TWO_PLUG_PROVE.split(".")[0].lower(), low)
         self.assertNotIn("confirm manual dump works", low)
@@ -517,11 +538,56 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
                 self.assertNotIn("807662", proc.model_line)
                 src = " ".join((s.get("excerpt") or "") + (s.get("title") or "") for s in proc.sources)
                 self.assertIn("807662", src)
+            self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
+            self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+            self.assertTrue(proc.flowchart.readable, concern)
             if category == "Refrigerators":
-                self.assertIn("furrion fridge service manual", body.lower())
                 self.assertIn("dollar-bill", body.lower())
                 src = " ".join(s.get("title") or "" for s in proc.sources)
                 self.assertIn("CCD-0008122", src)
+            self.assertLessEqual(len(proc.flowchart.nodes), 7)
+            self.assertTrue(any(n.w >= 170 for n in proc.flowchart.nodes), concern)
+
+
+class TestSheetProvidesChecksNotOpenManual(unittest.TestCase):
+    """Sheet text is the work. Opening a book or coach do-nots is a miss."""
+
+    def test_hit_seeds_give_ordered_checks_and_real_bay_donots_only(self):
+        cases = (
+            (WO_COMPLAINT, "Furrion", WO_MODEL, "Refrigerators"),
+            ("FACR08 freeze up interior leak condensate", "Furrion", "FACR08", "Air Conditioning"),
+            (MANUAL_MODE_DUMP_AUTO, "", "Level Up Advantage 807662", "Leveling"),
+        )
+        for concern, brand, model, category in cases:
+            proc = compile_bay_procedure(
+                concern=concern, brand=brand, model=model, category=category
+            )
+            body = procedure_body_text(proc)
+            self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
+            self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
+            self.assertNotIn("see the sm", body.lower())
+            self.assertNotIn("open ccd-", body.lower())
+            self.assertTrue(proc.flowchart.readable, concern)
+            decisions = [n for n in proc.flowchart.nodes if n.kind == "decision"]
+            self.assertGreaterEqual(len(decisions), 2, concern)
+            yes_no = {e.label.upper() for e in proc.flowchart.edges if e.label}
+            self.assertIn("YES", yes_no)
+            self.assertIn("NO", yes_no)
+            order = " ".join(proc.bay_order).lower()
+            self.assertIn(" if ", f" {order}")
+            for node in decisions:
+                labels = {
+                    e.label.upper()
+                    for e in proc.flowchart.edges
+                    if e.from_id == node.id and e.label
+                }
+                self.assertEqual(labels, {"YES", "NO"}, (concern, node.id, labels))
+            donot = " ".join(proc.do_not).lower()
+            self.assertNotIn("unity", donot)
+            self.assertNotIn("dometic", donot)
+            self.assertNotIn("invent oem", donot)
+            if category == "Leveling":
+                self.assertEqual(proc.bay_order[1], EXACT_TWO_PLUG)
 
 
 class TestNavAndGdUntouched(unittest.TestCase):

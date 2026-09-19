@@ -52,7 +52,7 @@ endobj
 endobj
 8 0 obj
 <<
-/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919153957+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919153957+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919154503+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919154503+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (unspecified) /Title (Bay procedure PDF - WO-ICE) /Trapped /False
 >>
 endobj
@@ -63,7 +63,7 @@ endobj
 endobj
 10 0 obj
 <<
-/Length 9029
+/Length 8841
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -90,163 +90,163 @@ n 36 630 540 16 re B*
 1 1 1 rg
 .72 .74 .76 RG
 .8 w
-n 36 576 540 54 re B*
+n 36 587 540 43 re B*
 .941 .949 .969 rg
 .004 .078 .486 RG
 1.4 w
 n
-42 316 m
-570 316 l
-573.3168 316 576 318.6832 576 322 c
-576 562 l
-576 565.3168 573.3168 568 570 568 c
-42 568 l
-38.6832 568 36 565.3168 36 562 c
-36 322 l
-36 318.6832 38.6832 316 42 316 c
+42 327 m
+570 327 l
+573.3168 327 576 329.6832 576 333 c
+576 573 l
+576 576.3168 573.3168 579 570 579 c
+42 579 l
+38.6832 579 36 576.3168 36 573 c
+36 333 l
+36 329.6832 38.6832 327 42 327 c
 h
 B*
 .012 .537 .282 rg
 .004 .078 .486 RG
 1.5 w
 n
-446 517 m
-446 530.8071 383.3199 542 306 542 c
-228.6801 542 166 530.8071 166 517 c
-166 503.1929 228.6801 492 306 492 c
-383.3199 492 446 503.1929 446 517 c
+456 528 m
+456 541.8071 388.8427 553 306 553 c
+223.1573 553 156 541.8071 156 528 c
+156 514.1929 223.1573 503 306 503 c
+388.8427 503 456 514.1929 456 528 c
 B*
 1 .949 .82 rg
 .004 .078 .486 RG
 1.7 w
-n 306 508.36 m 394 469.36 l 306 430.36 l 218 469.36 l h
+n 306 493.48 m 396 453.48 l 306 413.48 l 216 453.48 l h
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.4 w
 n
-60 440.36 m
-268 440.36 l
-271.3168 440.36 274 443.0432 274 446.36 c
-274 492.36 l
-274 495.6768 271.3168 498.36 268 498.36 c
-60 498.36 l
-56.6832 498.36 54 495.6768 54 492.36 c
-54 446.36 l
-54 443.0432 56.6832 440.36 60 440.36 c
+60 422.48 m
+278 422.48 l
+281.3168 422.48 284 425.1632 284 428.48 c
+284 478.48 l
+284 481.7968 281.3168 484.48 278 484.48 c
+60 484.48 l
+56.6832 484.48 54 481.7968 54 478.48 c
+54 428.48 l
+54 425.1632 56.6832 422.48 60 422.48 c
 h
 B*
 1 .949 .82 rg
 .004 .078 .486 RG
 1.7 w
-n 306 450.12 m 394 411.12 l 306 372.12 l 218 411.12 l h
+n 306 425 m 396 385 l 306 345 l 216 385 l h
 B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 1.5 w
 n
-282 411.12 m
-282 428.2408 230.9605 442.12 168 442.12 c
-105.0395 442.12 54 428.2408 54 411.12 c
-54 393.9992 105.0395 380.12 168 380.12 c
-230.9605 380.12 282 393.9992 282 411.12 c
+284 378 m
+284 396.2254 232.5127 411 169 411 c
+105.4873 411 54 396.2254 54 378 c
+54 359.7746 105.4873 345 169 345 c
+232.5127 345 284 359.7746 284 378 c
 B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 1.5 w
 n
-446 363 m
-446 379.0163 383.3199 392 306 392 c
-228.6801 392 166 379.0163 166 363 c
-166 346.9837 228.6801 334 306 334 c
-383.3199 334 446 346.9837 446 363 c
+558 378 m
+558 396.2254 505.1696 411 440 411 c
+374.8304 411 322 396.2254 322 378 c
+322 359.7746 374.8304 345 440 345 c
+505.1696 345 558 359.7746 558 378 c
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 492 m 306 508.36 l S
+n 306 503 m 306 493.48 l S
 .004 .078 .486 rg
-n 306 508.36 m 303.3 502.36 l 308.7 502.36 l h
+n 306 493.48 m 308.7 499.48 l 303.3 499.48 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 218 469.36 m 274 469.36 l S
+n 216 453.48 m 284 453.48 l S
 .004 .078 .486 rg
-n 274 469.36 m 268 472.06 l 268 466.66 l h
+n 284 453.48 m 278 456.18 l 278 450.78 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 430.36 m 306 450.12 l S
+n 306 413.48 m 306 425 l S
 .004 .078 .486 rg
-n 306 450.12 m 303.3 444.12 l 308.7 444.12 l h
+n 306 425 m 303.3 419 l 308.7 419 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 164 440.36 m 218 411.12 l S
+n 169 422.48 m 216 385 l S
 .004 .078 .486 rg
-n 218 411.12 m 214.0095 416.3512 l 211.4382 411.6027 l h
+n 216 385 m 212.9923 390.8518 l 209.6256 386.6299 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 218 411.12 m 282 411.12 l S
+n 216 385 m 284 378 l S
 .004 .078 .486 rg
-n 282 411.12 m 276 413.82 l 276 408.42 l h
+n 284 378 m 278.308 381.3002 l 277.7551 375.9286 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 372.12 m 306 392 l S
+n 396 385 m 322 378 l S
 .004 .078 .486 rg
-n 306 392 m 303.3 386 l 308.7 386 l h
+n 322 378 m 328.2276 375.877 l 327.7191 381.253 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 141 540 167 re B*
+n 36 162 540 157 re B*
 .012 .537 .282 rg
 .012 .537 .282 RG
 .4 w
-n 36 292 540 16 re B*
+n 36 303 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 279 8 8 re B*
+n 44 290 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 246 8 8 re B*
+n 44 257 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 223 8 8 re B*
+n 44 234 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 190 8 8 re B*
+n 44 201 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 167 8 8 re B*
+n 44 178 8 8 re B*
 1 .984 .941 rg
 .875 .122 .149 RG
 1.1 w
-n 36 89 540 46 re B*
+n 36 110 540 46 re B*
 .875 .122 .149 rg
 .875 .122 .149 RG
 .4 w
-n 36 119 540 16 re B*
+n 36 140 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 44 540 37 re B*
+n 36 44 540 58 re B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 .4 w
-n 36 65 540 16 re B*
+n 36 86 540 16 re B*
 1 1 1 rg
 BT /F2 13 Tf 15.6 TL ET
 BT 1 0 0 1 46 737 Tm (BAY PROCEDURE) Tj T* ET
@@ -291,110 +291,107 @@ BT /F1 9 Tf 10.8 TL ET
 BT 1 0 0 1 44 616 Tm (Ice or frost on the rear wall, including a pattern that starts about halfway down from the top,) Tj T* ET
 .122 .122 .141 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 605 Tm (is an Ice and Moisture problem. Follow the Ice and Moisture section of the Furrion fridge) Tj T* ET
+BT 1 0 0 1 44 605 Tm (is an Ice and Moisture problem. A light sheet on the back wall alone can be normal cycling. This) Tj T* ET
 .122 .122 .141 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 594 Tm (service manual. A light sheet on the back wall alone can be normal cycling. This is a moisture,) Tj T* ET
-.122 .122 .141 rg
-BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 583 Tm (door gasket, drain, and cooling path.) Tj T* ET
+BT 1 0 0 1 44 594 Tm (is a moisture, door gasket, drain, and cooling path.) Tj T* ET
 .004 .078 .486 rg
 BT /F2 8 Tf 9.6 TL ET
-BT 1 0 0 1 46 552 Tm (VISUAL FLOWCHART) Tj T* ET
+BT 1 0 0 1 46 563 Tm (VISUAL FLOWCHART) Tj T* ET
 1 1 1 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 221.9625 514.3 Tm (Ice or frost is on the rear wall of the fridge.) Tj T* ET
+BT 1 0 0 1 221.9625 525.3 Tm (Ice or frost is on the rear wall of the fridge.) Tj T* ET
 .122 .122 .141 rg
 BT /F2 9.5 Tf 11.4 TL ET
-BT 1 0 0 1 268.2565 472.76 Tm (Light sheet only,) Tj T* ET
-BT 1 0 0 1 272.4745 460.26 Tm (or dial at max?) Tj T* ET
+BT 1 0 0 1 268.2565 456.88 Tm (Light sheet only,) Tj T* ET
+BT 1 0 0 1 272.4745 444.38 Tm (or dial at max?) Tj T* ET
 .122 .122 .141 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 110.2115 472.66 Tm (Set the dial to about 4 to 5.) Tj T* ET
-BT 1 0 0 1 88.4585 460.66 Tm (Run overnight, then check the gasket.) Tj T* ET
+BT 1 0 0 1 115.2115 456.78 Tm (Set the dial to about 4 to 5.) Tj T* ET
+BT 1 0 0 1 93.4585 444.78 Tm (Run overnight, then check the gasket.) Tj T* ET
 .122 .122 .141 rg
 BT /F2 9.5 Tf 11.4 TL ET
-BT 1 0 0 1 261.388 414.52 Tm (Does the gasket fail) Tj T* ET
-BT 1 0 0 1 267.9905 402.02 Tm (a dollar-bill test?) Tj T* ET
+BT 1 0 0 1 261.388 388.4 Tm (Does the gasket fail) Tj T* ET
+BT 1 0 0 1 267.9905 375.9 Tm (a dollar-bill test?) Tj T* ET
 1 1 1 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 112.4745 420.42 Tm (Repair or reseat the gasket.) Tj T* ET
-BT 1 0 0 1 105.2205 408.42 Tm (Clear the rear drain and trough.) Tj T* ET
-BT 1 0 0 1 114.4725 396.42 Tm (Recheck in 24 to 48 hours.) Tj T* ET
+BT 1 0 0 1 113.4745 387.3 Tm (Repair or reseat the gasket.) Tj T* ET
+BT 1 0 0 1 106.2205 375.3 Tm (Clear the rear drain and trough.) Tj T* ET
+BT 1 0 0 1 115.4725 363.3 Tm (Recheck in 24 to 48 hours.) Tj T* ET
 1 1 1 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 243.2205 372.3 Tm (Clear the rear drain and trough.) Tj T* ET
-BT 1 0 0 1 252.4725 360.3 Tm (Recheck in 24 to 48 hours.) Tj T* ET
-BT 1 0 0 1 233.973 348.3 Tm (Replace only from Ice and Moisture.) Tj T* ET
+BT 1 0 0 1 377.2205 387.3 Tm (Clear the rear drain and trough.) Tj T* ET
+BT 1 0 0 1 386.4725 375.3 Tm (Recheck in 24 to 48 hours.) Tj T* ET
+BT 1 0 0 1 348.956 363.3 Tm (If heavy frost returns, replace the cooling unit.) Tj T* ET
 .012 .537 .282 rg
 BT /F2 9 Tf 10.8 TL ET
-BT 1 0 0 1 246 477.36 Tm (YES) Tj T* ET
+BT 1 0 0 1 250 461.48 Tm (YES) Tj T* ET
 .875 .122 .149 rg
 BT /F2 9 Tf 10.8 TL ET
-BT 1 0 0 1 318 440.24 Tm (NO) Tj T* ET
+BT 1 0 0 1 318 419.24 Tm (NO) Tj T* ET
 .012 .537 .282 rg
 BT /F2 9 Tf 10.8 TL ET
-BT 1 0 0 1 250 419.12 Tm (YES) Tj T* ET
+BT 1 0 0 1 250 389.5 Tm (YES) Tj T* ET
 .875 .122 .149 rg
 BT /F2 9 Tf 10.8 TL ET
-BT 1 0 0 1 318 382.06 Tm (NO) Tj T* ET
+BT 1 0 0 1 359 389.5 Tm (NO) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 296.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
+BT 1 0 0 1 42 307.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 280 Tm (1. Look at the frost pattern on the rear wall. If it is only a light sheet, that can be normal) Tj T* ET
+BT 1 0 0 1 58 291 Tm (1. Look at the frost pattern on the rear wall. If it is only a light sheet, that can be normal) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 270 Tm (cycling: set the dial to mid, about 4 to 5, run overnight, then look again. If frost is heavy or) Tj T* ET
+BT 1 0 0 1 58 281 Tm (cycling: set the dial to mid, about 4 to 5, run overnight, then look again. If frost is heavy or) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 260 Tm (starts halfway down, keep going.) Tj T* ET
+BT 1 0 0 1 58 271 Tm (starts halfway down, keep going.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 247 Tm (2. Check the temperature dial. If it is at max, set it to about 4 to 5, let the fridge run) Tj T* ET
+BT 1 0 0 1 58 258 Tm (2. Check the temperature dial. If it is at max, set it to about 4 to 5, let the fridge run) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 237 Tm (overnight, then look at the pattern again. If the dial is already mid, go to the gasket next.) Tj T* ET
+BT 1 0 0 1 58 248 Tm (overnight, then look at the pattern again. If the dial is already mid, go to the gasket next.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 224 Tm (3. Check the door gasket with a dollar-bill test. If the bill slides out with no drag, reseat or) Tj T* ET
+BT 1 0 0 1 58 235 Tm (3. Check the door gasket with a dollar-bill test. If the bill slides out with no drag, reseat or) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 214 Tm (repair the gasket, then clear the rear drain and trough and recheck in 24 to 48 hours. If the) Tj T* ET
+BT 1 0 0 1 58 225 Tm (repair the gasket, then clear the rear drain and trough and recheck in 24 to 48 hours. If the) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 204 Tm (gasket holds, clear the rear drain and trough next.) Tj T* ET
+BT 1 0 0 1 58 215 Tm (gasket holds, clear the rear drain and trough next.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 191 Tm (4. Clear the rear drain and trough so melt water can leave. If the drain is open and the gasket is) Tj T* ET
+BT 1 0 0 1 58 202 Tm (4. Clear the rear drain and trough so melt water can leave. If the drain is open and the gasket is) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 181 Tm (good, recheck the frost pattern in 24 to 48 hours.) Tj T* ET
+BT 1 0 0 1 58 192 Tm (good, recheck the frost pattern in 24 to 48 hours.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 168 Tm (5. After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If) Tj T* ET
+BT 1 0 0 1 58 179 Tm (5. After 24 to 48 hours, if the frost is gone or only a light sheet remains, you are done. If) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 158 Tm (heavy frost returns, replace the unit from the Ice and Moisture section of the Furrion fridge) Tj T* ET
-.122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 148 Tm (service manual.) Tj T* ET
+BT 1 0 0 1 58 169 Tm (heavy frost returns, replace the cooling unit.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 123.5 Tm (DO NOT) Tj T* ET
+BT 1 0 0 1 42 144.5 Tm (DO NOT) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 107 Tm (- Do not knife the ice off the rear wall.) Tj T* ET
+BT 1 0 0 1 44 128 Tm (- Do not knife the ice off the rear wall.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 95 Tm (- Do not assume a sealed-system failure from top-half frost alone.) Tj T* ET
+BT 1 0 0 1 44 116 Tm (- Do not assume a sealed-system failure from top-half frost alone.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 69.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
+BT 1 0 0 1 42 90.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 53 Tm (- Furrion FCR08/FCR10 SM CCD-0008122 page 36) Tj T* ET
+BT 1 0 0 1 44 74 Tm (- Furrion FCR08/FCR10 SM CCD-0008122 page 36) Tj T* ET
+.35 .36 .38 rg
+BT /F1 8 Tf 9.6 TL ET
+BT 1 0 0 1 44 63 Tm (Figures: Fig. 36 - Furrion FCR08/FCR10 SM CCD-0008122 p.36) Tj T* ET
  
 endstream
 endobj
@@ -442,11 +439,11 @@ xref
 0000034417 00000 n 
 0000034715 00000 n 
 0000034780 00000 n 
-0000043861 00000 n 
+0000043673 00000 n 
 trailer
 <<
 /ID 
-[<7fce8f04834ed73856ed07989cecce57><7fce8f04834ed73856ed07989cecce57>]
+[<b88d02b33522cd4bf8c352bb7fddb05c><b88d02b33522cd4bf8c352bb7fddb05c>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 8 0 R
@@ -454,5 +451,5 @@ trailer
 /Size 12
 >>
 startxref
-44409
+44221
 %%EOF

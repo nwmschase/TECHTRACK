@@ -52,7 +52,7 @@ endobj
 endobj
 8 0 obj
 <<
-/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919153957+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919153957+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
+/Author (Tacoma RV Center / TechTrack) /CreationDate (D:20260919154503+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20260919154503+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
   /Subject (unspecified) /Title (Bay procedure PDF - WO-FACR) /Trapped /False
 >>
 endobj
@@ -63,7 +63,7 @@ endobj
 endobj
 10 0 obj
 <<
-/Length 8472
+/Length 8673
 >>
 stream
 1 0 0 1 0 0 cm  BT /F1 12 Tf 14.4 TL ET
@@ -90,174 +90,159 @@ n 36 630 540 16 re B*
 1 1 1 rg
 .72 .74 .76 RG
 .8 w
-n 36 576 540 54 re B*
+n 36 587 540 43 re B*
 .941 .949 .969 rg
 .004 .078 .486 RG
 1.4 w
 n
-42 358 m
-570 358 l
-573.3168 358 576 360.6832 576 364 c
-576 562 l
-576 565.3168 573.3168 568 570 568 c
-42 568 l
-38.6832 568 36 565.3168 36 562 c
-36 364 l
-36 360.6832 38.6832 358 42 358 c
+42 327 m
+570 327 l
+573.3168 327 576 329.6832 576 333 c
+576 573 l
+576 576.3168 573.3168 579 570 579 c
+42 579 l
+38.6832 579 36 576.3168 36 573 c
+36 333 l
+36 329.6832 38.6832 327 42 327 c
 h
 B*
 .012 .537 .282 rg
 .004 .078 .486 RG
 1.5 w
 n
-411 529 m
-411 539.4934 363.9899 548 306 548 c
-248.0101 548 201 539.4934 201 529 c
-201 518.5066 248.0101 510 306 510 c
-363.9899 510 411 518.5066 411 529 c
+461 528 m
+461 541.8071 391.6041 553 306 553 c
+220.3959 553 151 541.8071 151 528 c
+151 514.1929 220.3959 503 306 503 c
+391.6041 503 461 514.1929 461 528 c
+B*
+1 .949 .82 rg
+.004 .078 .486 RG
+1.7 w
+n 306 493.48 m 396 453.48 l 306 413.48 l 216 453.48 l h
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.4 w
 n
-187 471.76 m
-425 471.76 l
-428.3168 471.76 431 474.4432 431 477.76 c
-431 505.76 l
-431 509.0768 428.3168 511.76 425 511.76 c
-187 511.76 l
-183.6832 511.76 181 509.0768 181 505.76 c
-181 477.76 l
-181 474.4432 183.6832 471.76 187 471.76 c
+60 421.48 m
+278 421.48 l
+281.3168 421.48 284 424.1632 284 427.48 c
+284 479.48 l
+284 482.7968 281.3168 485.48 278 485.48 c
+60 485.48 l
+56.6832 485.48 54 482.7968 54 479.48 c
+54 427.48 l
+54 424.1632 56.6832 421.48 60 421.48 c
 h
 B*
 1 .949 .82 rg
 .004 .078 .486 RG
 1.7 w
-n 306 480.72 m 372 451.72 l 306 422.72 l 240 451.72 l h
-B*
-1 1 1 rg
-.004 .078 .486 RG
-1.4 w
-n
-70.6 431.72 m
-208.6 431.72 l
-211.9168 431.72 214.6 434.4032 214.6 437.72 c
-214.6 465.72 l
-214.6 469.0368 211.9168 471.72 208.6 471.72 c
-70.6 471.72 l
-67.2832 471.72 64.6 469.0368 64.6 465.72 c
-64.6 437.72 l
-64.6 434.4032 67.2832 431.72 70.6 431.72 c
-h
-B*
-1 1 1 rg
-.004 .078 .486 RG
-1.4 w
-n
-197 391.68 m
-415 391.68 l
-418.3168 391.68 421 394.3632 421 397.68 c
-421 425.68 l
-421 428.9968 418.3168 431.68 415 431.68 c
-197 431.68 l
-193.6832 431.68 191 428.9968 191 425.68 c
-191 397.68 l
-191 394.3632 193.6832 391.68 197 391.68 c
-h
+n 306 425 m 396 385 l 306 345 l 216 385 l h
 B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 1.5 w
 n
-411 389 m
-411 399.4934 363.9899 408 306 408 c
-248.0101 408 201 399.4934 201 389 c
-201 378.5066 248.0101 370 306 370 c
-363.9899 370 411 378.5066 411 389 c
+290 378 m
+290 396.2254 237.1696 411 172 411 c
+106.8304 411 54 396.2254 54 378 c
+54 359.7746 106.8304 345 172 345 c
+237.1696 345 290 359.7746 290 378 c
+B*
+.004 .078 .486 rg
+.004 .078 .486 RG
+1.5 w
+n
+558 373 m
+558 388.464 506.5127 401 443 401 c
+379.4873 401 328 388.464 328 373 c
+328 357.536 379.4873 345 443 345 c
+506.5127 345 558 357.536 558 373 c
 B*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 510 m 306 511.76 l S
+n 306 503 m 306 493.48 l S
 .004 .078 .486 rg
-n 306 511.76 m 303.3 505.76 l 308.7 505.76 l h
+n 306 493.48 m 308.7 499.48 l 303.3 499.48 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 471.76 m 306 480.72 l S
+n 216 453.48 m 284 453.48 l S
 .004 .078 .486 rg
-n 306 480.72 m 303.3 474.72 l 308.7 474.72 l h
+n 284 453.48 m 278 456.18 l 278 450.78 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 240 451.72 m 214.6 451.72 l S
+n 306 413.48 m 306 425 l S
 .004 .078 .486 rg
-n 214.6 451.72 m 220.6 449.02 l 220.6 454.42 l h
+n 306 425 m 303.3 419 l 308.7 419 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 422.72 m 306 431.68 l S
+n 169 421.48 m 216 385 l S
 .004 .078 .486 rg
-n 306 431.68 m 303.3 425.68 l 308.7 425.68 l h
+n 216 385 m 212.9157 390.8118 l 209.6047 386.546 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 139.6 431.72 m 191 411.68 l S
+n 216 385 m 290 378 l S
 .004 .078 .486 rg
-n 191 411.68 m 186.3906 416.3751 l 184.4291 411.3439 l h
+n 290 378 m 284.2809 381.253 l 283.7724 375.877 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1.15 w
-n 306 391.68 m 306 408 l S
+n 396 385 m 328 373 l S
 .004 .078 .486 rg
-n 306 408 m 303.3 402 l 308.7 402 l h
+n 328 373 m 334.3779 371.3838 l 333.4395 376.7016 l h
 f*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 256 540 94 re B*
+n 36 175 540 144 re B*
 .012 .537 .282 rg
 .012 .537 .282 RG
 .4 w
-n 36 334 540 16 re B*
+n 36 303 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 321 8 8 re B*
+n 44 290 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 298 8 8 re B*
+n 44 257 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 285 8 8 re B*
+n 44 224 8 8 re B*
 1 1 1 rg
 .004 .078 .486 RG
 .9 w
-n 44 262 8 8 re B*
+n 44 201 8 8 re B*
 1 .984 .941 rg
 .875 .122 .149 RG
 1.1 w
-n 36 192 540 58 re B*
+n 36 135 540 34 re B*
 .875 .122 .149 rg
 .875 .122 .149 RG
 .4 w
-n 36 234 540 16 re B*
+n 36 153 540 16 re B*
 1 1 1 rg
 .004 .078 .486 RG
 1 w
-n 36 106 540 78 re B*
+n 36 49 540 78 re B*
 .004 .078 .486 rg
 .004 .078 .486 RG
 .4 w
-n 36 168 540 16 re B*
+n 36 111 540 16 re B*
 1 1 1 rg
 BT /F2 13 Tf 15.6 TL ET
 BT 1 0 0 1 46 737 Tm (BAY PROCEDURE) Tj T* ET
@@ -293,7 +278,7 @@ BT /F2 7 Tf 8.4 TL ET
 BT 1 0 0 1 44 676 Tm (PRIMARY) Tj T* ET
 .122 .122 .141 rg
 BT /F2 9 Tf 10.8 TL ET
-BT 1 0 0 1 114 676 Tm (Furrion rooftop HVAC service manual, assembly and condensate. The Chill book is for layout.) Tj T* ET
+BT 1 0 0 1 114 676 Tm (Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
 BT 1 0 0 1 42 634.5 Tm (WHAT THIS PATTERN USUALLY MEANS) Tj T* ET
@@ -302,92 +287,104 @@ BT /F1 9 Tf 10.8 TL ET
 BT 1 0 0 1 44 616 Tm (A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and condensate) Tj T* ET
 .122 .122 .141 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 605 Tm (problem. Work from the Furrion rooftop HVAC service manual for the base pan, the drain, and) Tj T* ET
+BT 1 0 0 1 44 605 Tm (problem. Prove the evaporator pan, the drain, the base-pan slope, and suction-line icing before) Tj T* ET
 .122 .122 .141 rg
 BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 594 Tm (freeze or suction icing. The Furrion Chill model book is fine for layout. This is not a Dometic) Tj T* ET
-.122 .122 .141 rg
-BT /F1 9 Tf 10.8 TL ET
-BT 1 0 0 1 44 583 Tm (rooftop job, and it is not a Unity or OneControl board job.) Tj T* ET
+BT 1 0 0 1 44 594 Tm (you condemn the sealed system.) Tj T* ET
 .004 .078 .486 rg
 BT /F2 8 Tf 9.6 TL ET
-BT 1 0 0 1 46 552 Tm (VISUAL FLOWCHART) Tj T* ET
+BT 1 0 0 1 46 563 Tm (VISUAL FLOWCHART) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 261.6037 531.25 Tm (The rooftop unit is freezing) Tj T* ET
-BT 1 0 0 1 264.3112 522.25 Tm (or leaking into the coach.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 201.447 525.3 Tm (The rooftop unit is freezing or leaking into the coach.) Tj T* ET
 .122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 250.7625 494.01 Tm (Inspect the rooftop assembly, the) Tj T* ET
-BT 1 0 0 1 235.3313 485.01 Tm (evaporator pan, and the condensate drain.) Tj T* ET
+BT /F2 9.5 Tf 11.4 TL ET
+BT 1 0 0 1 270.8927 456.88 Tm (Drain restricted) Tj T* ET
+BT 1 0 0 1 277.7565 444.38 Tm (or pan iced?) Tj T* ET
 .122 .122 .141 rg
-BT /F2 7.5 Tf 9 TL ET
-BT 1 0 0 1 285.9937 458.47 Tm (Is the drain) Tj T* ET
-BT 1 0 0 1 284.1187 449.47 Tm (restricted or) Tj T* ET
-BT 1 0 0 1 281.8275 440.47 Tm (the pan iced?) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 116.485 462.78 Tm (Clear the ice or restriction.) Tj T* ET
+BT 1 0 0 1 106.729 450.78 Tm (Confirm water leaves the drain.) Tj T* ET
+BT 1 0 0 1 129.481 438.78 Tm (Then retest cooling.) Tj T* ET
 .122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 103.7537 453.97 Tm (Clear the drain or ice.) Tj T* ET
-BT 1 0 0 1 101.4587 444.97 Tm (Confirm the drain path.) Tj T* ET
-.122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 249.51 413.93 Tm (Retest cooling and watch the pan.) Tj T* ET
-BT 1 0 0 1 260.7675 404.93 Tm (Stay on the assembly path.) Tj T* ET
+BT /F2 9.5 Tf 11.4 TL ET
+BT 1 0 0 1 262.7038 388.4 Tm (Does freeze or leak) Tj T* ET
+BT 1 0 0 1 267.9952 375.9 Tm (return on retest?) Tj T* ET
 1 1 1 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 262.8525 391.25 Tm (Stay on the assembly and) Tj T* ET
-BT 1 0 0 1 245.1262 382.25 Tm (condensate path in the rooftop book.) Tj T* ET
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 118.4725 387.3 Tm (Check base-pan slope and) Tj T* ET
+BT 1 0 0 1 111.4795 375.3 Tm (suction-line icing. Correct that,) Tj T* ET
+BT 1 0 0 1 110.719 363.3 Tm (then retest. Replace only after.) Tj T* ET
+1 1 1 rg
+BT /F1 9 Tf 10.8 TL ET
+BT 1 0 0 1 379.226 376.3 Tm (Drain is clear and cooling holds.) Tj T* ET
+BT 1 0 0 1 414.731 364.3 Tm (You are done.) Tj T* ET
 .012 .537 .282 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 227.3 459.72 Tm (YES) Tj T* ET
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 250 461.48 Tm (YES) Tj T* ET
 .875 .122 .149 rg
-BT /F2 7 Tf 8.4 TL ET
-BT 1 0 0 1 318 427.2 Tm (NO) Tj T* ET
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 318 419.24 Tm (NO) Tj T* ET
+.012 .537 .282 rg
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 253 389.5 Tm (YES) Tj T* ET
+.875 .122 .149 rg
+BT /F2 9 Tf 10.8 TL ET
+BT 1 0 0 1 362 387 Tm (NO) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 338.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
+BT 1 0 0 1 42 307.5 Tm (BAY ORDER \(DO THIS FIRST\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 322 Tm (1. Open the Furrion rooftop HVAC service manual for the assembly and condensate path. The Chill) Tj T* ET
+BT 1 0 0 1 58 291 Tm (1. Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 312 Tm (model book is fine for layout.) Tj T* ET
+BT 1 0 0 1 58 281 Tm (restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 299 Tm (2. Inspect the rooftop assembly, the evaporator pan, and the condensate drain.) Tj T* ET
+BT 1 0 0 1 58 271 Tm (drain, then retest cooling. If the pan is dry and the drain is open, go to the next check.) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 286 Tm (3. Clear ice or a restricted drain and confirm the drain path before you condemn the sealed) Tj T* ET
+BT 1 0 0 1 58 258 Tm (2. Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up,) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 276 Tm (system.) Tj T* ET
+BT 1 0 0 1 58 248 Tm (clear the trough and the hose, then retest cooling. If water leaves freely, run cooling and watch) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 58 263 Tm (4. Retest cooling. If the freeze or leak returns, stay on the assembly and condensate path.) Tj T* ET
+BT 1 0 0 1 58 238 Tm (the pan.) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 225 Tm (3. Retest cooling and watch the pan and the interior. If the freeze or leak is gone, you are done.) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 215 Tm (If ice or drip returns with a clear drain, check the base-pan slope and suction-line icing next.) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 202 Tm (4. If the base pan is tilted or the suction line is iced, correct that and retest. If the pan is) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 192 Tm (level, the suction line is clear, and the freeze or leak still returns, replace the rooftop unit) Tj T* ET
+.122 .122 .141 rg
+BT /F1 7.5 Tf 9 TL ET
+BT 1 0 0 1 58 182 Tm (after that assembly prove.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 238.5 Tm (DO NOT) Tj T* ET
+BT 1 0 0 1 42 157.5 Tm (DO NOT) Tj T* ET
 .122 .122 .141 rg
 BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 222 Tm (- Do not start at Unity or OneControl board manuals for this rooftop freeze.) Tj T* ET
-.122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 210 Tm (- Do not start at a Dometic-only rooftop manual for a Furrion rooftop unit.) Tj T* ET
-.122 .122 .141 rg
-BT /F1 7.5 Tf 9 TL ET
-BT 1 0 0 1 44 198 Tm (- Do not invent OEM steps, and do not skip the drain and base-pan check.) Tj T* ET
+BT 1 0 0 1 44 141 Tm (- Do not condemn the sealed system before you clear the drain and the pan.) Tj T* ET
 1 1 1 rg
 BT /F2 8.5 Tf 10.2 TL ET
-BT 1 0 0 1 42 172.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
+BT 1 0 0 1 42 115.5 Tm (SOURCES \(SHOP DOCUMENT LIBRARY\)) Tj T* ET
 .122 .122 .141 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 156 Tm (- Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990) Tj T* ET
+BT 1 0 0 1 44 99 Tm (- Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990) Tj T* ET
 .122 .122 .141 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 145 Tm (- Furrion Chill FACR CCD-0008666) Tj T* ET
+BT 1 0 0 1 44 88 Tm (- Furrion Chill FACR CCD-0008666) Tj T* ET
 .35 .36 .38 rg
 BT /F1 8 Tf 9.6 TL ET
-BT 1 0 0 1 44 134 Tm (Figures: Rooftop assembly, base pan, and drain - Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-...) Tj T* ET
+BT 1 0 0 1 44 77 Tm (Figures: Rooftop assembly, base pan, and drain - Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-...) Tj T* ET
  
 endstream
 endobj
@@ -435,11 +432,11 @@ xref
 0000021559 00000 n 
 0000021858 00000 n 
 0000021923 00000 n 
-0000030447 00000 n 
+0000030648 00000 n 
 trailer
 <<
 /ID 
-[<814d0e1da4400c8e00c05ff681658213><814d0e1da4400c8e00c05ff681658213>]
+[<5db9f8b0a4843ceecfe7b13a469ba88d><5db9f8b0a4843ceecfe7b13a469ba88d>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 8 0 R
@@ -447,5 +444,5 @@ trailer
 /Size 12
 >>
 startxref
-31045
+31246
 %%EOF
