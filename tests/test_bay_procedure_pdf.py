@@ -18,12 +18,15 @@ from bay_procedure import (
     compose_sheet,
     count_pdf_draw_ops,
     firefly_has_forbidden_module_hunt,
+    flowchart_boxes_overlap,
+    flowchart_node_rects,
     firefly_sheet_uses_service_names,
     pdf_content_operators,
     procedure_body_text,
     procedure_plain_text,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
+    sheet_standard_violations,
     suggested_pdf_filename,
     uses_wired_coach_can_jargon,
 )
@@ -691,6 +694,8 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         src = Path(__file__).resolve().parents[1].joinpath("bay_procedure.py").read_text()
         self.assertIn("BAY_SHEET_STANDARD", src)
         self.assertIn("Standing sheet standard", src)
+        self.assertIn("inherit BAY_SHEET_STANDARD", src)
+        self.assertIn("def sheet_standard_violations", src)
 
     def test_ice_and_facr_are_full_story_not_tip_cards(self):
         ice = compile_bay_procedure(
@@ -738,6 +743,55 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         self.assertFalse(body_uses_stays_open(procedure_body_text(proc)))
         self.assertTrue(proc.flowchart.readable)
         self.assertGreaterEqual(len(compose_sheet(proc)), 2)
+        self.assertEqual(
+            [n.text for n in proc.flowchart.nodes],
+            [
+                "Manual Mode flashes home. Auto Level still works.\nClear sticky errors. Check POWER CONNECTOR.",
+                "Does Auto\nstill work?",
+                "Leave the rubber-boot terminator in.\nUnplug the Firefly CAN cable only.\nThen try Manual Mode again.",
+                "This is not the Firefly path.\nStay on Level Up hydraulics.",
+                "Does Manual\nMode hold?",
+                "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
+                "Firefly CAN is ruled out.\nDiagnose the remaining\nLevel Up path.",
+            ],
+        )
+        yes = [e for e in proc.flowchart.edges if e.label.upper() == "YES"]
+        no = [e for e in proc.flowchart.edges if e.label.upper() == "NO"]
+        self.assertTrue(all(e.from_side == "bottom" for e in yes))
+        self.assertTrue(all(e.from_side == "right" for e in no))
+
+
+class TestOemFlowchartLayout(unittest.TestCase):
+    """Large yes/no boxes and diamonds must not smash into each other."""
+
+    FRAME = (36.0, 50.0, 540.0, 612.0)
+
+    def test_hit_paths_have_spaced_oem_boxes(self):
+        cases = (
+            (WO_COMPLAINT, "Furrion", WO_MODEL, "Refrigerators"),
+            ("FACR08 freeze up interior leak condensate", "Furrion", "FACR08", "Air Conditioning"),
+            (MANUAL_MODE_DUMP_AUTO, "", "Level Up Advantage 807662", "Leveling"),
+        )
+        for concern, brand, model, category in cases:
+            proc = compile_bay_procedure(
+                concern=concern, brand=brand, model=model, category=category
+            )
+            rects = flowchart_node_rects(proc.flowchart, *self.FRAME)
+            hits = flowchart_boxes_overlap(rects, gap=14.0)
+            self.assertEqual(hits, [], (concern, hits, rects))
+            self.assertTrue(any(n.kind == "decision" and n.w >= 200 and n.h >= 90 for n in proc.flowchart.nodes))
+            self.assertTrue(any(n.w >= 250 for n in proc.flowchart.nodes))
+            pages = compose_sheet(proc)
+            flow_h = max(
+                sh.h for sh in pages[0].shapes if sh.kind == "roundrect" and sh.h > 200
+            )
+            self.assertGreaterEqual(flow_h, 400, concern)
+
+    def test_sheet_standard_machine_checklist(self):
+        self.assertIn("network plugs", sheet_standard_violations("unplug the network plugs"))
+        self.assertIn("stays open", sheet_standard_violations("Manual Mode stays open"))
+        self.assertIn("open the SM", sheet_standard_violations("open the service manual next"))
+        self.assertEqual(sheet_standard_violations("Check the POWER CONNECTOR. If it holds, call Firefly."), [])
 
 
 class TestNavAndGdUntouched(unittest.TestCase):
