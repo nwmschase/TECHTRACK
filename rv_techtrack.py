@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.14.0
+RV TechTrack v4.15.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -58,6 +58,7 @@ RV TechTrack v4.14.0
 - v4.13.11: Furrion FACR* rooftop freeze/condensate/base-pan ranks CCD-0007990 with CCD-0008666
 - v4.13.12: Level Up Manual Mode flash-home + Auto works is Firefly/OneControl CAN isolate (terminator in)
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
+- v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
 - Mobile-friendly
 """
 import streamlit as st
@@ -4902,9 +4903,11 @@ with tab_jobs:
     st.subheader(f"🧾 {BAY_PROCEDURE_LABEL}")
     st.caption(
         "Enter the customer concern. TechTrack retrieves from this shop's Document Library "
-        "(same stack as Guided Diagnostics — no live web) and compiles a printable bay procedure: "
-        "header, ordered diagnostic checks, cited library figures when available, "
-        "and an optional blank Concern / Cause / Correction block. "
+        "(same stack as Guided Diagnostics — no live web) and compiles a printable bay sheet: "
+        "header (concern, model, date, WO#, primary OEM cite), what this pattern usually means, "
+        "a drawn yes/no flowchart, bay-order punch list, do-not list, cited library figures "
+        "when available, and sources with real IDs/pages. "
+        "Optional blank 3C is a small footer only — never the body. "
         "Guided Diagnostics chat is unchanged. This does not write a warranty story."
     )
 
@@ -4940,10 +4943,10 @@ with tab_jobs:
             st.image(bay_img, caption="Plate photo", width=280)
             apply_plate_read_to_model_key("bay_model", bay_img, "bay_plate_read_btn")
     bay_include_3c = st.checkbox(
-        "Include blank Concern / Cause / Correction block",
-        value=True,
+        "Include blank 3C footer (small — not the body)",
+        value=False,
         key="bay_include_3c",
-        help="Left blank on purpose. TechTrack does not auto-write the warranty story.",
+        help="Tiny Concern / Cause / Correction line at the bottom. TechTrack does not write the warranty story.",
     )
     if st.button(f"Generate {BAY_PROCEDURE_LABEL}", type="primary", key="bay_generate"):
         if not (bay_concern or "").strip():
@@ -4969,8 +4972,9 @@ with tab_jobs:
             st.session_state["bay_pdf_preview"] = {
                 "concern": proc.concern,
                 "model": proc.model_line,
+                "primary_cite": proc.primary_cite,
                 "sources": proc.sources,
-                "check_count": len(proc.checks),
+                "check_count": len(proc.bay_order),
                 "figure_count": len(proc.figures),
             }
             st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
@@ -4982,7 +4986,8 @@ with tab_jobs:
             st.markdown(
                 f"**Concern:** {preview.get('concern') or '—'}  \n"
                 f"**Model:** {preview.get('model') or '—'}  \n"
-                f"**Checks:** {preview.get('check_count') or 0} · "
+                f"**Primary OEM cite:** {preview.get('primary_cite') or '—'}  \n"
+                f"**Bay-order steps:** {preview.get('check_count') or 0} · "
                 f"**Cited figures:** {preview.get('figure_count') or 0}"
             )
             srcs = preview.get("sources") or []
