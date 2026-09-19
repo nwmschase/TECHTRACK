@@ -212,6 +212,24 @@ def body_uses_stays_open(text: str) -> bool:
     return bool(STAYS_OPEN_RE.search(text or ""))
 
 
+def sheet_standard_violations(text: str) -> list[str]:
+    """Machine checklist for BAY_SHEET_STANDARD. New concerns inherit these bans."""
+    hits = []
+    if uses_wired_coach_can_jargon(text):
+        hits.append("wired coach CAN")
+    if body_uses_network_plugs(text):
+        hits.append("network plugs")
+    if body_uses_power_looks_sane(text):
+        hits.append("power looks sane")
+    if body_uses_stays_open(text):
+        hits.append("stays open")
+    if body_tells_tech_to_open_manual(text):
+        hits.append("open the SM")
+    if body_uses_coach_donots(text):
+        hits.append("coach do-not")
+    return hits
+
+
 # ---------------------------------------------------------------------------
 # Data
 # ---------------------------------------------------------------------------
@@ -272,6 +290,7 @@ class DrawnShape:
     stroke: tuple = NAVY
     stroke_w: float = 1.2
     radius: float = 4.0
+    points: list = field(default_factory=list)
 
 
 @dataclass
@@ -355,62 +374,62 @@ def _ice_path() -> dict:
                     "start",
                     "Ice or frost is on the rear wall of the fridge.",
                     0.50,
-                    0.14,
-                    w=300,
-                    h=50,
+                    0.09,
+                    w=400,
+                    h=66,
                 ),
                 FlowNode(
                     "d1",
                     "decision",
                     "Light sheet only,\nor dial at max?",
-                    0.50,
-                    0.48,
-                    w=180,
-                    h=80,
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
                 ),
                 FlowNode(
                     "a1",
                     "process",
                     "Set the dial to about 4 to 5.\nDefrost, dry, and clear the drain.",
-                    0.18,
-                    0.48,
-                    w=230,
-                    h=62,
+                    0.32,
+                    0.49,
+                    w=250,
+                    h=80,
                 ),
                 FlowNode(
                     "d2",
                     "decision",
                     "Does the gasket fail\na dollar-bill test?",
-                    0.50,
-                    0.84,
-                    w=180,
-                    h=80,
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
                 ),
                 FlowNode(
                     "y2",
                     "end",
                     "Repair or reseat the gasket.\nClear the drain. Recheck 24 to 48 hours.",
-                    0.18,
-                    0.84,
-                    w=230,
-                    h=66,
+                    0.32,
+                    0.91,
+                    w=270,
+                    h=78,
                 ),
                 FlowNode(
                     "n2",
                     "end",
                     "Clear the drain. Recheck 24 to 48 hours.\nIf heavy frost returns, replace the cooling unit.",
                     0.82,
-                    0.84,
-                    w=236,
-                    h=66,
+                    0.70,
+                    w=200,
+                    h=78,
                 ),
             ],
             edges=[
                 FlowEdge("s", "d1"),
-                FlowEdge("d1", "a1", "YES", "left", "right"),
-                FlowEdge("d1", "d2", "NO", "bottom", "top"),
-                FlowEdge("a1", "d2", "", "bottom", "left"),
-                FlowEdge("d2", "y2", "YES", "left", "right"),
+                FlowEdge("d1", "a1", "YES", "bottom", "top"),
+                FlowEdge("d1", "d2", "NO", "right", "top"),
+                FlowEdge("a1", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
                 FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
@@ -478,62 +497,62 @@ def _facr_path() -> dict:
                     "start",
                     "The rooftop unit is freezing or leaking into the coach.",
                     0.50,
-                    0.14,
-                    w=310,
-                    h=50,
+                    0.09,
+                    w=420,
+                    h=66,
                 ),
                 FlowNode(
                     "d1",
                     "decision",
                     "Drain restricted\nor pan iced?",
-                    0.50,
-                    0.48,
-                    w=180,
-                    h=80,
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
                 ),
                 FlowNode(
                     "a1",
                     "process",
                     "Clear the ice or restriction.\nConfirm water leaves the drain.\nThen retest cooling.",
-                    0.18,
-                    0.48,
-                    w=230,
-                    h=64,
+                    0.32,
+                    0.49,
+                    w=250,
+                    h=84,
                 ),
                 FlowNode(
                     "d2",
                     "decision",
                     "Does freeze or leak\nreturn on retest?",
-                    0.50,
-                    0.84,
-                    w=180,
-                    h=80,
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
                 ),
                 FlowNode(
                     "y2",
                     "end",
                     "Check slope and suction icing.\nCorrect that, then retest.\nReplace the rooftop only after.",
-                    0.18,
-                    0.84,
-                    w=250,
-                    h=78,
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
                 ),
                 FlowNode(
                     "n2",
                     "end",
                     "Drain is clear and cooling holds.\nThat is the confirmed correction.",
                     0.82,
-                    0.84,
-                    w=230,
-                    h=56,
+                    0.70,
+                    w=200,
+                    h=72,
                 ),
             ],
             edges=[
                 FlowEdge("s", "d1"),
-                FlowEdge("d1", "a1", "YES", "left", "right"),
-                FlowEdge("d1", "d2", "NO", "bottom", "top"),
-                FlowEdge("a1", "d2", "", "bottom", "left"),
-                FlowEdge("d2", "y2", "YES", "left", "right"),
+                FlowEdge("d1", "a1", "YES", "bottom", "top"),
+                FlowEdge("d1", "d2", "NO", "right", "top"),
+                FlowEdge("a1", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
                 FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
@@ -589,55 +608,55 @@ def _firefly_path() -> dict:
                     "start",
                     "Manual Mode flashes home. Auto Level still works.\nClear sticky errors. Check POWER CONNECTOR.",
                     0.50,
-                    0.14,
-                    w=360,
-                    h=64,
+                    0.09,
+                    w=420,
+                    h=70,
                 ),
-                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.50, 0.48, w=196, h=90),
+                FlowNode("d1", "decision", "Does Auto\nstill work?", 0.32, 0.29, w=220, h=100),
                 FlowNode(
                     "p2",
                     "process",
                     "Leave the rubber-boot terminator in.\nUnplug the Firefly CAN cable only.\nThen try Manual Mode again.",
-                    0.17,
-                    0.48,
-                    w=258,
-                    h=78,
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
                 ),
                 FlowNode(
                     "n1",
                     "end",
                     "This is not the Firefly path.\nStay on Level Up hydraulics.",
-                    0.83,
-                    0.48,
-                    w=248,
-                    h=70,
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
                 ),
-                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.50, 0.84, w=196, h=90),
+                FlowNode("d2", "decision", "Does Manual\nMode hold?", 0.32, 0.70, w=220, h=100),
                 FlowNode(
                     "y2",
                     "end",
                     "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
-                    0.17,
-                    0.84,
-                    w=258,
-                    h=78,
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
                 ),
                 FlowNode(
                     "n2",
                     "end",
                     "Firefly CAN is ruled out.\nDiagnose the remaining\nLevel Up path.",
-                    0.83,
-                    0.84,
-                    w=248,
-                    h=70,
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
                 ),
             ],
             edges=[
                 FlowEdge("s", "d1"),
-                FlowEdge("d1", "p2", "YES", "left", "right"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
                 FlowEdge("d1", "n1", "NO", "right", "left"),
-                FlowEdge("p2", "d2", "", "bottom", "left"),
-                FlowEdge("d2", "y2", "YES", "left", "right"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
                 FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
@@ -1090,6 +1109,8 @@ def compile_bay_procedure(
     Compile a human bay sheet from product-lock language + ranked library excerpts.
 
     Works with or without live chunks so unit tests do not need a shop DB.
+    New concerns inherit BAY_SHEET_STANDARD automatically (bans, readable
+    flowchart, on-page checks, no "open the SM").
     """
     concern = (concern or "").strip()
     brand = (brand or "").strip()
@@ -1131,11 +1152,13 @@ def compile_bay_procedure(
                 "Use the next cited check from this shop's library excerpts."
             ),
             "flowchart": _generic_flowchart(concern or "Customer concern", extra_steps),
-            "bay_order": extra_steps[:6],
+            "bay_order": extra_steps[:MAX_BAY_ORDER],
             "do_not": [
                 "Do not skip the next cited check.",
             ],
             "sources": [],
+            "flow_tall": True,
+            "full_story": len(extra_steps) >= 6,
         }
 
     sources = _merge_sources(spec.get("sources") or [], _unique_sources(ranked), ice=ice)
@@ -1169,6 +1192,9 @@ def compile_bay_procedure(
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
 
     notes = _lock_note(category, model_text, concern)
+    spec["do_not"] = [
+        item for item in (spec.get("do_not") or []) if not sheet_standard_violations(item)
+    ]
     return BayProcedure(
         concern=concern or "(no concern entered)",
         brand=brand,
@@ -1326,10 +1352,10 @@ def _node_size(node: FlowNode, *, readable: bool = False) -> tuple[float, float]
     if node.w and node.h:
         return node.w, node.h
     if node.kind == "decision":
-        return (196.0, 90.0) if readable else (132.0, 58.0)
+        return (220.0, 100.0) if readable else (132.0, 58.0)
     if node.kind in ("start", "end"):
-        return (300.0, 60.0) if readable else (210.0, 38.0)
-    return (250.0, 68.0) if readable else (230.0, 40.0)
+        return (320.0, 66.0) if readable else (210.0, 38.0)
+    return (270.0, 80.0) if readable else (230.0, 40.0)
 
 
 def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, float]:
@@ -1344,66 +1370,177 @@ def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, f
     return cx, cy
 
 
+def _flowchart_inner(frame_x: float, frame_y: float, frame_w: float, frame_h: float):
+    """Readable OEM gutters — keep boxes off the title bar and frame edge."""
+    return (
+        frame_x + 16,
+        frame_y + 14,
+        frame_w - 32,
+        frame_h - 38,
+    )
+
+
+def place_flowchart_nodes(
+    flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float
+) -> dict[str, tuple[float, float, float, float]]:
+    """Place nodes in PDF space. Clamp to the frame only — never pull neighbors together."""
+    inner_x, inner_y, inner_w, inner_h = _flowchart_inner(frame_x, frame_y, frame_w, frame_h)
+    readable = bool(getattr(flow, "readable", False))
+    placed: dict[str, tuple[float, float, float, float]] = {}
+    for node in flow.nodes:
+        w, h = _node_size(node, readable=readable)
+        cx = inner_x + node.x * inner_w
+        cy = inner_y + inner_h - node.y * inner_h
+        pad = 10 if readable else 2
+        min_cx = inner_x + w / 2 + pad
+        max_cx = inner_x + inner_w - w / 2 - pad
+        min_cy = inner_y + h / 2 + pad
+        max_cy = inner_y + inner_h - h / 2 - pad
+        if min_cx <= max_cx:
+            cx = min(max(cx, min_cx), max_cx)
+        if min_cy <= max_cy:
+            cy = min(max(cy, min_cy), max_cy)
+        placed[node.id] = (cx, cy, w, h)
+    return placed
+
+
+def flowchart_node_rects(
+    flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float
+) -> dict[str, tuple[float, float, float, float]]:
+    """Axis-aligned boxes (x0, y0, x1, y1) after placement."""
+    placed = place_flowchart_nodes(flow, frame_x, frame_y, frame_w, frame_h)
+    return {
+        nid: (cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0)
+        for nid, (cx, cy, w, h) in placed.items()
+    }
+
+
+def flowchart_boxes_overlap(rects: dict[str, tuple[float, float, float, float]], gap: float = 14.0) -> list[tuple[str, str]]:
+    """Pairs whose boxes sit closer than gap. Empty means a finger-walkable chart."""
+    hits = []
+    ids = list(rects)
+    for i, a in enumerate(ids):
+        ax0, ay0, ax1, ay1 = rects[a]
+        for b in ids[i + 1 :]:
+            bx0, by0, bx1, by1 = rects[b]
+            if ax1 + gap > bx0 and bx1 + gap > ax0 and ay1 + gap > by0 and by1 + gap > ay0:
+                hits.append((a, b))
+    return hits
+
+
+def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_side: str):
+    """Orthogonal service-manual elbows. No diagonal cuts across boxes."""
+    pts = [(x1, y1)]
+    if from_side == "bottom" and to_side == "top":
+        if abs(x1 - x2) < 1.5:
+            pts.append((x2, y2))
+        else:
+            mid_y = (y1 + y2) / 2.0
+            pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
+    elif from_side == "top" and to_side == "bottom":
+        if abs(x1 - x2) < 1.5:
+            pts.append((x2, y2))
+        else:
+            mid_y = (y1 + y2) / 2.0
+            pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
+    elif from_side == "right" and to_side == "left":
+        if abs(y1 - y2) < 1.5:
+            pts.append((x2, y2))
+        else:
+            mid_x = (x1 + x2) / 2.0
+            pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
+    elif from_side == "left" and to_side == "right":
+        if abs(y1 - y2) < 1.5:
+            pts.append((x2, y2))
+        else:
+            mid_x = (x1 + x2) / 2.0
+            pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
+    elif from_side == "right" and to_side == "top":
+        out_x = x1 + 48.0
+        if out_x < x2:
+            out_x = (x1 + x2) / 2.0
+        mid_y = y2 + 16.0
+        pts.extend([(out_x, y1), (out_x, mid_y), (x2, mid_y), (x2, y2)])
+    elif from_side == "left" and to_side == "top":
+        out_x = x1 - 36.0
+        mid_y = y2 + 14.0
+        pts.extend([(out_x, y1), (out_x, mid_y), (x2, mid_y), (x2, y2)])
+    elif from_side == "bottom" and to_side == "left":
+        pts.extend([(x1, y2), (x2, y2)])
+    elif from_side == "bottom" and to_side == "right":
+        pts.extend([(x1, y2), (x2, y2)])
+    elif from_side in ("left", "right"):
+        mid_x = (x1 + x2) / 2.0
+        pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
+    else:
+        mid_y = (y1 + y2) / 2.0
+        pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
+    return pts
+
+
+def _branch_label_point(x1: float, y1: float, from_side: str) -> tuple[float, float]:
+    """YES/NO sit on the first arrow segment, off the diamond — not on the question text."""
+    if from_side == "bottom":
+        return x1 + 16.0, y1 - 12.0
+    if from_side == "top":
+        return x1 + 16.0, y1 + 10.0
+    if from_side == "right":
+        return x1 + 10.0, y1 + 14.0
+    if from_side == "left":
+        return x1 - 38.0, y1 + 14.0
+    return x1 + 12.0, y1 + 10.0
+
+
 def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float):
-    """Return (shapes, texts) in PDF space (origin bottom-left)."""
+    """OEM SM flowchart: large boxes/diamonds, orthogonal yes/no, finger-walk spacing."""
     shapes: list[DrawnShape] = []
     texts: list[DrawnText] = []
-    placed: dict[str, tuple[float, float, float, float]] = {}
 
     shapes.append(
-        DrawnShape("roundrect", frame_x, frame_y, frame_w, frame_h, fill=PALE, stroke=NAVY, stroke_w=1.4, radius=6)
+        DrawnShape("roundrect", frame_x, frame_y, frame_w, frame_h, fill=PALE, stroke=NAVY, stroke_w=1.6, radius=6)
     )
     texts.append(
         DrawnText(
             "VISUAL FLOWCHART",
-            frame_x + 10,
-            frame_y + frame_h - 16,
-            w=200,
-            size=8,
+            frame_x + 12,
+            frame_y + frame_h - 18,
+            w=220,
+            size=9,
             bold=True,
             color=NAVY,
         )
     )
 
-    inner_x = frame_x + 10
-    inner_y = frame_y + 10
-    inner_w = frame_w - 20
-    inner_h = frame_h - 28
-
     readable = bool(getattr(flow, "readable", False))
-    for node in flow.nodes:
-        w, h = _node_size(node, readable=readable)
-        cx = inner_x + node.x * inner_w
-        # node.y is top-to-bottom fraction; PDF y is bottom-up
-        cy = inner_y + inner_h - node.y * inner_h
-        # Keep shapes inside the frame.
-        pad = 8 if readable else 2
-        cx = min(max(cx, inner_x + w / 2 + pad), inner_x + inner_w - w / 2 - pad)
-        cy = min(max(cy, inner_y + h / 2 + pad), inner_y + inner_h - h / 2 - pad)
-        placed[node.id] = (cx, cy, w, h)
-        x, y = cx - w / 2, cy - h / 2
-        if node.kind == "decision":
-            shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=1.7))
+    placed = place_flowchart_nodes(flow, frame_x, frame_y, frame_w, frame_h)
+    kind_of = {n.id: n.kind for n in flow.nodes}
+    text_of = {n.id: n.text for n in flow.nodes}
+
+    for nid, (cx, cy, w, h) in placed.items():
+        kind = kind_of.get(nid, "process")
+        x, y = cx - w / 2.0, cy - h / 2.0
+        if kind == "decision":
+            shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=2.0))
+            size = 12.0 if readable else 7.5
+        elif kind in ("start", "end"):
+            fill = GREEN if kind == "start" else NAVY
+            shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.7))
             size = 11.0 if readable else 7.5
-        elif node.kind in ("start", "end"):
-            fill = GREEN if node.kind == "start" else NAVY
-            shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.5))
-            size = 10.5 if readable else 7.5
         else:
-            shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.4, radius=6))
-            size = 10.5 if readable else 7.5
-        color = WHITE if node.kind in ("start", "end") else INK
+            shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.6, radius=7))
+            size = 11.0 if readable else 7.5
+        color = WHITE if kind in ("start", "end") else INK
         texts.append(
             DrawnText(
-                node.text,
+                text_of.get(nid, ""),
                 cx,
                 cy,
-                    w=w - (26 if readable else 14),
-                    size=size,
-                    bold=node.kind == "decision",
-                    color=color,
-                    align="center",
-                    leading=size + (4.0 if readable else 1.5),
+                w=w - (30 if readable else 14),
+                size=size,
+                bold=kind == "decision",
+                color=color,
+                align="center",
+                leading=size + (4.0 if readable else 1.5),
             )
         )
 
@@ -1414,23 +1551,29 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
         tx, ty, tw, th = placed[edge.to_id]
         x1, y1 = _port(fx, fy, fw, fh, edge.from_side)
         x2, y2 = _port(tx, ty, tw, th, edge.to_side)
-        shapes.append(DrawnShape("arrow", x=x1, y=y1, x2=x2, y2=y2, stroke=NAVY, stroke_w=1.15))
+        pts = _route_elbow(x1, y1, x2, y2, edge.from_side, edge.to_side)
+        shapes.append(
+            DrawnShape(
+                "arrow",
+                x=pts[0][0],
+                y=pts[0][1],
+                x2=pts[-1][0],
+                y2=pts[-1][1],
+                stroke=NAVY,
+                stroke_w=1.6 if readable else 1.15,
+                points=pts,
+            )
+        )
         if edge.label:
-            mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-            if edge.from_side == "left":
-                mx, my = mx, my + 8
-            elif edge.from_side == "right":
-                mx, my = mx, my + 8
-            else:
-                mx, my = mx + 12, my
+            mx, my = _branch_label_point(x1, y1, edge.from_side)
             color = GREEN if edge.label.upper() == "YES" else RED
             texts.append(
                 DrawnText(
                     edge.label.upper(),
                     mx,
                     my,
-                    w=36,
-                    size=11 if readable else 7,
+                    w=40,
+                    size=12 if readable else 7,
                     bold=True,
                     color=color,
                     align="left",
@@ -1454,7 +1597,12 @@ def _wrap(text: str, width: int) -> list[str]:
 
 
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
-    """Build drawable pages for a human bay sheet."""
+    """Build drawable pages for a human bay sheet.
+
+    BAY_SHEET_STANDARD is enforced here: readable OEM yes/no flowchart first,
+    then pattern meaning, full bay order, do-not, sources, figures. Long paths
+    paginate. Never clip a long path to a hint card.
+    """
     pages: list[SheetPage] = []
     page = SheetPage()
     pages.append(page)
@@ -1481,19 +1629,20 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         )
     )
 
-    # Header fields — form row, not a stacked bot dump
+    # Compact header so the OEM flowchart can use the rest of page 1.
+    big_flow = bool(getattr(proc.flowchart, "readable", False) or proc.flow_tall)
     header_top = bar_y - 8
-    header_h = 64
+    header_h = 50 if big_flow else 64
     header_y = header_top - header_h
     page.shapes.append(
         DrawnShape("rect", MARGIN, header_y, PAGE_W - 2 * MARGIN, header_h, fill=CREAM, stroke=NAVY, stroke_w=1.0)
     )
-    y = header_top - 16
+    y = header_top - 14
     page.texts.append(DrawnText("CONCERN", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
     concern_lines = _wrap(proc.concern or "-", 88)
     page.texts.append(DrawnText(concern_lines[0], MARGIN + 78, y, w=450, size=9, bold=True, color=INK))
-    y -= 14
-    if len(concern_lines) > 1:
+    y -= 13
+    if len(concern_lines) > 1 and not big_flow:
         page.texts.append(DrawnText(concern_lines[1], MARGIN + 78, y, w=450, size=9, bold=True, color=INK))
         y -= 12
     page.texts.append(DrawnText("MODEL", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
@@ -1502,38 +1651,63 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     page.texts.append(DrawnText(proc.created.strftime("%Y-%m-%d"), MARGIN + 348, y, w=80, size=9, bold=True, color=INK))
     page.texts.append(DrawnText("WO#", MARGIN + 440, y, w=28, size=7, bold=True, color=GREEN))
     page.texts.append(DrawnText(_clip(proc.wo_number or "-", 16), MARGIN + 470, y, w=70, size=9, bold=True, color=INK))
-    y -= 14
+    y -= 13
     page.texts.append(DrawnText("PRIMARY", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
     page.texts.append(DrawnText(_clip(proc.primary_cite or "-", 92), MARGIN + 78, y, w=460, size=9, bold=True, color=INK))
 
-    # What this pattern usually means
-    means_top = header_y - 10
     means_lines = _wrap(proc.pattern_means or "-", 96)
-    means_h = 18 + 11 * max(len(means_lines), 1) + 8
-    means_y = means_top - means_h
-    _add_section_bar(page, MARGIN, means_top - 16, PAGE_W - 2 * MARGIN, "WHAT THIS PATTERN USUALLY MEANS")
-    page.shapes.append(
-        DrawnShape("rect", MARGIN, means_y, PAGE_W - 2 * MARGIN, means_h - 16, fill=WHITE, stroke=RULE, stroke_w=0.8)
-    )
-    ty = means_top - 30
-    for line in means_lines[:8]:
-        page.texts.append(DrawnText(line, MARGIN + 8, ty, w=520, size=9, color=INK))
-        ty -= 11
+    if big_flow:
+        # Finger-walk chart first. Pattern prose lives with the bay order.
+        flow_top = header_y - 8
+        flow_y = MARGIN + 14
+        flow_h = max(420.0, flow_top - flow_y)
+        f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
+        page.shapes.extend(f_shapes)
+        page.texts.extend(f_texts)
+    else:
+        means_top = header_y - 10
+        means_h = 18 + 11 * max(len(means_lines), 1) + 8
+        means_y = means_top - means_h
+        _add_section_bar(page, MARGIN, means_top - 16, PAGE_W - 2 * MARGIN, "WHAT THIS PATTERN USUALLY MEANS")
+        page.shapes.append(
+            DrawnShape("rect", MARGIN, means_y, PAGE_W - 2 * MARGIN, means_h - 16, fill=WHITE, stroke=RULE, stroke_w=0.8)
+        )
+        ty = means_top - 30
+        for line in means_lines[:8]:
+            page.texts.append(DrawnText(line, MARGIN + 8, ty, w=520, size=9, color=INK))
+            ty -= 11
+        flow_top = means_y - 8
+        flow_y = MARGIN + 16
+        flow_h = max(240.0, flow_top - flow_y)
+        f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
+        page.shapes.extend(f_shapes)
+        page.texts.extend(f_texts)
 
-    # Flowchart uses the rest of page 1 — OEM SM finger-walk size, not a tip-card strip.
-    flow_top = means_y - 8
-    flow_y = MARGIN + 16
-    flow_h = max(240.0, flow_top - flow_y)
-    f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
-    page.shapes.extend(f_shapes)
-    page.texts.extend(f_texts)
-
-    # Page 2+: full bay order, do-not, sources. Never clip a long path to a hint card.
+    # Page 2+: pattern meaning, full bay order, do-not, sources.
     body_page = _new_sheet_page()
     pages.append(body_page)
     _paint_top_bar(body_page, "Bay order  ·  Tacoma RV Center")
     y = PAGE_H - MARGIN - 50
     floor = MARGIN + 28
+    if big_flow:
+        _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "WHAT THIS PATTERN USUALLY MEANS")
+        y -= 20
+        body_page.shapes.append(
+            DrawnShape(
+                "rect",
+                MARGIN,
+                y - 11 * max(len(means_lines), 1) - 10,
+                PAGE_W - 2 * MARGIN,
+                11 * max(len(means_lines), 1) + 16,
+                fill=WHITE,
+                stroke=RULE,
+                stroke_w=0.8,
+            )
+        )
+        for line in means_lines[:10]:
+            body_page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=9, color=INK))
+            y -= 11
+        y -= 16
     _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
     y -= 22
     shown_order = proc.bay_order[:MAX_BAY_ORDER]
@@ -1749,9 +1923,17 @@ def _rl_draw_shape(c, sh: DrawnShape):
         p.close()
         c.drawPath(p, stroke=1, fill=1)
     elif sh.kind in ("line", "arrow"):
-        c.line(sh.x, sh.y, sh.x2, sh.y2)
-        if sh.kind == "arrow":
-            _rl_arrowhead(c, sh.x, sh.y, sh.x2, sh.y2, stroke)
+        pts = list(sh.points) if sh.points else [(sh.x, sh.y), (sh.x2, sh.y2)]
+        if len(pts) >= 2:
+            p = c.beginPath()
+            p.moveTo(pts[0][0], pts[0][1])
+            for px, py in pts[1:]:
+                p.lineTo(px, py)
+            c.drawPath(p, stroke=1, fill=0)
+            if sh.kind == "arrow":
+                _rl_arrowhead(c, pts[-2][0], pts[-2][1], pts[-1][0], pts[-1][1], stroke)
+        else:
+            c.line(sh.x, sh.y, sh.x2, sh.y2)
 
 
 def _rl_arrowhead(c, x1, y1, x2, y2, stroke):
@@ -1870,7 +2052,11 @@ def _fpdf_draw_shape(pdf, sh: DrawnShape):
         ]
         pdf.polygon(pts, style="DF")
     elif sh.kind in ("line", "arrow"):
-        pdf.line(sh.x, PAGE_H - sh.y, sh.x2, PAGE_H - sh.y2)
+        pts = list(sh.points) if sh.points else [(sh.x, sh.y), (sh.x2, sh.y2)]
+        if len(pts) < 2:
+            pts = [(sh.x, sh.y), (sh.x2, sh.y2)]
+        for i in range(len(pts) - 1):
+            pdf.line(pts[i][0], PAGE_H - pts[i][1], pts[i + 1][0], PAGE_H - pts[i + 1][1])
 
 
 def _fpdf_draw_text(pdf, tx: DrawnText):
@@ -1977,8 +2163,12 @@ def _raw_shape_ops(sh: DrawnShape) -> list[str]:
         ops.append("h")
         ops.append("B")
     elif sh.kind in ("line", "arrow"):
-        ops.append(f"{sh.x:.1f} {sh.y:.1f} m")
-        ops.append(f"{sh.x2:.1f} {sh.y2:.1f} l")
+        pts = list(sh.points) if sh.points else [(sh.x, sh.y), (sh.x2, sh.y2)]
+        if len(pts) < 2:
+            pts = [(sh.x, sh.y), (sh.x2, sh.y2)]
+        ops.append(f"{pts[0][0]:.1f} {pts[0][1]:.1f} m")
+        for px, py in pts[1:]:
+            ops.append(f"{px:.1f} {py:.1f} l")
         ops.append("S")
     return ops
 
