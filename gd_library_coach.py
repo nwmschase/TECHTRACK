@@ -111,7 +111,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
-- Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18) first — running plus over-cold already proves 12V. Confirm dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary, not fuse-first. Do NOT cite Not Cooling p.34 "running constantly" as a thermostat replace — that branch is coolant leak / replace the unit.
+- Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
 - Lippert Level Up / 807662 Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator). Reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless CAN-out Manual stays. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
@@ -2968,10 +2968,9 @@ def ensure_fridge_ice_moisture_path(reply: str) -> str:
 
 
 # Furrion Arctic FCR08/FCR10 — dial/control OFF, compressor still running / overcooling.
-# CCD-0008122 has no "runs when Off" flowchart. Climax is Spark-Free Thermostat
-# part G 2021128850 after an open C/T prove (inverse of the p.31 jumper).
-# Do NOT cite Not Cooling p.34 "running constantly" as thermostat — that Yes
-# branch is coolant leak / replace the unit.
+# Locked climax cites: open C (blue) / T (black) — inverse of the p.31 jumper —
+# then, if the compressor stops, R&R part G 2021128850 on p.43–45.
+# Locked cites for this prove are p.31 and p.43–45 only.
 FURRION_FCR_DIAL_OFF_RUN_PAGES = (31, 43, 44, 45)
 FCR_DIAL_OFF_RUN_PART = "2021128850"
 FCR_DIAL_OFF_RUN_RETAIL = "C-FCR10DCGTA-007"
@@ -2986,8 +2985,8 @@ FURRION FCR08/FCR10 DIAL OFF / COMPRESSOR STILL RUNNING (CCD-0008122):
 - Compressor already running AND overcool proven means 12V is live. Do NOT lead with Fuse Diagnostics (p.19), 12V continuity (p.20), or diagnostic LED flash / inverter control voltage (p.18).
 - Coach order, one or two checks then wait: (1) confirm the dial is fully OFF past the detent. (2) Seat the capillary probe and the blue/black thermostat wires — CCD-0008122 Repair §2 Thermostat Replacement p.43 steps 2–6, Figs. 59–60. (3) Disconnect flag terminals C (blue) and T (black) and leave them OPEN — no jumper. That is a tech adaptation of Intermittent Thermostat Operation p.31 Figs. 24–25 (OEM jumper forces a run for intermittent / won't-run). Do not call the open-circuit prove an OEM "runs when Off" flowchart.
 - If the compressor STOPS with C/T open: the thermostat was holding a continuous run call. R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per Repair §2 p.43–45 Figs. 57–67 (clocking pin, straighten probe, reseat, reconnect wires).
-- If the compressor KEEPS RUNNING with C/T open: run-call is downstream of the thermostat. Escalate inverter/harness (secondary). At the inverter, C and T may be reversed without affecting performance (p.45 Fig. 70A). Do not go back to the fuse.
-- Cite thermostat path as p.31 and p.43–45. Do NOT cite Not Cooling p.34 "running constantly" as replace-thermostat. On that page, compressor running constantly while NOT cooling correctly is coolant leak / replace the unit.
+- If the compressor KEEPS RUNNING with C/T open: run-call is downstream of the thermostat. Escalate inverter/harness (secondary). At the inverter, C and T may be reversed without affecting performance (p.45 Fig. 70A). Do not go back to the fuse. Leave the dial fully OFF.
+- Locked cites for this prove: p.31 (C/T terminals) and p.43–45 (Spark-Free Thermostat R&R, part G 2021128850). Leave the dial fully OFF.
 - Never invent a dedicated OEM "runs when Off" tree. CCD-0008122 does not publish one.
 """
 DIAL_OFF_RUN_SHOP_LINE = (
@@ -2999,9 +2998,8 @@ DIAL_OFF_RUN_SHOP_LINE = (
     "T (black) and leave them open — no jumper (tech adaptation; inverse of Intermittent "
     "Thermostat Operation p.31 Figs. 24–25). If the compressor stops, R&R Spark-Free "
     "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. "
-    "If it keeps running with C/T open, escalate inverter/harness (p.45 Fig. 70A) — "
-    "not fuse-first. Do not cite Not Cooling p.34 \"running constantly\" as a thermostat "
-    "replace; that branch is coolant leak / replace the unit.\n"
+    "If it keeps running with C/T open, escalate inverter/harness (p.45 Fig. 70A). "
+    "Leave the dial fully OFF. Thermostat cites for this prove are page 31 and pages 43–45 only.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43"
 )
@@ -3010,9 +3008,8 @@ DIAL_OFF_RUN_PART_SHOP_LINE = (
     "The thermostat was holding a continuous run call. R&R Spark-Free Thermostat "
     "part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 Repair §2 "
     "Thermostat Replacement p.43–45 Figs. 57–67: clocking pin to the housing indent, "
-    "straighten the probe, reseat it, reconnect the wires. Do not cite Not Cooling "
-    "p.34 \"running constantly\" — that branch is coolant leak / replace the unit, "
-    "not this Off-but-running prove.\n"
+    "straighten the probe, reseat it, reconnect the wires. "
+    "Cite pages 43–45 for the R&R and page 31 for the open C/T prove.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
 )
@@ -3021,9 +3018,8 @@ DIAL_OFF_RUN_INVERTER_SHOP_LINE = (
     "The run call is downstream of the thermostat — escalate inverter/harness "
     "(secondary), not a fuse recheck and not Spark-Free Thermostat R&R. "
     "CCD-0008122 p.45 Fig. 70A: at the inverter, C and T connections may be reversed "
-    "and that does not affect product performance. Do not cite Not Cooling p.34 "
-    "\"running constantly\" as a thermostat replace; that branch is coolant leak / "
-    "replace the unit.\n"
+    "and that does not affect product performance. "
+    "Cite page 45 for the inverter note and page 31 for the open C/T prove.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 45\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
 )
@@ -3132,11 +3128,23 @@ _DIAL_OFF_WRONG_TREE_RE = re.compile(
     r")",
     re.I,
 )
-_P34_THERMOSTAT_MISCITE_RE = re.compile(
+# Cites outside p.31 and p.43–45, and the written turn-ON sequence, are the wrong tree.
+_PAGE_34_CITE_RE = re.compile(r"\b(?:page\s*34|p\.\s*34)\b", re.I)
+_ON_OFF_AS_WRITTEN_RE = re.compile(
     r"("
-    r"(?:page\s+34|p\.\s*34).{0,90}thermostat|"
-    r"thermostat.{0,90}(?:page\s+34|p\.\s*34)|"
-    r"running\s+constantly.{0,70}(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement)"
+    r"\bpage\s*23\b|\bp\.\s*23\b|"
+    r"on\s*/\s*off\s+diagnostic|"
+    r"\bfig\.?\s*16\b|"
+    r"turn\s+(?:the\s+)?(?:refrigerator|dial|unit)\s+on\b|"
+    r"(?:set\s+)?(?:the\s+)?dial\s+(?:on\s+)?to\s+(?:dial\s+)?(?:position\s+)?[45]\b|"
+    r"wait\s+2\s+hours"
+    r")",
+    re.I,
+)
+_RUNNING_CONSTANT_THERMOSTAT_RE = re.compile(
+    r"("
+    r"running\s+constantly.{0,80}(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement)|"
+    r"(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement).{0,80}running\s+constantly"
     r")",
     re.I,
 )
@@ -3185,8 +3193,8 @@ def _has_dial_off_run_complaint(blob: str) -> bool:
     """
     Dial/control OFF + compressor still running / overcooling, or the natural
     one-liners (won't shut off, runs when Off, frozen solid with control Off).
-    Not-cooling with the dial Off is the opposite OEM tree (turn it ON).
-    Not-cooling + running constantly is p.34 coolant leak, not this branch.
+    Not-cooling with the dial Off is the opposite tree (turn it ON).
+    Not-cooling plus constant run is not this Off-but-running branch.
     """
     t = _norm(blob)
     if not t or _COMPRESSOR_NOT_RUNNING_RE.search(t):
@@ -3277,7 +3285,7 @@ def dial_off_run_search_symptom(category_name: str, model_text: str, symptom: st
 def score_dial_off_run_chunk(page, query: str = "", category: str = "") -> int:
     """
     Higher = CCD-0008122 thermostat operation p.31 and Thermostat Replacement p.43–45.
-    Fuse / 12V continuity / LED p.18 and Not Cooling p.34 lose.
+    Pages 18, 19, 20, and 34 lose.
     """
     raw = _page_text_blob(page)
     title = _page_title(page)
@@ -3308,8 +3316,7 @@ def score_dial_off_run_chunk(page, query: str = "", category: str = "") -> int:
     if q and any(k in q for k in ("thermostat", "2021128850", "overcool", "dial off")):
         if "thermostat" in t:
             score += 4
-    # p.34 mentions thermostat replacement for a different branch (coolant leak /
-    # recalibrate). Always lose that page, plus fuse / continuity / LED pages.
+    # Pages 18, 19, 20, and 34 belong to other trees. Always drop them here.
     if page_no in (18, 19, 20, 34):
         score -= 28
     elif any(
@@ -3333,7 +3340,7 @@ def score_dial_off_run_chunk(page, query: str = "", category: str = "") -> int:
 
 
 def rank_chunks_for_dial_off_run(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer thermostat p.31 and R&R p.43–45 over fuse, continuity, LED, and p.34."""
+    """Prefer thermostat p.31 and R&R p.43–45. Drop pages 18, 19, 20, and 34."""
     scored = [(score_dial_off_run_chunk(ch, query), ch) for ch in (chunks or [])]
     scored.sort(key=lambda x: x[0], reverse=True)
     thermo = [
@@ -3356,15 +3363,20 @@ def rank_chunks_for_dial_off_run(chunks, query: str = "", limit: int = 8) -> lis
 
 
 def reply_opens_dial_off_wrong_tree(reply: str) -> bool:
-    """True when a coach reply leads with fuse, 12V continuity, LED p.18, or p.34 thermostat."""
+    """True when a coach reply leads with fuse, 12V, LED, or a cite outside p.31 and p.43–45."""
     t = reply or ""
     if not t.strip():
         return False
-    for cre in (_DIAL_OFF_WRONG_TREE_RE, _P34_THERMOSTAT_MISCITE_RE):
-        for m in cre.finditer(t):
-            if _mention_is_negated(t, m.start()):
-                continue
-            return True
+    if (
+        _PAGE_34_CITE_RE.search(t)
+        or _ON_OFF_AS_WRITTEN_RE.search(t)
+        or _RUNNING_CONSTANT_THERMOSTAT_RE.search(t)
+    ):
+        return True
+    for m in _DIAL_OFF_WRONG_TREE_RE.finditer(t):
+        if _mention_is_negated(t, m.start()):
+            continue
+        return True
     return False
 
 
@@ -3411,7 +3423,7 @@ def reply_names_dial_off_inverter_secondary(reply: str) -> bool:
 
 
 def dial_off_run_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
-    """True when this turn would ship fuse-first, p.34-as-thermostat, or skip the prove."""
+    """True when this turn would ship fuse-first or skip the open C/T prove."""
     facts = facts or {}
     if not (reply or "").strip():
         return True
@@ -3440,7 +3452,7 @@ def _drop_thermostat_rr_sentences(reply: str) -> str:
 
 
 def strip_dial_off_wrong_tree_claims(reply: str) -> str:
-    """Drop sentences that open fuse / continuity / LED or cite p.34 as thermostat."""
+    """Drop sentences that open fuse / continuity / LED or cite outside p.31 and p.43–45."""
     if not reply or not reply_opens_dial_off_wrong_tree(reply):
         return reply
     kept = []
@@ -4046,20 +4058,20 @@ def format_stated_facts_rule(facts: dict) -> str:
             "fully OFF, seat the probe and thermostat wires (p.43), then open C (blue) "
             "and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → "
             "R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007), "
-            "p.43–45. Compressor keeps running with C/T open → inverter/harness, not "
-            "fuse-first. Do NOT cite p.34 running constantly as thermostat replace."
+            "p.43–45. Compressor keeps running with C/T open → inverter/harness. "
+            "Cite p.31 and p.43–45 only. Leave the dial fully OFF."
         )
     if facts.get("ct_prove") == "stopped":
         lines.append(
             "Open C/T already stopped the compressor. Climax is R&R Spark-Free "
             "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 "
-            "p.43–45 Figs. 57–67. Do not go back to the fuse. Do not cite p.34."
+            "p.43–45 Figs. 57–67. Cite p.31 for the open C/T prove and p.43–45 for the R&R."
         )
     elif facts.get("ct_prove") == "still_running":
         lines.append(
             "Open C/T and the compressor kept running. Escalate inverter/harness "
             "(CCD-0008122 p.45). Do not lead with fuse and do not R&R the thermostat "
-            "as the climax of this prove. Do not cite p.34 running constantly as thermostat."
+            "as the climax of this prove."
         )
     if facts.get("can_isolate") == "stays":
         lines.append(

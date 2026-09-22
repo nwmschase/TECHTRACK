@@ -84,8 +84,7 @@ DIAL_OFF_RUN_CHECKS = (
     (
         "Disconnect flag terminals C (blue) and T (black) and leave them open — no jumper. "
         "Tech adaptation of Intermittent Thermostat Operation (p.31 Figs. 24–25); the OEM "
-        "jumper forces a run and is the inverse of this prove. Do not cite Not Cooling p.34 "
-        "\"running constantly\" as a thermostat replace — that branch is coolant leak / replace the unit.",
+        "jumper forces a run and is the inverse of this prove. Leave the dial fully OFF.",
         FCR_SM_TITLE,
         31,
     ),
@@ -96,9 +95,9 @@ DIAL_OFF_RUN_CHECKS = (
         43,
     ),
     (
-        "If the compressor keeps running with C/T open: escalate inverter/harness (secondary), "
-        "not fuse-first. At the inverter, C and T may be reversed without affecting performance "
-        "(p.45 Fig. 70A).",
+        "If the compressor keeps running with C/T open: skip the fuse and escalate "
+        "inverter/harness (secondary). At the inverter, C and T may be reversed without "
+        "affecting performance (p.45 Fig. 70A).",
         FCR_SM_TITLE,
         45,
     ),
