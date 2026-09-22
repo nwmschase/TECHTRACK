@@ -6,5 +6,6 @@ boto3
 pypdf
 pymupdf
 fpdf2
+reportlab
 extra-streamlit-components
 itsdangerous
