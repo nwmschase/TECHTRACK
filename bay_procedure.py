@@ -43,6 +43,7 @@ import textwrap
 import zlib
 
 from gd_library_coach import (
+    DIAL_OFF_RUN_SEARCH_BOOST,
     FACR_FREEZE_SEARCH_BOOST,
     FIREFLY_CAN_SEARCH_BOOST,
     ICE_MOISTURE_SEARCH_BOOST,
@@ -50,10 +51,12 @@ from gd_library_coach import (
     WIRED_COACH_CAN_RE,
     ac_search_symptom,
     cooktop_search_symptom,
+    dial_off_run_search_symptom,
     ice_moisture_search_symptom,
     is_air_conditioning_context,
     is_cooktop_pan_on_flameout_context,
     is_facr_rooftop_freeze_context,
+    is_fcr_dial_off_compressor_run_context,
     is_fcr_e2_fan_fault_context,
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
@@ -64,6 +67,7 @@ from gd_library_coach import (
     page_has_figure_or_terminal_layout,
     rank_chunks_for_ac,
     rank_chunks_for_cooktop_pan_on,
+    rank_chunks_for_dial_off_run,
     rank_chunks_for_fcr_fan_fault,
     rank_chunks_for_ice_moisture,
     rank_chunks_for_level_up,
@@ -92,6 +96,8 @@ PAGE_H = 792.0
 MARGIN = 36.0
 
 FURRION_8122_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
+# Pages that belong to other FCR trees. Dial-OFF + compressor-running must not cite them.
+DIAL_OFF_DROP_PAGES = (18, 19, 20, 23, 34)
 FACR_7990_TITLE = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 FACR_8666_TITLE = "Furrion Chill FACR CCD-0008666"
 FIREFLY_PATH_TITLE = "Shop writeup — Level Up Advantage Manual Mode flash-home and Firefly"
@@ -422,6 +428,125 @@ class BayProcedure:
 # ---------------------------------------------------------------------------
 # Locked human paths (bay sheet copy — not bot flowchart language)
 # ---------------------------------------------------------------------------
+def _dial_off_path() -> dict:
+    """FCR dial OFF + compressor still running. Thermostat C/T, not a power tree."""
+    return {
+        "primary_cite": (
+            "Furrion fridge service manual, thermostat prove, page 31 and page 43."
+        ),
+        "pattern_means": (
+            "The temperature dial is fully OFF and the compressor is still running, "
+            "or the cavity is over-cold. That is a thermostat run-call, not a no-cool "
+            "ice pattern. Leave the dial fully OFF, seat the probe and the thermostat "
+            "wires, then open C and T with no jumper."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "Dial is OFF and the compressor is still running.",
+                    0.50,
+                    0.10,
+                    w=400,
+                    h=56,
+                ),
+                FlowNode(
+                    "d_stop",
+                    "decision",
+                    "Compressor stops with\nC and T open, no jumper?",
+                    0.32,
+                    0.38,
+                    w=230,
+                    h=88,
+                ),
+                FlowNode(
+                    "e_part",
+                    "end",
+                    "Replace the Spark-Free Thermostat\npart G 2021128850.",
+                    0.32,
+                    0.72,
+                    w=250,
+                    h=72,
+                ),
+                FlowNode(
+                    "e_inv",
+                    "end",
+                    "Escalate the inverter\nand the harness.",
+                    0.82,
+                    0.38,
+                    w=200,
+                    h=72,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d_stop"),
+                FlowEdge("d_stop", "e_part", "YES", "bottom", "top"),
+                FlowEdge("d_stop", "e_inv", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Confirm the temperature dial is fully OFF, past the detent, and the "
+                "compressor is still running or the cavity is over-cold. Seat the "
+                "capillary probe and the blue and black thermostat wires, then go to "
+                "the open-terminal prove."
+            ),
+            (
+                "Disconnect flag terminals C (blue) and T (black) and leave them open "
+                "with no jumper. Leave the dial fully OFF. If the compressor stops, "
+                "go to the Spark-Free Thermostat replacement."
+            ),
+            (
+                "If the compressor stops with C and T open, replace the Spark-Free "
+                "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007). Straighten "
+                "the probe, reseat it, and reconnect the wires. That is the confirmed "
+                "correction when the compressor stops."
+            ),
+            (
+                "If the compressor keeps running with C and T open, the run call is "
+                "downstream of the thermostat. Escalate the inverter and the harness. "
+                "At the inverter, C and T may be reversed without affecting performance."
+            ),
+        ],
+        "check_pages": [31, 31, 43, 45],
+        "do_not": [
+            "Do not jumper C and T on this prove.",
+            "Do not replace the cooling unit while the dial is OFF and the compressor is still running.",
+        ],
+        "sources": [
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 31,
+                "excerpt": (
+                    "Open flag terminals C (blue) and T (black) and leave them open "
+                    "with no jumper. Leave the dial fully OFF."
+                ),
+            },
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 43,
+                "excerpt": (
+                    "Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007). "
+                    "Reseat the probe and reconnect the wires."
+                ),
+            },
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 45,
+                "excerpt": (
+                    "If the compressor keeps running with C and T open, escalate the "
+                    "inverter and the harness."
+                ),
+            },
+        ],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
 def _ice_path() -> dict:
     return {
         "primary_cite": "Furrion fridge service manual, Ice and Moisture section (Fig. 36).",
@@ -1003,6 +1128,11 @@ def rewrite_bay_search_symptom(
     symptom = (concern or "").strip()
     if not symptom:
         return symptom
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom):
+        symptom = dial_off_run_search_symptom(category_name, model_text, symptom)
+        if DIAL_OFF_RUN_SEARCH_BOOST not in symptom:
+            symptom = f"{symptom} {DIAL_OFF_RUN_SEARCH_BOOST}".strip()
+        return symptom
     ice = is_fridge_ice_moisture_context(category_name, model_text, symptom)
     if ice:
         symptom = ice_moisture_search_symptom(category_name, model_text, symptom)
@@ -1032,6 +1162,13 @@ def rank_bay_chunks(
     """Apply the same product ranking GD uses."""
     pages = [chunk_as_dict(ch) for ch in (chunks or [])]
     query = f"{model_text or ''} {concern or ''}".strip()
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
+        ranked = rank_chunks_for_dial_off_run(pages, query, limit=limit)
+        return [
+            ch
+            for ch in ranked
+            if _page_int(chunk_as_dict(ch).get("page")) not in DIAL_OFF_DROP_PAGES
+        ]
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         return rank_chunks_for_ice_moisture(pages, query, limit=limit)
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
@@ -1250,6 +1387,17 @@ def _seed_path_figure(kind: str) -> BayFigure:
             excerpt="Use this book for the rooftop assembly, condensate drain, and base pan.",
             image_png=_seed_figure_png("facr"),
         )
+    if kind == "dial_off":
+        return BayFigure(
+            title=FURRION_8122_TITLE,
+            page=43,
+            caption="Spark-Free Thermostat replacement, page 43",
+            excerpt=(
+                "Spark-Free Thermostat part G 2021128850. "
+                "Open C and T with no jumper."
+            ),
+            image_png=_seed_figure_png("generic"),
+        )
     if kind == "generic":
         return BayFigure(
             title="Shop Document Library",
@@ -1273,6 +1421,8 @@ def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = N
         if explicit and any(fig.image_png for fig in explicit):
             return list(explicit)
         return _oem_library_figures(kind)
+    if kind == "dial_off":
+        return [_seed_path_figure("dial_off")]
     if explicit:
         if any(fig.image_png for fig in explicit):
             return list(explicit)
@@ -1332,6 +1482,12 @@ def _clip(text: str, n: int) -> str:
 
 def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     notes = []
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
+        notes.append(
+            "Dial OFF with the compressor still running is a thermostat C and T prove. "
+            "Cite page 31 and page 43. Replace the Spark-Free Thermostat only when the "
+            "compressor stops with no jumper."
+        )
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         notes.append(
             "Ice or frost on the rear wall is an Ice and Moisture problem. "
@@ -1387,7 +1543,12 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     return notes
 
 
-def _merge_sources(locked: list[dict], ranked: list[dict], ice: bool) -> list[dict]:
+def _merge_sources(
+    locked: list[dict],
+    ranked: list[dict],
+    ice: bool,
+    dial_off: bool = False,
+) -> list[dict]:
     out = []
     seen = set()
     for s in list(locked) + list(ranked):
@@ -1395,6 +1556,8 @@ def _merge_sources(locked: list[dict], ranked: list[dict], ice: bool) -> list[di
         page = _page_int(s.get("page"))
         key = (title.lower(), page)
         if key in seen:
+            continue
+        if dial_off and page in DIAL_OFF_DROP_PAGES:
             continue
         if ice:
             hay = f"{title} {s.get('excerpt') or ''}".lower()
@@ -1436,12 +1599,16 @@ def compile_bay_procedure(
     model_text = model_text_from(brand, model)
     ranked = rank_bay_chunks(chunks, category, model_text, concern, limit=8)
 
+    dial_off = is_fcr_dial_off_compressor_run_context(category, model_text, concern)
     ice = is_fridge_ice_moisture_context(category, model_text, concern)
     firefly = is_firefly_can_path_context(category, model_text, concern)
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
 
     path_kind = ""
-    if ice:
+    if dial_off:
+        spec = _dial_off_path()
+        path_kind = "dial_off"
+    elif ice:
         spec = _ice_path()
         path_kind = "ice"
     elif facr:
@@ -1472,14 +1639,27 @@ def compile_bay_procedure(
             "full_story": long_path,
         }
 
-    sources = _merge_sources(spec.get("sources") or [], _unique_sources(ranked), ice=ice)
+    sources = _merge_sources(
+        spec.get("sources") or [],
+        _unique_sources(ranked),
+        ice=ice,
+        dial_off=dial_off,
+    )
     if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
         sources.insert(0, spec["sources"][0])
 
-    checks = [
-        BayCheck(text=step, source_title=spec.get("primary_cite") or "", kind="check")
-        for step in spec["bay_order"]
-    ]
+    check_pages = list(spec.get("check_pages") or [])
+    checks = []
+    for i, step in enumerate(spec["bay_order"]):
+        page = check_pages[i] if i < len(check_pages) else None
+        checks.append(
+            BayCheck(
+                text=step,
+                source_title=FURRION_8122_TITLE if dial_off else (spec.get("primary_cite") or ""),
+                source_page=page,
+                kind="check",
+            )
+        )
     if not checks:
         checks.append(
             BayCheck(
@@ -1506,6 +1686,8 @@ def compile_bay_procedure(
         display_model = "Level Up Advantage controller (Brinkley / Firefly)"
     elif facr and not display_model:
         display_model = "Furrion Chill rooftop unit"
+    elif dial_off and not display_model:
+        display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
     elif ice and not display_model:
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
 
@@ -1532,7 +1714,7 @@ def compile_bay_procedure(
         notes=notes,
         display_model=display_model,
         flow_tall=bool(spec.get("flow_tall")),
-        full_story=bool(spec.get("full_story", path_kind in ("ice", "facr"))),
+        full_story=bool(spec.get("full_story", path_kind in ("ice", "facr", "dial_off"))),
     )
     return apply_sheet_standard(proc)
 
@@ -1628,6 +1810,15 @@ def procedure_plain_text(proc: BayProcedure) -> str:
             lines.append(ICE_MOISTURE_SHOP_LINE)
         if "ccd-0008122" not in blob:
             lines.append("Cite CCD-0008122 Ice and Moisture p.36 / page 36 / Fig.36.")
+    if is_fcr_dial_off_compressor_run_context(proc.category, proc.model_line, proc.concern):
+        blob = "\n".join(lines).lower()
+        if "2021128850" not in blob:
+            lines.append(
+                "Replace Spark-Free Thermostat part G 2021128850 "
+                "(retail C-FCR10DCGTA-007) after the open C/T prove with no jumper."
+            )
+        if "page 31" not in blob or "page 43" not in blob:
+            lines.append("Cite the thermostat prove on page 31 and page 43.")
     return "\n".join(lines).strip() + "\n"
 
 
