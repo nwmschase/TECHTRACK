@@ -66,6 +66,11 @@ class TestCoachModuleLoads(unittest.TestCase):
             "is_fridge_ice_moisture_context",
             "ICE_MOISTURE_PRODUCT_LOCK",
             "ensure_fridge_ice_moisture_path",
+            "is_fcr_dial_off_compressor_run_context",
+            "DIAL_OFF_RUN_PRODUCT_LOCK",
+            "ensure_fcr_dial_off_compressor_run_path",
+            "trim_coach_history",
+            "complete_chat_with_payload_retry",
             "is_facr_rooftop_freeze_context",
             "FACR_FREEZE_SEARCH_BOOST",
             "is_firefly_can_path_context",
@@ -107,6 +112,11 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", names)
         self.assertIn("is_fridge_ice_moisture_context", names)
         self.assertIn("ensure_fridge_ice_moisture_path", names)
+        self.assertIn("is_fcr_dial_off_compressor_run_context", names)
+        self.assertIn("DIAL_OFF_RUN_PRODUCT_LOCK", names)
+        self.assertIn("ensure_fcr_dial_off_compressor_run_path", names)
+        self.assertIn("complete_chat_with_payload_retry", names)
+        self.assertIn("trim_coach_history", names)
         self.assertIn("is_facr_rooftop_freeze_context", names)
         self.assertIn("is_firefly_can_path_context", names)
         self.assertIn("FIREFLY_CAN_SEARCH_BOOST", names)
@@ -168,6 +178,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
         self.assertTrue(hasattr(loaded, "is_fridge_ice_moisture_context"))
+        self.assertTrue(hasattr(loaded, "is_fcr_dial_off_compressor_run_context"))
         self.assertTrue(hasattr(loaded, "is_facr_rooftop_freeze_context"))
         self.assertTrue(hasattr(loaded, "is_firefly_can_path_context"))
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))

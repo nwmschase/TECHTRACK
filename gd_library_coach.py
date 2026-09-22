@@ -111,6 +111,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
+- Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
 - Lippert Level Up / 807662 Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then leave the rubber-boot terminator plugged in and unplug only the wired coach CAN (Firefly/OneControl). Manual stays → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or CAN out with terminator). Reconnect CAN after the prove unless using interim. Manual still dumps → not Firefly; stay Lippert sensor/harness/support. Do not swap another 807662 for Firefly blame. Do not push Firefly USB unless CAN-out Manual stays. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
@@ -547,7 +548,7 @@ ICE_MOISTURE_SHOP_LINE = (
 FRIDGE_NO_POWER_RE = re.compile(
     r"\b("
     r"no\s+power|completely\s+dead|no\s+light|no\s+juice|"
-    r"won'?t\s+turn(?:\s+on)?|wont\s+turn(?:\s+on)?|"
+    r"won'?t\s+turn(?:\s+on)?(?!\s*off)|wont\s+turn(?:\s+on)?(?!\s*off)|"
     r"won'?t\s+run|wont\s+run|"
     r"blank\s+(?:display|screen)|"
     r"dead\s+(?:fridge|unit|refriger\w*)|"
@@ -2787,6 +2788,8 @@ def is_fridge_ice_moisture_context(
         return False
     if is_stabilizer_override_pin_context(category_name, model_text, symptom):
         return False
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom):
+        return False
     if is_fridge_no_power_complaint(category_name, model_text, symptom):
         return False
     blob = _blob(category_name, model_text, symptom)
@@ -2962,6 +2965,532 @@ def ensure_fridge_ice_moisture_path(reply: str) -> str:
         if not reply_opens_fuse_12v_no_power(cleaned):
             return cleaned
     return f"{ICE_MOISTURE_SHOP_LINE}\n\n{cleaned}".strip()
+
+
+# Furrion Arctic FCR08/FCR10 — dial/control OFF, compressor still running / overcooling.
+# Locked climax cites: open C (blue) / T (black) — inverse of the p.31 jumper —
+# then, if the compressor stops, R&R part G 2021128850 on p.43–45.
+# Locked cites for this prove are p.31 and p.43–45 only.
+FURRION_FCR_DIAL_OFF_RUN_PAGES = (31, 43, 44, 45)
+FCR_DIAL_OFF_RUN_PART = "2021128850"
+FCR_DIAL_OFF_RUN_RETAIL = "C-FCR10DCGTA-007"
+DIAL_OFF_RUN_SEARCH_BOOST = (
+    "Spark-Free Thermostat temperature controller Thermostat Replacement "
+    "flag terminals C blue T black probe seated Fig. 24 Fig. 25 "
+    "part 2021128850 Repair Section 2"
+)
+DIAL_OFF_RUN_PRODUCT_LOCK = """
+FURRION FCR08/FCR10 DIAL OFF / COMPRESSOR STILL RUNNING (CCD-0008122):
+- Named branch: temperature dial or control OFF and the compressor still runs, or the fridge/freezer overcools (won't shut off, runs when Off, overcooling with dial Off, freezer frozen solid with control Off). Family is Furrion Arctic FCR08/FCR10 / FCR10DCGTA-class.
+- Compressor already running AND overcool proven means 12V is live. Do NOT lead with Fuse Diagnostics (p.19), 12V continuity (p.20), or diagnostic LED flash / inverter control voltage (p.18).
+- Coach order, one or two checks then wait: (1) confirm the dial is fully OFF past the detent. (2) Seat the capillary probe and the blue/black thermostat wires — CCD-0008122 Repair §2 Thermostat Replacement p.43 steps 2–6, Figs. 59–60. (3) Disconnect flag terminals C (blue) and T (black) and leave them OPEN — no jumper. That is a tech adaptation of Intermittent Thermostat Operation p.31 Figs. 24–25 (OEM jumper forces a run for intermittent / won't-run). Do not call the open-circuit prove an OEM "runs when Off" flowchart.
+- If the compressor STOPS with C/T open: the thermostat was holding a continuous run call. R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per Repair §2 p.43–45 Figs. 57–67 (clocking pin, straighten probe, reseat, reconnect wires).
+- If the compressor KEEPS RUNNING with C/T open: run-call is downstream of the thermostat. Escalate inverter/harness (secondary). At the inverter, C and T may be reversed without affecting performance (p.45 Fig. 70A). Do not go back to the fuse. Leave the dial fully OFF.
+- Locked cites for this prove: p.31 (C/T terminals) and p.43–45 (Spark-Free Thermostat R&R, part G 2021128850). Leave the dial fully OFF.
+- Never invent a dedicated OEM "runs when Off" tree. CCD-0008122 does not publish one.
+"""
+DIAL_OFF_RUN_SHOP_LINE = (
+    "Dial/control OFF with the compressor still running or the cavity over-cold "
+    "is not a fuse or 12V-continuity tree. Skip CCD-0008122 Fuse (p.19), 12V continuity "
+    "(p.20), and diagnostic LED / inverter control voltage (p.18). Confirm the dial is "
+    "fully OFF (past the detent). Seat the capillary probe and blue/black thermostat "
+    "wires (Repair §2 p.43, Figs. 59–60). Then disconnect flag terminals C (blue) and "
+    "T (black) and leave them open — no jumper (tech adaptation; inverse of Intermittent "
+    "Thermostat Operation p.31 Figs. 24–25). If the compressor stops, R&R Spark-Free "
+    "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. "
+    "If it keeps running with C/T open, escalate inverter/harness (p.45 Fig. 70A). "
+    "Leave the dial fully OFF. Thermostat cites for this prove are page 31 and pages 43–45 only.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43"
+)
+DIAL_OFF_RUN_PART_SHOP_LINE = (
+    "C (blue) and T (black) were opened with no jumper and the compressor stopped. "
+    "The thermostat was holding a continuous run call. R&R Spark-Free Thermostat "
+    "part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 Repair §2 "
+    "Thermostat Replacement p.43–45 Figs. 57–67: clocking pin to the housing indent, "
+    "straighten the probe, reseat it, reconnect the wires. "
+    "Cite pages 43–45 for the R&R and page 31 for the open C/T prove.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
+)
+DIAL_OFF_RUN_INVERTER_SHOP_LINE = (
+    "C (blue) and T (black) are open (no jumper) and the compressor keeps running. "
+    "The run call is downstream of the thermostat — escalate inverter/harness "
+    "(secondary), not a fuse recheck and not Spark-Free Thermostat R&R. "
+    "CCD-0008122 p.45 Fig. 70A: at the inverter, C and T connections may be reversed "
+    "and that does not affect product performance. "
+    "Cite page 45 for the inverter note and page 31 for the open C/T prove.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 45\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
+)
+_DIAL_OFF_RE = re.compile(
+    r"\b("
+    r"(?:temp(?:erature)?\s+)?(?:control\s+)?dial\s+(?:is\s+|was\s+|set\s+(?:fully\s+)?(?:to\s+)?)?off|"
+    r"(?:temperature\s+)?control\s+(?:is\s+|was\s+|set\s+(?:fully\s+)?(?:to\s+)?)?off|"
+    r"(?:control\s+)?knob\s+(?:is\s+|set\s+(?:to\s+)?)?off|"
+    r"set\s+to\s+off|turned\s+(?:fully\s+)?off|in\s+(?:the\s+)?off\s+position|"
+    r"past\s+(?:the\s+)?detent"
+    r")\b",
+    re.I,
+)
+_WONT_SHUT_OFF_RE = re.compile(
+    r"\b("
+    r"won'?t\s+shut\s+off|wont\s+shut\s+off|will\s+not\s+shut\s+off|"
+    r"does\s+not\s+shut\s+off|doesn'?t\s+shut\s+off|"
+    r"won'?t\s+turn\s+off|wont\s+turn\s+off|will\s+not\s+turn\s+off|"
+    r"does\s+not\s+turn\s+off|doesn'?t\s+turn\s+off|"
+    r"runs?\s+when\s+(?:(?:the|it(?:'s| is))\s+)?(?:dial\s+|control\s+|knob\s+)?off|"
+    r"running\s+when\s+off|"
+    r"runs?\s+with\s+(?:the\s+)?(?:dial|control|knob)\s+off"
+    r")\b",
+    re.I,
+)
+_STILL_RUNNING_RE = re.compile(
+    r"\b("
+    r"still\s+running|keeps?\s+running|kept\s+running|"
+    r"won'?t\s+stop|wont\s+stop|will\s+not\s+stop|"
+    r"does\s+not\s+stop|doesn'?t\s+stop|"
+    r"continues?\s+to\s+run|runs?\s+constantly|running\s+constantly"
+    r")\b",
+    re.I,
+)
+_OVERCOOL_RE = re.compile(
+    r"\b("
+    r"over[\s-]?cool\w*|too\s+cold|ice[\s-]?cold|"
+    r"frozen\s+solid|freezer\s+frozen|freezes?\s+solid|frozen\s+up|iced\s+solid"
+    r")\b",
+    re.I,
+)
+_COMPRESSOR_RUNNING_RE = re.compile(
+    r"\bcompressor\b.{0,48}\b(?:is\s+|still\s+|keeps\s+)?(?:running|runs)\b|"
+    r"\b(?:running|runs)\b.{0,24}\bcompressor\b",
+    re.I,
+)
+_COMPRESSOR_NOT_RUNNING_RE = re.compile(
+    r"\bcompressor\b.{0,40}\b(?:not|isn'?t|isnt|won'?t|wont|does\s+not|doesn'?t)\b.{0,20}\b(?:run|running|start|operate|operating)\b|"
+    r"\bcompressor\s+(?:is\s+)?(?:not|isn'?t)\s+running\b|"
+    r"\b(?:not|isn'?t|no)\s+running\b.{0,24}\bcompressor\b",
+    re.I,
+)
+_NOT_COOLING_OPPOSITE_RE = re.compile(
+    r"\b("
+    r"not\s+cool(?:ing)?|no\s+cool(?:ing)?|won'?t\s+cool|wont\s+cool|"
+    r"not\s+cold|isn'?t\s+cold|does\s+not\s+work|doesn'?t\s+work|not\s+working"
+    r")\b",
+    re.I,
+)
+_CT_OPEN_RE = re.compile(
+    r"("
+    r"\bc\s*/\s*t\b|"
+    r"\bc\s+(?:and|&)\s+t\b|"
+    r"flag\s+terminals?|"
+    r"terminals?\s+c\b|"
+    r"\b(?:blue|c)\b.{0,40}\b(?:black|t)\b.{0,24}\b(?:open|disconnect)|"
+    r"no\s+jumper|"
+    r"left\s+(?:them|the\s+terminals?|c\s*/?\s*t)\s+open|"
+    r"open(?:ed)?\s+(?:the\s+)?(?:thermostat\s+)?(?:wires?|flag\s+)?terminals?"
+    r")",
+    re.I,
+)
+_CT_STOPPED_RE = re.compile(
+    r"\b("
+    r"compressor\s+(?:stopped|stops|quit|shut\s+off|turned\s+off|is\s+off|now\s+off)|"
+    r"(?:it|unit)\s+stopped|"
+    r"stopped\s+running|quit\s+running|"
+    r"cycles?\s+off"
+    r")\b",
+    re.I,
+)
+_CT_STILL_RE = re.compile(
+    r"\b("
+    r"still\s+running|keeps?\s+running|kept\s+running|"
+    r"did\s+not\s+stop|didn'?t\s+stop|does\s+not\s+stop|"
+    r"won'?t\s+stop|wont\s+stop|continues?\s+to\s+run|"
+    r"keeps?\s+going|still\s+runs"
+    r")\b",
+    re.I,
+)
+_DIAL_OFF_WRONG_TREE_RE = re.compile(
+    r"("
+    r"\bfuse\b|"
+    r"15\s*a(?:tc)?|"
+    r"front\s+vent|"
+    r"12\s*v(?:dc)?\s+continuity|"
+    r"power\s+continuity|"
+    r"continuity\s+at\s+the\s+(?:appliance|power|unit)|"
+    r"diagnostic\s+led|\bled\s+flash|"
+    r"flash\s+codes?|"
+    r"10\s*ma|"
+    r"inverter\s+control\s+voltage|"
+    r"\bpage\s+18\b|\bp\.\s*18\b|"
+    r"\bpage\s+19\b|\bp\.\s*19\b|"
+    r"\bpage\s+20\b|\bp\.\s*20\b"
+    r")",
+    re.I,
+)
+# Cites outside p.31 and p.43–45, and the written turn-ON sequence, are the wrong tree.
+_PAGE_34_CITE_RE = re.compile(r"\b(?:page\s*34|p\.\s*34)\b", re.I)
+_ON_OFF_AS_WRITTEN_RE = re.compile(
+    r"("
+    r"\bpage\s*23\b|\bp\.\s*23\b|"
+    r"on\s*/\s*off\s+diagnostic|"
+    r"\bfig\.?\s*16\b|"
+    r"turn\s+(?:the\s+)?(?:refrigerator|dial|unit)\s+on\b|"
+    r"(?:set\s+)?(?:the\s+)?dial\s+(?:on\s+)?to\s+(?:dial\s+)?(?:position\s+)?[45]\b|"
+    r"wait\s+2\s+hours"
+    r")",
+    re.I,
+)
+_RUNNING_CONSTANT_THERMOSTAT_RE = re.compile(
+    r"("
+    r"running\s+constantly.{0,80}(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement)|"
+    r"(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement).{0,80}running\s+constantly"
+    r")",
+    re.I,
+)
+
+
+def _mention_is_negated(text: str, start: int) -> bool:
+    """True when the match sits in a 'do not / skip / unless' window."""
+    raw = text or ""
+    line_start = raw.rfind("\n", 0, start) + 1
+    prefix = raw[line_start:start].lower()
+    window = raw[max(0, start - 110):start].lower()
+    return bool(
+        re.search(
+            r"(never|do not|don't|dont|not a |not the |unless |not open|"
+            r"do not open|skip |not fuse|do not cite|do not start|do not lead|"
+            r"do not go|not a no-power|not no-power|not fuse-first|"
+            r"skip fuse|skip the|skip ccd)",
+            f"{window} {prefix}",
+        )
+    )
+
+
+def _is_fcr08_fcr10_family(category_name: str = "", blob: str = "") -> bool:
+    """Furrion Arctic FCR08/FCR10 / FCR10DCGTA-class. Not rooftop FACR, not Norcold."""
+    t = _norm(blob)
+    if not t or FACR_MODEL_RE.search(t):
+        return False
+    if "norcold" in t or "dometic rm" in t or re.search(r"\brm\d{3,}", t):
+        return False
+    if "air condition" in t or "rooftop" in t:
+        return False
+    if _looks_like_furrion_fcr_fridge(t):
+        return True
+    if "ccd-0008122" in t or "ccd0008122" in t:
+        return True
+    if re.search(r"\bfcr\s*0?8\b|\bfcr\s*10\b", t):
+        return True
+    if "arctic" in t and _is_fridge_job_blob(category_name, t):
+        return True
+    if "furrion" in t and _is_fridge_job_blob(category_name, t):
+        return True
+    return False
+
+
+def _has_dial_off_run_complaint(blob: str) -> bool:
+    """
+    Dial/control OFF + compressor still running / overcooling, or the natural
+    one-liners (won't shut off, runs when Off, frozen solid with control Off).
+    Not-cooling with the dial Off is the opposite tree (turn it ON).
+    Not-cooling plus constant run is not this Off-but-running branch.
+    """
+    t = _norm(blob)
+    if not t or _COMPRESSOR_NOT_RUNNING_RE.search(t):
+        return False
+    overcool = bool(_OVERCOOL_RE.search(t))
+    if _NOT_COOLING_OPPOSITE_RE.search(t) and not overcool:
+        return False
+    dial_off = bool(_DIAL_OFF_RE.search(t))
+    wont_stop = bool(_WONT_SHUT_OFF_RE.search(t))
+    comp_run = bool(_COMPRESSOR_RUNNING_RE.search(t))
+    still = bool(_STILL_RUNNING_RE.search(t))
+    if wont_stop:
+        return True
+    if dial_off and (overcool or comp_run or still):
+        return True
+    return False
+
+
+def _ct_prove_result(blob: str) -> str:
+    """'stopped' or 'still_running' when the tech reports an open C/T prove."""
+    if not blob or not _CT_OPEN_RE.search(blob):
+        return ""
+    if _CT_STILL_RE.search(blob):
+        return "still_running"
+    if _CT_STOPPED_RE.search(blob):
+        return "stopped"
+    return ""
+
+
+def ct_prove_from_turn(user_msg: str, facts: dict | None = None) -> str:
+    """
+    Open C/T result. The latest tech line wins over an older prove.
+    Explicit C/T language, or a short follow-up ('compressor stopped'), counts.
+    The original dial-off complaint is not a prove result.
+    """
+    msg = user_msg or ""
+    found = _ct_prove_result(msg)
+    if found:
+        return found
+    if not _has_dial_off_run_complaint(msg):
+        norm = _norm(msg)
+        if norm:
+            if _CT_STILL_RE.search(msg) and (_CT_OPEN_RE.search(msg) or "open" in norm):
+                return "still_running"
+            if _CT_STOPPED_RE.search(msg):
+                return "stopped"
+            if len(norm) <= 80 and re.search(r"\bstopped\b", norm) and "still" not in norm:
+                return "stopped"
+    facts = facts or {}
+    if facts.get("ct_prove") in ("stopped", "still_running"):
+        return facts["ct_prove"]
+    return ""
+
+
+def is_fcr_dial_off_compressor_run_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    FCR08/FCR10 dial or control OFF while the compressor keeps running or the
+    box overcools. E2 / AC / water heater / cooktop / stabilizer jobs lose.
+    """
+    if is_air_conditioning_context(category_name, model_text, symptom):
+        return False
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_water_heater_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_stabilizer_override_pin_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if not _is_fcr08_fcr10_family(category_name, blob):
+        return False
+    return _has_dial_off_run_complaint(blob)
+
+
+def dial_off_run_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    """Rewrite the library query toward thermostat C/T p.31 + R&R p.43–45, not fuse."""
+    symptom = (symptom or "").strip()
+    if not is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom):
+        return symptom
+    return f"{symptom} {DIAL_OFF_RUN_SEARCH_BOOST}".strip()
+
+
+def score_dial_off_run_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = CCD-0008122 thermostat operation p.31 and Thermostat Replacement p.43–45.
+    Pages 18, 19, 20, and 34 lose.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    page_no = _page_number(page)
+    score = 0
+    if "thermostat replacement" in t or "spark-free" in t or "spark free" in t:
+        score += 22
+    if "2021128850" in t or "c-fcr10dcgta-007" in t:
+        score += 18
+    if "flag terminal" in t or ("c (blue)" in t and "t (black)" in t):
+        score += 16
+    if "probe" in t and ("seat" in t or "seated" in t or "installed" in t):
+        score += 10
+    if page_no in FURRION_FCR_DIAL_OFF_RUN_PAGES:
+        score += 18
+    if page_no == 31:
+        score += 6
+    if page_no in (43, 44, 45):
+        score += 8
+    if "fig. 24" in t or "fig 24" in t or "fig. 25" in t or "fig 25" in t:
+        score += 8
+    if any(k in t for k in ("fig. 57", "fig 57", "fig. 59", "fig. 67", "fig 67")):
+        score += 8
+    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
+        score += 6
+    if q and any(k in q for k in ("thermostat", "2021128850", "overcool", "dial off")):
+        if "thermostat" in t:
+            score += 4
+    # Pages 18, 19, 20, and 34 belong to other trees. Always drop them here.
+    if page_no in (18, 19, 20, 34):
+        score -= 28
+    elif any(
+        k in t
+        for k in (
+            "fuse location",
+            "front vent",
+            "15a",
+            "15 a",
+            "diagnostic led",
+            "coolant leak",
+            "running constantly",
+        )
+    ) and page_no not in FURRION_FCR_DIAL_OFF_RUN_PAGES:
+        score -= 16
+    if "fan fault" in t or "fan replacement" in t:
+        score -= 8
+    if "ice and moisture" in t or "ice or moisture" in t:
+        score -= 6
+    return score
+
+
+def rank_chunks_for_dial_off_run(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer thermostat p.31 and R&R p.43–45. Drop pages 18, 19, 20, and 34."""
+    scored = [(score_dial_off_run_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    thermo = [
+        ch
+        for sc, ch in scored
+        if sc > 0 and (
+            _page_number(ch) in FURRION_FCR_DIAL_OFF_RUN_PAGES
+            or "thermostat" in _norm(_page_text_blob(ch))
+        )
+    ]
+    out = []
+    for _sc, ch in scored:
+        page_no = _page_number(ch)
+        if thermo and page_no in (18, 19, 20, 34):
+            continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out or [ch for _sc, ch in scored[:limit]]
+
+
+def reply_opens_dial_off_wrong_tree(reply: str) -> bool:
+    """True when a coach reply leads with fuse, 12V, LED, or a cite outside p.31 and p.43–45."""
+    t = reply or ""
+    if not t.strip():
+        return False
+    if (
+        _PAGE_34_CITE_RE.search(t)
+        or _ON_OFF_AS_WRITTEN_RE.search(t)
+        or _RUNNING_CONSTANT_THERMOSTAT_RE.search(t)
+    ):
+        return True
+    for m in _DIAL_OFF_WRONG_TREE_RE.finditer(t):
+        if _mention_is_negated(t, m.start()):
+            continue
+        return True
+    return False
+
+
+def reply_names_dial_off_ct_prove(reply: str) -> bool:
+    """True when the reply already gives the open C/T prove and cites p.31 + p.43."""
+    t = _norm(reply)
+    if not t:
+        return False
+    terminals = any(
+        k in t
+        for k in (
+            "c (blue)",
+            "c/t",
+            "c and t",
+            "flag terminal",
+        )
+    )
+    open_circuit = "no jumper" in t or "leave them open" in t or "left open" in t
+    page_31 = any(k in t for k in ("page 31", "p.31", "p. 31"))
+    page_43 = any(k in t for k in ("page 43", "p.43", "p. 43"))
+    return bool(terminals and open_circuit and page_31 and page_43)
+
+
+def reply_names_spark_free_thermostat_part(reply: str) -> bool:
+    """True when the reply names part G 2021128850 and the R&R pages."""
+    t = _norm(reply)
+    if "2021128850" not in t:
+        return False
+    return any(k in t for k in ("page 43", "p.43", "p. 43", "page 44", "page 45"))
+
+
+def reply_names_dial_off_inverter_secondary(reply: str) -> bool:
+    """True when C/T-open-still-running escalates to inverter/harness, not the fuse."""
+    t = _norm(reply)
+    if not t:
+        return False
+    if "inverter" not in t and "harness" not in t:
+        return False
+    if not any(k in t for k in ("c/t", "c and t", "c (blue)", "flag terminal", "open")):
+        return False
+    if reply_opens_dial_off_wrong_tree(reply):
+        return False
+    return True
+
+
+def dial_off_run_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
+    """True when this turn would ship fuse-first or skip the open C/T prove."""
+    facts = facts or {}
+    if not (reply or "").strip():
+        return True
+    if reply_opens_dial_off_wrong_tree(reply):
+        return True
+    prove = facts.get("ct_prove") or ""
+    if prove == "stopped":
+        return not reply_names_spark_free_thermostat_part(reply)
+    if prove == "still_running":
+        return not reply_names_dial_off_inverter_secondary(reply)
+    if reply_names_dial_off_ct_prove(reply) and reply_names_spark_free_thermostat_part(reply):
+        return False
+    return True
+
+
+def _drop_thermostat_rr_sentences(reply: str) -> str:
+    """C/T-open-still-running is inverter/harness, not Spark-Free Thermostat R&R."""
+    if not reply:
+        return ""
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
+        if re.search(r"2021128850|c-fcr10dcgta-007|spark-free thermostat", part, re.I):
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def strip_dial_off_wrong_tree_claims(reply: str) -> str:
+    """Drop sentences that open fuse / continuity / LED or cite outside p.31 and p.43–45."""
+    if not reply or not reply_opens_dial_off_wrong_tree(reply):
+        return reply
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
+        if not part or reply_opens_dial_off_wrong_tree(part):
+            continue
+        if re.search(r"error contacting ai|request too large|\b413\b", part, re.I):
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def ensure_fcr_dial_off_compressor_run_path(reply: str, facts: dict | None = None) -> str:
+    """
+    Deterministic shop line so dial-OFF + compressor-running cannot ship fuse-first.
+    Stopped C/T prove climaxes at part G 2021128850. Still-running escalates
+    inverter/harness. Uses CCD-0008122 p.31 and p.43–45 only.
+    """
+    facts = facts or {}
+    prove = facts.get("ct_prove") or ""
+    if prove == "stopped":
+        cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+        if reply_names_spark_free_thermostat_part(cleaned) and not reply_opens_dial_off_wrong_tree(cleaned):
+            return cleaned
+        return f"{DIAL_OFF_RUN_PART_SHOP_LINE}\n\n{cleaned}".strip()
+    if prove == "still_running":
+        cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+        cleaned = _drop_thermostat_rr_sentences(cleaned)
+        if reply_names_dial_off_inverter_secondary(cleaned):
+            return cleaned
+        return f"{DIAL_OFF_RUN_INVERTER_SHOP_LINE}\n\n{cleaned}".strip()
+    if not dial_off_run_reply_needs_guard(reply, facts):
+        return reply
+    cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+    if reply_names_dial_off_ct_prove(cleaned) and reply_names_spark_free_thermostat_part(cleaned):
+        if not reply_opens_dial_off_wrong_tree(cleaned):
+            return cleaned
+    return f"{DIAL_OFF_RUN_SHOP_LINE}\n\n{cleaned}".strip()
 
 
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
@@ -3289,7 +3818,17 @@ def extract_stated_facts(text: str) -> dict:
         facts["override_pin"] = "broken_or_seized"
 
     if _has_ice_moisture_marker(raw) and not FRIDGE_NO_POWER_RE.search(raw):
-        facts["ice_moisture"] = "rear_wall"
+        if not _has_dial_off_run_complaint(raw):
+            facts["ice_moisture"] = "rear_wall"
+
+    if _has_dial_off_run_complaint(raw) and (
+        _is_fcr08_fcr10_family("", raw)
+        or any(k in raw for k in ("fridge", "refriger", "reefer", "freezer", "compressor", "arctic"))
+    ):
+        facts["dial_off_run"] = "overcool"
+    ct_prove = _ct_prove_result(text or "")
+    if ct_prove:
+        facts["ct_prove"] = ct_prove
 
     levelingish = any(
         k in raw
@@ -3415,6 +3954,16 @@ def format_stated_facts_rule(facts: dict) -> str:
         "ice_moisture": {
             "rear_wall": "rear/back-wall ice, frost, or moisture in the fridge cavity"
         },
+        "dial_off_run": {
+            "overcool": (
+                "FCR dial/control OFF and compressor still running or overcooling "
+                "(not a fuse / 12V tree)"
+            )
+        },
+        "ct_prove": {
+            "stopped": "open C/T (no jumper) and the compressor STOPPED",
+            "still_running": "open C/T (no jumper) and the compressor KEEPS RUNNING",
+        },
         "manual_dump": {
             "reported": "Level Up Manual Mode flashes then dumps / returns to home"
         },
@@ -3501,6 +4050,29 @@ def format_stated_facts_rule(facts: dict) -> str:
             "no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a "
             "fake Fuse location title with no page."
         )
+    if facts.get("dial_off_run") == "overcool":
+        lines.append(
+            "FCR08/FCR10 dial/control OFF with the compressor still running or the "
+            "cavity over-cold is already in play. Do NOT open fuse (p.19), 12V continuity "
+            "(p.20), or diagnostic LED / inverter control voltage (p.18). Confirm dial "
+            "fully OFF, seat the probe and thermostat wires (p.43), then open C (blue) "
+            "and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → "
+            "R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007), "
+            "p.43–45. Compressor keeps running with C/T open → inverter/harness. "
+            "Cite p.31 and p.43–45 only. Leave the dial fully OFF."
+        )
+    if facts.get("ct_prove") == "stopped":
+        lines.append(
+            "Open C/T already stopped the compressor. Climax is R&R Spark-Free "
+            "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 "
+            "p.43–45 Figs. 57–67. Cite p.31 for the open C/T prove and p.43–45 for the R&R."
+        )
+    elif facts.get("ct_prove") == "still_running":
+        lines.append(
+            "Open C/T and the compressor kept running. Escalate inverter/harness "
+            "(CCD-0008122 p.45). Do not lead with fuse and do not R&R the thermostat "
+            "as the climax of this prove."
+        )
     if facts.get("can_isolate") == "stays":
         lines.append(
             "CAN isolate already proved Manual Mode STAYS with wired coach CAN unplugged "
@@ -3552,8 +4124,11 @@ def coach_library_search_boost(facts: dict) -> str:
     parts = []
     fan_fault = bool(facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
     ice_moisture = facts.get("ice_moisture") == "rear_wall"
+    dial_off_run = facts.get("dial_off_run") == "overcool"
     if fan_fault:
         parts.append(FAN_FAULT_SEARCH_BOOST)
+    elif dial_off_run:
+        parts.append(DIAL_OFF_RUN_SEARCH_BOOST)
     elif ice_moisture:
         parts.append(ICE_MOISTURE_SEARCH_BOOST)
     elif facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
@@ -3562,9 +4137,10 @@ def coach_library_search_boost(facts: dict) -> str:
         (facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor")
         and not fan_fault
         and not ice_moisture
+        and not dial_off_run
     ):
         parts.append("inoperable compressor compressor diagnostics")
-    if facts.get("dial") == "on_4_5" and not fan_fault and not ice_moisture:
+    if facts.get("dial") == "on_4_5" and not fan_fault and not ice_moisture and not dial_off_run:
         parts.append("thermostat dial not cooling")
     if facts.get("pan_on_flameout"):
         parts.append(COOKTOP_SEARCH_BOOST)
@@ -3635,6 +4211,218 @@ def strip_path_complete_trap(text: str) -> str:
         flags=re.I,
     )
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+# Coach turns re-send the full system prompt, manual excerpts, and every prior
+# assistant reply. Groq/xAI answer that with HTTP 413 "request too large".
+# Trim history and compact citations on every GD turn, then retry a 413 with
+# a smaller payload so the session can still reach a part climax.
+COACH_HISTORY_MAX_MESSAGES = 8
+COACH_HISTORY_ASSISTANT_CAP = 900
+COACH_EXCERPT_CHAR_CAP = 1400
+COACH_CONTEXT_CHAR_CAP = 9000
+COACH_SYSTEM_CHAR_CAP = 16000
+_PAYLOAD_TOO_LARGE_RE = re.compile(
+    r"("
+    r"\b413\b|"
+    r"request too large|"
+    r"payload too large|"
+    r"request entity too large|"
+    r"context[_ ]length|"
+    r"maximum context|"
+    r"too many tokens|"
+    r"token limit|"
+    r"reduce the length"
+    r")",
+    re.I,
+)
+
+
+def is_ai_request_too_large(exc) -> bool:
+    """True for HTTP 413 / provider 'request too large' / context overflow."""
+    return bool(_PAYLOAD_TOO_LARGE_RE.search(str(exc or "")))
+
+
+def _compact_coach_text(text: str, cap: int) -> str:
+    """Keep the shop action and source lines; drop pasted excerpt dumps."""
+    raw = (text or "").strip()
+    if not raw or len(raw) <= cap:
+        return raw
+    lines = []
+    used = 0
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        keep = s.lower().startswith("source:") or s.startswith("📖") or "📖 source" in s.lower()
+        if not keep and len(lines) >= 6:
+            continue
+        if used + len(s) + 1 > cap:
+            break
+        lines.append(s)
+        used += len(s) + 1
+    compact = "\n".join(lines).strip()
+    if not compact:
+        compact = raw[:cap].rstrip()
+    if len(compact) > cap:
+        compact = compact[: max(0, cap - 1)].rstrip() + "…"
+    return compact
+
+
+def trim_coach_history(
+    history: list | None,
+    max_messages: int = COACH_HISTORY_MAX_MESSAGES,
+    assistant_cap: int = COACH_HISTORY_ASSISTANT_CAP,
+) -> list:
+    """
+    Keep the original complaint plus the newest turns.
+    Compact assistant citations so prior coach essays do not bloat the next call.
+    """
+    msgs = []
+    for m in history or []:
+        role = (m.get("role") or "").strip()
+        content = (m.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            msgs.append({"role": role, "content": content})
+    if not msgs:
+        return []
+    if len(msgs) > max_messages:
+        tail_n = max(1, max_messages - 1)
+        tail = msgs[-tail_n:]
+        if msgs[0] not in tail:
+            first = {"role": msgs[0]["role"], "content": msgs[0]["content"]}
+            if len(first["content"]) > 700:
+                first["content"] = first["content"][:699].rstrip() + "…"
+            msgs = [first] + tail
+        else:
+            msgs = msgs[-max_messages:]
+    out = []
+    last_asst = max((i for i, m in enumerate(msgs) if m["role"] == "assistant"), default=-1)
+    for i, m in enumerate(msgs):
+        content = m["content"]
+        if m["role"] == "assistant":
+            cap = assistant_cap if i == last_asst else min(assistant_cap, 480)
+            content = _compact_coach_text(content, cap)
+        elif len(content) > 1600:
+            content = content[:1599].rstrip() + "…"
+        out.append({"role": m["role"], "content": content})
+    return out
+
+
+def compact_manual_context(
+    context: str,
+    excerpt_cap: int = COACH_EXCERPT_CHAR_CAP,
+    total_cap: int = COACH_CONTEXT_CHAR_CAP,
+) -> str:
+    """Shorten each manual excerpt. Keep the header (manual title + page)."""
+    raw = (context or "").strip()
+    if not raw:
+        return ""
+    parts = re.split(r"(?=\[EXCERPT\s+\d+)", raw)
+    if len(parts) == 1:
+        if len(raw) <= total_cap:
+            return raw
+        return raw[: max(0, total_cap - 1)].rstrip() + "…"
+    compacted = []
+    for part in parts:
+        block = part.strip()
+        if not block:
+            continue
+        if len(block) > excerpt_cap:
+            block = block[: max(0, excerpt_cap - 1)].rstrip() + "…"
+        compacted.append(block)
+    text = "\n\n".join(compacted)
+    if len(text) > total_cap:
+        text = text[: max(0, total_cap - 1)].rstrip() + "…"
+    return text
+
+
+def _shrink_system_content(text: str, system_cap: int, excerpt_cap: int) -> str:
+    raw = text or ""
+    idx = raw.lower().find("manual excerpts")
+    if idx != -1:
+        head = raw[:idx]
+        tail = compact_manual_context(
+            raw[idx:],
+            excerpt_cap=excerpt_cap,
+            total_cap=max(1800, system_cap // 2),
+        )
+        raw = head + tail
+    if len(raw) <= system_cap:
+        return raw
+    head_keep = system_cap // 2
+    tail_keep = max(0, system_cap - head_keep - 16)
+    return raw[:head_keep].rstrip() + "\n…\n" + raw[-tail_keep:]
+
+
+def shrink_ai_messages(
+    messages: list | None,
+    *,
+    level: int = 1,
+) -> list:
+    """
+    Smaller chat payload for a 413 retry.
+    level 1 trims history and excerpts. level 2 keeps system + the latest turn only.
+    """
+    level = 2 if level >= 2 else 1
+    history_max = 4 if level == 1 else 2
+    assistant_cap = 420 if level == 1 else 220
+    system_cap = 9000 if level == 1 else 4500
+    excerpt_cap = 700 if level == 1 else 320
+    user_cap = 800 if level == 1 else 400
+    prepared = []
+    for m in messages or []:
+        role = (m.get("role") or "").strip()
+        content = m.get("content")
+        if not isinstance(content, str):
+            prepared.append({"role": role, "content": content})
+            continue
+        prepared.append({"role": role, "content": content})
+    system = [m for m in prepared if m.get("role") == "system"][:1]
+    rest = [m for m in prepared if m.get("role") != "system"]
+    if len(rest) > history_max:
+        rest = rest[-history_max:]
+    out = []
+    for m in system:
+        content = m.get("content")
+        if isinstance(content, str):
+            content = _shrink_system_content(content, system_cap, excerpt_cap)
+        out.append({"role": "system", "content": content})
+    last_user_idx = max((i for i, m in enumerate(rest) if m.get("role") == "user"), default=-1)
+    for i, m in enumerate(rest):
+        role = m.get("role") or "user"
+        content = m.get("content")
+        if isinstance(content, str):
+            if role == "assistant":
+                content = _compact_coach_text(content, assistant_cap)
+            elif i != last_user_idx and len(content) > user_cap:
+                content = content[: max(0, user_cap - 1)].rstrip() + "…"
+        out.append({"role": role, "content": content})
+    return out
+
+
+def complete_chat_with_payload_retry(call, messages, temperature: float = 0.2, max_tokens: int = 1400) -> str:
+    """
+    call(messages, temperature, max_tokens) -> text.
+    On 413 / request-too-large, retry twice with a smaller payload.
+    Other errors propagate immediately.
+    """
+    attempts = (
+        (list(messages or []), max_tokens, 0),
+        (shrink_ai_messages(messages, level=1), min(max_tokens, 700), 1),
+        (shrink_ai_messages(messages, level=2), min(max_tokens, 480), 2),
+    )
+    last = None
+    for payload, tokens, _level in attempts:
+        try:
+            return call(payload, temperature, tokens)
+        except Exception as exc:
+            last = exc
+            if not is_ai_request_too_large(exc):
+                raise
+    if last is not None:
+        raise last
+    raise RuntimeError("AI chat failed")
 
 
 def _clean_model_id(name: str) -> str:

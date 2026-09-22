@@ -23,6 +23,9 @@ from gd_library_coach import (
     FACR_FREEZE_SEARCH_BOOST,
     FCR_E2_FAN_FAULT_PRODUCT_LOCK,
     FIREFLY_CAN_SEARCH_BOOST,
+    DIAL_OFF_RUN_PRODUCT_LOCK,
+    DIAL_OFF_RUN_SEARCH_BOOST,
+    DIAL_OFF_RUN_SHOP_LINE,
     ICE_MOISTURE_PRODUCT_LOCK,
     ICE_MOISTURE_SEARCH_BOOST,
     ICE_MOISTURE_SHOP_LINE,
@@ -31,10 +34,12 @@ from gd_library_coach import (
     WATER_HEATER_PRODUCT_LOCK,
     ac_search_symptom,
     cooktop_search_symptom,
+    dial_off_run_search_symptom,
     ice_moisture_search_symptom,
     is_air_conditioning_context,
     is_cooktop_pan_on_flameout_context,
     is_facr_rooftop_freeze_context,
+    is_fcr_dial_off_compressor_run_context,
     is_fcr_e2_fan_fault_context,
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
@@ -45,6 +50,7 @@ from gd_library_coach import (
     level_up_search_symptom,
     page_has_figure_or_terminal_layout,
     rank_chunks_for_ac,
+    rank_chunks_for_dial_off_run,
     rank_chunks_for_cooktop_pan_on,
     rank_chunks_for_fcr_fan_fault,
     rank_chunks_for_ice_moisture,
@@ -58,6 +64,44 @@ from gd_library_coach import (
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 
 # Written flowchart language for known product paths (library-backed, not live web).
+FCR_SM_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
+DIAL_OFF_RUN_CHECKS = (
+    (
+        "Confirm the temperature dial is fully OFF (past the detent) and the compressor "
+        "is still running or the cavity is over-cold. That already proves 12V is live — "
+        "do not start at the fuse (p.19), 12V continuity (p.20), or diagnostic LED / "
+        "inverter control voltage (p.18).",
+        FCR_SM_TITLE,
+        31,
+    ),
+    (
+        "Open the control housing. Confirm the capillary probe is fully seated and the "
+        "blue/black thermostat wires are seated (Repair §2 steps 2–6, Figs. 59–60) "
+        "before condemning the part.",
+        FCR_SM_TITLE,
+        43,
+    ),
+    (
+        "Disconnect flag terminals C (blue) and T (black) and leave them open — no jumper. "
+        "Tech adaptation of Intermittent Thermostat Operation (p.31 Figs. 24–25); the OEM "
+        "jumper forces a run and is the inverse of this prove. Leave the dial fully OFF.",
+        FCR_SM_TITLE,
+        31,
+    ),
+    (
+        "If the compressor stops with C/T open: R&R Spark-Free Thermostat part G 2021128850 "
+        "(retail C-FCR10DCGTA-007) per Repair §2 p.43–45 Figs. 57–67.",
+        FCR_SM_TITLE,
+        43,
+    ),
+    (
+        "If the compressor keeps running with C/T open: skip the fuse and escalate "
+        "inverter/harness (secondary). At the inverter, C and T may be reversed without "
+        "affecting performance (p.45 Fig. 70A).",
+        FCR_SM_TITLE,
+        45,
+    ),
+)
 ICE_MOISTURE_CHECKS = (
     (
         "Note the rear/back-wall ice or frost pattern (including half from the top). "
@@ -218,8 +262,13 @@ def rewrite_bay_search_symptom(
     symptom = (concern or "").strip()
     if not symptom:
         return symptom
+    dial_off = is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom)
+    if dial_off:
+        symptom = dial_off_run_search_symptom(category_name, model_text, symptom)
+        if DIAL_OFF_RUN_SEARCH_BOOST not in symptom:
+            symptom = f"{symptom} {DIAL_OFF_RUN_SEARCH_BOOST}".strip()
     ice = is_fridge_ice_moisture_context(category_name, model_text, symptom)
-    if ice:
+    if ice and not dial_off:
         symptom = ice_moisture_search_symptom(category_name, model_text, symptom)
         if ICE_MOISTURE_SEARCH_BOOST not in symptom:
             symptom = f"{symptom} {ICE_MOISTURE_SEARCH_BOOST}".strip()
@@ -247,6 +296,8 @@ def rank_bay_chunks(
     """Apply the same product ranking GD uses."""
     pages = [chunk_as_dict(ch) for ch in (chunks or [])]
     query = f"{model_text or ''} {concern or ''}".strip()
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
+        return rank_chunks_for_dial_off_run(pages, query, limit=limit)
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         return rank_chunks_for_ice_moisture(pages, query, limit=limit)
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
@@ -341,6 +392,8 @@ def _excerpt_check(d: dict) -> BayCheck | None:
 
 def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     notes = []
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
+        notes.append(DIAL_OFF_RUN_PRODUCT_LOCK.strip().splitlines()[0])
     if is_fridge_ice_moisture_context(category_name, model_text, concern):
         notes.append(ICE_MOISTURE_PRODUCT_LOCK.strip().splitlines()[0])
     if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
@@ -396,6 +449,7 @@ def compile_bay_procedure(
     sources = _unique_sources(ranked)
     checks: list[BayCheck] = []
 
+    dial_off = is_fcr_dial_off_compressor_run_context(category, model_text, concern)
     ice = is_fridge_ice_moisture_context(category, model_text, concern)
     firefly = is_firefly_can_path_context(category, model_text, concern)
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
@@ -406,6 +460,21 @@ def compile_bay_procedure(
             return
         sources.append({"title": title, "page": page, "excerpt": excerpt})
 
+    if dial_off:
+        for text, title, page in DIAL_OFF_RUN_CHECKS:
+            checks.append(BayCheck(text=text, source_title=title, source_page=page))
+        if not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
+            sources.insert(
+                0,
+                {
+                    "title": FCR_SM_TITLE,
+                    "page": 43,
+                    "excerpt": (
+                        "Thermostat Replacement / Spark-Free Thermostat part G 2021128850 "
+                        "/ open C (blue) T (black) no jumper"
+                    ),
+                },
+            )
     if ice:
         for text, title, page in ICE_MOISTURE_CHECKS:
             checks.append(BayCheck(text=text, source_title=title, source_page=page))
@@ -456,6 +525,12 @@ def compile_bay_procedure(
                 continue
             if is_furrion_ccd_0008122(chk.source_title) and chk.source_page == 36:
                 used_titles_pages.add(key)
+                continue
+        if dial_off:
+            hay = f"{chk.source_title} {chk.text}".lower()
+            if chk.source_page in (18, 19, 20, 34):
+                continue
+            if any(k in hay for k in ("fuse location", "15a", "12v continuity", "diagnostic led")) and "thermostat" not in hay:
                 continue
         used_titles_pages.add(key)
         checks.append(chk)
@@ -555,6 +630,12 @@ def procedure_plain_text(proc: BayProcedure) -> str:
             lines.append(ICE_MOISTURE_SHOP_LINE)
         if "ccd-0008122" not in "\n".join(lines).lower():
             lines.append("Cite CCD-0008122 Ice and Moisture p.36 / Fig.36.")
+    if is_fcr_dial_off_compressor_run_context(proc.category, proc.model_line, proc.concern):
+        joined = "\n".join(lines).lower()
+        if "2021128850" not in joined:
+            lines.append(DIAL_OFF_RUN_SHOP_LINE)
+        if "ccd-0008122" not in joined:
+            lines.append("Cite CCD-0008122 thermostat path p.31 and p.43-45, part 2021128850.")
     _ = blob
     return "\n".join(lines).strip() + "\n"
 
