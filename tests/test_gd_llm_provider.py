@@ -1,9 +1,12 @@
 """xAI primary, Groq fallback. Clients are mocks - no live network."""
 import os
 import unittest
+from pathlib import Path
 
 import gd_llm
 from gd_library_coach import is_ai_request_too_large
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 XAI_KEY = "xai-test-key-not-real"
@@ -344,10 +347,9 @@ class TestGdLlmProvider(unittest.TestCase):
         self.assertNotIn(XAI_KEY, text)
 
     def test_live_modules_do_not_construct_clients(self):
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        app = open(os.path.join(root, "rv_techtrack.py"), encoding="utf-8").read()
-        coach = open(os.path.join(root, "gd_library_coach.py"), encoding="utf-8").read()
-        helper = open(os.path.join(root, "gd_llm.py"), encoding="utf-8").read()
+        app = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
+        coach = (ROOT / "gd_library_coach.py").read_text(encoding="utf-8")
+        helper = (ROOT / "gd_llm.py").read_text(encoding="utf-8")
         self.assertIn("gd_llm.complete_chat", app)
         self.assertNotIn("Groq(", app)
         self.assertNotIn("OpenAI(", app)
