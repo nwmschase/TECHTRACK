@@ -110,9 +110,10 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
+- BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: prove 12V at the soft-touch panel tongue channel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue channel → soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
@@ -352,7 +353,7 @@ AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
 - Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
 - Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Do not stall on searching manuals or repeat drain-only.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
 - Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
 - If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
@@ -1677,6 +1678,162 @@ def drop_unity_chunks_for_ac(chunks) -> list:
     return kept
 
 
+# FACR freeze + interior leak: once drain / fan-filter / freeze sensor are proved,
+# the coach must finish on rooftop assembly R&R (CCD-0007990). Do not stall.
+FACR_ASSEMBLY_SEARCH_BOOST = (
+    "CCD-0007990 rooftop assembly condensate R&R replace rooftop assembly"
+)
+FACR_FREEZE_ASSEMBLY_LOCK = """
+FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
+- Named branch: Furrion FACR* / Chill rooftop freeze, ice, frost, condensate, or interior leak.
+- Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
+- After the tech reports the condensate drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Replace the rooftop assembly.
+- Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in.
+"""
+FACR_ASSEMBLY_RR_SHOP_LINE = (
+    "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
+    "Do not keep searching manuals and do not repeat a drain-only check. "
+    "Continue to rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
+    "Replace the rooftop assembly.\n"
+    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+)
+FACR_FREEZE_NEXT_SHOP_LINE = (
+    "Stay on the CCD-0007990 condensate and assembly path. "
+    "Do not stop to search manuals. "
+    "Prove the condensate drain, the fan and filter, and the freeze sensor. "
+    "When those three are good and the freeze or interior leak remains, "
+    "continue to rooftop assembly R&R.\n"
+    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+)
+_SEARCHING_MANUALS_RE = re.compile(
+    r"searching (?:the )?(?:manuals|library|documents|service manuals)|"
+    r"let me search|still searching|looking through (?:the )?manuals",
+    re.I,
+)
+_DRAIN_ACTION_RE = re.compile(
+    r"\b(clear|recheck|check|clean|inspect)\b.{0,24}\bdrain\b",
+    re.I,
+)
+
+
+def facr_freeze_proves_from_text(text: str) -> dict:
+    """Drain / fan-filter / freeze-sensor proves. Each phrase stands alone."""
+    raw = _norm(text)
+    if not raw:
+        return {}
+    facts = {}
+    if re.search(
+        r"\bdrain\b.{0,32}\b(clear|open|ok|good|free|flowing)\b|"
+        r"\b(clear|open|ok|good)\b.{0,16}\bdrain\b|"
+        r"\bdrain\s+clear\b",
+        raw,
+    ):
+        facts["facr_drain"] = "clear"
+    if re.search(r"fan[\s-]*filter|fan and filter|filter and fan", raw) and re.search(
+        r"\b(ok|good|fine|clean|clear)\b", raw
+    ):
+        facts["facr_fan_filter"] = "ok"
+    elif (
+        re.search(r"\bfan\b", raw)
+        and re.search(r"\bfilter\b", raw)
+        and re.search(r"\b(ok|good|fine)\b", raw)
+    ):
+        facts["facr_fan_filter"] = "ok"
+    if re.search(r"freeze[\s-]*sensor", raw) and re.search(
+        r"\b(good|ok|fine|passed|pass)\b", raw
+    ):
+        facts["facr_freeze_sensor"] = "good"
+    return facts
+
+
+def facr_proves_complete(facts: dict | None) -> bool:
+    facts = facts or {}
+    return (
+        facts.get("facr_drain") == "clear"
+        and facts.get("facr_fan_filter") == "ok"
+        and facts.get("facr_freeze_sensor") == "good"
+    )
+
+
+def reply_names_rooftop_assembly_rr(reply: str) -> bool:
+    """True when the reply finishes on rooftop assembly R&R and CCD-0007990."""
+    t = _norm(reply)
+    if not t:
+        return False
+    assembly = "rooftop" in t and (
+        "assembly" in t or "r&r" in t or "r and r" in t
+    )
+    replace = bool(re.search(r"\b(replace|r&r|r and r)\b", t))
+    cite = "ccd-0007990" in t or "ccd0007990" in t
+    condensate = "condensate" in t or "assembly path" in t
+    return bool(assembly and replace and cite and condensate)
+
+
+def reply_stalls_searching_manuals(reply: str) -> bool:
+    text = reply or ""
+    for m in _SEARCHING_MANUALS_RE.finditer(text):
+        if _mention_is_negated(text, m.start()):
+            continue
+        return True
+    return False
+
+
+def reply_loops_drain_only(reply: str) -> bool:
+    """True when the next action is still 'clear the drain' and assembly R&R is absent."""
+    text = reply or ""
+    if reply_names_rooftop_assembly_rr(text):
+        return False
+    for m in _DRAIN_ACTION_RE.finditer(text):
+        if _mention_is_negated(text, m.start()):
+            continue
+        return True
+    return False
+
+
+def _strip_facr_stall_sentences(reply: str) -> str:
+    if not reply:
+        return ""
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
+        if not part:
+            continue
+        if reply_stalls_searching_manuals(part):
+            continue
+        if re.search(r"error contacting ai|no matching manual", part, re.I):
+            continue
+        if reply_loops_drain_only(part):
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str:
+    """
+    Once drain / fan-filter / freeze sensor are proved, climax is rooftop assembly R&R.
+    A searching-manuals stall is replaced even before those proves are all in.
+    """
+    facts = facts or {}
+    if facr_proves_complete(facts):
+        if (
+            reply_names_rooftop_assembly_rr(reply)
+            and not reply_stalls_searching_manuals(reply)
+            and not reply_loops_drain_only(reply)
+        ):
+            return reply
+        cleaned = _strip_facr_stall_sentences(reply or "")
+        if (
+            reply_names_rooftop_assembly_rr(cleaned)
+            and not reply_stalls_searching_manuals(cleaned)
+            and not reply_loops_drain_only(cleaned)
+        ):
+            return cleaned
+        return f"{FACR_ASSEMBLY_RR_SHOP_LINE}\n\n{cleaned}".strip()
+    if reply and reply_stalls_searching_manuals(reply) and not reply_names_rooftop_assembly_rr(reply):
+        cleaned = _strip_facr_stall_sentences(reply)
+        return f"{FACR_FREEZE_NEXT_SHOP_LINE}\n\n{cleaned}".strip()
+    return reply
+
+
 def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
     """
     When Level-Up titles exist on the catalog, never claim the library lacks them.
@@ -2588,6 +2745,433 @@ def _has_override_pin_marker(blob: str) -> bool:
     return False
 
 
+# BAL Soft-Touch SS 5.1 — electric tongue jack ONLY dead.
+# Other stabilizers and panel lights still work. Climax is the soft-touch
+# user panel 20300427, or a tongue-pigtail repair after the panel voltage prove.
+# Coupler / shear-pin / 30A fuse / remote stab harness are not the primary.
+BAL_TONGUE_PART = "20300427"
+BAL_TONGUE_DOC = "INS.STA.001"
+BAL_TONGUE_SOURCE = "📖 Source: BAL SS 5.1 Stabilizing System INS.STA.001"
+BAL_TONGUE_SEARCH_BOOST = (
+    "BAL Soft-Touch SS 5.1 INS.STA.001 20300427 soft-touch user panel "
+    "tongue channel pigtail panel-to-motor"
+)
+BAL_TONGUE_PRODUCT_LOCK = """
+BAL SOFT-TOUCH SS 5.1 TONGUE JACK ONLY DEAD (INS.STA.001):
+- Named branch: electric tongue jack dead, other stabilizers still work, soft-touch panel lights still work. Motor OK on direct 12V and coupler OK is this complaint.
+- Order: (1) Prove 12V at the soft-touch panel tongue channel while commanding the tongue jack. (2) Then the local tongue pigtail / panel-to-motor leads. (3) No 12V on the tongue channel → replace soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail.
+- Do NOT lead with coupler, shear-pin, or coupler replacement. Do NOT lead with the fuse, a 30A supply fuse, or the remote stabilizer harness.
+- Coupler path ONLY if the manual override will not turn, or the motor fails a direct-12V prove. That is not this complaint when the motor runs on direct 12V and the coupler is engaged.
+- Cite INS.STA.001. Do not invent a page number.
+"""
+BAL_TONGUE_PROVE_SHOP_LINE = (
+    "The electric tongue jack is the only jack that is dead. The other stabilizers "
+    "and the soft-touch panel lights still work. Prove 12V at the soft-touch panel "
+    "tongue channel while you command extend or retract. No 12V on that channel means "
+    "replace the soft-touch user panel 20300427. If the tongue channel has 12V, check "
+    "the local tongue pigtail and the panel-to-motor leads and repair that pigtail. "
+    "Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness. "
+    "Coupler replacement is only when the manual override will not turn, or the motor fails a direct-12V prove.\n"
+    + BAL_TONGUE_SOURCE
+)
+BAL_TONGUE_PANEL_SHOP_LINE = (
+    "No 12V at the soft-touch panel tongue channel, and the other stabilizers and panel lights still work. "
+    "Replace the soft-touch user panel 20300427. Do not replace the coupler or the shear pin, and do not open "
+    "the 30A fuse or the remote stabilizer harness.\n"
+    + BAL_TONGUE_SOURCE
+)
+BAL_TONGUE_PIGTAIL_SHOP_LINE = (
+    "12V is present at the soft-touch panel tongue channel. Repair the local tongue pigtail and the "
+    "panel-to-motor leads. That is the confirmed correction after the panel voltage prove. "
+    "Do not replace the coupler or open the 30A fuse or the remote stabilizer harness.\n"
+    + BAL_TONGUE_SOURCE
+)
+BAL_TONGUE_COUPLER_SHOP_LINE = (
+    "The manual override will not turn, or the motor failed a direct-12V prove. "
+    "Replace the coupler. Do not start on the 30A fuse or the remote stabilizer harness, "
+    "and do not replace the soft-touch user panel as the primary part for this prove.\n"
+    + BAL_TONGUE_SOURCE
+)
+_BAL_FAMILY_RE = re.compile(
+    r"\b(bal|norco|soft[\s-]*touch|ss\s*5\.1|ss5\.1|20300427|ins\.?\s*sta\.?\s*001)\b",
+    re.I,
+)
+_TONGUE_DEAD_RE = re.compile(
+    r"\btongue\b.{0,48}\b(dead|inop(?:erative)?|won't|wont|will not|does not|doesn't|not work|only)\b|"
+    r"\b(dead|inop(?:erative)?|only)\b.{0,32}\btongue\b|"
+    r"\btongue(?:\s+jack)?\s+only\b",
+    re.I,
+)
+_STABS_OK_RE = re.compile(
+    r"\b(stab(?:ilizer)?s?|stabilizers?|other jacks?)\b.{0,48}\b(work|works|working|ok|good|fine|operate)\b|"
+    r"\b(work|works|working|ok|good)\b.{0,24}\b(stab(?:ilizer)?s?|stabilizers?)\b",
+    re.I,
+)
+_LIGHTS_OK_RE = re.compile(
+    r"\b(panel\s+)?lights?\b.{0,32}\b(work|works|working|ok|good|on)\b|"
+    r"\blights?\s+(?:still\s+)?(?:work|works|working|ok|on|good)\b",
+    re.I,
+)
+_ALL_JACKS_DEAD_RE = re.compile(
+    r"\b(all|both|no)\s+(?:the\s+)?(?:jacks|stabilizers)\b.{0,24}\b(dead|won't|wont|not)\b|"
+    r"\bstabilizers?\b.{0,24}\b(also\s+)?(dead|won't|wont|do not work|don't work)\b|"
+    r"\bno\s+lights?\b|\blights?\s+(?:are\s+)?(?:out|dead|off)\b",
+    re.I,
+)
+_BAL_BANNED_PRIMARY_RE = re.compile(
+    r"("
+    r"\bcoupler\b|"
+    r"shear[\s-]*pin|"
+    r"\b21700072\b|"
+    r"\b30\s*a\b|"
+    r"\bfuse\b|"
+    r"remote\s+stab|"
+    r"stabilizer harness"
+    r")",
+    re.I,
+)
+_BAL_FUSE_HARNESS_RE = re.compile(
+    r"(\b30\s*a\b|\bfuse\b|remote\s+stab|stabilizer harness)",
+    re.I,
+)
+
+
+def _bal_override_wont_turn(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(override|manual)\b.{0,48}\b(won't|wont|will not|does not|doesn't|cannot|can't)\s+turn\b|"
+            r"\b(won't|wont|will not|does not)\s+turn\b.{0,32}\b(override|manual)\b",
+            text or "",
+            re.I,
+        )
+    )
+
+
+_BAL_MOTOR_OK_RE = re.compile(
+    r"\bmotor\b.{0,48}\b(ok|good|fine|runs|running|operates|operated|worked)\b|"
+    r"\b(operates|runs|running|worked|ok)\b.{0,40}\b(?:on\s+|using\s+)?direct\s*12",
+    re.I,
+)
+_BAL_MOTOR_FAIL_RE = re.compile(
+    r"\bmotor\b.{0,56}\b(fail(?:s|ed)?|dead|no run|does not|doesn't|won't|wont|not operate|not run)\b|"
+    r"\b(fail(?:s|ed)?|does not|doesn't|won't|wont)\b.{0,40}\b(?:run|operate).{0,32}\b(?:direct\s*12|12\s*v)\b|"
+    r"\bdirect\s*12\s*v\b.{0,40}\b(fail(?:s|ed)?|dead|no run|does not|doesn't|won't|wont)\b",
+    re.I,
+)
+
+
+def _bal_motor_direct_result(text: str) -> str:
+    """OK or fail only when the words attach to the motor / direct-12V prove.
+
+    A dead tongue jack in the same sentence is not a failed motor. Explicit
+    "motor OK / runs on direct 12V" wins over that nearby "dead".
+    """
+    raw = text or ""
+    if not re.search(r"\bmotor\b", raw, re.I):
+        return ""
+    if not re.search(r"\b(direct\s*12\s*v|12\s*v)\b", raw, re.I):
+        return ""
+    ok = _BAL_MOTOR_OK_RE.search(raw)
+    fail = _BAL_MOTOR_FAIL_RE.search(raw)
+    if ok and not fail:
+        return "ok"
+    if fail and not ok:
+        return "fail"
+    if ok and fail:
+        return "ok" if ok.start() <= fail.start() else "fail"
+    return ""
+
+
+def bal_tongue_coupler_exception(text: str) -> bool:
+    """Coupler is allowed only when override will not turn or the motor fails direct 12V."""
+    if _bal_override_wont_turn(text or ""):
+        return True
+    return _bal_motor_direct_result(text or "") == "fail"
+
+
+def is_bal_soft_touch_tongue_only_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    BAL / Norco Soft-Touch SS 5.1: tongue jack only is dead, stabilizers and
+    panel lights still work. Not PSX1, not Level Up, not an all-jacks-dead power loss.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob or not _BAL_FAMILY_RE.search(blob):
+        return False
+    if looks_like_facr_rooftop(category_name, model_text, symptom):
+        return False
+    if _looks_like_furrion_fcr_fridge(blob):
+        return False
+    if any(k in blob for k in ("water heat", "cooktop", "furnace")):
+        return False
+    if _ALL_JACKS_DEAD_RE.search(blob):
+        return False
+    tongue_dead = bool(_TONGUE_DEAD_RE.search(blob)) or (
+        "tongue" in blob and any(k in blob for k in ("dead", "won't", "wont", "will not", "does not", "inop", "only"))
+    )
+    if not tongue_dead:
+        return False
+    stabs_ok = bool(_STABS_OK_RE.search(blob))
+    lights_ok = bool(_LIGHTS_OK_RE.search(blob))
+    only = bool(re.search(r"\b(tongue(?:\s+jack)?\s+only|only(?:\s+the)?\s+tongue)\b", blob))
+    return bool(stabs_ok or lights_ok or only)
+
+
+def extract_bal_tongue_facts(text: str) -> dict:
+    """Stage facts for the tongue-only path. Does not require the full complaint."""
+    raw = text or ""
+    norm = _norm(raw)
+    if not norm:
+        return {}
+    facts = {}
+    if re.search(
+        r"(no|0|zero|missing|without)\s+12\s*v.{0,48}tongue|"
+        r"tongue channel.{0,40}(no|0|zero|missing|dead)\s*12|"
+        r"no voltage.{0,24}tongue channel",
+        norm,
+    ):
+        facts["tongue_channel_volts"] = "missing"
+    elif re.search(
+        r"12\s*v.{0,48}tongue channel|tongue channel.{0,40}(has|have|shows|reads|present|good|ok)|"
+        r"(have|has|shows)\s+12\s*v.{0,32}tongue",
+        norm,
+    ):
+        facts["tongue_channel_volts"] = "present"
+    motor = _bal_motor_direct_result(raw)
+    if motor:
+        facts["tongue_motor_12v"] = motor
+    if re.search(r"\bcoupler\b", norm) and re.search(r"\b(ok|good|engaged|fine)\b", norm):
+        if not re.search(r"\bcoupler\b.{0,24}\b(bad|broken|sheared|stripped|failed)\b", norm):
+            facts["tongue_coupler"] = "ok"
+    elif re.search(r"\b(shear[\s-]*pin|coupler\b.{0,24}\b(bad|broken|sheared|stripped))\b", norm):
+        facts["tongue_coupler"] = "bad"
+    if _bal_override_wont_turn(raw):
+        facts["tongue_override"] = "wont_turn"
+    elif re.search(r"\boverride\b.{0,32}\b(turns|turned|works|working)\b", norm):
+        facts["tongue_override"] = "turns"
+    if re.search(r"\bpigtail\b", norm) and re.search(
+        r"\b(open|bad|broken|repair|failed|no continuity)\b", norm
+    ):
+        facts["tongue_pigtail"] = "bad"
+    elif re.search(r"\bpigtail\b", norm) and re.search(r"\b(ok|good|fine)\b", norm):
+        facts["tongue_pigtail"] = "good"
+    return facts
+
+
+def bal_tongue_stage(facts: dict | None) -> str:
+    """prove | panel | pigtail | coupler."""
+    facts = facts or {}
+    if facts.get("tongue_override") == "wont_turn" or facts.get("tongue_motor_12v") == "fail":
+        return "coupler"
+    if facts.get("tongue_channel_volts") == "missing":
+        return "panel"
+    if facts.get("tongue_channel_volts") == "present":
+        return "pigtail"
+    return "prove"
+
+
+def bal_tongue_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    symptom = (symptom or "").strip()
+    if not is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom):
+        return symptom
+    if BAL_TONGUE_SEARCH_BOOST in symptom:
+        return symptom
+    return f"{symptom} {BAL_TONGUE_SEARCH_BOOST}".strip()
+
+
+def score_bal_tongue_chunk(page, query: str = "", category: str = "") -> int:
+    """
+    Higher = INS.STA.001 / soft-touch user panel 20300427 / tongue channel.
+    Coupler, shear-pin, 30A, and remote-harness pages lose on the tongue-only class.
+    """
+    raw = _page_text_blob(page)
+    title = _page_title(page)
+    t = _norm(f"{title} {raw}")
+    q = _norm(query)
+    score = 0
+    if "20300427" in t:
+        score += 24
+    if "ins.sta.001" in t or "ins sta 001" in t:
+        score += 18
+    if "soft-touch" in t or "soft touch" in t or "user panel" in t:
+        score += 12
+    if "tongue" in t and any(k in t for k in ("pigtail", "channel", "panel")):
+        score += 10
+    if "ss 5.1" in t or "ss5.1" in t:
+        score += 8
+    if "bal" in t and "tongue" in t:
+        score += 6
+    if q and "20300427" in q and "20300427" in t:
+        score += 6
+    coupler_exception = bal_tongue_coupler_exception(q)
+    if not coupler_exception:
+        if any(
+            k in t
+            for k in (
+                "21700072",
+                "shear pin",
+                "shear-pin",
+                "coupler replacement",
+                "replace the coupler",
+            )
+        ):
+            score -= 22
+        if any(k in t for k in ("30a", "30 a", "remote stab", "stabilizer harness")) and "20300427" not in t:
+            score -= 16
+    return score
+
+
+_BAL_OFF_PATH_PAGE_RE = re.compile(
+    r"(21700072|shear[\s-]*pin|coupler replacement|replace the coupler|"
+    r"30\s*a\b|remote\s+stab|stabilizer harness)",
+    re.I,
+)
+
+
+def rank_chunks_for_bal_tongue(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer 20300427 / INS.STA.001. Drop coupler and fuse pages when a panel hit exists."""
+    scored = [(score_bal_tongue_chunk(ch, query), ch) for ch in (chunks or [])]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    has_panel = any(
+        sc > 0 and "20300427" in _norm(f"{_page_title(ch)} {_page_text_blob(ch)}")
+        for sc, ch in scored
+    )
+    coupler_exception = bal_tongue_coupler_exception(query)
+    out = []
+    for sc, ch in scored:
+        blob = f"{_page_title(ch)} {_page_text_blob(ch)}"
+        off_path = bool(_BAL_OFF_PATH_PAGE_RE.search(blob)) and "20300427" not in blob
+        if has_panel and not coupler_exception and (sc < 0 or off_path):
+            continue
+        out.append(ch)
+        if len(out) >= limit:
+            break
+    return out or [ch for _sc, ch in scored[:limit]]
+
+
+def _first_unnegated(text: str, pattern: re.Pattern):
+    for m in pattern.finditer(text or ""):
+        if _mention_is_negated(text, m.start()):
+            continue
+        return m.start()
+    return None
+
+
+def reply_leads_with_bal_banned_primary(reply: str) -> bool:
+    """Coupler / shear-pin / fuse / 30A / remote harness is the first action."""
+    text = reply or ""
+    banned_at = _first_unnegated(text, _BAL_BANNED_PRIMARY_RE)
+    if banned_at is None:
+        return False
+    prove_at = None
+    for pat in (r"20300427", r"tongue channel", r"tongue pigtail", r"soft-touch user panel"):
+        m = re.search(pat, text, re.I)
+        if m and (prove_at is None or m.start() < prove_at):
+            prove_at = m.start()
+    if prove_at is None:
+        return True
+    return banned_at < prove_at
+
+
+def reply_leads_with_bal_fuse_harness(reply: str) -> bool:
+    text = reply or ""
+    fuse_at = _first_unnegated(text, _BAL_FUSE_HARNESS_RE)
+    if fuse_at is None:
+        return False
+    action_at = None
+    for pat in (r"\bcoupler\b", r"20300427", r"tongue channel", r"tongue pigtail"):
+        m = re.search(pat, text, re.I)
+        if m and (action_at is None or m.start() < action_at):
+            action_at = m.start()
+    if action_at is None:
+        return True
+    return fuse_at < action_at
+
+
+def reply_names_tongue_channel_prove(reply: str) -> bool:
+    t = _norm(reply)
+    return "tongue channel" in t and bool(re.search(r"12\s*v", t))
+
+
+def reply_names_panel_20300427(reply: str) -> bool:
+    return BAL_TONGUE_PART in (reply or "")
+
+
+def reply_names_pigtail_repair(reply: str) -> bool:
+    t = _norm(reply)
+    return "pigtail" in t and bool(re.search(r"\b(repair|replace|open|bad)\b", t))
+
+
+def reply_names_coupler_path(reply: str) -> bool:
+    t = _norm(reply)
+    return "coupler" in t and not reply_leads_with_bal_fuse_harness(reply)
+
+
+def bal_tongue_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
+    facts = facts or {}
+    stage = bal_tongue_stage(facts)
+    if stage == "coupler":
+        if reply_leads_with_bal_fuse_harness(reply):
+            return True
+        return not reply_names_coupler_path(reply)
+    if reply_leads_with_bal_banned_primary(reply):
+        return True
+    if stage == "panel":
+        return not reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply)
+    if stage == "pigtail":
+        return not reply_names_pigtail_repair(reply) or not reply_names_tongue_channel_prove(reply)
+    return not (
+        reply_names_tongue_channel_prove(reply)
+        and reply_names_panel_20300427(reply)
+        and reply_names_pigtail_repair(reply)
+    )
+
+
+def _strip_bal_banned_primary_sentences(reply: str) -> str:
+    if not reply:
+        return ""
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
+        if not part:
+            continue
+        if reply_leads_with_bal_banned_primary(part) or reply_leads_with_bal_fuse_harness(part):
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def ensure_bal_tongue_only_path(reply: str, facts: dict | None = None) -> str:
+    """
+    Tongue-only dead with stabilizers and panel lights working cannot ship
+    coupler-first or fuse-first. Climax is 20300427 or the tongue pigtail.
+    """
+    facts = facts or {}
+    stage = bal_tongue_stage(facts)
+    lines = {
+        "coupler": BAL_TONGUE_COUPLER_SHOP_LINE,
+        "panel": BAL_TONGUE_PANEL_SHOP_LINE,
+        "pigtail": BAL_TONGUE_PIGTAIL_SHOP_LINE,
+        "prove": BAL_TONGUE_PROVE_SHOP_LINE,
+    }
+    shop = lines[stage]
+    if not bal_tongue_reply_needs_guard(reply, facts):
+        return reply
+    if stage == "coupler":
+        cleaned = reply or ""
+        if reply_leads_with_bal_fuse_harness(cleaned):
+            cleaned = _strip_bal_banned_primary_sentences(cleaned)
+        if reply_names_coupler_path(cleaned) and not reply_leads_with_bal_fuse_harness(cleaned):
+            return cleaned
+        return f"{shop}\n\n{cleaned}".strip()
+    cleaned = _strip_bal_banned_primary_sentences(reply or "")
+    if not bal_tongue_reply_needs_guard(cleaned, facts):
+        return cleaned
+    return f"{shop}\n\n{cleaned}".strip()
+
+
 def is_stabilizer_override_pin_context(
     category_name: str = "",
     model_text: str = "",
@@ -2596,7 +3180,10 @@ def is_stabilizer_override_pin_context(
     """
     Front stabilizer / PSX1: power works, manual override will not engage
     (broken/seized roll pin). Level-Up hydraulic 807662 must lose.
+    BAL Soft-Touch tongue-only dead is a different path.
     """
+    if is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom):
+        return False
     if is_air_conditioning_context(category_name, model_text, symptom):
         return False
     if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
@@ -3004,6 +3591,29 @@ def ensure_fridge_ice_moisture_path(reply: str) -> str:
 FURRION_FCR_DIAL_OFF_RUN_PAGES = (31, 43, 44, 45)
 FCR_DIAL_OFF_RUN_PART = "2021128850"
 FCR_DIAL_OFF_RUN_RETAIL = "C-FCR10DCGTA-007"
+_PART_G_CANDIDATE_RE = re.compile(r"\b20\d{8}\b")
+
+
+def is_transposed_spark_free_part(token: str) -> bool:
+    """True for a digit transposition of part G 2021128850. The exact PN is not a hit."""
+    token = (token or "").strip()
+    if token == FCR_DIAL_OFF_RUN_PART or len(token) != 10 or not token.isdigit():
+        return False
+    return sorted(token) == sorted(FCR_DIAL_OFF_RUN_PART)
+
+
+def lock_spark_free_part_g(text: str) -> str:
+    """Force every transposed Part G number back to exactly 2021128850."""
+    if not text:
+        return text or ""
+
+    def repl(match):
+        token = match.group(0)
+        if is_transposed_spark_free_part(token):
+            return FCR_DIAL_OFF_RUN_PART
+        return token
+
+    return _PART_G_CANDIDATE_RE.sub(repl, text)
 DIAL_OFF_RUN_SEARCH_BOOST = (
     "Spark-Free Thermostat temperature controller Thermostat Replacement "
     "flag terminals C blue T black probe seated Fig. 24 Fig. 25 "
@@ -3239,6 +3849,13 @@ def _has_dial_off_run_complaint(blob: str) -> bool:
     if wont_stop:
         return True
     if dial_off and (overcool or comp_run or still):
+        return True
+    # Live bay wording: "FCR10 OFF" plus compressor still running or overcool.
+    fcr_off = bool(
+        re.search(r"\bfcr\s*0?8\b|\bfcr\s*10\b|\bfcr10dcgta\b", t)
+        and re.search(r"\boff\b", t)
+    )
+    if fcr_off and (overcool or comp_run or still or wont_stop):
         return True
     return False
 
@@ -3504,19 +4121,19 @@ def ensure_fcr_dial_off_compressor_run_path(reply: str, facts: dict | None = Non
     facts = facts or {}
     prove = facts.get("ct_prove") or ""
     if prove == "stopped":
-        cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+        cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
         if reply_names_spark_free_thermostat_part(cleaned) and not reply_opens_dial_off_wrong_tree(cleaned):
             return cleaned
         return f"{DIAL_OFF_RUN_PART_SHOP_LINE}\n\n{cleaned}".strip()
     if prove == "still_running":
-        cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+        cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
         cleaned = _drop_thermostat_rr_sentences(cleaned)
         if reply_names_dial_off_inverter_secondary(cleaned):
             return cleaned
         return f"{DIAL_OFF_RUN_INVERTER_SHOP_LINE}\n\n{cleaned}".strip()
     if not dial_off_run_reply_needs_guard(reply, facts):
-        return reply
-    cleaned = strip_dial_off_wrong_tree_claims(reply or "")
+        return lock_spark_free_part_g(reply)
+    cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
     if reply_names_dial_off_ct_prove(cleaned) and reply_names_spark_free_thermostat_part(cleaned):
         if not reply_opens_dial_off_wrong_tree(cleaned):
             return cleaned
@@ -3953,6 +4570,18 @@ def extract_stated_facts(text: str) -> dict:
     elif can_unplug and manual_still_dumps:
         facts["can_isolate"] = "still_dumps"
 
+    if is_bal_soft_touch_tongue_only_context("", "", raw):
+        facts["bal_tongue"] = "only_dead"
+    if (
+        facts.get("bal_tongue") == "only_dead"
+        or "tongue" in raw
+        or "20300427" in raw
+        or "soft-touch" in raw
+        or "soft touch" in raw
+    ):
+        facts.update(extract_bal_tongue_facts(text or ""))
+    facts.update(facr_freeze_proves_from_text(text or ""))
+
     return facts
 
 
@@ -4019,11 +4648,53 @@ def format_stated_facts_rule(facts: dict) -> str:
             "stays": "Manual Mode STAYS with the Firefly cable unplugged (rubber-boot plug still in)",
             "still_dumps": "Manual Mode STILL DUMPS with the Firefly cable unplugged",
         },
+        "bal_tongue": {
+            "only_dead": "BAL Soft-Touch tongue jack only is dead; other stabilizers and panel lights work",
+        },
+        "tongue_channel_volts": {
+            "missing": "no 12V at the soft-touch panel tongue channel",
+            "present": "12V is present at the soft-touch panel tongue channel",
+        },
+        "tongue_motor_12v": {
+            "ok": "tongue motor runs on direct 12V",
+            "fail": "tongue motor fails a direct-12V prove",
+        },
+        "tongue_coupler": {
+            "ok": "tongue coupler is engaged / OK",
+            "bad": "tongue coupler or shear pin is bad",
+        },
+        "tongue_override": {
+            "wont_turn": "manual override will not turn",
+            "turns": "manual override turns",
+        },
+        "tongue_pigtail": {
+            "bad": "tongue pigtail is open / needs repair",
+            "good": "tongue pigtail is good",
+        },
+        "facr_drain": {"clear": "FACR condensate drain is clear"},
+        "facr_fan_filter": {"ok": "FACR fan and filter are OK"},
+        "facr_freeze_sensor": {"good": "FACR freeze sensor is good"},
     }
     lines = [
         "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
     ]
+    hidden = set()
+    if facts.get("bal_tongue") != "only_dead":
+        hidden.update(
+            {
+                "bal_tongue",
+                "tongue_channel_volts",
+                "tongue_motor_12v",
+                "tongue_coupler",
+                "tongue_override",
+                "tongue_pigtail",
+            }
+        )
+    if not facts.get("facr_fan_filter") and not facts.get("facr_freeze_sensor"):
+        hidden.add("facr_drain")
     for key, val in facts.items():
+        if key in hidden:
+            continue
         pretty = (labels.get(key) or {}).get(val) or f"{key}={val}"
         lines.append(f"- {pretty}")
     lines.append(
@@ -4147,6 +4818,48 @@ def format_stated_facts_rule(facts: dict) -> str:
             "Low Voltage / Excess Angle / External Sensor before you unplug the Firefly "
             "cable or order parts."
         )
+    if facts.get("bal_tongue") == "only_dead":
+        stage = bal_tongue_stage(facts)
+        if stage == "coupler":
+            lines.append(
+                "Manual override will not turn, or the motor failed direct 12V. "
+                "Coupler replacement is allowed. Do NOT lead with the 30A fuse or the "
+                "remote stabilizer harness. Do NOT make soft-touch user panel 20300427 the primary."
+            )
+        elif stage == "panel":
+            lines.append(
+                "No 12V at the soft-touch panel tongue channel. Climax is soft-touch "
+                "user panel 20300427. Do NOT lead with coupler, shear pin, 30A fuse, or "
+                "the remote stabilizer harness."
+            )
+        elif stage == "pigtail":
+            lines.append(
+                "12V is present at the soft-touch panel tongue channel. Climax is tongue "
+                "pigtail / panel-to-motor lead repair. Do NOT lead with coupler, 30A fuse, "
+                "or the remote stabilizer harness."
+            )
+        else:
+            lines.append(
+                "BAL Soft-Touch tongue-only dead is in play. Prove 12V at the soft-touch "
+                "panel tongue channel, then the local tongue pigtail. No 12V on that channel "
+                "→ user panel 20300427. Do NOT lead with coupler / shear-pin or fuse / 30A / "
+                "remote stabilizer harness. Coupler only if the override will not turn or the "
+                "motor fails direct 12V."
+            )
+    if facr_proves_complete(facts):
+        lines.append(
+            "Drain is clear, fan and filter are OK, and the freeze sensor is good. "
+            "CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. "
+            "Do NOT stall on searching manuals. Do NOT repeat a drain-only check."
+        )
+    elif facts.get("facr_drain") == "clear" and (
+        facts.get("facr_fan_filter") or facts.get("facr_freeze_sensor")
+    ):
+        lines.append(
+            "FACR freeze proves are in progress. Do not stall on searching manuals. "
+            "Do not repeat a drain check that is already clear. Move to the remaining "
+            "fan/filter or freeze-sensor prove, then rooftop assembly R&R (CCD-0007990)."
+        )
     return "\n".join(lines)
 
 
@@ -4182,8 +4895,12 @@ def coach_library_search_boost(facts: dict) -> str:
         parts.append("thermostat dial not cooling")
     if facts.get("pan_on_flameout"):
         parts.append(COOKTOP_SEARCH_BOOST)
-    if facts.get("override_pin") == "broken_or_seized":
+    if facts.get("bal_tongue") == "only_dead":
+        parts.append(BAL_TONGUE_SEARCH_BOOST)
+    elif facts.get("override_pin") == "broken_or_seized":
         parts.append(PSX1_SEARCH_BOOST)
+    if facr_proves_complete(facts):
+        parts.append(FACR_ASSEMBLY_SEARCH_BOOST)
     if (
         facts.get("can_isolate")
         or (

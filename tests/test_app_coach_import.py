@@ -78,6 +78,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "is_level_up_manual_can_conflict_context",
             "LEVEL_UP_CAN_PRODUCT_LOCK",
             "ensure_level_up_manual_can_path",
+            "is_bal_soft_touch_tongue_only_context",
+            "ensure_bal_tongue_only_path",
+            "BAL_TONGUE_PRODUCT_LOCK",
+            "ensure_facr_freeze_assembly_rr",
+            "FACR_FREEZE_ASSEMBLY_LOCK",
+            "lock_spark_free_part_g",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -124,6 +130,10 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("is_level_up_manual_can_conflict_context", names)
         self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", names)
         self.assertIn("ensure_level_up_manual_can_path", names)
+        self.assertIn("ensure_bal_tongue_only_path", names)
+        self.assertIn("is_bal_soft_touch_tongue_only_context", names)
+        self.assertIn("ensure_facr_freeze_assembly_rr", names)
+        self.assertIn("lock_spark_free_part_g", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )

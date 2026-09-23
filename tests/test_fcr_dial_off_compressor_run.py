@@ -390,6 +390,56 @@ class TestDialOffRunBayProcedure(unittest.TestCase):
         self.assertNotIn(34, pages)
         self.assertNotIn(23, pages)
         assert_locked_thermostat_cites(self, procedure_plain_text(proc))
+        action = " ".join(proc.bay_order[:2] + [n.text for n in proc.flowchart.nodes]).lower()
+        self.assertNotIn("fuse", action)
+        self.assertNotIn("12v", action)
+        self.assertIn("no jumper", action)
+        self.assertIn("c (blue)", action)
+        self.assertIn("t (black)", action)
+        self.assertTrue(any("fuse" in item.lower() and "12v" in item.lower() for item in proc.do_not))
+
+    def test_fcr10_off_locks_exact_part_g_and_rejects_transposed_pn(self):
+        concern = "FCR10 OFF + compressor still running / overcool"
+        self.assertTrue(
+            is_fcr_dial_off_compressor_run_context("Refrigerators", WO_MODEL, concern)
+        )
+        transposed = {
+            "title": FURRION,
+            "category": "Refrigerators",
+            "page": 43,
+            "excerpt": (
+                "Part G Spark-Free Thermostat 2021218850 and also 2021128805. "
+                "Do not use a digit-transposed part number."
+            ),
+        }
+        proc = compile_bay_procedure(
+            concern=concern,
+            brand="Furrion",
+            model=WO_MODEL,
+            category="Refrigerators",
+            chunks=[transposed, FUSE_P19, LED_P18, P34],
+        )
+        text = procedure_plain_text(proc)
+        pdf = ""
+        try:
+            from bay_procedure import render_bay_procedure_pdf as _render
+
+            pdf = _render(proc)
+            import pymupdf
+
+            doc = pymupdf.open(stream=pdf, filetype="pdf")
+            pdf_text = "\n".join(page.get_text() for page in doc)
+        except Exception:
+            pdf_text = text
+        for blob in (text, pdf_text):
+            self.assertIn("2021128850", blob)
+            self.assertIn("part g", blob.lower())
+            self.assertIn("spark-free", blob.lower())
+            for wrong in ("2021218850", "2021128805", "2021182850", "2201128850", "2021128580"):
+                self.assertNotIn(wrong, blob)
+        self.assertIn("no jumper", text.lower())
+        self.assertIn("c (blue)", text.lower())
+        self.assertIn("t (black)", text.lower())
 
 
 class TestPayload413(unittest.TestCase):

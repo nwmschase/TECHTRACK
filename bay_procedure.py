@@ -51,9 +51,11 @@ from gd_library_coach import (
     WIRED_COACH_CAN_RE,
     ac_search_symptom,
     cooktop_search_symptom,
+    bal_tongue_search_symptom,
     dial_off_run_search_symptom,
     ice_moisture_search_symptom,
     is_air_conditioning_context,
+    is_bal_soft_touch_tongue_only_context,
     is_cooktop_pan_on_flameout_context,
     is_facr_rooftop_freeze_context,
     is_fcr_dial_off_compressor_run_context,
@@ -65,7 +67,9 @@ from gd_library_coach import (
     is_water_heater_context,
     level_up_search_symptom,
     page_has_figure_or_terminal_layout,
+    lock_spark_free_part_g,
     rank_chunks_for_ac,
+    rank_chunks_for_bal_tongue,
     rank_chunks_for_cooktop_pan_on,
     rank_chunks_for_dial_off_run,
     rank_chunks_for_fcr_fan_fault,
@@ -513,6 +517,7 @@ def _dial_off_path() -> dict:
         "check_pages": [31, 31, 43, 45],
         "do_not": [
             "Do not jumper C and T on this prove.",
+            "Do not open the fuse or a 12V continuity check while the dial is OFF and the compressor is still running.",
             "Do not replace the cooling unit while the dial is OFF and the compressor is still running.",
         ],
         "sources": [
@@ -874,6 +879,128 @@ def _facr_path() -> dict:
     }
 
 
+def _bal_tongue_path() -> dict:
+    """Tongue jack only dead. Panel tongue channel, then pigtail. Not coupler-first."""
+    return {
+        "primary_cite": (
+            "BAL Soft-Touch SS 5.1 tongue jack. Prove the panel tongue channel, then the tongue pigtail."
+        ),
+        "pattern_means": (
+            "The electric tongue jack is the only jack that is dead. The other stabilizers "
+            "still extend and retract, and the soft-touch panel lights still work. That is "
+            "a soft-touch panel tongue-channel prove, then the local tongue pigtail. It is "
+            "not a coupler, shear-pin, 30A fuse, or remote stabilizer harness job when the "
+            "motor runs on direct 12V and the coupler is engaged."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "Tongue jack only is dead.\nStabilizers and panel lights work.",
+                    0.50,
+                    0.08,
+                    w=280,
+                    h=56,
+                ),
+                FlowNode(
+                    "d_v",
+                    "decision",
+                    "12V at the soft-touch\npanel tongue channel?",
+                    0.30,
+                    0.34,
+                    w=220,
+                    h=88,
+                ),
+                FlowNode(
+                    "e_panel",
+                    "end",
+                    "Replace the soft-touch\nuser panel 20300427.",
+                    0.78,
+                    0.34,
+                    w=200,
+                    h=64,
+                ),
+                FlowNode(
+                    "d_p",
+                    "decision",
+                    "Do the tongue pigtail\nleads pass?",
+                    0.30,
+                    0.62,
+                    w=210,
+                    h=88,
+                ),
+                FlowNode(
+                    "e_pig",
+                    "end",
+                    "Repair the tongue pigtail.",
+                    0.78,
+                    0.62,
+                    w=190,
+                    h=56,
+                ),
+                FlowNode(
+                    "e_ok",
+                    "end",
+                    "Channel and pigtail passed.\nRetest the tongue jack.",
+                    0.30,
+                    0.90,
+                    w=220,
+                    h=56,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d_v"),
+                FlowEdge("d_v", "e_panel", "NO", "right", "left"),
+                FlowEdge("d_v", "d_p", "YES", "bottom", "top"),
+                FlowEdge("d_p", "e_pig", "NO", "right", "left"),
+                FlowEdge("d_p", "e_ok", "YES", "bottom", "top"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Confirm the electric tongue jack is the only jack that is dead. The other "
+                "stabilizers still extend and retract, and the soft-touch panel lights still "
+                "work. Go to the tongue-channel voltage prove."
+            ),
+            (
+                "Command tongue extend or retract and prove 12V at the soft-touch panel tongue "
+                "channel. If that channel has no 12V while the stabilizer channels and the lights "
+                "still work, replace the soft-touch user panel 20300427. That is the confirmed correction."
+            ),
+            (
+                "If the tongue channel has 12V, check the local tongue pigtail and the panel-to-motor "
+                "leads. If voltage stops in that pigtail, repair the pigtail and retest the tongue jack. "
+                "That is the confirmed correction after the panel voltage prove."
+            ),
+            (
+                "Use a coupler or shear-pin replacement only when the manual override will not turn, "
+                "or the motor fails a direct-12V prove. When the motor runs on direct 12V and the "
+                "coupler is engaged, leave the coupler installed and stay on the panel and pigtail proves."
+            ),
+        ],
+        "do_not": [
+            "Do not replace the coupler or the shear pin when the other stabilizers and the panel lights work and the motor runs on direct 12V.",
+            "Do not open the 30A supply fuse or the remote stabilizer harness when only the tongue jack is dead.",
+        ],
+        "sources": [
+            {
+                "title": "BAL SS 5.1 Stabilizing System INS.STA.001",
+                "page": None,
+                "excerpt": (
+                    "Tongue jack only dead, stabilizers and panel lights working: prove 12V at the "
+                    "soft-touch panel tongue channel. No voltage there means soft-touch user panel "
+                    "20300427. Voltage present means repair the local tongue pigtail."
+                ),
+            },
+        ],
+        "display_model": "BAL Soft-Touch SS 5.1",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
 def _firefly_path() -> dict:
     return {
         "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot terminator in.",
@@ -1148,6 +1275,7 @@ def rewrite_bay_search_symptom(
             symptom = f"{symptom} {FACR_FREEZE_SEARCH_BOOST}".strip()
     symptom = water_heater_search_symptom(category_name, model_text, symptom)
     symptom = cooktop_search_symptom(category_name, model_text, symptom)
+    symptom = bal_tongue_search_symptom(category_name, model_text, symptom)
     symptom = stabilizer_search_symptom(category_name, model_text, symptom)
     return symptom
 
@@ -1183,6 +1311,8 @@ def rank_bay_chunks(
         return rank_chunks_for_water_heater(pages, query, limit=limit)
     if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
         return rank_chunks_for_cooktop_pan_on(pages, query, limit=limit)
+    if is_bal_soft_touch_tongue_only_context(category_name, model_text, concern):
+        return rank_chunks_for_bal_tongue(pages, query, limit=limit)
     if is_stabilizer_override_pin_context(category_name, model_text, concern):
         return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
     return pages[:limit]
@@ -1398,6 +1528,17 @@ def _seed_path_figure(kind: str) -> BayFigure:
             ),
             image_png=_seed_figure_png("generic"),
         )
+    if kind == "bal_tongue":
+        return BayFigure(
+            title="BAL SS 5.1 Stabilizing System INS.STA.001",
+            page=None,
+            caption="Soft-touch panel tongue channel and tongue pigtail",
+            excerpt=(
+                "Prove 12V at the soft-touch panel tongue channel. "
+                "No 12V means user panel 20300427. Voltage present means repair the pigtail."
+            ),
+            image_png=_seed_figure_png("generic"),
+        )
     if kind == "generic":
         return BayFigure(
             title="Shop Document Library",
@@ -1423,6 +1564,8 @@ def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = N
         return _oem_library_figures(kind)
     if kind == "dial_off":
         return [_seed_path_figure("dial_off")]
+    if kind == "bal_tongue":
+        return [_seed_path_figure("bal_tongue")]
     if explicit:
         if any(fig.image_png for fig in explicit):
             return list(explicit)
@@ -1534,6 +1677,12 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
             "If power works but the manual override will not engage because the roll "
             "pin is broken, replace the complete stabilizer jack. It is not a coupler-only repair."
         )
+    if is_bal_soft_touch_tongue_only_context(category_name, model_text, concern):
+        notes.append(
+            "Tongue jack only dead, with the other stabilizers and panel lights working: "
+            "prove 12V at the soft-touch panel tongue channel, then the tongue pigtail. "
+            "No 12V on that channel means soft-touch user panel 20300427."
+        )
     if is_level_up_advantage_context(category_name, model_text, concern) and not is_firefly_can_path_context(
         category_name, model_text, concern
     ):
@@ -1572,6 +1721,39 @@ def _merge_sources(
     return out
 
 
+def _lock_dial_off_part_numbers(proc: "BayProcedure") -> "BayProcedure":
+    """Part G on this sheet is exactly 2021128850. Digit transpositions are rewritten."""
+    proc.concern = lock_spark_free_part_g(proc.concern)
+    proc.pattern_means = lock_spark_free_part_g(proc.pattern_means)
+    proc.primary_cite = lock_spark_free_part_g(proc.primary_cite)
+    proc.bay_order = [lock_spark_free_part_g(step) for step in proc.bay_order]
+    proc.do_not = [lock_spark_free_part_g(item) for item in proc.do_not]
+    proc.notes = [lock_spark_free_part_g(note) for note in proc.notes]
+    for node in proc.flowchart.nodes:
+        node.text = lock_spark_free_part_g(node.text)
+    for source in proc.sources:
+        if source.get("title"):
+            source["title"] = lock_spark_free_part_g(source["title"])
+        if source.get("excerpt"):
+            source["excerpt"] = lock_spark_free_part_g(source["excerpt"])
+    for fig in proc.figures:
+        fig.caption = lock_spark_free_part_g(fig.caption or "")
+        fig.excerpt = lock_spark_free_part_g(fig.excerpt or "")
+    blob = "\n".join(
+        [
+            proc.pattern_means or "",
+            *proc.bay_order,
+            *(node.text for node in proc.flowchart.nodes),
+        ]
+    )
+    if "2021128850" not in blob:
+        proc.bay_order.append(
+            "Replace the Spark-Free Thermostat part G 2021128850 when the compressor "
+            "stops with C (blue) and T (black) open and no jumper."
+        )
+    return proc
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -1603,6 +1785,7 @@ def compile_bay_procedure(
     ice = is_fridge_ice_moisture_context(category, model_text, concern)
     firefly = is_firefly_can_path_context(category, model_text, concern)
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
+    bal_tongue = is_bal_soft_touch_tongue_only_context(category, model_text, concern)
 
     path_kind = ""
     if dial_off:
@@ -1617,6 +1800,9 @@ def compile_bay_procedure(
     elif firefly:
         spec = _firefly_path()
         path_kind = "firefly"
+    elif bal_tongue:
+        spec = _bal_tongue_path()
+        path_kind = "bal_tongue"
     else:
         extra_steps = []
         for d in ranked:
@@ -1688,6 +1874,8 @@ def compile_bay_procedure(
         display_model = "Furrion Chill rooftop unit"
     elif dial_off and not display_model:
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
+    elif bal_tongue and not (brand or model):
+        display_model = spec.get("display_model") or "BAL Soft-Touch SS 5.1"
     elif ice and not display_model:
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
 
@@ -1714,9 +1902,12 @@ def compile_bay_procedure(
         notes=notes,
         display_model=display_model,
         flow_tall=bool(spec.get("flow_tall")),
-        full_story=bool(spec.get("full_story", path_kind in ("ice", "facr", "dial_off"))),
+        full_story=bool(spec.get("full_story", path_kind in ("ice", "facr", "dial_off", "bal_tongue"))),
     )
-    return apply_sheet_standard(proc)
+    proc = apply_sheet_standard(proc)
+    if dial_off:
+        proc = _lock_dial_off_part_numbers(proc)
+    return proc
 
 
 def _generic_primary_cite(ranked) -> str:

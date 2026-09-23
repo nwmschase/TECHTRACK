@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.15.0
+RV TechTrack v4.16.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -60,6 +60,7 @@ RV TechTrack v4.15.0
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.16.0: BAL tongue-only dead climaxes at soft-touch panel 20300427; FACR freeze continues to rooftop assembly R&R; FCR10 OFF bay sheet locks part G 2021128850
 - Mobile-friendly
 """
 import streamlit as st
@@ -134,6 +135,9 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_facr_rooftop_freeze_context",
     "is_firefly_can_path_context",
     "is_level_up_manual_can_conflict_context",
+    "is_bal_soft_touch_tongue_only_context",
+    "ensure_bal_tongue_only_path",
+    "ensure_facr_freeze_assembly_rr",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -235,6 +239,20 @@ ensure_fridge_ice_moisture_path = _gdc.ensure_fridge_ice_moisture_path
 ensure_fcr_dial_off_compressor_run_path = _gdc.ensure_fcr_dial_off_compressor_run_path
 ensure_level_up_manual_can_path = _gdc.ensure_level_up_manual_can_path
 ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
+ensure_bal_tongue_only_path = _gdc.ensure_bal_tongue_only_path
+ensure_facr_freeze_assembly_rr = _gdc.ensure_facr_freeze_assembly_rr
+is_bal_soft_touch_tongue_only_context = _gdc.is_bal_soft_touch_tongue_only_context
+bal_tongue_search_symptom = _gdc.bal_tongue_search_symptom
+rank_chunks_for_bal_tongue = _gdc.rank_chunks_for_bal_tongue
+score_bal_tongue_chunk = _gdc.score_bal_tongue_chunk
+extract_bal_tongue_facts = _gdc.extract_bal_tongue_facts
+bal_tongue_stage = _gdc.bal_tongue_stage
+BAL_TONGUE_PRODUCT_LOCK = _gdc.BAL_TONGUE_PRODUCT_LOCK
+BAL_TONGUE_SEARCH_BOOST = _gdc.BAL_TONGUE_SEARCH_BOOST
+facr_freeze_proves_from_text = _gdc.facr_freeze_proves_from_text
+facr_proves_complete = _gdc.facr_proves_complete
+FACR_FREEZE_ASSEMBLY_LOCK = _gdc.FACR_FREEZE_ASSEMBLY_LOCK
+lock_spark_free_part_g = _gdc.lock_spark_free_part_g
 fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
@@ -1706,6 +1724,7 @@ def search_manual_chunks(
     stabilizer_context: bool = False,
     ice_moisture_context: bool = False,
     dial_off_run_context: bool = False,
+    bal_tongue_context: bool = False,
 ):
     """Keyword search + expand matching INDEX chart rows into real SECTION pages.
 
@@ -1729,6 +1748,8 @@ def search_manual_chunks(
     CCD-0008122 Ice and Moisture p.36 / Fig.36 over fuse / 12V no-power pages.
     dial_off_run_context: FCR08/FCR10 dial OFF + compressor still running /
     overcooling — prefer thermostat C/T p.31 and R&R p.43–45 over fuse / 12V / LED.
+    bal_tongue_context: BAL Soft-Touch SS 5.1 tongue jack only dead — prefer
+    INS.STA.001 / soft-touch user panel 20300427 over coupler, 30A, or remote harness.
     """
     q = session.query(DocChunk)
     if category_id:
@@ -1799,7 +1820,7 @@ def search_manual_chunks(
                 cat_ids.append(extra.id)
         if cat_ids:
             q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif stabilizer_context:
+    elif stabilizer_context or bal_tongue_context:
         cat_ids = []
         for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
             extra = session.query(Category).filter(Category.name == extra_name).first()
@@ -1830,7 +1851,7 @@ def search_manual_chunks(
                 extra_names = [AIR_CONDITIONING_CATEGORY]
             elif cooktop_context:
                 extra_names = [RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference"]
-            elif stabilizer_context:
+            elif stabilizer_context or bal_tongue_context:
                 extra_names = ["Leveling", "ID & Reference"]
             elif fridge_job or category_id:
                 extra_names = [REFRIGERATORS_CATEGORY, "Electrical"]
@@ -1878,6 +1899,7 @@ def search_manual_chunks(
         and not fan_fault_context
         and not ice_moisture_context
         and not dial_off_run_context
+        and not bal_tongue_context
     ):
         if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
             for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
@@ -1896,6 +1918,12 @@ def search_manual_chunks(
         for t in (
             "thermostat", "spark", "probe", "terminal", "replacement",
             "controller", "2021128850", "flag",
+        ):
+            query_terms.add(t)
+    if bal_tongue_context and not figure_seek:
+        for t in (
+            "20300427", "ins.sta.001", "soft-touch", "tongue", "pigtail",
+            "panel", "ss", "bal",
         ):
             query_terms.add(t)
     if fan_fault_context and not figure_seek:
@@ -1965,8 +1993,10 @@ def search_manual_chunks(
             sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
         if cooktop_context:
             sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if stabilizer_context:
+        if stabilizer_context and not bal_tongue_context:
             sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if bal_tongue_context:
+            sc += score_bal_tongue_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if ice_moisture_context:
             sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if dial_off_run_context:
@@ -2010,10 +2040,15 @@ def search_manual_chunks(
                 sc += 5
             if "furnace" in title_kw and "cooktop" not in title_kw and "range" not in title_kw:
                 sc -= 8
-        if stabilizer_context:
+        if stabilizer_context and not bal_tongue_context:
             if any(x in title_kw for x in ("psx1", "ccd-0007345", "stabilizer")):
                 sc += 5
             if any(x in title_kw for x in ("level-up", "level up", "octp", "807662")):
+                sc -= 8
+        if bal_tongue_context:
+            if any(x in hay for x in ("20300427", "ins.sta.001", "soft-touch", "soft touch")):
+                sc += 8
+            if any(x in hay for x in ("21700072", "30a", "30 a", "remote stab")) and "20300427" not in hay:
                 sc -= 8
         if ice_moisture_context:
             if any(x in title_kw for x in ("refriger", "fridge", "fcr", "ccd-0008122")):
@@ -2093,8 +2128,10 @@ def search_manual_chunks(
             sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
         if cooktop_context:
             sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if stabilizer_context:
+        if stabilizer_context and not bal_tongue_context:
             sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        if bal_tongue_context:
+            sc += score_bal_tongue_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if ice_moisture_context:
             sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if dial_off_run_context:
@@ -2126,7 +2163,9 @@ def search_manual_chunks(
         out = rank_chunks_for_fcr_fan_fault(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if cooktop_context:
         out = rank_chunks_for_cooktop_pan_on(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if stabilizer_context:
+    if bal_tongue_context:
+        out = rank_chunks_for_bal_tongue(out, f"{model_text or ''} {symptom or ''}", limit=limit)
+    elif stabilizer_context:
         out = rank_chunks_for_stabilizer_override(out, f"{model_text or ''} {symptom or ''}", limit=limit)
     if ice_moisture_context:
         out = rank_chunks_for_ice_moisture(out, f"{model_text or ''} {symptom or ''}", limit=limit)
@@ -4346,6 +4385,9 @@ def _ask_manual_context(
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
     cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
     stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, symptom)
+    bal_tongue_job = is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom)
+    if bal_tongue_job:
+        stabilizer_job = False
     ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, symptom)
     dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom)
     skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
@@ -4375,6 +4417,7 @@ def _ask_manual_context(
         stabilizer_context=stabilizer_job,
         ice_moisture_context=ice_moisture_job,
         dial_off_run_context=dial_off_job,
+        bal_tongue_context=bal_tongue_job,
     )
     if figure_seek:
         chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
@@ -4398,6 +4441,10 @@ def _ask_manual_context(
         )
     elif cooktop_job:
         chunks = rank_chunks_for_cooktop_pan_on(
+            chunks, f"{model_text} {figure_query or symptom}", limit=limit
+        )
+    elif bal_tongue_job:
+        chunks = rank_chunks_for_bal_tongue(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
     elif stabilizer_job:
@@ -4468,6 +4515,22 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, search_symptom)
     cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, search_symptom)
     stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, search_symptom)
+    bal_tongue_job = is_bal_soft_touch_tongue_only_context(
+        category_name, model_text, search_symptom
+    )
+    if bal_tongue_job:
+        stabilizer_job = False
+        facts = dict(facts)
+        facts["bal_tongue"] = "only_dead"
+        for m in history or []:
+            if (m.get("role") or "") != "user":
+                continue
+            facts.update(extract_bal_tongue_facts(m.get("content") or ""))
+        facts.update(extract_bal_tongue_facts(user_msg))
+    facr_freeze_job = is_facr_rooftop_freeze_context(category_name, model_text, search_symptom)
+    if facr_freeze_job:
+        facts = dict(facts)
+        facts.update(facr_freeze_proves_from_text(search_symptom))
     ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, search_symptom)
     dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, search_symptom)
     level_up_can_job = is_level_up_manual_can_conflict_context(
@@ -4527,6 +4590,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
     search_symptom = water_heater_search_symptom(category_name, model_text, search_symptom)
     search_symptom = cooktop_search_symptom(category_name, model_text, search_symptom)
+    search_symptom = bal_tongue_search_symptom(category_name, model_text, search_symptom)
     search_symptom = stabilizer_search_symptom(category_name, model_text, search_symptom)
     if (
         not skip_unity_for_level_up(category_name, model_text, search_symptom)
@@ -4574,6 +4638,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + COOKTOP_PRODUCT_LOCK
     if stabilizer_job:
         system_prompt += "\n\n" + PSX1_PRODUCT_LOCK
+    if bal_tongue_job:
+        system_prompt += "\n\n" + BAL_TONGUE_PRODUCT_LOCK
+    if facr_freeze_job:
+        system_prompt += "\n\n" + FACR_FREEZE_ASSEMBLY_LOCK
     if ice_moisture_job:
         system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
     if dial_off_job:
@@ -4677,6 +4745,10 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ensure_cooktop_tip_pan_check(reply)
     if stabilizer_job:
         reply = ensure_stabilizer_assembly_rr(reply, facts)
+    if bal_tongue_job:
+        reply = ensure_bal_tongue_only_path(reply, facts)
+    if facr_freeze_job:
+        reply = ensure_facr_freeze_assembly_rr(reply, facts)
     if ice_moisture_job:
         reply = ensure_fridge_ice_moisture_path(reply)
     if dial_off_job:

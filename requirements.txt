@@ -5,6 +5,7 @@ openai
 boto3
 pypdf
 pymupdf
+pillow
 fpdf2
 reportlab
 extra-streamlit-components
