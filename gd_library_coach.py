@@ -54,6 +54,8 @@ def gd_category_select_options(existing_names=None):
 
 # Groq retired llama-4-scout on 2026-07-17 (404 / no access).
 # Current Groq vision: https://console.groq.com/docs/vision
+# Plate photos go through gd_llm (xAI grok-4.6 first, then this Groq list).
+# Do not put llama-4-scout back on the default list.
 DEAD_GROQ_SCOUT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_GROQ_VISION_MODELS = (
     "qwen/qwen3.6-27b",

@@ -29,7 +29,7 @@ class TestSidebarVersion(unittest.TestCase):
     def test_docstring_header_is_current_release(self):
         version_of, doc = _load_product_version_fn()
         self.assertTrue(doc.startswith("RV TechTrack v"))
-        self.assertEqual(version_of(doc), "v4.17.0")
+        self.assertEqual(version_of(doc), "v4.18.0")
 
     def test_header_wins_over_later_changelog_versions(self):
         version_of, _doc = _load_product_version_fn()

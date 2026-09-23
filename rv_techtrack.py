@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.17.0
+RV TechTrack v4.18.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -60,6 +60,7 @@ RV TechTrack v4.17.0
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.18.0: Guided Diagnostics, warranty story, and data-plate photos call xAI first (grok-4.6); Groq is the automatic fallback when the primary key is missing or the provider returns 401/403, 429, 5xx, timeout, or a transport error
 - v4.17.0: FACR08 freeze/leak climax is an authorization card for rooftop assembly R&R (CCD-0007990), never a library-miss R&R refusal or a compressor/DC-bus detour; Coleman-Mach 2111-0001 authorizes fan motor and control board only when Fan High is dead, the Peacemaker fan is locked, and the run cap is good
 - v4.16.1: FACR08 freeze/leak terminal card is rooftop assembly R&R (CCD-0007990) after the drain/pan/filter/suction/sensor/nozzle/pressure path, never a blank card
 - v4.16.0: BAL tongue-only dead climaxes at soft-touch panel 20300427; FACR freeze continues to rooftop assembly R&R; FCR10 OFF bay sheet locks part G 2021128850
@@ -85,7 +86,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.17.0``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.18.0``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -106,18 +107,6 @@ try:
     ITSDANGEROUS_AVAILABLE = True
 except ImportError:
     ITSDANGEROUS_AVAILABLE = False
-
-try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
-
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
 
 try:
     import boto3
@@ -204,6 +193,9 @@ def _load_gd_library_coach():
 
 
 _gdc = _load_gd_library_coach()
+# Import after the coach loader puts this file's folder on sys.path.
+# Streamlit Cloud does not always start with the repo root on sys.path.
+import gd_llm
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES
 AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
 FACR_FREEZE_HINT_TITLES = _gdc.FACR_FREEZE_HINT_TITLES
@@ -1072,7 +1064,7 @@ def get_safety_progress(user_id: int) -> float:
     )
     return round(100.0 * signed / meetings, 1)
 
-# ---------------- AI CLIENT (xAI Grok preferred, Groq fallback) ----------------
+# ---------------- AI CLIENT (xAI primary, Groq fallback — see gd_llm.py) ----------------
 def _secret(name: str):
     """Read a Streamlit secret, then an env var."""
     try:
@@ -1084,42 +1076,17 @@ def _secret(name: str):
 
 
 def ai_available() -> bool:
-    return bool(_secret("XAI_API_KEY") or (GROQ_AVAILABLE and _secret("GROQ_API_KEY")))
+    return gd_llm.ai_configured(_secret)
 
 
 def _ai_chat_once(messages, temperature=0.2, max_tokens=1400) -> str:
-    """One chat completion. Prefer xAI Grok; fall back to Groq. Retrieval/RAG is unchanged."""
-    errors = []
-    xai_key = _secret("XAI_API_KEY")
-    if xai_key and OPENAI_AVAILABLE:
-        try:
-            client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
-            model = _secret("XAI_MODEL") or "grok-4.6"
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return (response.choices[0].message.content or "").strip()
-        except Exception as e:
-            errors.append(f"xAI: {e}")
-    groq_key = _secret("GROQ_API_KEY")
-    if GROQ_AVAILABLE and groq_key:
-        try:
-            client = Groq(api_key=groq_key)
-            response = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return (response.choices[0].message.content or "").strip()
-        except Exception as e:
-            errors.append(f"Groq: {e}")
-    if errors:
-        raise RuntimeError(" | ".join(errors))
-    raise RuntimeError("No AI key configured. Add XAI_API_KEY (preferred) or GROQ_API_KEY in Streamlit secrets.")
+    """One chat completion via gd_llm (xAI primary, Groq fallback). Retrieval is unchanged."""
+    return gd_llm.complete_chat(
+        messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        secret_fn=_secret,
+    )
 
 
 def ai_chat(messages, temperature=0.2, max_tokens=1400) -> str:
@@ -1168,52 +1135,26 @@ def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> 
             ],
         }
     ]
-    errors = []
-    raw = ""
-    xai_key = _secret("XAI_API_KEY")
-    if xai_key and OPENAI_AVAILABLE:
-        client = OpenAI(api_key=xai_key, base_url="https://api.x.ai/v1")
-
-        def _xai_call(model):
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=400,
-            )
-            return (response.choices[0].message.content or "").strip()
-
-        _used, raw, xai_errs = pick_working_vision_model(
-            xai_vision_model_candidates(
-                preferred_vision=_secret("XAI_VISION_MODEL") or "",
-                preferred_chat=_secret("XAI_MODEL") or "",
-            ),
-            _xai_call,
+    # llama-4-scout stays off the Groq list (HTTP 404). grok-4.6 accepts the image.
+    try:
+        raw = gd_llm.complete_chat(
+            messages,
+            temperature=0.0,
+            max_tokens=400,
+            secret_fn=_secret,
+            models={
+                "xai": xai_vision_model_candidates(
+                    preferred_vision=_secret("XAI_VISION_MODEL") or "",
+                    preferred_chat=_secret("XAI_MODEL") or "",
+                ),
+                "groq": groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""),
+            },
+            empty_is_failure=True,
         )
-        errors.extend(f"xAI vision ({e})" for e in xai_errs)
-    if not raw:
-        groq_key = _secret("GROQ_API_KEY")
-        if GROQ_AVAILABLE and groq_key:
-            client = Groq(api_key=groq_key)
-
-            def _groq_call(model):
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=0.0,
-                    max_tokens=400,
-                )
-                return (response.choices[0].message.content or "").strip()
-
-            _used, raw, groq_errs = pick_working_vision_model(
-                groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""),
-                _groq_call,
-            )
-            errors.extend(f"Groq vision ({e})" for e in groq_errs)
-    if not raw:
+    except Exception as e:
         return {
             "ok": False,
-            "error": " | ".join(errors) if errors else "Could not read the plate photo.",
+            "error": str(e) or "Could not read the plate photo.",
             "brand": "",
             "model": "",
             "raw": "",
