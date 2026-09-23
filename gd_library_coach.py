@@ -113,7 +113,8 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: prove 12V at the soft-touch panel tongue channel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue channel → soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that whole path is reported good and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that whole path is reported good and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
+- Coleman-Mach 2111-0001 that ran and then went dead: when board Fan High is dead (tester dark and/or about 0 VAC on the 9-pin black/white Fan High path), a Peacemaker bypass shows the compressor runs while the fan does not rotate and stall current is about 1.9 A, and the fan run capacitor measures about its rated value, authorize R&R of the fan motor and the control board only. Do not authorize the full 2111-0001 assembly. Stop further tests. Cite the 12VDC wall-thermostat rooftop service manual, 1976-536, 1976-603, the Peacemaker manual, and the mechanical-controls manual / 1976-695. Do not invent page numbers.
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
@@ -353,7 +354,8 @@ AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
 - Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
 - Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that path is reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that path is reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
+- Coleman-Mach 2111-0001: Fan High dead (tester dark and/or about 0 VAC on 9-pin black/white) plus Peacemaker compressor running with the fan locked at about 1.9 A plus a fan run capacitor near its rated value authorizes R&R of the fan motor and the control board only. Do not authorize the full assembly. Stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
 - Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
 - If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
@@ -1689,8 +1691,10 @@ FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
 - Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
 - Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure.
 - After the tech reports the condensate drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Replace the rooftop assembly.
-- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported good and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. Do not return a blank card. Do not open a fuse or 12V-first tree.
-- Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in.
+- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported good and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. The card is the authorization. Do not dump an R&R procedure. Do not return a blank card. Do not open a fuse or 12V-first tree.
+- If the tech asks to authorize rooftop assembly R&R after that prove, emit that same authorization card. NEVER say the Document Library has no R&R steps. NEVER ask the tech to paste an R&R section or a page number.
+- Once this freeze/leak prove is the complaint, stay on it. Do NOT drift into compressor no-start, fan-winding continuity, or a DC bus measurement.
+- Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in. An unfinished prove does not get the assembly authorization card.
 """
 FACR_TERMINAL_ASSEMBLY_RR_LINE = (
     "Drain, pan and slope, filter and fan, suction line, freeze sensor, "
@@ -1722,6 +1726,33 @@ _SEARCHING_MANUALS_RE = re.compile(
 )
 _DRAIN_ACTION_RE = re.compile(
     r"\b(clear|recheck|check|clean|inspect)\b.{0,24}\bdrain\b",
+    re.I,
+)
+_FACR_OFFPATH_RE = re.compile(
+    r"\b("
+    r"dc\s*bus|"
+    r"350\s*v|"
+    r"compressor[\s-]*side|"
+    r"fan\s+(?:motor\s+)?windings?|"
+    r"winding\s+continuity|"
+    r"no\s+compressor\s+start|"
+    r"compressor\s+(?:will\s+not|won't|does\s+not|doesn't)\s+start"
+    r")\b",
+    re.I,
+)
+_FACR_LIBRARY_RR_MISS_RE = re.compile(
+    r"("
+    r"(?:don'?t|do not|does not|doesn't)\s+have.{0,120}(?:r\s*&\s*r|r and r|removal)"
+    r"|paste\s+(?:the\s+|an\s+)?(?:r\s*&\s*r|removal)"
+    r"|(?:no|without|lack(?:ing)?|missing).{0,48}"
+    r"(?:r\s*&\s*r|removal-and-replace|removal and replace).{0,48}"
+    r"(?:step|excerpt|library|procedure|section)"
+    r")",
+    re.I,
+)
+_FACR_AUTH_ASK_RE = re.compile(
+    r"\bauthori[sz]e\b.{0,60}\b(?:rooftop(?:\s+assembly)?|assembly)\b"
+    r"|\brooftop\s+assembly\s+r\s*&\s*r\b",
     re.I,
 )
 
@@ -1850,15 +1881,33 @@ def _facr_extended_proves_from_text(text: str) -> dict:
     return facts
 
 
+def _facr_checks_named(text: str) -> list:
+    asked = []
+    for key, pat in _FACR_ASK_ORDER:
+        if pat.search(text) and key not in asked:
+            asked.append(key)
+    return asked
+
+
 def _facr_checks_asked(assistant_text: str) -> list:
-    """Checks named in one coach question. A dumped tree is not one answer."""
+    """
+    The check the coach just asked.
+    A recap that names the whole tree does not bind one short answer to every check.
+    """
     raw = _facr_prep(assistant_text)
     if not raw or not re.search(r"\?|\b(check|inspect|read|measure|verify|confirm)\b", raw):
         return []
-    asked = []
-    for key, pat in _FACR_ASK_ORDER:
-        if pat.search(raw) and key not in asked:
-            asked.append(key)
+    focused = []
+    parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+|\n+", raw) if p.strip()]
+    for part in parts:
+        if not re.search(r"\?|\b(check|inspect|read|measure|verify|confirm)\b", part):
+            continue
+        keys = _facr_checks_named(part)
+        if 1 <= len(keys) <= 2:
+            focused = keys
+    if focused:
+        return focused
+    asked = _facr_checks_named(raw)
     if len(asked) > 3:
         return []
     return asked
@@ -1951,6 +2000,8 @@ def facr_proves_from_chat(history: list = None, latest_msg: str = "") -> dict:
         facts.update(facr_freeze_proves_from_text(m["content"]))
         facts.update(_facr_extended_proves_from_text(m["content"]))
         facts.update(_bind_facr_short_answer(pending, pending_text, m["content"]))
+        if _FACR_AUTH_ASK_RE.search(m["content"] or ""):
+            facts["facr_auth_request"] = "yes"
         pending = []
         pending_text = ""
     return facts
@@ -2057,14 +2108,79 @@ def _facr_climax_line(facts: dict | None) -> str:
     return FACR_ASSEMBLY_RR_SHOP_LINE
 
 
+def reply_drifts_facr_off_freeze_path(reply: str) -> bool:
+    """Compressor no-start, fan-winding continuity, or a DC bus reading."""
+    return bool(_FACR_OFFPATH_RE.search(reply or ""))
+
+
+def reply_refuses_facr_library_rr(reply: str) -> bool:
+    """Library-miss refusal, or a request to paste an R&R section."""
+    return bool(_FACR_LIBRARY_RR_MISS_RE.search(reply or ""))
+
+
+def _facr_next_prove_prompt(facts: dict | None) -> str:
+    facts = facts or {}
+    steps = (
+        ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
+        ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
+        ("facr_fan_filter", "ok", "Check the filter and the fan."),
+        ("facr_suction", "clear", "Say whether the suction line is iced."),
+        ("sensor", "proved", "Read the freeze sensor."),
+        ("facr_thermostat", "good", "What is the cool setpoint on the thermostat?"),
+        ("facr_nozzle", "open", "Are the nozzles open?"),
+        ("facr_ambient", "ok", "What is the ambient temperature?"),
+        ("facr_pressure", "ok", "Read the refrigerant pressures."),
+    )
+    for key, val, prompt in steps:
+        if key == "sensor":
+            if not facr_sensor_proved(facts):
+                return prompt
+            continue
+        if facts.get(key) != val:
+            return prompt
+    return "Read the refrigerant pressures."
+
+
+def _facr_stay_on_prove_line(facts: dict | None) -> str:
+    prompt = _facr_next_prove_prompt(facts)
+    return (
+        "Stay on the FACR condensate and freeze prove. "
+        "Do not leave this prove for a no-start tree or a high-voltage bus measurement. "
+        "Do not ask the tech to supply a procedure excerpt. "
+        f"Next check: {prompt}\n"
+        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+    )
+
+
+def _facr_terminal_reply_ok(reply: str) -> bool:
+    return bool(
+        reply_names_rooftop_assembly_rr(reply)
+        and not reply_refuses_facr_library_rr(reply)
+        and not reply_drifts_facr_off_freeze_path(reply)
+        and not reply_stalls_searching_manuals(reply)
+        and not reply_loops_drain_only(reply)
+        and not reply_opens_fuse_12v_no_power(reply)
+    )
+
+
 def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str:
     """
     Once drain / fan-filter / freeze sensor are proved, climax is rooftop assembly R&R.
     After the full drain/pan/filter/suction/sensor/thermostat/nozzle/pressure path,
-    a blank or fuse-first card is the same CCD-0007990 rooftop assembly R&R.
+    the terminal card authorizes rooftop assembly R&R. A library-miss refusal,
+    a paste-the-R&R request, or a compressor / DC-bus detour does not stand.
+    An unfinished prove does not get that authorization card.
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
+    if facr_terminal_path_complete(facts):
+        if _facr_terminal_reply_ok(reply):
+            return reply
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if reply_drifts_facr_off_freeze_path(reply) or reply_refuses_facr_library_rr(reply):
+        return _facr_stay_on_prove_line(facts)
+    if facts.get("facr_auth_request") == "yes" and _facr_reply_unusable(reply):
+        return _facr_stay_on_prove_line(facts)
     climax = facr_terminal_path_complete(facts) or facr_proves_complete(facts)
     if climax:
         line = _facr_climax_line(facts)
@@ -2093,6 +2209,298 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
         cleaned = _strip_facr_stall_sentences(reply)
         return f"{FACR_FREEZE_NEXT_SHOP_LINE}\n\n{cleaned}".strip()
     return reply
+
+
+# Coleman-Mach 2111-0001: Fan High dead + Peacemaker fan locked + run cap OK
+# authorizes fan motor + control board only. Compose from shop library titles.
+# Do not invent a 2111-0001 bulletin or a page number.
+COLEMAN_2111_SEARCH_BOOST = (
+    "Coleman-Mach 2111-0001 12VDC wall thermostat rooftop service manual "
+    "1976-536 1976-603 fan high pin 5 black pin 9 white "
+    "Peacemaker control box bypass "
+    "1976-695 mechanical controls fan motor run capacitor"
+)
+COLEMAN_MOTOR_BOARD_LOCK = """
+COLEMAN-MACH 2111-0001 — FAN MOTOR + CONTROL BOARD ONLY:
+- Named unit: Coleman-Mach / Airxcel rooftop model 2111-0001. Not a Furrion FACR freeze job. Not the 2111-004x install book.
+- Walk the prove: board Fan High (tester lamp and/or VAC on the 9-pin black/white Fan High path), then a Peacemaker or equivalent bypass of the thermostat and control box, then the fan run capacitor against its rated value.
+- When Fan High is dead (tester dark and/or about 0 VAC), the bypass shows the compressor runs while the fan does not rotate on either speed and stall current is about 1.9 A, and the fan run capacitor measures about rated: TERMINAL CARD authorizes R&R of the fan motor and the control board ONLY. Do not authorize the full 2111-0001 assembly. Stop. Do not ask for more tests.
+- Cite existing titles only: 12VDC wall-thermostat rooftop service manual (12 VDC present and 115 VAC missing at the 9-pin means the printed circuit board), 1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common), SkillAbove Peacemaker (bypass; compressor and fan; amperage), mechanical-controls service manual and 1976-695 (capacitor good and the motor will not start: replace the motor). Do not invent page numbers. Do not cite a 2111-0001-only bulletin.
+- Incomplete evidence does not get this authorization card.
+"""
+COLEMAN_MOTOR_BOARD_AUTH_LINE = (
+    "AUTHORIZATION: R&R the rooftop fan motor and the control board only. "
+    "Do not replace the full 2111-0001 assembly. "
+    "Fan High at the control board is dead (tester dark and about 0 VAC on the 9-pin black-to-white Fan High path). "
+    "Peacemaker bypass: the compressor runs, the fan does not rotate on high or low, and shaft-locked current is about 1.9 A. "
+    "The fan run capacitor measures about its rated value and is not the failed part. "
+    "Stop. No further tests.\n"
+    "📖 Source: Coleman-Mach 12VDC Wall Thermostat rooftop service manual "
+    "(printed circuit board; 115 VAC missing at the 9-pin means the board); "
+    "1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common); "
+    "SkillAbove Peacemaker (bypass the thermostat and control box; compressor and fan; amperage); "
+    "Coleman-Mach mechanical controls service manual and 1976-695 "
+    "(run capacitor good and the motor will not start: replace the motor)."
+)
+_COLEMAN_2111_RE = re.compile(r"\b2111[\s-]*0001\b", re.I)
+_COLEMAN_ASK_ORDER = (
+    ("cap", re.compile(r"\b(?:cap(?:acitor)?|microfarad|uf)\b")),
+    ("peacemaker", re.compile(r"\b(?:peacemaker|bypass)\b")),
+    ("fan_high", re.compile(r"\b(?:fan\s*high|9[\s-]*pin|light\s*bulb|lightbulb|tester)\b")),
+)
+_COLEMAN_FAN_HIGH_DEAD_RE = re.compile(
+    r"("
+    r"fan\s*high.{0,60}(?:dead|dark|no\s+(?:lamp|light|illuminat\w*)|"
+    r"did\s+not\s+illuminat\w*|does\s+not\s+illuminat\w*|0(?:\.\d+)?\s*vac|no\s+voltage)"
+    r"|(?:tester|lightbulb|light\s*bulb).{0,40}(?:dark|no\s+illuminat\w*|did\s+not\s+light)"
+    r".{0,40}fan\s*high"
+    r"|fan\s*high.{0,40}(?:tester|light\s*bulb|lightbulb).{0,24}(?:dark|off|dead)"
+    r"|(?:black\s*/?\s*white|9[\s-]*pin).{0,48}(?:0(?:\.\d+)?\s*vac|no\s+voltage)"
+    r"|(?:0(?:\.\d+)?\s*vac).{0,48}(?:fan\s*high|black|9[\s-]*pin)"
+    r")",
+    re.I,
+)
+_COLEMAN_FAN_HIGH_LIVE_RE = re.compile(
+    r"\b(?:1[01]\d|120)\s*vac\b.{0,40}\bfan\s*high\b|"
+    r"\bfan\s*high\b.{0,40}\b(?:1[01]\d|120)\s*vac\b",
+    re.I,
+)
+_COLEMAN_COMP_OK_RE = re.compile(
+    r"\bcompressor\b.{0,48}\b(?:runs|running|ok|okay|starts|started|good)\b|"
+    r"\b(?:runs|running|starts|started)\b.{0,24}\bcompressor\b",
+    re.I,
+)
+_COLEMAN_FAN_LOCKED_RE = re.compile(
+    r"\bfan\b.{0,48}\b(?:no\s+rotate|not\s+rotate|does\s+not\s+rotate|doesn't\s+rotate|"
+    r"never\s+turns|will\s+not\s+turn|won't\s+turn|locked|no\s+rotation|"
+    r"does\s+not\s+turn|doesn't\s+turn)\b|"
+    r"\bno\s+rotate\b.{0,24}\b(?:high|low|either)\b",
+    re.I,
+)
+_COLEMAN_STALL_AMP_RE = re.compile(
+    r"(?<!\d)(?:1\.[5-9]\d*|2(?:\.[0-5]\d*)?)\s*a(?:mps?)?\b",
+    re.I,
+)
+_COLEMAN_CAP_UF_RE = re.compile(r"(?<!\d)1[4-6](?:\.\d+)?\s*uf\b", re.I)
+_COLEMAN_CAP_OK_WORD_RE = re.compile(
+    r"\bcap(?:acitor)?\b.{0,40}\b(?:ok|okay|good|rated|passes|passed)\b|"
+    r"\b(?:ok|okay|good|rated)\b.{0,24}\bcap(?:acitor)?\b|"
+    r"\bcap(?:acitor)?\b.{0,40}\bmeasures\s+correct",
+    re.I,
+)
+_COLEMAN_CAP_BAD_RE = re.compile(
+    r"\bcap(?:acitor)?\b.{0,32}\b(?:bad|open|short(?:ed)?|failed|0\s*uf)\b|"
+    r"\b(?:bad|open|short(?:ed)?|failed)\b.{0,20}\bcap(?:acitor)?\b",
+    re.I,
+)
+_COLEMAN_FISH_RE = re.compile(
+    r"\b(?:next|also|then|another)\b.{0,48}\b(?:test|check|measure)\b|"
+    r"\b(?:check|measure|test)\b.{0,40}\b(?:continuity|winding|ohm)\b|"
+    r"\bcontinuity\b",
+    re.I,
+)
+
+
+def _coleman_prep(text: str) -> str:
+    raw = text or ""
+    raw = raw.replace("µ", "u").replace("μ", "u").replace("Ω", "ohm")
+    raw = raw.replace("≈", " ").replace("~", " ")
+    raw = _norm(raw)
+    return raw
+
+
+def is_coleman_2111_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Coleman-Mach 2111-0001. Related 2111-004x install books are not this case."""
+    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    return bool(blob and _COLEMAN_2111_RE.search(blob))
+
+
+def coleman_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    symptom = (symptom or "").strip()
+    if not is_coleman_2111_context(category_name, model_text, symptom):
+        return symptom
+    if COLEMAN_2111_SEARCH_BOOST in symptom:
+        return symptom
+    return f"{symptom} {COLEMAN_2111_SEARCH_BOOST}".strip()
+
+
+def _coleman_checks_asked(assistant_text: str) -> str:
+    raw = _coleman_prep(assistant_text)
+    if not raw or not re.search(r"\?|\b(?:check|measure|read|what|bypass)\b", raw):
+        return ""
+    found = ""
+    for key, pat in _COLEMAN_ASK_ORDER:
+        if pat.search(raw):
+            found = key
+            break
+    return found
+
+
+def _coleman_note_fan_high(facts: dict, text: str, asked: str = "") -> None:
+    raw = _coleman_prep(text)
+    if not raw:
+        return
+    zero = bool(re.search(r"\b0(?:\.\d+)?\s*vac\b", raw))
+    if _COLEMAN_FAN_HIGH_LIVE_RE.search(raw) and not zero and not re.search(
+        r"\b(?:dark|dead|no\s+lamp|no\s+light)\b", raw
+    ):
+        facts["coleman_fan_high"] = "live"
+        return
+    if _COLEMAN_FAN_HIGH_DEAD_RE.search(raw):
+        facts["coleman_fan_high"] = "dead"
+        return
+    if asked == "fan_high" and re.search(
+        r"\b(?:dark|dead|no\s+lamp|no\s+light|0(?:\.\d+)?\s*vac)\b", raw
+    ):
+        facts["coleman_fan_high"] = "dead"
+
+
+def _coleman_note_peacemaker(facts: dict, text: str) -> None:
+    raw = _coleman_prep(text)
+    if not raw:
+        return
+    compressor_down = re.search(
+        r"\bcompressor\b.{0,40}\b(?:not|no|isn't|isnt|doesn't|does not|won't|wont)\b"
+        r".{0,16}\b(?:run|running|start|ok|okay)\b",
+        raw,
+    )
+    if _COLEMAN_COMP_OK_RE.search(raw) and not compressor_down:
+        facts["coleman_compressor"] = "ok"
+    if _COLEMAN_FAN_LOCKED_RE.search(raw):
+        facts["coleman_fan_motor"] = "locked"
+    if _COLEMAN_STALL_AMP_RE.search(raw) and (
+        facts.get("coleman_fan_motor") == "locked"
+        or _COLEMAN_FAN_LOCKED_RE.search(raw)
+        or re.search(r"\b(?:shaft\s+locked|locked\s+rotor|stall)\b", raw)
+    ):
+        facts["coleman_stall_amps"] = "reported"
+
+
+def _coleman_note_cap(facts: dict, text: str, asked: str = "") -> None:
+    raw = _coleman_prep(text)
+    if not raw:
+        return
+    if _COLEMAN_CAP_BAD_RE.search(raw):
+        facts["coleman_cap"] = "bad"
+        return
+    if _COLEMAN_CAP_UF_RE.search(raw) or _COLEMAN_CAP_OK_WORD_RE.search(raw):
+        facts["coleman_cap"] = "ok"
+        return
+    if asked == "cap" and re.search(r"\b(?:good|ok|okay|rated|pass|passed)\b", raw):
+        if not re.search(r"\b(?:bad|open|short|fail)\b", raw):
+            facts["coleman_cap"] = "ok"
+
+
+def coleman_motor_board_evidence_complete(facts: dict | None) -> bool:
+    facts = facts or {}
+    return (
+        facts.get("coleman_fan_high") == "dead"
+        and facts.get("coleman_compressor") == "ok"
+        and facts.get("coleman_fan_motor") == "locked"
+        and facts.get("coleman_stall_amps") == "reported"
+        and facts.get("coleman_cap") == "ok"
+    )
+
+
+def coleman_facts_from_chat(
+    history: list = None,
+    latest_msg: str = "",
+    context_blob: str = "",
+) -> dict:
+    """Merge Coleman 2111-0001 prove facts. Other complaints return nothing."""
+    turns = []
+    for m in history or []:
+        role = (m.get("role") or "").strip()
+        content = m.get("content") or ""
+        if role in ("user", "assistant") and content.strip():
+            turns.append({"role": role, "content": content})
+    if (latest_msg or "").strip():
+        turns.append({"role": "user", "content": latest_msg})
+    blob = " ".join(
+        part for part in (context_blob, *(m["content"] for m in turns)) if part
+    )
+    if not is_coleman_2111_context("", "", blob):
+        return {}
+    facts = {"coleman_2111": "open"}
+    pending = ""
+    for m in turns:
+        if m["role"] == "assistant":
+            pending = _coleman_checks_asked(m["content"])
+            continue
+        _coleman_note_fan_high(facts, m["content"], pending)
+        _coleman_note_peacemaker(facts, m["content"])
+        _coleman_note_cap(facts, m["content"], pending)
+        pending = ""
+    if coleman_motor_board_evidence_complete(facts):
+        facts["coleman_2111"] = "climax"
+    return facts
+
+
+def reply_names_coleman_motor_board_only(reply: str) -> bool:
+    """True when the reply authorizes fan motor + control board and not the whole unit."""
+    t = _norm(reply)
+    if not t:
+        return False
+    motor = "fan motor" in t or ("motor" in t and "board" in t)
+    board = "control board" in t or ("board" in t and "motor" in t)
+    only = bool(re.search(r"\bonly\b|not the full|do not replace the full", t))
+    auth = bool(re.search(r"\b(?:authoriz\w*|r&r|replace)\b", t))
+    return bool(motor and board and only and auth)
+
+
+def reply_authorizes_coleman_full_assembly(reply: str) -> bool:
+    """True when a sentence authorizes the full 2111-0001 assembly."""
+    text = reply or ""
+    for part in re.split(r"(?<=[.!?])\s+|\n+", text):
+        if not part.strip():
+            continue
+        if not re.search(
+            r"\b(?:full|complete|entire)\b.{0,48}\b(?:2111[\s-]*0001|assembly|rooftop)\b",
+            part,
+            re.I,
+        ):
+            continue
+        if re.search(
+            r"\b(?:do not|don't|dont|not)\b.{0,40}\b(?:replace|r\s*&\s*r|authoriz)",
+            part,
+            re.I,
+        ):
+            continue
+        if re.match(r"\s*(?:do not|don't|dont)\b", part, re.I):
+            continue
+        if re.search(r"\b(?:replace|r\s*&\s*r|authoriz)", part, re.I):
+            return True
+    return False
+
+
+def reply_fishes_coleman_more_tests(reply: str) -> bool:
+    t = reply or ""
+    if re.search(r"\b(?:no further tests|do not run more tests)\b", t, re.I):
+        return False
+    return bool(_COLEMAN_FISH_RE.search(t))
+
+
+def ensure_coleman_motor_board_auth(reply: str, facts: dict | None = None) -> str:
+    """
+    Evidence complete → motor + control board authorization only.
+    Incomplete evidence is left alone. No invented page numbers.
+    """
+    facts = facts or {}
+    if not coleman_motor_board_evidence_complete(facts):
+        return reply
+    if (
+        reply_names_coleman_motor_board_only(reply)
+        and not reply_authorizes_coleman_full_assembly(reply)
+        and not reply_fishes_coleman_more_tests(reply)
+    ):
+        return reply
+    return COLEMAN_MOTOR_BOARD_AUTH_LINE
 
 
 def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
@@ -4855,6 +5263,7 @@ def facts_from_chat(history: list = None, latest_msg: str = "") -> dict:
         merged.update(extract_stated_facts(m.get("content") or ""))
     merged.update(extract_stated_facts(latest_msg or ""))
     merged.update(facr_proves_from_chat(history, latest_msg))
+    merged.update(coleman_facts_from_chat(history, latest_msg))
     return merged
 
 
@@ -4943,6 +5352,30 @@ def format_stated_facts_rule(facts: dict) -> str:
         "facr_nozzle": {"open": "FACR nozzles are open"},
         "facr_ambient": {"ok": "FACR ambient is good"},
         "facr_pressure": {"ok": "FACR refrigerant pressures are good"},
+        "facr_auth_request": {
+            "yes": "tech asked to authorize FACR rooftop assembly R&R",
+        },
+        "coleman_2111": {
+            "open": "Coleman-Mach 2111-0001 is the unit under test",
+            "climax": "Coleman-Mach 2111-0001 motor and control-board evidence is complete",
+        },
+        "coleman_fan_high": {
+            "dead": "Coleman board Fan High is dead (tester dark and/or about 0 VAC)",
+            "live": "Coleman board Fan High still has line voltage",
+        },
+        "coleman_compressor": {
+            "ok": "Peacemaker bypass: the compressor runs",
+        },
+        "coleman_fan_motor": {
+            "locked": "Peacemaker bypass: the fan does not rotate",
+        },
+        "coleman_stall_amps": {
+            "reported": "fan stall current is about 1.9 A with the shaft locked",
+        },
+        "coleman_cap": {
+            "ok": "fan run capacitor measures about its rated value",
+            "bad": "fan run capacitor is bad",
+        },
     }
     lines = [
         "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
@@ -5121,8 +5554,19 @@ def format_stated_facts_rule(facts: dict) -> str:
             "nozzles/ambient, and refrigerant pressures are already reported good. "
             "The freeze or interior leak remains. TERMINAL CARD: authorize rooftop "
             "assembly R&R on the CCD-0007990 condensate and assembly path. Replace "
-            "the rooftop assembly. Do NOT return a blank card. Do NOT open a fuse "
+            "the rooftop assembly. This is an authorization card, not an R&R procedure. "
+            "Do NOT say the library has no R&R steps. Do NOT ask the tech to paste an "
+            "R&R section. Do NOT open compressor no-start, fan-winding continuity, or "
+            "a DC bus measurement. Do NOT return a blank card. Do NOT open a fuse "
             "or 12V-first tree. Do NOT stall on searching manuals."
+        )
+    elif facts.get("facr_auth_request") == "yes":
+        lines.append(
+            "The tech asked to authorize rooftop assembly R&R before the freeze/leak "
+            "prove is finished. Do NOT emit the assembly authorization card yet. "
+            "Do NOT say the library has no R&R steps and do NOT ask for a pasted "
+            "R&R section. Ask the next missing condensate/freeze check only. "
+            "Do NOT open compressor no-start or a DC bus measurement."
         )
     elif facr_proves_complete(facts):
         lines.append(
@@ -5137,6 +5581,25 @@ def format_stated_facts_rule(facts: dict) -> str:
             "FACR freeze proves are in progress. Do not stall on searching manuals. "
             "Do not repeat a drain check that is already clear. Move to the remaining "
             "fan/filter or freeze-sensor prove, then rooftop assembly R&R (CCD-0007990)."
+        )
+    if facts.get("coleman_2111") == "climax":
+        lines.append(
+            "Coleman-Mach 2111-0001 evidence is complete: Fan High is dead, the "
+            "Peacemaker bypass shows the compressor runs with the fan locked at "
+            "about 1.9 A, and the fan run capacitor is about rated. TERMINAL CARD: "
+            "authorize R&R of the fan motor and the control board ONLY. Do NOT "
+            "authorize the full 2111-0001 assembly. Stop. Do not ask for continuity "
+            "or another test. Cite the 12VDC wall-thermostat service manual, "
+            "1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. "
+            "Do not invent page numbers."
+        )
+    elif facts.get("coleman_2111") == "open":
+        lines.append(
+            "Coleman-Mach 2111-0001 is in play. Stay on Fan High, the Peacemaker "
+            "bypass, and the fan run capacitor. Do not authorize the full assembly "
+            "and do not authorize motor + board until Fan High is dead, the fan is "
+            "locked at about 1.9 A with the compressor running, and the capacitor "
+            "measures about rated."
         )
     return "\n".join(lines)
 
@@ -5179,6 +5642,8 @@ def coach_library_search_boost(facts: dict) -> str:
         parts.append(PSX1_SEARCH_BOOST)
     if facr_terminal_path_complete(facts) or facr_proves_complete(facts):
         parts.append(FACR_ASSEMBLY_SEARCH_BOOST)
+    if facts.get("coleman_2111"):
+        parts.append(COLEMAN_2111_SEARCH_BOOST)
     if (
         facts.get("can_isolate")
         or (
