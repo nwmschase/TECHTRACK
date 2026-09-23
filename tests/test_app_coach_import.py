@@ -83,6 +83,10 @@ class TestCoachModuleLoads(unittest.TestCase):
             "BAL_TONGUE_PRODUCT_LOCK",
             "ensure_facr_freeze_assembly_rr",
             "FACR_FREEZE_ASSEMBLY_LOCK",
+            "is_coleman_2111_context",
+            "ensure_coleman_motor_board_auth",
+            "COLEMAN_MOTOR_BOARD_LOCK",
+            "coleman_motor_board_evidence_complete",
             "lock_spark_free_part_g",
         ):
             self.assertTrue(hasattr(mod, name), name)
@@ -133,6 +137,9 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("ensure_bal_tongue_only_path", names)
         self.assertIn("is_bal_soft_touch_tongue_only_context", names)
         self.assertIn("ensure_facr_freeze_assembly_rr", names)
+        self.assertIn("ensure_coleman_motor_board_auth", names)
+        self.assertIn("is_coleman_2111_context", names)
+        self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", names)
         self.assertIn("lock_spark_free_part_g", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"

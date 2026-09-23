@@ -11,9 +11,11 @@ from gd_library_coach import (
     facr_proves_complete,
     facr_terminal_path_complete,
     facts_from_chat,
+    reply_drifts_facr_off_freeze_path,
     reply_loops_drain_only,
     reply_names_rooftop_assembly_rr,
     reply_opens_fuse_12v_no_power,
+    reply_refuses_facr_library_rr,
     reply_stalls_searching_manuals,
 )
 
@@ -174,6 +176,100 @@ class TestFacrTerminalCard(unittest.TestCase):
         self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
         self.assertFalse(reply_opens_fuse_12v_no_power(card), card)
         self.assertIn("CCD-0007990", card)
+
+    def test_short_answer_binds_the_check_just_asked(self):
+        turns = [
+            ("user", COMPLAINT),
+            (
+                "assistant",
+                "Drain is clear. Pan is good. Filter and fan are good. "
+                "Is the suction line iced?",
+            ),
+            ("user", "No."),
+        ]
+        facts, card = _terminal_card(turns, "")
+        self.assertEqual(facts.get("facr_suction"), "clear")
+        self.assertIsNone(facts.get("facr_pressure"))
+        self.assertFalse(facr_terminal_path_complete(facts))
+        self.assertFalse(card.strip())
+        dumped = [
+            ("user", COMPLAINT),
+            (
+                "assistant",
+                "Check the drain, the pan, the filter, the suction line, and the pressures?",
+            ),
+            ("user", "Good."),
+        ]
+        facts, card = _terminal_card(dumped, "")
+        self.assertFalse(facr_terminal_path_complete(facts), facts)
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card)
+
+    def test_authorize_after_prove_is_auth_card_not_library_miss(self):
+        refusal = (
+            "I don't have the removal-and-replace (R&R) steps for the "
+            "FACR08HESA2-PS rooftop unit in the excerpts currently loaded "
+            "from the shop's Document Library. "
+            "If you can paste the R&R section (or tell me the page number) "
+            "from the Furrion manual, I'll walk you through it step-by-step."
+        )
+        turns = GOOD_PATH + [("user", "Authorize rooftop assembly R&R.")]
+        facts, card = _terminal_card(turns, refusal)
+        self.assertTrue(facr_terminal_path_complete(facts), facts)
+        self.assertEqual(facts.get("facr_auth_request"), "yes")
+        self.assertTrue(reply_refuses_facr_library_rr(refusal))
+        self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
+        self.assertIn("CCD-0007990", card)
+        self.assertIn("authorize rooftop assembly", card.lower())
+        self.assertNotIn("don't have", card.lower())
+        self.assertNotIn("do not have", card.lower())
+        self.assertNotIn("paste", card.lower())
+        self.assertNotIn("document library", card.lower())
+        self.assertIsNone(re.search(r"page\s+\d+", card, re.I))
+
+    def test_compressor_drift_after_prove_becomes_auth_card(self):
+        drift = (
+            "Compressor-side voltage is present, no compressor start, fan is running, "
+            "and the 350 V DC bus is up. Measure fan motor winding continuity."
+        )
+        self.assertTrue(reply_drifts_facr_off_freeze_path(drift))
+        facts, card = _terminal_card(GOOD_PATH, drift)
+        self.assertTrue(facr_terminal_path_complete(facts))
+        self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
+        self.assertIn("CCD-0007990", card)
+        self.assertNotIn("350", card)
+        self.assertNotIn("winding", card.lower())
+        self.assertNotIn("dc bus", card.lower())
+        self.assertFalse(reply_drifts_facr_off_freeze_path(card), card)
+
+    def test_drift_or_library_miss_before_prove_does_not_force_assembly(self):
+        short = GOOD_PATH[:-2]
+        drift = (
+            "No compressor start. The 350 V DC bus is present. "
+            "Check fan motor winding continuity."
+        )
+        facts, card = _terminal_card(short, drift)
+        self.assertFalse(facr_terminal_path_complete(facts), facts)
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card)
+        self.assertIn("next check", card.lower())
+        self.assertIn("CCD-0007990", card)
+        self.assertNotIn("350", card)
+        self.assertNotIn("paste", card.lower())
+        refusal = (
+            "I don't have the removal-and-replace steps in the Document Library. "
+            "Paste the R&R section."
+        )
+        asked = short + [("user", "Authorize rooftop assembly R&R.")]
+        facts, card = _terminal_card(asked, refusal)
+        self.assertEqual(facts.get("facr_auth_request"), "yes")
+        self.assertFalse(facr_terminal_path_complete(facts))
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card)
+        self.assertNotIn("don't have", card.lower())
+        self.assertNotIn("paste", card.lower())
+        self.assertIn("refrigerant pressures", card.lower())
+        useful = "Read the refrigerant pressures."
+        facts, card = _terminal_card(asked, useful)
+        self.assertEqual(card, useful)
+        self.assertFalse(reply_names_rooftop_assembly_rr(card))
 
 
 if __name__ == "__main__":

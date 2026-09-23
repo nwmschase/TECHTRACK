@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.16.1
+RV TechTrack v4.17.0
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -60,6 +60,7 @@ RV TechTrack v4.16.1
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.17.0: FACR08 freeze/leak climax is an authorization card for rooftop assembly R&R (CCD-0007990), never a library-miss R&R refusal or a compressor/DC-bus detour; Coleman-Mach 2111-0001 authorizes fan motor and control board only when Fan High is dead, the Peacemaker fan is locked, and the run cap is good
 - v4.16.1: FACR08 freeze/leak terminal card is rooftop assembly R&R (CCD-0007990) after the drain/pan/filter/suction/sensor/nozzle/pressure path, never a blank card
 - v4.16.0: BAL tongue-only dead climaxes at soft-touch panel 20300427; FACR freeze continues to rooftop assembly R&R; FCR10 OFF bay sheet locks part G 2021128850
 - Mobile-friendly
@@ -84,7 +85,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.16.0``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.17.0``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -153,6 +154,8 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_bal_soft_touch_tongue_only_context",
     "ensure_bal_tongue_only_path",
     "ensure_facr_freeze_assembly_rr",
+    "ensure_coleman_motor_board_auth",
+    "is_coleman_2111_context",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -256,6 +259,13 @@ ensure_level_up_manual_can_path = _gdc.ensure_level_up_manual_can_path
 ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
 ensure_bal_tongue_only_path = _gdc.ensure_bal_tongue_only_path
 ensure_facr_freeze_assembly_rr = _gdc.ensure_facr_freeze_assembly_rr
+ensure_coleman_motor_board_auth = _gdc.ensure_coleman_motor_board_auth
+is_coleman_2111_context = _gdc.is_coleman_2111_context
+coleman_facts_from_chat = _gdc.coleman_facts_from_chat
+coleman_motor_board_evidence_complete = _gdc.coleman_motor_board_evidence_complete
+coleman_search_symptom = _gdc.coleman_search_symptom
+COLEMAN_MOTOR_BOARD_LOCK = _gdc.COLEMAN_MOTOR_BOARD_LOCK
+COLEMAN_2111_SEARCH_BOOST = _gdc.COLEMAN_2111_SEARCH_BOOST
 is_bal_soft_touch_tongue_only_context = _gdc.is_bal_soft_touch_tongue_only_context
 bal_tongue_search_symptom = _gdc.bal_tongue_search_symptom
 rank_chunks_for_bal_tongue = _gdc.rank_chunks_for_bal_tongue
@@ -1970,6 +1980,13 @@ def search_manual_chunks(
         ):
             query_terms.add(t)
     facr_freeze_job = is_facr_rooftop_freeze_context("", model_text or "", symptom or "")
+    coleman_2111_job = is_coleman_2111_context("", model_text or "", symptom or "")
+    if coleman_2111_job and not figure_seek:
+        for t in (
+            "2111", "coleman", "peacemaker", "1976-536", "1976-603",
+            "1976-695", "fan", "capacitor", "9-pin",
+        ):
+            query_terms.add(t)
     if ac_context and facr_freeze_job and not figure_seek:
         for t in (
             "facr", "7990", "8666", "ccd0007990", "ccd0008666",
@@ -4351,7 +4368,7 @@ Rules:
 15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. Never leave that card blank and do not open fuse or 12V first. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
+18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. Furrion FCR08/FCR10 dial/control OFF with the compressor still running or the box overcooling (won't shut off, runs when Off, freezer frozen solid with control Off): do NOT open fuse p.19, 12V continuity p.20, or LED / inverter control voltage p.18. Leave the dial fully OFF, seat the probe and wires (p.43), open C (blue) and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → part G 2021128850 / C-FCR10DCGTA-007, p.43–45. Compressor keeps running with C/T open → inverter/harness. Cite p.31 and p.43–45 only for this prove. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
@@ -4547,6 +4564,16 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if facr_freeze_job:
         facts = dict(facts)
         facts.update(facr_proves_from_chat(history, user_msg))
+    coleman_job = (not facr_freeze_job) and is_coleman_2111_context(
+        category_name, model_text, search_symptom
+    )
+    if coleman_job:
+        facts = dict(facts)
+        facts.update(
+            coleman_facts_from_chat(
+                history, user_msg, f"{category_name} {model_text}"
+            )
+        )
     ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, search_symptom)
     dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, search_symptom)
     level_up_can_job = is_level_up_manual_can_conflict_context(
@@ -4604,6 +4631,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
     search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
     search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
+    search_symptom = coleman_search_symptom(category_name, model_text, search_symptom)
     search_symptom = water_heater_search_symptom(category_name, model_text, search_symptom)
     search_symptom = cooktop_search_symptom(category_name, model_text, search_symptom)
     search_symptom = bal_tongue_search_symptom(category_name, model_text, search_symptom)
@@ -4658,6 +4686,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + BAL_TONGUE_PRODUCT_LOCK
     if facr_freeze_job:
         system_prompt += "\n\n" + FACR_FREEZE_ASSEMBLY_LOCK
+    if coleman_job:
+        system_prompt += "\n\n" + COLEMAN_MOTOR_BOARD_LOCK
     if ice_moisture_job:
         system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
     if dial_off_job:
@@ -4738,6 +4768,11 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             if (climax or "").strip():
                 record_cited_pages(climax)
                 return climax
+        if coleman_job and coleman_motor_board_evidence_complete(facts):
+            climax = ensure_coleman_motor_board_auth("", facts)
+            if (climax or "").strip():
+                record_cited_pages(climax)
+                return climax
         return f"Error contacting AI: {e}"
     reply = strip_path_complete_trap(strip_fake_markdown_images(reply))
     if fan_fault_job and claims_fcr_e2_board_only_cage(reply):
@@ -4770,6 +4805,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ensure_bal_tongue_only_path(reply, facts)
     if facr_freeze_job:
         reply = ensure_facr_freeze_assembly_rr(reply, facts)
+    if coleman_job:
+        reply = ensure_coleman_motor_board_auth(reply, facts)
     if ice_moisture_job:
         reply = ensure_fridge_ice_moisture_path(reply)
     if dial_off_job:
