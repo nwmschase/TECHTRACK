@@ -79,6 +79,20 @@ import json
 import base64
 import time
 
+
+def product_version_from_doc(doc):
+    """First vX.Y.Z in the module docstring is the live sidebar version.
+
+    The header line (``RV TechTrack v4.16.0``) is canonical. Later changelog
+    bullets must not override it.
+    """
+    match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
+    return match.group(0) if match else "unknown"
+
+
+# Sidebar deploy signal. Bump the module docstring header, not a caption literal.
+APP_VERSION = product_version_from_doc(__doc__)
+
 try:
     import extra_streamlit_components as stx
     COOKIE_MGR_AVAILABLE = True
@@ -6015,4 +6029,4 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** - {u.full_name if u else 'Unknown'} ({cert.issuer or '-'})")
 
 maybe_backup_db_to_r2(force=False)
-st.sidebar.caption("v4.13.0 • Tacoma RV Center • Open library coach • Auto DB backup")
+st.sidebar.caption(f"{APP_VERSION} • Tacoma RV Center • Open library coach • Auto DB backup")
