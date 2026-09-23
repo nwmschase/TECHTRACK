@@ -113,7 +113,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: prove 12V at the soft-touch panel tongue channel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue channel → soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that whole path is reported good and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
@@ -353,7 +353,7 @@ AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
 - Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
 - Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Do not stall on searching manuals or repeat drain-only.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that path is reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
 - Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
 - If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
@@ -1687,9 +1687,19 @@ FACR_FREEZE_ASSEMBLY_LOCK = """
 FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
 - Named branch: Furrion FACR* / Chill rooftop freeze, ice, frost, condensate, or interior leak.
 - Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
+- Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure.
 - After the tech reports the condensate drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Replace the rooftop assembly.
+- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported good and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. Do not return a blank card. Do not open a fuse or 12V-first tree.
 - Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in.
 """
+FACR_TERMINAL_ASSEMBLY_RR_LINE = (
+    "Drain, pan and slope, filter and fan, suction line, freeze sensor, "
+    "thermostat, nozzles, ambient, and refrigerant pressures are reported good. "
+    "The freeze or interior leak remains. "
+    "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
+    "Replace the rooftop assembly.\n"
+    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+)
 FACR_ASSEMBLY_RR_SHOP_LINE = (
     "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
     "Do not keep searching manuals and do not repeat a drain-only check. "
@@ -1716,9 +1726,47 @@ _DRAIN_ACTION_RE = re.compile(
 )
 
 
+def _facr_prep(text: str) -> str:
+    """Lowercase shop text and fold ohm / degree marks so live readings match."""
+    raw = text or ""
+    raw = raw.replace("Ω", "ohm").replace("Ω", "ohm").replace("ω", "ohm")
+    raw = _norm(raw)
+    raw = raw.replace("@", " at ").replace("°", " ")
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+_FACR_ASK_ORDER = (
+    ("facr_pressure", re.compile(r"\b(refrigerant|pressures?|psi|high side|low side)\b")),
+    ("facr_ambient", re.compile(r"\bambient\b")),
+    ("facr_nozzle", re.compile(r"\bnozzles?\b")),
+    ("facr_thermostat", re.compile(r"\b(thermostat|set ?point)\b")),
+    ("facr_freeze_sensor", re.compile(r"\bfreeze[\s-]*sensor\b|\bsensor\b")),
+    ("facr_suction", re.compile(r"\bsuction\b")),
+    ("facr_fan_filter", re.compile(r"\b(filters?|fan)\b")),
+    ("facr_pan_slope", re.compile(r"\b(slope|base pan|base-pan|evaporator pan|\bpan\b)\b")),
+    ("facr_drain", re.compile(r"\bdrain\b")),
+)
+_FACR_PASS_VALUE = {
+    "facr_drain": "clear",
+    "facr_pan_slope": "ok",
+    "facr_fan_filter": "ok",
+    "facr_suction": "clear",
+    "facr_freeze_sensor": "good",
+    "facr_thermostat": "good",
+    "facr_nozzle": "open",
+    "facr_ambient": "ok",
+    "facr_pressure": "ok",
+}
+_FACR_SHORT_PASS_RE = re.compile(
+    r"(good|ok|okay|fine|pass|passed|clear|cleared|open|normal|level|dry|done)",
+    re.I,
+)
+_FACR_YES_RE = re.compile(r"\b(yes|yep|yeah)\b", re.I)
+
+
 def facr_freeze_proves_from_text(text: str) -> dict:
-    """Drain / fan-filter / freeze-sensor proves. Each phrase stands alone."""
-    raw = _norm(text)
+    """Drain / fan-filter / freeze-sensor phrases. Each phrase stands alone."""
+    raw = _facr_prep(text)
     if not raw:
         return {}
     facts = {}
@@ -1729,13 +1777,14 @@ def facr_freeze_proves_from_text(text: str) -> dict:
         raw,
     ):
         facts["facr_drain"] = "clear"
-    if re.search(r"fan[\s-]*filter|fan and filter|filter and fan", raw) and re.search(
-        r"\b(ok|good|fine|clean|clear)\b", raw
-    ):
+    if re.search(
+        r"fan[\s-]*filter|filter[\s/]*fan|fan and filter|filter and fan",
+        raw,
+    ) and re.search(r"\b(ok|good|fine|clean|clear)\b", raw):
         facts["facr_fan_filter"] = "ok"
     elif (
         re.search(r"\bfan\b", raw)
-        and re.search(r"\bfilter\b", raw)
+        and re.search(r"\bfilters?\b", raw)
         and re.search(r"\b(ok|good|fine)\b", raw)
     ):
         facts["facr_fan_filter"] = "ok"
@@ -1746,6 +1795,167 @@ def facr_freeze_proves_from_text(text: str) -> dict:
     return facts
 
 
+def _facr_extended_proves_from_text(text: str) -> dict:
+    """
+    Later FACR freeze-path reports. Only applied on an FACR freeze chat.
+    Live readings are the reported results, not a new pass band.
+    """
+    raw = _facr_prep(text)
+    if not raw:
+        return {}
+    facts = {}
+    if re.search(
+        r"\bpan\s*/\s*slope\b.{0,24}\b(good|ok|fine|level|correct|pass|passed)\b|"
+        r"\bslope\b.{0,24}\b(good|ok|fine|correct|level|right)\b|"
+        r"\b(base pan|base-pan|evaporator pan)\b.{0,30}\b(good|ok|level|dry)\b|"
+        r"\bpan\b.{0,16}\b(level|dry)\b",
+        raw,
+    ):
+        facts["facr_pan_slope"] = "ok"
+    if re.search(
+        r"\bsuction(?:\s+line)?\b.{0,40}\b(clear|good|ok|dry|fine|pass|passed)\b|"
+        r"\bsuction(?:\s+line)?\b.{0,32}\bnot\s+iced\b|"
+        r"\bno\s+(?:ice|icing)\b.{0,24}\bsuction\b",
+        raw,
+    ):
+        facts["facr_suction"] = "clear"
+    if re.search(r"\b2\s*k\s*ohms?\b.{0,30}\b25\s*c\b|\b25\s*c\b.{0,30}\b2\s*k\s*ohms?\b", raw):
+        facts["facr_sensor_reading"] = "reported"
+    if re.search(
+        r"\b(cool\s+)?set ?point\b.{0,20}\b68\s*f\b|"
+        r"\b68\s*f\b.{0,24}\b(cool|set ?point|thermostat)\b|"
+        r"\bthermostat\b.{0,30}\b(good|ok|fine|pass|passed)\b",
+        raw,
+    ):
+        facts["facr_thermostat"] = "good"
+    if re.search(
+        r"\bopen\s+nozzles?\b|\bnozzles?\s+(?:are\s+)?open\b|"
+        r"\bnozzles?\b.{0,16}\b(good|ok|clear)\b",
+        raw,
+    ):
+        facts["facr_nozzle"] = "open"
+    if re.search(
+        r"\bambient\b.{0,24}\b72\s*f\b|"
+        r"\b72\s*f\b.{0,20}\bambient\b|"
+        r"\bambient\b.{0,16}\b(good|ok|fine|normal)\b",
+        raw,
+    ):
+        facts["facr_ambient"] = "ok"
+    if re.search(
+        r"\b68\s*/\s*235\b|"
+        r"\b(pressures?|refrigerant)\b.{0,32}\b(good|ok|normal|pass|passed)\b",
+        raw,
+    ):
+        facts["facr_pressure"] = "ok"
+    return facts
+
+
+def _facr_checks_asked(assistant_text: str) -> list:
+    """Checks named in one coach question. A dumped tree is not one answer."""
+    raw = _facr_prep(assistant_text)
+    if not raw or not re.search(r"\?|\b(check|inspect|read|measure|verify|confirm)\b", raw):
+        return []
+    asked = []
+    for key, pat in _FACR_ASK_ORDER:
+        if pat.search(raw) and key not in asked:
+            asked.append(key)
+    if len(asked) > 3:
+        return []
+    return asked
+
+
+def _facr_question_fails_on_yes(assistant_text: str) -> bool:
+    raw = _facr_prep(assistant_text)
+    return bool(
+        re.search(
+            r"\b(restricted|clogged|clog|iced|icing|blocked|plugged|wrong|bad|failed|failing)\b",
+            raw,
+        )
+    )
+
+
+def _mark_facr_asked(asked: list) -> dict:
+    facts = {}
+    for key in asked:
+        if key == "facr_freeze_sensor":
+            # A short "good" proves the sensor for the terminal path.
+            # The three-prove flag stays on an explicit "freeze sensor is good".
+            facts["facr_sensor_reading"] = "reported"
+        else:
+            facts[key] = _FACR_PASS_VALUE[key]
+    return facts
+
+
+def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) -> dict:
+    """
+    Bind a short tech answer to the check the coach just asked.
+    'No' passes only when the question was the bad condition (iced, restricted).
+    """
+    if not asked:
+        return {}
+    raw = _facr_prep(user_text)
+    if not raw or len(raw) > 64:
+        return {}
+    negative = _facr_question_fails_on_yes(assistant_text)
+    negated = bool(re.search(r"\b(not|no|nope|isn'?t|is not)\b", raw))
+    if negated and not negative:
+        return {}
+    if negated and negative:
+        return _mark_facr_asked(asked)
+    if _FACR_YES_RE.search(raw):
+        if negative:
+            return {}
+        return _mark_facr_asked(asked)
+    if _FACR_SHORT_PASS_RE.search(raw) and not re.search(
+        r"\b(bad|fail|failed|iced|clogged|restricted)\b", raw
+    ):
+        return _mark_facr_asked(asked)
+    facts = {}
+    if "facr_freeze_sensor" in asked and re.search(r"\b2\s*k\s*ohms?\b", raw):
+        facts["facr_sensor_reading"] = "reported"
+    if "facr_thermostat" in asked and re.search(r"\b68\s*f\b", raw):
+        facts["facr_thermostat"] = "good"
+    if "facr_ambient" in asked and re.search(r"\b72\s*f\b", raw):
+        facts["facr_ambient"] = "ok"
+    if "facr_pressure" in asked and re.search(r"\b68\s*/\s*235\b", raw):
+        facts["facr_pressure"] = "ok"
+    return facts
+
+
+def facr_proves_from_chat(history: list = None, latest_msg: str = "") -> dict:
+    """
+    Merge explicit tech phrases with short answers to the coach's last check.
+    FACR freeze context only. Readings alone do not finish the path.
+    """
+    turns = []
+    for m in history or []:
+        role = (m.get("role") or "").strip()
+        content = m.get("content") or ""
+        if role in ("user", "assistant") and content.strip():
+            turns.append({"role": role, "content": content})
+    if (latest_msg or "").strip():
+        turns.append({"role": "user", "content": latest_msg})
+    if not turns:
+        return {}
+    blob = " ".join(m["content"] for m in turns)
+    facts = {}
+    if not is_facr_rooftop_freeze_context("", "", blob):
+        return facts
+    pending = []
+    pending_text = ""
+    for m in turns:
+        if m["role"] == "assistant":
+            pending = _facr_checks_asked(m["content"])
+            pending_text = m["content"]
+            continue
+        facts.update(facr_freeze_proves_from_text(m["content"]))
+        facts.update(_facr_extended_proves_from_text(m["content"]))
+        facts.update(_bind_facr_short_answer(pending, pending_text, m["content"]))
+        pending = []
+        pending_text = ""
+    return facts
+
+
 def facr_proves_complete(facts: dict | None) -> bool:
     facts = facts or {}
     return (
@@ -1753,6 +1963,32 @@ def facr_proves_complete(facts: dict | None) -> bool:
         and facts.get("facr_fan_filter") == "ok"
         and facts.get("facr_freeze_sensor") == "good"
     )
+
+
+def facr_sensor_proved(facts: dict | None) -> bool:
+    facts = facts or {}
+    return facts.get("facr_freeze_sensor") == "good" or facts.get("facr_sensor_reading") == "reported"
+
+
+def facr_terminal_path_complete(facts: dict | None) -> bool:
+    """
+    Drain, pan/slope, filter/fan, suction, sensor, thermostat,
+    nozzles, ambient, and refrigerant pressure are all reported good.
+    """
+    facts = facts or {}
+    needed = (
+        ("facr_drain", "clear"),
+        ("facr_pan_slope", "ok"),
+        ("facr_fan_filter", "ok"),
+        ("facr_suction", "clear"),
+        ("facr_thermostat", "good"),
+        ("facr_nozzle", "open"),
+        ("facr_ambient", "ok"),
+        ("facr_pressure", "ok"),
+    )
+    if any(facts.get(key) != val for key, val in needed):
+        return False
+    return facr_sensor_proved(facts)
 
 
 def reply_names_rooftop_assembly_rr(reply: str) -> bool:
@@ -1807,27 +2043,52 @@ def _strip_facr_stall_sentences(reply: str) -> str:
     return " ".join(kept).strip()
 
 
+def _facr_reply_unusable(reply: str) -> bool:
+    """Blank card, whitespace, or an AI error with no shop action."""
+    text = (reply or "").strip()
+    if not text:
+        return True
+    return bool(re.fullmatch(r"error contacting ai:.*", text, flags=re.I | re.S))
+
+
+def _facr_climax_line(facts: dict | None) -> str:
+    if facr_terminal_path_complete(facts):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    return FACR_ASSEMBLY_RR_SHOP_LINE
+
+
 def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str:
     """
     Once drain / fan-filter / freeze sensor are proved, climax is rooftop assembly R&R.
+    After the full drain/pan/filter/suction/sensor/thermostat/nozzle/pressure path,
+    a blank or fuse-first card is the same CCD-0007990 rooftop assembly R&R.
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
-    if facr_proves_complete(facts):
+    climax = facr_terminal_path_complete(facts) or facr_proves_complete(facts)
+    if climax:
+        line = _facr_climax_line(facts)
+        if _facr_reply_unusable(reply):
+            return line
         if (
             reply_names_rooftop_assembly_rr(reply)
             and not reply_stalls_searching_manuals(reply)
             and not reply_loops_drain_only(reply)
+            and not reply_opens_fuse_12v_no_power(reply)
         ):
             return reply
-        cleaned = _strip_facr_stall_sentences(reply or "")
+        cleaned = strip_fuse_12v_no_power_claims(_strip_facr_stall_sentences(reply or ""))
         if (
-            reply_names_rooftop_assembly_rr(cleaned)
+            cleaned.strip()
+            and reply_names_rooftop_assembly_rr(cleaned)
             and not reply_stalls_searching_manuals(cleaned)
             and not reply_loops_drain_only(cleaned)
+            and not reply_opens_fuse_12v_no_power(cleaned)
         ):
             return cleaned
-        return f"{FACR_ASSEMBLY_RR_SHOP_LINE}\n\n{cleaned}".strip()
+        if cleaned.strip():
+            return f"{line}\n\n{cleaned}".strip()
+        return line
     if reply and reply_stalls_searching_manuals(reply) and not reply_names_rooftop_assembly_rr(reply):
         cleaned = _strip_facr_stall_sentences(reply)
         return f"{FACR_FREEZE_NEXT_SHOP_LINE}\n\n{cleaned}".strip()
@@ -4593,6 +4854,7 @@ def facts_from_chat(history: list = None, latest_msg: str = "") -> dict:
             continue
         merged.update(extract_stated_facts(m.get("content") or ""))
     merged.update(extract_stated_facts(latest_msg or ""))
+    merged.update(facr_proves_from_chat(history, latest_msg))
     return merged
 
 
@@ -4672,8 +4934,15 @@ def format_stated_facts_rule(facts: dict) -> str:
             "good": "tongue pigtail is good",
         },
         "facr_drain": {"clear": "FACR condensate drain is clear"},
+        "facr_pan_slope": {"ok": "FACR evaporator pan / base-pan slope is good"},
         "facr_fan_filter": {"ok": "FACR fan and filter are OK"},
+        "facr_suction": {"clear": "FACR suction line is clear"},
         "facr_freeze_sensor": {"good": "FACR freeze sensor is good"},
+        "facr_sensor_reading": {"reported": "FACR freeze sensor reading was reported"},
+        "facr_thermostat": {"good": "FACR cool setpoint / thermostat is good"},
+        "facr_nozzle": {"open": "FACR nozzles are open"},
+        "facr_ambient": {"ok": "FACR ambient is good"},
+        "facr_pressure": {"ok": "FACR refrigerant pressures are good"},
     }
     lines = [
         "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
@@ -4846,7 +5115,16 @@ def format_stated_facts_rule(facts: dict) -> str:
                 "remote stabilizer harness. Coupler only if the override will not turn or the "
                 "motor fails direct 12V."
             )
-    if facr_proves_complete(facts):
+    if facr_terminal_path_complete(facts):
+        lines.append(
+            "Drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, "
+            "nozzles/ambient, and refrigerant pressures are already reported good. "
+            "The freeze or interior leak remains. TERMINAL CARD: authorize rooftop "
+            "assembly R&R on the CCD-0007990 condensate and assembly path. Replace "
+            "the rooftop assembly. Do NOT return a blank card. Do NOT open a fuse "
+            "or 12V-first tree. Do NOT stall on searching manuals."
+        )
+    elif facr_proves_complete(facts):
         lines.append(
             "Drain is clear, fan and filter are OK, and the freeze sensor is good. "
             "CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. "
@@ -4899,7 +5177,7 @@ def coach_library_search_boost(facts: dict) -> str:
         parts.append(BAL_TONGUE_SEARCH_BOOST)
     elif facts.get("override_pin") == "broken_or_seized":
         parts.append(PSX1_SEARCH_BOOST)
-    if facr_proves_complete(facts):
+    if facr_terminal_path_complete(facts) or facr_proves_complete(facts):
         parts.append(FACR_ASSEMBLY_SEARCH_BOOST)
     if (
         facts.get("can_isolate")
