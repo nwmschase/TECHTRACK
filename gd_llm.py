@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 
 PROVIDER_XAI = "xai"
 PROVIDER_GROQ = "groq"
@@ -35,6 +36,18 @@ DEFAULT_XAI_MODEL = "grok-4.6"
 DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
 # Live Groq chat model. Vision plate reads pass their own Groq vision ids.
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+
+# Healthy grok-4.6 turns on this app finish in about 21–100s. The OpenAI SDK
+# default is 600s with 2 retries (about 30 minutes) and Groq's default is 60s
+# with 2 retries. A stuck socket then never reaches the fallback, and the
+# Streamlit script stays on "Running" / Stop until the tech reloads.
+# One bounded attempt per provider; the provider loop is the only retry.
+REQUEST_TIMEOUT_SEC = 150.0
+CONNECT_TIMEOUT_SEC = 10.0
+# Wall clock sits just past the HTTP read timeout so a working socket timeout
+# surfaces as the SDK error. If the SDK timeout does not fire, the wall clock
+# still unblocks the Streamlit run.
+DEADLINE_SLACK_SEC = 5.0
 
 NO_KEY_MESSAGE = (
     "No AI key configured. Add XAI_API_KEY (preferred) or GROQ_API_KEY in Streamlit secrets."
@@ -67,6 +80,15 @@ _last_provider = ""
 
 class LLMProviderError(RuntimeError):
     """User-facing provider failure. ``str(exc)`` is already prefixed and redacted."""
+
+
+class LLMTimeoutError(TimeoutError):
+    """The provider did not answer within ``REQUEST_TIMEOUT_SEC``."""
+
+
+TIMEOUT_RETRY_SENTENCE = (
+    "The AI took too long and was stopped. Send the same message again."
+)
 
 
 def last_provider() -> str:
@@ -195,27 +217,98 @@ def _models_for(provider: str, models: dict | None, secret_fn) -> list[str]:
     return [DEFAULT_GROQ_MODEL]
 
 
+def _client_timeout(provider: str):
+    """Read budget for one attempt. Connect fails faster than a reasoning turn."""
+    read = float(REQUEST_TIMEOUT_SEC)
+    connect = float(CONNECT_TIMEOUT_SEC)
+    if provider == PROVIDER_XAI:
+        try:
+            import httpx2
+
+            return httpx2.Timeout(read, connect=connect)
+        except Exception:
+            return read
+    try:
+        import httpx
+
+        return httpx.Timeout(read, connect=connect)
+    except Exception:
+        return read
+
+
 def default_client_factory(provider: str, *, api_key: str, base_url: str):
+    timeout = _client_timeout(provider)
     if provider == PROVIDER_XAI:
         from openai import OpenAI
 
-        return OpenAI(api_key=api_key, base_url=base_url or DEFAULT_XAI_BASE_URL)
+        return OpenAI(
+            api_key=api_key,
+            base_url=base_url or DEFAULT_XAI_BASE_URL,
+            timeout=timeout,
+            max_retries=0,
+        )
     if provider == PROVIDER_GROQ:
         from groq import Groq
 
-        return Groq(api_key=api_key)
+        return Groq(api_key=api_key, timeout=timeout, max_retries=0)
     raise LLMProviderError(f"Unknown LLM provider: {provider}")
 
 
+def _deadline_sec() -> float:
+    return float(REQUEST_TIMEOUT_SEC) + float(DEADLINE_SLACK_SEC)
+
+
+def _timeout_phrase() -> str:
+    seconds = float(REQUEST_TIMEOUT_SEC)
+    shown = str(int(seconds)) if seconds >= 10 else f"{seconds:.1f}"
+    return f"timed out after {shown}s"
+
+
+def _run_with_deadline(fn, timeout_sec: float):
+    """Run ``fn`` on a daemon thread so a stuck SDK call cannot block forever.
+
+    ``ThreadPoolExecutor.shutdown(wait=True)`` would wait out the hung call and
+    undo the deadline. The thread is a daemon; the HTTP timeout should still
+    end it. Streamlit APIs are not called from the thread.
+    """
+    box: dict = {}
+
+    def runner():
+        try:
+            box["value"] = fn()
+        except Exception as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=runner, name="gd-llm", daemon=True)
+    thread.start()
+    thread.join(timeout_sec)
+    if thread.is_alive():
+        raise LLMTimeoutError(_timeout_phrase())
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
 def _completion_text(client, *, model: str, messages, temperature: float, max_tokens: int) -> str:
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    content = response.choices[0].message.content
-    return (content or "").strip()
+    def _call():
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        content = response.choices[0].message.content
+        return (content or "").strip()
+
+    text = _run_with_deadline(_call, _deadline_sec())
+    return (text or "").strip()
+
+
+def _raise_provider_errors(errors: list[str]) -> None:
+    text = " | ".join(errors)
+    if any("timed out" in err.lower() for err in errors):
+        text = text.rstrip(".") + ". " + TIMEOUT_RETRY_SENTENCE
+    raise LLMProviderError(text)
 
 
 def complete_chat(
@@ -234,7 +327,9 @@ def complete_chat(
     reads pass xAI grok-4.6 first, then the current Groq vision ids). A 404
     tries the next model on that provider. Rate limit, auth, 5xx, timeout, and
     transport skip the rest of that provider and retry the same messages on
-    the fallback. The bay sees an error only when both providers fail.
+    the fallback. Each attempt is bounded by ``REQUEST_TIMEOUT_SEC`` with SDK
+    retries off, so a stuck call falls through or raises instead of hanging
+    the Streamlit run. The bay sees an error only when both providers fail.
     """
     global _last_provider
 
@@ -309,4 +404,4 @@ def complete_chat(
             raise LLMProviderError(NO_KEY_MESSAGE) from None
     if not errors:
         raise LLMProviderError(NO_KEY_MESSAGE) from None
-    raise LLMProviderError(" | ".join(errors)) from None
+    _raise_provider_errors(errors)

@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.18.4
+RV TechTrack v4.19.0
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
 - Certificate Hub
@@ -61,6 +61,7 @@ RV TechTrack v4.18.4
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.19.0: AI calls time out (150s, no SDK retries) and fall back or show a send-again message instead of hanging the page; the selected section and GD Category/Model stay across reruns; Ctrl+Enter sends; inactive sections are not drawn under the active one, so the Stop indicator can clear when the run finishes
 - v4.18.4: Guided Diagnostics replies and Bay PDF sheets use shop words (output wire, check the wire, check the circuit). A final pass rewrites engineering jargon in guard text, flowchart labels, bay-order steps, and sheet excerpts. Marked OEM source quotes stay verbatim
 - v4.18.3: Bay PDF SOURCES use a human document title, keep only cites that belong to the procedure, and quote whole sentences. Raw filenames, flat-rate lines for a different assembly, and mid-word OCR scraps stay off the sheet
 - v4.18.2: Generic bay sheets turn cited manual text into yes/no steps and end at a confirmed correction. OCR headers, footers, and duplicated words are stripped from the bay order and from SOURCES. A furnace job jumps R/W at the furnace, then proves the sail switch. Furrion FCR E2 follows Fan Fault Diagnostics and ends at the inverter PCB and fan. The MODEL line no longer repeats the brand.
@@ -91,7 +92,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.18.4``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.0``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -466,6 +467,15 @@ st.markdown("""
     [data-testid="stTabs"] button[aria-selected="true"] {
         color: #038944 !important;
     }
+    /* Keyed section radio. Wrap on a phone. Selected label uses shop green. */
+    div[data-testid="stRadio"] [role="radiogroup"] {
+        flex-wrap: wrap;
+        gap: 0.35rem 0.9rem;
+    }
+    div[data-testid="stRadio"] label:has(input:checked) {
+        color: #038944 !important;
+        font-weight: 700;
+    }
     /* v4.8.3 - collapsed sidebar must not reserve flex width */
     section[data-testid="stSidebar"][aria-expanded="true"] {
         min-width: 220px;
@@ -523,7 +533,12 @@ def get_r2_client():
             endpoint_url=st.secrets["R2_ENDPOINT_URL"],
             aws_access_key_id=st.secrets["R2_ACCESS_KEY_ID"],
             aws_secret_access_key=st.secrets["R2_SECRET_ACCESS_KEY"],
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=10,
+                read_timeout=45,
+                retries={"max_attempts": 2, "mode": "standard"},
+            ),
             region_name="auto",
         )
     except Exception:
@@ -1062,6 +1077,54 @@ def _cookie_clear_auth(mgr):
         mgr.delete(AUTH_COOKIE_NAME, key="tt_del_auth")
     except Exception:
         pass
+
+
+class _InactivePanel(Exception):
+    """Raised so a nav section that is not selected skips its body."""
+
+
+class _Panel:
+    """One app section. Unlike ``st.tabs``, inactive sections do not render.
+
+    ``st.tabs`` keeps every panel in the DOM and does not store the selected
+    tab. A long run (the AI spinner) left the previous pass on screen faded —
+    My Dashboard under the active tab — and the Stop control stayed up until
+    that run finished. A server ``st.rerun()`` also sent the browser back to
+    the first tab and dropped the GD fields.
+    """
+
+    def __init__(self, name: str, selected: str):
+        self.name = name
+        self.active = name == selected
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return exc_type is _InactivePanel
+
+
+def _enter_panel(panel) -> None:
+    if panel is None or not getattr(panel, "active", False):
+        raise _InactivePanel()
+
+
+def _restore_widget(widget_key: str, memory_key: str, allowed=None) -> None:
+    """Copy a remembered value onto a widget key when this run does not have one."""
+    if widget_key in st.session_state:
+        return
+    saved = st.session_state.get(memory_key)
+    if not isinstance(saved, str):
+        return
+    if allowed is not None and saved not in allowed:
+        return
+    st.session_state[widget_key] = saved
+
+
+def _remember_widget(widget_key: str, memory_key: str) -> None:
+    val = st.session_state.get(widget_key)
+    if isinstance(val, str):
+        st.session_state[memory_key] = val
 
 
 def get_safety_progress(user_id: int) -> float:
@@ -4924,7 +4987,10 @@ if "ask_chat" not in st.session_state:
 if "ask_chat_id" not in st.session_state:
     st.session_state["ask_chat_id"] = None
 
-_cookie_mgr = _cookie_manager()
+# CookieManager mounts a component every run. Leaving it up after sign-in
+# kept a custom-component callback in the script, so Stop never cleared
+# on an idle page. Read or write the cookie only on the login and logout paths.
+_cookie_mgr = _cookie_manager() if st.session_state.user is None else None
 if st.session_state.user is None:
     restored = _load_auth_token(_cookie_get(_cookie_mgr, AUTH_COOKIE_NAME))
     if restored:
@@ -4987,7 +5053,7 @@ with hdr_r:
     )
     st.caption(f"Signed in as **{user['full_name']}** ({user['role']}) · Tacoma RV Center · Service")
 if st.sidebar.button("Log out"):
-    _cookie_clear_auth(_cookie_mgr)
+    _cookie_clear_auth(_cookie_manager())
     st.session_state.user = None
     st.session_state.active_job_id = None
     st.session_state["ask_chat"] = []
@@ -4999,19 +5065,30 @@ st.sidebar.caption(f"Role: {user['role']}")
 tabs = ["📱 My Dashboard", "🧾 Bay procedure PDF", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
     tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
-tab_objs = st.tabs(tabs)
-tab_dash = tab_objs[0]
-tab_jobs = tab_objs[1]
-tab_ask = tab_objs[2]
-tab_lib = tab_objs[3]
-tab_safety = tab_objs[4]
-tab_team = tab_objs[5] if is_manager else None
-tab_mgr = tab_objs[6] if is_manager else None
+# Keyed radio, not st.tabs. The choice lives in session_state and survives
+# the rerun after a GD reply. Only the selected section is rendered.
+if st.session_state.get("tt_nav") not in tabs:
+    st.session_state["tt_nav"] = tabs[0]
+selected_nav = st.radio(
+    "Section",
+    tabs,
+    key="tt_nav",
+    horizontal=True,
+    label_visibility="collapsed",
+)
+tab_dash = _Panel(tabs[0], selected_nav)
+tab_jobs = _Panel(tabs[1], selected_nav)
+tab_ask = _Panel(tabs[2], selected_nav)
+tab_lib = _Panel(tabs[3], selected_nav)
+tab_safety = _Panel(tabs[4], selected_nav)
+tab_team = _Panel(tabs[5], selected_nav) if is_manager else None
+tab_mgr = _Panel(tabs[6], selected_nav) if is_manager else None
 
 # =========================================================
 # MY DASHBOARD
 # =========================================================
 with tab_dash:
+    _enter_panel(tab_dash)
     st.subheader("📱 My Dashboard")
     c1, c2, c3 = st.columns(3)
     my_certs = session.query(Certificate).filter_by(user_id=user["id"]).count()
@@ -5126,6 +5203,7 @@ def _attach_bay_figure_images(proc):
 
 
 with tab_jobs:
+    _enter_panel(tab_jobs)
     st.subheader(f"🧾 {BAY_PROCEDURE_LABEL}")
     st.caption(
         "Enter the customer concern. TechTrack retrieves from this shop's Document Library "
@@ -5260,6 +5338,7 @@ with tab_jobs:
 # ASK TECHTRACK
 # =========================================================
 with tab_ask:
+    _enter_panel(tab_ask)
     st.subheader("💬 Guided Diagnostics")
     st.caption(
         "Open library coach — takes the complaint and guides from this shop's Document Library. "
@@ -5315,6 +5394,9 @@ with tab_ask:
 
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = gd_category_select_options([c.name for c in cats])
+    _restore_widget("ask_cat", "gd_category_memory", cat_names)
+    _restore_widget("ask_model", "gd_model_memory")
+    _restore_widget("ask_unity_gate", "gd_unity_memory", ["Not sure", "Yes", "No"])
     c1, c2 = st.columns(2)
     with c1:
         ask_cat = st.selectbox("Category (optional)", cat_names, key="ask_cat")
@@ -5342,6 +5424,9 @@ with tab_ask:
         key="ask_unity_gate",
         help="Not every unit has one. Yes/Not sure = include Unity board tests + Electrical manuals. No = skip Unity path.",
     )
+    _remember_widget("ask_cat", "gd_category_memory")
+    _remember_widget("ask_model", "gd_model_memory")
+    _remember_widget("ask_unity_gate", "gd_unity_memory")
     category_name = "" if ask_cat == "(any)" else ask_cat
 
     history = st.session_state.get("ask_chat") or []
@@ -5368,13 +5453,6 @@ with tab_ask:
         )
         st.warning(fail_note)
 
-    st.text_area(
-        "Your message",
-        key="ask_input",
-        height=100,
-        placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
-    )
-
     # Hard-tree Yes/No buttons are off on the open-coach product path.
     if HARD_TREE_EXCLUSIVE_CHAT:
         _flow_now = st.session_state.get("ask_flow") or {}
@@ -5396,9 +5474,22 @@ with tab_ask:
                 st.session_state["ask_force_send"] = True
                 st.rerun()
 
-    b1, b2, b3 = st.columns(3)
-    with b1:
-        send = st.button("Send", type="primary", key="ask_send", use_container_width=True)
+    # Ctrl+Enter in a bare text_area only commits the widget and reruns.
+    # It does not click Send, so the draft stayed in the box. A form submits
+    # on Ctrl+Enter and sends the text with that same click (no lost first click).
+    with st.form("gd_send_form", clear_on_submit=False):
+        st.text_area(
+            "Your message",
+            key="ask_input",
+            height=100,
+            placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
+        )
+        send_col, hint_col = st.columns([1, 2])
+        with send_col:
+            send = st.form_submit_button("Send", type="primary", use_container_width=True)
+        with hint_col:
+            st.caption("Ctrl+Enter sends this message.")
+    b2, b3 = st.columns(2)
     with b2:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
     with b3:
@@ -5541,6 +5632,7 @@ with tab_ask:
 # DOCUMENT LIBRARY
 # =========================================================
 with tab_lib:
+    _enter_panel(tab_lib)
     st.subheader("📚 Document Library (Manuals & Troubleshooting)")
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = library_category_picker_names([c.name for c in cats])
@@ -5572,6 +5664,7 @@ with tab_lib:
 # SAFETY
 # =========================================================
 with tab_safety:
+    _enter_panel(tab_safety)
     st.subheader("🛡️ Safety / Compliance")
     st.markdown("#### Safety Documents")
     sq = st.text_input("Search safety documents", key="safety_doc_search")
@@ -5617,6 +5710,7 @@ with tab_safety:
 # =========================================================
 if is_manager and tab_team is not None:
     with tab_team:
+        _enter_panel(tab_team)
         st.subheader("Certificate & Safety Summary")
         techs = session.query(User).filter_by(is_active=True).order_by(User.full_name).all()
         for t in techs:
@@ -5650,6 +5744,7 @@ if is_manager and tab_team is not None:
 # =========================================================
 if is_manager and tab_mgr is not None:
     with tab_mgr:
+        _enter_panel(tab_mgr)
         st.subheader("🛠️ Manager Tools")
         st.warning(
             "The full database (titles, keywords, users, WO jobs, chats) now auto-saves to R2. "
