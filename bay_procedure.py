@@ -51,11 +51,17 @@ from gd_library_coach import (
     ICE_MOISTURE_SHOP_LINE,
     WIRED_COACH_CAN_RE,
     ac_search_symptom,
+    asked_brands_for_lookup,
+    canonical_shop_brands,
+    chunk_matches_asked_brand,
+    coleman_search_symptom,
     cooktop_search_symptom,
     bal_tongue_search_symptom,
     dial_off_run_search_symptom,
     ice_moisture_search_symptom,
     is_air_conditioning_context,
+    is_coleman_2111_context,
+    is_coleman_library_text,
     is_bal_soft_touch_tongue_only_context,
     is_cooktop_pan_on_flameout_context,
     is_facr_rooftop_freeze_context,
@@ -1163,6 +1169,278 @@ def _body_check_from_excerpt(raw: str) -> str:
     return _as_sentence(text)
 
 
+# Header cite stays inside the 92-character PRIMARY line. Sources carry the long titles.
+COLEMAN_BAY_PRIMARY_CITE = (
+    "Coleman-Mach 12VDC wall-thermostat SM; 1976-536 and 1976-603; Peacemaker; 1976-695."
+)
+_COLEMAN_SOURCE_SPECS = (
+    {
+        "title": "Coleman-Mach 12VDC wall-thermostat rooftop service manual",
+        "needles": ("12vdc", "12 vdc", "wall-thermostat", "wall thermostat"),
+        "excerpt": (
+            "12 VDC present and 115 VAC missing at the 9-pin means the printed circuit board."
+        ),
+    },
+    {
+        "title": "Coleman-Mach 1976-536 and 1976-603",
+        "needles": ("1976-536", "1976-603"),
+        "excerpt": "9-pin: pin 5 BLK is Fan High and pin 9 WHT is fan common.",
+    },
+    {
+        "title": "SkillAbove Peacemaker",
+        "needles": ("peacemaker",),
+        "excerpt": "Bypass the thermostat and the control box. Record compressor, fan, and amperage.",
+    },
+    {
+        "title": "Coleman-Mach mechanical-controls service manual 1976-695",
+        "needles": ("1976-695", "mechanical control"),
+        "excerpt": "The run capacitor is good and the motor will not start: replace the motor.",
+    },
+)
+
+
+def _coleman_source_hit(pages, needles, used: set):
+    best = None
+    best_rank = 0
+    best_i = None
+    for i, d in enumerate(pages):
+        if i in used:
+            continue
+        canon = canonical_shop_brands(d.get("title") or "", d.get("keywords") or "")
+        if canon and "coleman" not in canon:
+            continue
+        title = (d.get("title") or "").lower()
+        excerpt = (d.get("excerpt") or "").lower()
+        rank = 0
+        if any(n in title for n in needles):
+            rank = 2
+        elif any(n in excerpt for n in needles):
+            rank = 1
+        if rank > best_rank:
+            best = d
+            best_rank = rank
+            best_i = i
+    return best, best_i
+
+
+def _coleman_sources(ranked) -> list[dict]:
+    """Coleman titles only. Page numbers come from a matching library chunk, never invented."""
+    pages = [chunk_as_dict(ch) for ch in (ranked or [])]
+    out = []
+    used = set()
+    for spec in _COLEMAN_SOURCE_SPECS:
+        hit, idx = _coleman_source_hit(pages, spec["needles"], used)
+        if hit is not None and idx is not None:
+            used.add(idx)
+            out.append(
+                {
+                    "title": (hit.get("title") or spec["title"]).strip(),
+                    "page": _page_int(hit.get("page")),
+                    "excerpt": ((hit.get("excerpt") or spec["excerpt"]).strip() or spec["excerpt"])[:400],
+                }
+            )
+        else:
+            out.append({"title": spec["title"], "page": None, "excerpt": spec["excerpt"]})
+    return out
+
+
+def _coleman_path() -> dict:
+    """2111-0001 climax matches GD: Fan High, Peacemaker, cap, then motor and board only."""
+    return {
+        "primary_cite": COLEMAN_BAY_PRIMARY_CITE,
+        "pattern_means": (
+            "A Coleman-Mach 2111-0001 that runs about two minutes and then goes dead "
+            "with no response is a wall-thermostat rooftop prove. Prove Fan High at the "
+            "9-pin, then the Peacemaker bypass, then the fan run capacitor. The correction "
+            "is the fan motor and the control board only."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "Coleman-Mach 2111-0001 ran, then went dead.",
+                    0.50,
+                    0.09,
+                    w=420,
+                    h=70,
+                ),
+                FlowNode("d1", "decision", "Fan High dead\nat the 9-pin?", 0.32, 0.29, w=220, h=100),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Peacemaker bypass, then\nmeasure the fan run capacitor.",
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Fan High is live.\nStay on that voltage path.",
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode("d2", "decision", "Cap good and the\nfan locked?", 0.32, 0.70, w=220, h=100),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "R&R the fan motor and\nthe control board only.",
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Replace the failed part\nfrom that prove and retest.",
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Prove Fan High at the 9-pin before any part is condemned. Pin 5 black "
+                "is Fan High and pin 9 white is fan common. If the board output tester "
+                "is dark or black-to-white is about 0 VAC, Fan High is dead: go to the "
+                "Peacemaker bypass. If Fan High is about 115 VAC, the board is calling "
+                "for the fan: stay on the live-voltage fan path."
+            ),
+            (
+                "Bypass the thermostat and the control box with the SkillAbove Peacemaker. "
+                "If the compressor runs and the fan does not rotate on high or low, record "
+                "the amps. Shaft-locked current about 1.9 A means the fan motor is locked: "
+                "go to the fan run capacitor. If the compressor does not run, stay on the "
+                "compressor and do not condemn the fan motor."
+            ),
+            (
+                "Measure the fan run capacitor and compare it to the value printed on the "
+                "capacitor. On this 2111-0001 the rated value is 15 µF. If the capacitor "
+                "is open or far from rated, replace the capacitor and retest the fan. If "
+                "it measures about rated, the capacitor is not the failed part: go to the "
+                "motor and the board."
+            ),
+            (
+                "When Fan High is dead, the Peacemaker bypass shows the compressor runs "
+                "with the fan locked and stall current reported, and the fan run capacitor "
+                "is good, R&R the rooftop fan motor and the control board only. Do not "
+                "replace the full 2111-0001 assembly. That is the confirmed correction."
+            ),
+        ],
+        "do_not": [
+            "Do not replace the full 2111-0001 rooftop assembly on this prove.",
+            "Do not condemn the fan motor before the capacitor is measured against its rated value.",
+        ],
+        "sources": [],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _no_brand_match_path(brand: str = "", model: str = "") -> dict:
+    """Known brand, no matching manual. Do not borrow another maker's book."""
+    who = " ".join(p for p in ((brand or "").strip(), (model or "").strip()) if p) or "this brand"
+    cite = f"No {who} manual in the shop library. Do not use another brand."
+    if len(cite) > 92:
+        short = (brand or "").strip() or "this brand"
+        cite = f"No {short} manual in the shop library. Do not use another brand."
+    return {
+        "primary_cite": cite,
+        "pattern_means": (
+            f"The brand and model are known ({who}), and this pass did not retrieve "
+            "a service manual for that maker. Do not borrow voltages, pin names, or "
+            "step order from a different brand."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "No same-brand manual was retrieved for this unit.",
+                    0.50,
+                    0.10,
+                    w=400,
+                    h=56,
+                ),
+                FlowNode(
+                    "d_lib",
+                    "decision",
+                    "Is a same-brand\nmanual indexed?",
+                    0.32,
+                    0.38,
+                    w=230,
+                    h=88,
+                ),
+                FlowNode(
+                    "e_stop",
+                    "end",
+                    "Stop. Do not use\nanother brand.",
+                    0.82,
+                    0.38,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "e_rerun",
+                    "end",
+                    "Index that manual, then\nrun this bay sheet again.",
+                    0.32,
+                    0.72,
+                    w=250,
+                    h=72,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d_lib"),
+                FlowEdge("d_lib", "e_rerun", "YES", "bottom", "top"),
+                FlowEdge("d_lib", "e_stop", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Stop on this sheet. The shop Document Library did not return a manual "
+                f"for {who}. Ask a manager to index that service manual, then run this "
+                "bay sheet again."
+            ),
+            (
+                "Do not start a procedure from another brand. That stop is the confirmed "
+                "correction until the matching manual is indexed."
+            ),
+        ],
+        "do_not": [
+            "Do not cite another brand's manual as the procedure for this unit.",
+        ],
+        "sources": [
+            {
+                "title": f"No {who} document in this retrieval",
+                "page": None,
+                "excerpt": "Do not substitute another brand.",
+            }
+        ],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": False,
+    }
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = [e for e in excerpts if e and len(e) >= 20][:MAX_BAY_ORDER]
@@ -1292,15 +1570,77 @@ def rewrite_bay_search_symptom(
     if is_firefly_can_path_context(category_name, model_text, symptom):
         if FIREFLY_CAN_SEARCH_BOOST not in symptom:
             symptom = f"{symptom} {FIREFLY_CAN_SEARCH_BOOST}".strip()
-    symptom = ac_search_symptom(category_name, model_text, symptom)
-    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
-        if FACR_FREEZE_SEARCH_BOOST not in symptom:
-            symptom = f"{symptom} {FACR_FREEZE_SEARCH_BOOST}".strip()
+    if is_coleman_2111_context(category_name, model_text, symptom):
+        # Do not add the Furrion FACT/FACR boost. That string was becoming the brand.
+        symptom = coleman_search_symptom(category_name, model_text, symptom)
+    else:
+        symptom = ac_search_symptom(category_name, model_text, symptom)
+        if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+            if FACR_FREEZE_SEARCH_BOOST not in symptom:
+                symptom = f"{symptom} {FACR_FREEZE_SEARCH_BOOST}".strip()
     symptom = water_heater_search_symptom(category_name, model_text, symptom)
     symptom = cooktop_search_symptom(category_name, model_text, symptom)
     symptom = bal_tongue_search_symptom(category_name, model_text, symptom)
     symptom = stabilizer_search_symptom(category_name, model_text, symptom)
     return symptom
+
+
+def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", concern: str = ""):
+    """
+    Keep library pages for the brand the tech named.
+
+    Returns (pages, brand_miss). brand_miss is true when a brand is known and
+    every retrieved page is a different brand. Unbranded excerpts stay.
+    Coleman 2111 also keeps 1976-536 / Peacemaker / wall-thermostat pages.
+    """
+    pages = [chunk_as_dict(ch) for ch in (chunks or [])]
+    asked = asked_brands_for_lookup(category_name, model_text, concern)
+    coleman_job = is_coleman_2111_context(category_name, model_text, concern)
+    if not asked:
+        return pages, False
+    matched, other, plain = [], [], []
+    for d in pages:
+        title = d.get("title") or ""
+        keywords = d.get("keywords") or ""
+        excerpt = d.get("excerpt") or ""
+        canon = canonical_shop_brands(title, keywords)
+        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt}")
+        if chunk_matches_asked_brand(title, keywords, excerpt, asked, coleman_job=coleman_job):
+            matched.append(d)
+        elif canon or (coleman_text and not coleman_job):
+            other.append(d)
+        else:
+            plain.append(d)
+    if matched:
+        return matched, False
+    if other and not plain:
+        return [], True
+    return plain, False
+
+
+def _rank_coleman_pages(pages, limit: int) -> list:
+    """Prefer the Coleman rooftop titles. A different brand cannot outrank them."""
+
+    def score(page) -> int:
+        blob = f"{page.get('title') or ''} {page.get('excerpt') or ''}".lower()
+        s = 0
+        if "coleman" in blob or "airxcel" in blob:
+            s += 20
+        if "12vdc" in blob or "12 vdc" in blob or "wall" in blob:
+            s += 8
+        if "1976-536" in blob or "1976-603" in blob:
+            s += 12
+        if "peacemaker" in blob:
+            s += 12
+        if "1976-695" in blob or "mechanical" in blob:
+            s += 8
+        if "furrion" in blob or "dometic" in blob:
+            s -= 40
+        return s
+
+    ordered = sorted(pages or [], key=score, reverse=True)
+    kept = [p for p in ordered if score(p) > 0]
+    return (kept or ordered)[:limit]
 
 
 def rank_bay_chunks(
@@ -1310,9 +1650,11 @@ def rank_bay_chunks(
     concern: str = "",
     limit: int = 8,
 ) -> list:
-    """Apply the same product ranking GD uses."""
-    pages = [chunk_as_dict(ch) for ch in (chunks or [])]
+    """Apply the same product ranking GD uses, after the brand lock."""
+    pages, _brand_miss = bay_brand_retrieval(chunks, category_name, model_text, concern)
     query = f"{model_text or ''} {concern or ''}".strip()
+    if is_coleman_2111_context(category_name, model_text, concern):
+        return _rank_coleman_pages(pages, limit)
     if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
         ranked = rank_chunks_for_dial_off_run(pages, query, limit=limit)
         return [
@@ -1579,6 +1921,32 @@ def _seed_path_figure(kind: str) -> BayFigure:
     )
 
 
+def _coleman_figures(ranked) -> list[BayFigure]:
+    """Coleman pages only. Never a Furrion or Dometic figure on this sheet."""
+    library = []
+    for fig in pick_cited_figures(ranked):
+        blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+        if "furrion" in blob or "dometic" in blob or "ccd-0008666" in blob or "ccd-0007990" in blob:
+            continue
+        library.append(fig)
+    if library:
+        return library
+    seed = _seed_path_figure("generic")
+    seed.title = "Coleman-Mach 12VDC wall-thermostat rooftop service manual"
+    seed.caption = "9-pin Fan High: pin 5 black, pin 9 white common"
+    seed.excerpt = "Prove Fan High, then the Peacemaker bypass, then the fan run capacitor."
+    return [seed]
+
+
+def _brand_miss_figure(brand: str = "", model: str = "") -> BayFigure:
+    who = " ".join(p for p in ((brand or "").strip(), (model or "").strip()) if p) or "this brand"
+    seed = _seed_path_figure("generic")
+    seed.title = "Shop Document Library"
+    seed.caption = f"No {who} figure in this retrieval"
+    seed.excerpt = "Do not use a figure from another brand."
+    return seed
+
+
 def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = None) -> list[BayFigure]:
     """Ice and FACR always use real OEM library art. Firefly may use the path seed."""
     if kind in ("ice", "facr"):
@@ -1678,7 +2046,12 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
             "Furrion FCR E2 or Fan Fault Current is a freezer-fan and airflow path. "
             "It is not a rooftop air-conditioner code."
         )
-    if is_air_conditioning_context(category_name, model_text, concern) and not is_facr_rooftop_freeze_context(
+    if is_coleman_2111_context(category_name, model_text, concern):
+        notes.append(
+            "Prove Fan High at the 9-pin, then the Peacemaker bypass, then the fan run "
+            "capacitor. The correction is the fan motor and the control board only."
+        )
+    elif is_air_conditioning_context(category_name, model_text, concern) and not is_facr_rooftop_freeze_context(
         category_name, model_text, concern
     ):
         notes.append(
@@ -1802,6 +2175,7 @@ def compile_bay_procedure(
     if category in ("(any)", "-"):
         category = ""
     model_text = model_text_from(brand, model)
+    _, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
     ranked = rank_bay_chunks(chunks, category, model_text, concern, limit=8)
 
     dial_off = is_fcr_dial_off_compressor_run_context(category, model_text, concern)
@@ -1809,6 +2183,7 @@ def compile_bay_procedure(
     firefly = is_firefly_can_path_context(category, model_text, concern)
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
     bal_tongue = is_bal_soft_touch_tongue_only_context(category, model_text, concern)
+    coleman = is_coleman_2111_context(category, model_text, concern)
 
     path_kind = ""
     if dial_off:
@@ -1826,6 +2201,12 @@ def compile_bay_procedure(
     elif bal_tongue:
         spec = _bal_tongue_path()
         path_kind = "bal_tongue"
+    elif coleman:
+        spec = _coleman_path()
+        path_kind = "coleman"
+    elif brand_miss:
+        spec = _no_brand_match_path(brand, model)
+        path_kind = "brand_miss"
     else:
         extra_steps = []
         for d in ranked:
@@ -1848,12 +2229,17 @@ def compile_bay_procedure(
             "full_story": long_path,
         }
 
-    sources = _merge_sources(
-        spec.get("sources") or [],
-        _unique_sources(ranked),
-        ice=ice,
-        dial_off=dial_off,
-    )
+    if coleman:
+        sources = _coleman_sources(ranked)
+    elif brand_miss and path_kind == "brand_miss":
+        sources = list(spec.get("sources") or [])
+    else:
+        sources = _merge_sources(
+            spec.get("sources") or [],
+            _unique_sources(ranked),
+            ice=ice,
+            dial_off=dial_off,
+        )
     if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
         sources.insert(0, spec["sources"][0])
 
@@ -1878,7 +2264,11 @@ def compile_bay_procedure(
             )
         )
 
-    if path_kind:
+    if path_kind == "coleman":
+        figs = _coleman_figures(ranked)
+    elif path_kind == "brand_miss":
+        figs = [_brand_miss_figure(brand, model)]
+    elif path_kind:
         figs = resolve_path_figures(path_kind, ranked, figures)
     else:
         figs = list(figures or []) or pick_cited_figures(ranked)

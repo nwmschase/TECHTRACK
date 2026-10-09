@@ -61,6 +61,7 @@ RV TechTrack v4.18.1
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.18.1: Bay procedure PDF keeps a known brand on its own manuals. Coleman-Mach 2111-0001 cites the Coleman rooftop books (12VDC wall-thermostat SM, 1976-536 and 1976-603, Peacemaker, 1976-695) and ends at fan motor plus control board only. If that brand has no manual, the sheet says so instead of citing another brand
 - v4.18.0: Guided Diagnostics, warranty story, and data-plate photos call xAI first (grok-4.6); Groq is the automatic fallback when the primary key is missing or the provider returns 401/403, 429, 5xx, timeout, or a transport error
 - v4.17.0: FACR08 freeze/leak climax is an authorization card for rooftop assembly R&R (CCD-0007990), never a library-miss R&R refusal or a compressor/DC-bus detour; Coleman-Mach 2111-0001 authorizes fan motor and control board only when Fan High is dead, the Peacemaker fan is locked, and the run cap is good
 - v4.16.1: FACR08 freeze/leak terminal card is rooftop assembly R&R (CCD-0007990) after the drain/pan/filter/suction/sensor/nozzle/pressure path, never a blank card
@@ -146,6 +147,8 @@ _GDC_STALE_GUARD_ATTRS = (
     "ensure_facr_freeze_assembly_rr",
     "ensure_coleman_motor_board_auth",
     "is_coleman_2111_context",
+    "asked_brands_for_lookup",
+    "chunk_matches_asked_brand",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -1656,21 +1659,11 @@ def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) 
     return score
 
 
-SHOP_BRANDS = (
-    "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
-    "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
-    "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
-    "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
-)
+SHOP_BRANDS = tuple(_gdc.SHOP_BRAND_TOKENS)
 
 
 def named_brands(*texts: str) -> list:
-    blob = " ".join(t or "" for t in texts).lower()
-    found = [b for b in SHOP_BRANDS if b in blob]
-    # PD alone is too noisy unless Progressive is also there
-    if "pd" in found and "progressive" not in blob and "intelli" not in blob:
-        found = [b for b in found if b != "pd"]
-    return found
+    return _gdc.named_shop_brands(*texts)
 
 
 def chunk_brands(ch) -> list:
@@ -1805,11 +1798,28 @@ def search_manual_chunks(
         if cat_ids:
             q = q.filter(DocChunk.category_id.in_(cat_ids))
     all_chunks = q.all()
-    asked = named_brands(model_text or "", symptom or "")
+    # Brand comes from the unit the tech named, not from an AC search boost that
+    # says "Furrion" on a Coleman job. Coleman also keeps 1976 / Peacemaker titles.
+    asked_canon = _gdc.asked_brands_for_lookup("", model_text or "", symptom or "")
+    coleman_brand_job = _gdc.is_coleman_2111_context(
+        "", model_text or "", _gdc.symptom_for_brand_detect(symptom or "")
+    )
+
+    def _brand_keep(ch) -> bool:
+        if not asked_canon:
+            return True
+        return _gdc.chunk_matches_asked_brand(
+            ch.title or "",
+            getattr(ch, "keywords", "") or "",
+            ch.chunk_text or "",
+            asked_canon,
+            coleman_job=coleman_brand_job,
+        )
+
     fridge_job = is_fridge_context("", model_text or "", symptom or "")
     branded = []
-    if asked:
-        branded = [ch for ch in all_chunks if any(b in chunk_brands(ch) for b in asked)]
+    if asked_canon:
+        branded = [ch for ch in all_chunks if _brand_keep(ch)]
         if branded:
             all_chunks = branded
         else:
@@ -1840,7 +1850,7 @@ def search_manual_chunks(
                     if key not in seen:
                         all_chunks.append(ch)
                         seen.add(key)
-            branded = [ch for ch in all_chunks if any(b in chunk_brands(ch) for b in asked)]
+            branded = [ch for ch in all_chunks if _brand_keep(ch)]
             if branded:
                 all_chunks = branded
     if not all_chunks:
@@ -1951,7 +1961,6 @@ def search_manual_chunks(
             query_terms.add(t)
 
     scored = []
-    asked_set = set(asked or [])
     for ch in all_chunks:
         sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
         if figure_seek:
@@ -1978,8 +1987,13 @@ def search_manual_chunks(
             sc += score_dial_off_run_chunk(ch, f"{model_text or ''} {symptom or ''}")
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
-        if asked_set and any(b in title_kw for b in asked_set):
+        if asked_canon and _brand_keep(ch):
             sc += 6
+        if coleman_2111_job:
+            if _gdc.is_coleman_library_text(title_kw) or _gdc.is_coleman_library_text(hay):
+                sc += 18
+            if "furrion" in title_kw or ("dometic" in title_kw and "coleman" not in title_kw):
+                sc -= 28
         for term in model_search_terms(model_text or ""):
             if term in title_kw:
                 sc += 8
