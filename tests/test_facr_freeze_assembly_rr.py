@@ -1,4 +1,4 @@
-"""FACR freeze + interior leak continues to rooftop assembly R&R after the three proves."""
+"""FACR freeze + interior leak authorizes rooftop assembly R&R only after pressures."""
 import re
 import unittest
 
@@ -77,25 +77,34 @@ class TestFacrAssemblyClimax(unittest.TestCase):
         self.assertIn("CCD-0007990", FACR_FREEZE_ASSEMBLY_LOCK)
         self.assertIn("searching manuals", FACR_FREEZE_ASSEMBLY_LOCK.lower())
 
-    def test_stall_and_drain_loop_continue_to_assembly_rr(self):
+    def test_stall_and_drain_loop_stay_on_prove_without_rr(self):
         facts = facr_freeze_proves_from_text(PROVES)
+        self.assertTrue(facr_proves_complete(facts))
+        self.assertFalse(facr_terminal_path_complete(facts))
         self.assertTrue(reply_stalls_searching_manuals(STALL))
         self.assertTrue(reply_loops_drain_only(DRAIN_LOOP))
-        for bad in (STALL, DRAIN_LOOP, "", "Error contacting AI: still searching manuals."):
+        self.assertFalse(reply_names_rooftop_assembly_rr(FACR_ASSEMBLY_RR_SHOP_LINE))
+        self.assertIn("pressures", FACR_ASSEMBLY_RR_SHOP_LINE.lower())
+        for bad in (STALL, DRAIN_LOOP, "Error contacting AI: still searching manuals."):
             fixed = ensure_facr_freeze_assembly_rr(bad, facts)
-            self.assertTrue(reply_names_rooftop_assembly_rr(fixed), fixed[:400])
+            self.assertFalse(reply_names_rooftop_assembly_rr(fixed), fixed[:400])
+            self.assertNotIn("replace the rooftop assembly", fixed.lower())
             self.assertIn("CCD-0007990", fixed)
             self.assertIn("condensate", fixed.lower())
-            self.assertIn("rooftop assembly", fixed.lower())
-            self.assertIn("replace the rooftop assembly", fixed.lower())
+            self.assertIn("next check", fixed.lower())
             self.assertFalse(reply_stalls_searching_manuals(fixed), fixed[:300])
             self.assertFalse(reply_loops_drain_only(fixed), fixed[:300])
-        self.assertIn(FACR_ASSEMBLY_RR_SHOP_LINE.split("\n")[0][:40], ensure_facr_freeze_assembly_rr(STALL, facts))
+        self.assertFalse(ensure_facr_freeze_assembly_rr("", facts).strip())
 
-    def test_complete_reply_is_left_alone(self):
+    def test_early_rr_reply_is_withheld_until_pressures(self):
         facts = facr_freeze_proves_from_text(PROVES)
         self.assertTrue(reply_names_rooftop_assembly_rr(GOOD))
-        self.assertEqual(ensure_facr_freeze_assembly_rr(GOOD, facts), GOOD)
+        fixed = ensure_facr_freeze_assembly_rr(GOOD, facts)
+        self.assertNotEqual(fixed, GOOD)
+        self.assertFalse(reply_names_rooftop_assembly_rr(fixed), fixed[:400])
+        self.assertNotIn("replace the rooftop assembly", fixed.lower())
+        self.assertIn("CCD-0007990", fixed)
+        self.assertIn("next check", fixed.lower())
 
     def test_searching_manuals_before_proves_does_not_stall(self):
         fixed = ensure_facr_freeze_assembly_rr("Searching manuals. I will look through the manuals.")
@@ -140,6 +149,20 @@ class TestFacrTerminalCard(unittest.TestCase):
         facts, card = _terminal_card(short, "")
         self.assertFalse(facr_terminal_path_complete(facts), facts)
         self.assertFalse(card.strip(), card)
+
+    def test_rr_before_pressures_is_rewritten(self):
+        short = GOOD_PATH[:-2]
+        facts, card = _terminal_card(short, GOOD)
+        self.assertFalse(facr_terminal_path_complete(facts), facts)
+        self.assertIsNone(facts.get("facr_pressure"))
+        self.assertTrue(reply_names_rooftop_assembly_rr(GOOD))
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card[:400])
+        self.assertNotIn("replace the rooftop assembly", card.lower())
+        self.assertIn("refrigerant pressures", card.lower())
+        self.assertIn("CCD-0007990", card)
+        _, kept = _terminal_card(GOOD_PATH, GOOD)
+        self.assertTrue(reply_names_rooftop_assembly_rr(kept), kept[:400])
+        self.assertIn("replace the rooftop assembly", kept.lower())
 
     def test_suction_still_iced_does_not_climax(self):
         iced = []
