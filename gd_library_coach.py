@@ -2707,8 +2707,21 @@ DOMETIC_NOCOOL_SEARCH_BOOST = (
     "Dometic diagnostic service manual 3311071 no cool compressor ceiling thermostat selector"
 )
 GROUND_CONTROL_LEVEL_LINE = (
-    "Run manual level, then zero-point calibration. "
-    "Auto-level that lifts the driver side is that zero-point prove on Lippert Ground Control.\n"
+    "Auto-level that lifts the driver side is a zero-point calibration on Lippert Ground Control. "
+    "Do a manual level, then set zero point. Do not swap a level sensor and do not replace a harness. "
+    "Confirm the controller, jack, and touch pad plugs are seated. "
+    "In manual mode, run the jacks until the trailer is level: put a level in the center and level front to back, then side to side. "
+    "Turn the touch pad off. "
+    "With the touch pad off, press and release FRONT five times, then press and release REAR five times. "
+    "The display reads ZERO POINT CALIBRATION, ENTER to set, Power to exit. Press ENTER. "
+    "The display reads Zero point stability check, then Zero point set successfully. "
+    "That stored position is the level state, and the touch pad turns off.\n"
+    "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
+    "(Ground Control TT/2.0/3.0)"
+)
+GROUND_CONTROL_STAY_LINE = (
+    "Stay on the zero-point sequence already given. "
+    "Do not repeat the opener, do not swap a level sensor, and do not replace a harness.\n"
     "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
     "(Ground Control TT/2.0/3.0)"
 )
@@ -2717,11 +2730,15 @@ DOMETIC_CEILING_LINE = (
     "Replace the ceiling thermostat/selector.\n"
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
-DOMETIC_NOCOOL_STEER = (
-    "Fan running with no cold air is the Dometic no-cool / compressor path in "
-    "diagnostic service manual 3311071. Do not stop on the filter check.\n"
+DOMETIC_NOCOOL_OPEN = (
+    "Fan running with no cold air is the no-cool path in Dometic diagnostic service manual 3311071. "
+    "Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. "
+    "Then bypass the ceiling selector. "
+    "If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector. "
+    "Do not start on the filter check.\n"
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
+DOMETIC_NOCOOL_STEER = DOMETIC_NOCOOL_OPEN
 FURNACE_WALL_TSTAT_LINE = (
     "Replace the wall thermostat. If voltage is missing, check the wire run.\n"
     "📖 Source: Suburban furnace service manual"
@@ -2737,8 +2754,15 @@ _LIBRARY_NO_STEPS_RE = re.compile(
     r"library has no|"
     r"no steps in the (?:library|manual|excerpt)|"
     r"(?:does not|doesn't|do not|don't) have.{0,48}(?:steps|procedure)|"
-    r"no (?:procedure|steps).{0,30}(?:library|manual)"
+    r"no (?:procedure|steps).{0,30}(?:library|manual)|"
+    r"library (?:does not|doesn't|doesnt) cover|"
+    r"(?:manual|excerpt|document library) (?:does not|doesn't|doesnt) cover|"
+    r"not covered by (?:the |this )?(?:library|manual|excerpt)"
     r")",
+    re.I,
+)
+_LIBRARY_MISS_NEG_RE = re.compile(
+    r"\b(do not|don't|dont|never|not say)\b",
     re.I,
 )
 
@@ -2761,17 +2785,54 @@ def dometic_nocoool_search_symptom(category_name: str, model_text: str, symptom:
     return f"{symptom} {DOMETIC_NOCOOL_SEARCH_BOOST}".strip()
 
 
+def _reply_sentences(reply: str) -> list:
+    return [part for part in re.split(r"(?<=[.!?])\s+|\n+", (reply or "").strip()) if part]
+
+
 def claims_library_missing_steps(reply: str) -> bool:
-    return bool(_LIBRARY_NO_STEPS_RE.search(reply or ""))
+    """True when the reply says the library has no steps. A 'do not say' warning does not count."""
+    text = reply or ""
+    for match in _LIBRARY_NO_STEPS_RE.finditer(text):
+        window = text[max(0, match.start() - 48):match.start()]
+        if _LIBRARY_MISS_NEG_RE.search(window):
+            continue
+        return True
+    return False
 
 
 def strip_library_no_steps(reply: str) -> str:
     if not reply or not claims_library_missing_steps(reply):
         return reply or ""
     kept = []
-    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
-        if part and not claims_library_missing_steps(part):
+    for part in _reply_sentences(reply):
+        if not claims_library_missing_steps(part):
             kept.append(part)
+    return " ".join(kept).strip()
+
+
+def library_miss_already_said(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if claims_library_missing_steps(message.get("content") or ""):
+            return True
+    return False
+
+
+def limit_library_miss_mentions(reply: str, history: list = None) -> str:
+    """Keep one library-coverage sentence on the first turn that says it, and none after that."""
+    if not reply or not claims_library_missing_steps(reply):
+        return reply or ""
+    if library_miss_already_said(history):
+        return strip_library_no_steps(reply)
+    kept = []
+    seen = False
+    for part in _reply_sentences(reply):
+        if claims_library_missing_steps(part):
+            if seen:
+                continue
+            seen = True
+        kept.append(part)
     return " ".join(kept).strip()
 
 
@@ -2780,6 +2841,64 @@ def reply_names_ground_control_calibration(reply: str) -> bool:
     manual = "manual level" in t
     zero = "zero-point" in t or "zero point" in t
     return bool(manual and zero)
+
+
+def reply_has_zero_point_steps(reply: str) -> bool:
+    """True when the reply gives the Electric Leveling button sequence, not only the opener."""
+    t = _norm(reply)
+    front = bool(re.search(r"\bfront\b.{0,48}\b(?:five|5)\b|\b(?:five|5)\b.{0,24}\bfront\b", t))
+    rear = bool(re.search(r"\brear\b.{0,48}\b(?:five|5)\b|\b(?:five|5)\b.{0,24}\brear\b", t))
+    enter = bool(re.search(r"\benter\b", t))
+    return bool(front and rear and enter)
+
+
+_GC_DRIFT_RE = re.compile(
+    r"\bharness\b|\bsensor swap\b|\blevel sensor\b|"
+    r"\b(?:replace|swap|swapping)\b.{0,24}\bsensor\b",
+    re.I,
+)
+_GC_DRIFT_NEG_RE = re.compile(r"\b(do not|don't|dont|never)\b", re.I)
+_ZP_REPEAT_RE = re.compile(
+    r"press and release|five times|manual level|turn the touch pad off|"
+    r"enter to set|zero point calibration|run the jacks|stability check|"
+    r"run manual level, then zero-point",
+    re.I,
+)
+
+
+def _gc_drift_sentence(part: str) -> bool:
+    if _GC_DRIFT_NEG_RE.search(part or ""):
+        return False
+    return bool(_GC_DRIFT_RE.search(part or ""))
+
+
+def _drop_gc_drift_sentences(reply: str) -> str:
+    kept = [part for part in _reply_sentences(reply) if not _gc_drift_sentence(part)]
+    return " ".join(kept).strip()
+
+
+def _history_has_zero_point_steps(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if reply_has_zero_point_steps(message.get("content") or ""):
+            return True
+    return False
+
+
+def _strip_repeated_zero_point(reply: str) -> str:
+    text = (reply or "").strip()
+    lead = GROUND_CONTROL_LEVEL_LINE.strip()
+    if text.startswith(lead):
+        text = text[len(lead):].strip()
+    kept = []
+    for part in _reply_sentences(text):
+        if _ZP_REPEAT_RE.search(part):
+            continue
+        if part.strip() == "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems (Ground Control TT/2.0/3.0)":
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
 
 
 def claims_library_missing_ground_control(reply: str) -> bool:
@@ -2795,16 +2914,19 @@ def claims_library_missing_ground_control(reply: str) -> bool:
     )
 
 
-def ensure_ground_control_level_path(reply: str) -> str:
-    """Manual level + zero-point calibration. Do not claim the library has no Ground Control docs."""
-    cleaned = strip_library_no_steps(reply or "")
-    if (
-        reply_names_ground_control_calibration(cleaned)
-        and not claims_library_missing_ground_control(cleaned)
-    ):
+def ensure_ground_control_level_path(reply: str, history: list = None) -> str:
+    """
+    Give the Electric Leveling zero-point sequence once.
+    A later turn does not get that opener again, and a harness or sensor swap does not replace it.
+    """
+    cleaned = _drop_gc_drift_sentences(strip_library_no_steps(reply or ""))
+    if _history_has_zero_point_steps(history):
+        cleaned = _strip_repeated_zero_point(cleaned)
+        if not cleaned:
+            return GROUND_CONTROL_STAY_LINE
         return cleaned
-    if cleaned and not claims_library_missing_ground_control(reply or ""):
-        return f"{GROUND_CONTROL_LEVEL_LINE}\n\n{cleaned}".strip()
+    if reply_has_zero_point_steps(cleaned) and not claims_library_missing_ground_control(cleaned):
+        return cleaned
     return GROUND_CONTROL_LEVEL_LINE
 
 
@@ -2833,9 +2955,18 @@ def dometic_bypass_facts(history: list = None, latest_msg: str = "") -> dict:
     return facts
 
 
-def ensure_dometic_ceiling_thermostat(reply: str, facts: dict | None = None) -> str:
+def _dometic_reply_has_bypass_path(reply: str) -> bool:
+    low = _norm(reply)
+    return bool("3311071" in (reply or "") and "peacemaker" in low and "selector" in low)
+
+
+def ensure_dometic_ceiling_thermostat(
+    reply: str,
+    facts: dict | None = None,
+    history: list = None,
+) -> str:
     """
-    Fan runs / no cold: stay on 3311071.
+    Turn 1 of fan-runs / no-cold is the 3311071 Peacemaker and ceiling-selector path.
     Both bypasses cooling means replace the ceiling thermostat/selector.
     """
     facts = facts or {}
@@ -2846,11 +2977,19 @@ def ensure_dometic_ceiling_thermostat(reply: str, facts: dict | None = None) -> 
     ):
         low = _norm(text)
         if "replace the ceiling thermostat" in low and "filter" not in low:
-            return text
+            return limit_library_miss_mentions(text, history)
         return DOMETIC_CEILING_LINE
-    if re.search(r"\bfilters?\b", text, re.I) and "3311071" not in text and "compressor" not in _norm(text):
-        return f"{DOMETIC_NOCOOL_STEER}\n\n{strip_library_no_steps(text)}".strip()
-    return text
+    if _dometic_reply_has_bypass_path(text) and not re.search(
+        r"\b(clean|replace|check) the filter\b", text, re.I
+    ):
+        return limit_library_miss_mentions(text, history)
+    if (
+        not text.strip()
+        or claims_library_missing_steps(text)
+        or re.search(r"\bfilters?\b", text, re.I)
+    ):
+        return DOMETIC_NOCOOL_OPEN
+    return limit_library_miss_mentions(text, history)
 
 
 def is_suburban_furnace_context(
@@ -2911,6 +3050,7 @@ def ensure_furnace_wall_thermostat(
     R/W jumper lights and runs, and the tech asks for the repair:
     replace the wall thermostat. If voltage is missing, check the wire run.
     """
+    reply = limit_library_miss_mentions(reply or "", history)
     blob = _blob(category_name, model_text, _chat_user_blob(history, latest_msg))
     if not is_suburban_furnace_context(category_name, model_text, blob):
         return reply
@@ -3966,23 +4106,19 @@ def reply_has_tip_pan_before_parts(reply: str) -> bool:
     return first_check < parts_at
 
 
-def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "") -> str:
+def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list = None) -> str:
     """
     Deterministic shop line so pan-on flame-out cannot skip tip geometry.
-    A low tip that the pan pushes gets that repair, without a library-miss line.
+    A low tip that the pan pushes gets that repair. A library-coverage sentence is said at most once.
     """
-    cleaned = strip_library_no_steps(reply or "")
+    limited = limit_library_miss_mentions(reply or "", history)
+    cleaned = strip_library_no_steps(limited)
     if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}"):
         low = _norm(cleaned)
-        if (
-            "reposition" in low
-            and "tip" in low
-            and ("pan" in low or "cookware" in low)
-            and not claims_library_missing_steps(cleaned)
-        ):
-            return cleaned
+        if "reposition" in low and "tip" in low and ("pan" in low or "cookware" in low):
+            return limited
         return COOKTOP_TIP_LOW_REPAIR
-    reply = cleaned
+    reply = limited
     if not reply or not cooktop_reply_needs_tip_pan(reply):
         return reply
     if reply_has_tip_pan_before_parts(reply):

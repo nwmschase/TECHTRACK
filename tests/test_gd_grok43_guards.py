@@ -5,9 +5,10 @@ from bay_procedure import bay_brand_retrieval, rank_bay_chunks
 from gd_library_coach import (
     COOKTOP_TIP_LOW_REPAIR,
     DOMETIC_CEILING_LINE,
-    DOMETIC_NOCOOL_STEER,
+    DOMETIC_NOCOOL_OPEN,
     FURNACE_WALL_TSTAT_LINE,
     GROUND_CONTROL_LEVEL_LINE,
+    GROUND_CONTROL_STAY_LINE,
     chunk_matches_asked_brand,
     cooktop_tip_sits_low,
     dometic_bypass_facts,
@@ -128,14 +129,37 @@ class TestGroundControlRetrieval(unittest.TestCase):
         low = fixed.lower()
         self.assertIn("manual level", low)
         self.assertIn("zero-point", low)
+        self.assertIn("front five", low)
+        self.assertIn("rear five", low)
+        self.assertIn("enter", low)
         self.assertIn("lippert internal tech support", low)
         self.assertIn("ground control", low)
         self.assertNotIn("library has no", low)
-        already = (
+        self.assertNotIn("swap a level sensor.", low)
+
+    def test_harness_swap_becomes_the_sequence_and_later_turns_do_not_repeat_it(self):
+        opener = (
             "Run manual level, then zero-point calibration. "
-            "Source is the Ground Control electric leveling book."
+            "Check the wiring harness and swap the level sensor."
         )
-        self.assertEqual(ensure_ground_control_level_path(already), already)
+        first = ensure_ground_control_level_path(opener)
+        self.assertEqual(first, GROUND_CONTROL_LEVEL_LINE)
+        self.assertNotIn("swap the level sensor", first.lower())
+        self.assertNotIn("check the wiring harness", first.lower())
+        self.assertIn("do not replace a harness", first.lower())
+        later = ensure_ground_control_level_path(
+            opener,
+            history=[{"role": "assistant", "content": first}],
+        )
+        self.assertEqual(later, GROUND_CONTROL_STAY_LINE)
+        self.assertNotIn("run manual level, then zero-point calibration", later.lower())
+        self.assertNotIn("front five", later.lower())
+        progress = ensure_ground_control_level_path(
+            "Zero point set successfully. Auto-level again and the driver side stays put.",
+            history=[{"role": "assistant", "content": first}],
+        )
+        self.assertIn("stays put", progress.lower())
+        self.assertNotIn("front five", progress.lower())
 
 
 class TestDometicNoCoolRetrieval(unittest.TestCase):
@@ -196,10 +220,20 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
         self.assertNotIn("filter", low)
         self.assertIn("3311071", fixed)
         steered = ensure_dometic_ceiling_thermostat(loop, {})
-        self.assertTrue(steered.startswith(DOMETIC_NOCOOL_STEER.split("\n")[0][:40]))
+        self.assertEqual(steered, DOMETIC_NOCOOL_OPEN)
         self.assertIn("3311071", steered)
-        self.assertIn("compressor", steered.lower())
-        self.assertIn("do not stop on the filter check", steered.lower())
+        self.assertIn("peacemaker", steered.lower())
+        self.assertIn("ceiling selector", steered.lower())
+        self.assertLess(steered.lower().index("peacemaker"), steered.lower().index("filter"))
+        self.assertNotIn("clean the filter", steered.lower())
+        self.assertNotIn("library has no", steered.lower())
+        opening = (
+            "The library has no no-cool steps for this Dometic. "
+            "Start with the filter check."
+        )
+        turn1 = ensure_dometic_ceiling_thermostat(opening, {})
+        self.assertEqual(turn1, DOMETIC_NOCOOL_OPEN)
+        self.assertNotIn("library has no", turn1.lower())
 
 
 class TestFurnaceWallThermostat(unittest.TestCase):
@@ -233,6 +267,37 @@ class TestFurnaceWallThermostat(unittest.TestCase):
             loop, history, "Still looking.", "Furnaces", "Suburban NT-20SEQT"
         )
         self.assertEqual(early, loop)
+
+    def test_library_cover_line_is_said_at_most_once(self):
+        cover = "The library does not cover this."
+        repair = (
+            "Replace the wall thermostat. If voltage is missing, check the wire run. "
+            + cover
+        )
+        history = [
+            {
+                "role": "user",
+                "content": (
+                    "Suburban NT-20SEQT furnace. Jumped R/W at the furnace. "
+                    "It lights and runs."
+                ),
+            }
+        ]
+        first = ensure_furnace_wall_thermostat(
+            repair, history, "What is the repair?", "Furnaces", "Suburban NT-20SEQT"
+        )
+        self.assertEqual(first.lower().count("does not cover"), 1)
+        self.assertIn("replace the wall thermostat", first.lower())
+        again = ensure_furnace_wall_thermostat(
+            repair,
+            history + [{"role": "assistant", "content": first}],
+            "What is the repair?",
+            "Furnaces",
+            "Suburban NT-20SEQT",
+        )
+        self.assertNotIn("does not cover", again.lower())
+        self.assertIn("replace the wall thermostat", again.lower())
+        self.assertIn("wire run", again.lower())
 
     def test_coleman_and_cooktop_are_not_this_furnace_commit(self):
         reply = "Check 12 VDC at the wall thermostat."
@@ -273,6 +338,27 @@ class TestCooktopTipLow(unittest.TestCase):
             "Reposition the thermocouple tip in the burner flame with the pan on."
         )
         self.assertEqual(ensure_cooktop_tip_pan_check(already, complaint), already)
+
+    def test_library_cover_line_is_said_at_most_once(self):
+        complaint = (
+            "Suburban SDN2U cooktop. Burner goes out with a pan on. "
+            "The thermocouple tip sits low and gets pushed."
+        )
+        reply = (
+            "Reposition the thermocouple tip in the burner flame with the pan on. "
+            "The library does not cover this. The library does not cover this."
+        )
+        first = ensure_cooktop_tip_pan_check(reply, complaint)
+        self.assertEqual(first.lower().count("does not cover"), 1)
+        self.assertIn("reposition", first.lower())
+        second = ensure_cooktop_tip_pan_check(
+            reply,
+            complaint,
+            history=[{"role": "assistant", "content": first}],
+        )
+        self.assertNotIn("does not cover", second.lower())
+        self.assertNotIn("library", second.lower())
+        self.assertIn("reposition", second.lower())
 
 
 if __name__ == "__main__":
