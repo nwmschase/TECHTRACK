@@ -465,7 +465,7 @@ class BayProcedure:
     def model_line(self) -> str:
         if (self.display_model or "").strip():
             return self.display_model.strip()
-        return join_brand_model(self.brand, self.model) or "—"
+        return join_brand_model(self.brand, self.model)
 
 
 # ---------------------------------------------------------------------------
@@ -1514,25 +1514,117 @@ def _collapse_repeated_phrases(text: str) -> str:
 
 
 def _drop_leading_ocr_stub(text: str) -> str:
-    """Drop a 1–3 letter scrap left when a column wrapped ('s Purge', 'e issue')."""
+    """Drop a lowercase 1–3 letter scrap left when a column wrapped ('s Purge')."""
     words = (text or "").split()
     while len(words) >= 2:
         head = words[0]
-        if re.fullmatch(r"[A-Za-z]{1,3}", head) and head.lower() not in _SHORT_WORD_KEEP:
+        if (
+            head[:1].islower()
+            and re.fullmatch(r"[A-Za-z]{1,3}", head)
+            and head.lower() not in _SHORT_WORD_KEEP
+        ):
             words.pop(0)
             continue
         break
     return " ".join(words)
 
 
-def clean_ocr_prose(text: str) -> str:
-    """Strip manual headers, footers, and duplicated OCR from a library excerpt."""
+_FUSED_OCR = (
+    (re.compile(r"gasfumes", re.I), "gas fumes"),
+    (re.compile(r"anexplosion", re.I), "an explosion"),
+    (re.compile(r"\bail connections\b", re.I), "all connections"),
+)
+_TRANSCRIPTION_RE = re.compile(
+    r"transcription for techtrack search(?:\s*\(ocr companion\))?",
+    re.I,
+)
+_PARTS_LIST_RE = re.compile(
+    r"replaceable parts list|refer to the replaceable parts",
+    re.I,
+)
+# A lone article is a word. A leftover glyph glued to the next token is an OCR split.
+_OCR_ARTICLE = {"a", "i"}
+
+
+def _rejoin_ocr_splits(text: str) -> str:
+    """Pull split tokens back together: 'termina ls', 'b lack'. Leave real short words."""
+    words = (text or "").split()
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if i + 1 < len(words):
+            nxt = words[i + 1]
+            core = re.sub(r"[^A-Za-z]", "", word)
+            ncore = re.sub(r"[^A-Za-z]", "", nxt)
+            trail = re.search(r"[^A-Za-z0-9]+$", nxt)
+            trail_s = trail.group(0) if trail else ""
+            lead = re.match(r"^[^A-Za-z0-9]+", word)
+            lead_s = lead.group(0) if lead else ""
+            if (
+                len(core) == 1
+                and core.lower() not in _OCR_ARTICLE
+                and 3 <= len(ncore) <= 6
+                and ncore.isalpha()
+                and nxt[:1].islower()
+            ):
+                out.append(f"{lead_s}{core}{ncore}{trail_s}")
+                i += 2
+                continue
+            if (
+                len(core) >= 4
+                and core.isalpha()
+                and 1 <= len(ncore) <= 2
+                and ncore.isalpha()
+                and ncore.lower() not in _SHORT_WORD_KEEP
+                and nxt[:1].islower()
+                and not word.endswith(".")
+            ):
+                out.append(f"{lead_s}{core}{ncore}{trail_s}")
+                i += 2
+                continue
+        out.append(word)
+        i += 1
+    return " ".join(out)
+
+
+def _dedupe_adjacent_sentences(text: str) -> str:
+    """Drop a sentence that repeats the one before it, or is only its tail."""
+    kept: list[str] = []
+    for sentence in _split_sentences(text):
+        if not kept:
+            kept.append(sentence)
+            continue
+        prev = kept[-1]
+        a = prev.lower().rstrip(".!? ")
+        b = sentence.lower().rstrip(".!? ")
+        if not b or b == a or b in a or a.endswith(b):
+            continue
+        if a in b or b.endswith(a):
+            kept[-1] = sentence
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _repair_ocr_text(text: str) -> str:
+    """Shared OCR repair for sheet steps and source snippets."""
     out = re.sub(r"\s+", " ", text or "").strip()
+    out = _TRANSCRIPTION_RE.sub(" ", out)
+    for pattern, repl in _FUSED_OCR:
+        out = pattern.sub(repl, out)
+    out = _rejoin_ocr_splits(out)
+    out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
     out = _OCR_HEADER_RE.sub(" ", out)
     out = _collapse_repeated_phrases(out)
     out = _drop_leading_ocr_stub(out)
     out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
-    return out
+    return _dedupe_adjacent_sentences(out)
+
+
+def clean_ocr_prose(text: str) -> str:
+    """Strip manual headers, footers, and duplicated OCR from a library excerpt."""
+    return _repair_ocr_text(text)
 
 
 def _is_header_residue(text: str) -> bool:
@@ -1722,14 +1814,23 @@ def _title_from_filename(name: str) -> str:
     return " ".join(_pretty_title_token(word, first=(i == 0)) for i, word in enumerate(words))
 
 
+def _strip_file_tokens(text: str) -> str:
+    """Drop a trailing or embedded '.pdf' so a cite is a title, not a filename."""
+    out = re.sub(r"\b[\w.-]+\.pdf\b", lambda m: m.group(0)[:-4], text or "", flags=re.I)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
 def human_source_title(title: str = "", file_path: str = "") -> str:
     """Use library metadata when it is already a title. Otherwise derive one from the filename."""
     raw = re.sub(r"\s+", " ", (title or "").strip())
+    raw = _TRANSCRIPTION_RE.sub(" ", raw)
+    raw = re.sub(r"\s{2,}", " ", raw).strip()
     path = (file_path or "").strip()
     if _is_raw_filename(raw):
         return _title_from_filename(raw)
     if raw:
-        raw = re.sub(r"\.(pdf|docx?|txt)$", "", raw, flags=re.I).strip()
+        raw = _strip_file_tokens(raw)
+        raw = re.sub(r"\.(docx?|txt)$", "", raw, flags=re.I).strip()
         return raw or "Shop library"
     if path:
         return _title_from_filename(path)
@@ -1770,12 +1871,42 @@ def _is_tiny_heading(text: str) -> bool:
     return len((text or "").strip()) < 20
 
 
+def _is_parts_list_dump(text: str) -> bool:
+    """A replaceable-parts table, not a single cited part number."""
+    if _PARTS_LIST_RE.search(text or ""):
+        return True
+    return len(re.findall(r"\b\d{5,}\b", text or "")) >= 4
+
+
+def source_is_discontinued(title: str = "", excerpt: str = "") -> bool:
+    """Lippert TI-005 and any library file stamped discontinued stay off the sheet."""
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    return "discontinued" in blob or bool(re.search(r"\bti-005\b", blob))
+
+
+def _is_install_manual(title: str = "", excerpt: str = "") -> bool:
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    if re.search(r"troubleshoot|service manual|\bdiagnostic\b", blob):
+        return False
+    return bool(
+        re.search(
+            r"\b(installation manual|install manual|installation instructions|"
+            r"owner'?s manual|installing the)\b",
+            blob,
+        )
+    )
+
+
+def _is_diagnostic_manual(title: str = "", excerpt: str = "") -> bool:
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    return bool(re.search(r"troubleshoot|service manual|\bdiagnostic\b", blob))
+
+
 def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
     """SOURCES snippet: whole sentences only, never a mid-word OCR scrap."""
-    out = re.sub(r"\s+", " ", text or "").strip()
-    out = _OCR_HEADER_RE.sub(" ", out)
-    out = _collapse_repeated_phrases(out)
-    out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
+    if _is_parts_list_dump(text or ""):
+        return ""
+    out = clean_ocr_prose(text)
     out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
     kept = []
     for sentence in _split_sentences(out):
@@ -1791,6 +1922,8 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         limit = 4 if locked else 2
         if len(kept) >= limit:
             break
+    if any(not _is_tiny_heading(sentence) for sentence in kept):
+        kept = [sentence for sentence in kept if not _is_tiny_heading(sentence)]
     if not kept:
         return ""
     cap = 400 if locked else 280
@@ -1851,14 +1984,20 @@ def polish_bay_sources(
     locked_count: int,
     topic_text: str,
     path_kind: str,
+    *,
+    prefer_diagnostic: bool = False,
 ) -> list[dict]:
     """Human titles, whole-sentence snippets, and only cites that belong on this sheet."""
     out = []
     seen = set()
+    locked_flags = []
     for index, src in enumerate(sources or []):
         locked = index < locked_count
+        raw_excerpt = src.get("excerpt") or ""
         title = human_source_title(src.get("title") or "", src.get("file_path") or "")
-        excerpt = clean_source_excerpt(src.get("excerpt") or "", locked=locked)
+        if source_is_discontinued(title, raw_excerpt) or source_is_discontinued(src.get("title") or "", raw_excerpt):
+            continue
+        excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
         if not locked and not excerpt:
             continue
         if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
@@ -1868,8 +2007,49 @@ def polish_bay_sources(
         if key in seen:
             continue
         seen.add(key)
-        out.append({"title": title, "page": page, "excerpt": excerpt})
+        locked_flags.append(locked)
+        out.append({"title": title, "page": page, "excerpt": excerpt, "_install": _is_install_manual(title, raw_excerpt)})
+    if prefer_diagnostic and any(_is_diagnostic_manual(s["title"], s["excerpt"]) for s in out):
+        kept = []
+        kept_locked = []
+        for src, locked in zip(out, locked_flags):
+            if src.get("_install") and not locked:
+                continue
+            kept.append(src)
+            kept_locked.append(locked)
+        out = kept
+    for src in out:
+        src.pop("_install", None)
     return out
+
+
+def _strip_ocr_bullet(text: str) -> str:
+    """Drop a leading '?', dash, or arrow left by a column read."""
+    return re.sub(r"^(?:(?:->|→|[\?\-\*•>\u2022])\s*)+", "", (text or "").strip()).strip()
+
+
+def _is_raw_ocr_step(text: str) -> bool:
+    """Page headers, '?' field labels, and NOTE dumps are not bay steps."""
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if not t:
+        return True
+    if t.startswith("?"):
+        return True
+    if "?" in t[:-1]:
+        return True
+    if re.match(r"^(?:note|warning|caution)\b", t, re.I) and not re.search(r"\bif\b", t, re.I):
+        return True
+    if re.match(r"^\d+\s*[.\-]\s*\d+", t):
+        return True
+    if re.search(r"\b\d+\s+EN\b", t):
+        return True
+    if re.search(r"cleaning the adb|duct size|duct layout", t, re.I):
+        return True
+    if _TRANSCRIPTION_RE.search(t):
+        return True
+    if _is_parts_list_dump(t):
+        return True
+    return False
 
 
 def _steps_from_ranked(pages) -> list[str]:
@@ -1877,9 +2057,13 @@ def _steps_from_ranked(pages) -> list[str]:
     pieces = []
     seen = set()
     for d in pages or []:
-        cleaned = clean_ocr_prose(chunk_as_dict(d).get("excerpt") or "")
+        row = chunk_as_dict(d)
+        if _is_install_manual(row.get("title") or "", row.get("excerpt") or ""):
+            continue
+        cleaned = clean_ocr_prose(row.get("excerpt") or "")
         for sentence in _split_sentences(cleaned):
-            if _is_header_residue(sentence):
+            sentence = _strip_ocr_bullet(sentence)
+            if _is_raw_ocr_step(sentence) or _is_header_residue(sentence):
                 continue
             if (
                 OPEN_THE_MANUAL_RE.search(sentence)
@@ -2196,10 +2380,18 @@ def _e2_fan_path(ranked) -> dict:
 
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
-    usable = [e for e in excerpts if e and len(e) >= 20][:MAX_BAY_ORDER]
+    usable = []
+    for raw in excerpts or []:
+        sentence = _strip_ocr_bullet(raw)
+        if _is_raw_ocr_step(sentence) or len(sentence) < 20:
+            continue
+        usable.append(sentence)
+        if len(usable) >= MAX_BAY_ORDER:
+            break
+    has_decision = any(_is_decision_sentence(s) for s in usable)
     for i, raw in enumerate(usable):
         step = _body_check_from_excerpt(raw)
-        if not step:
+        if not step or _is_raw_ocr_step(step):
             continue
         last = (i == len(usable) - 1) and not long_path
         cleaned.append(_ensure_next_step(step, last=last))
@@ -2211,7 +2403,8 @@ def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
                 last=not long_path,
             )
         )
-    if long_path:
+    # Scaffold only when the library actually gave a yes/no step. Otherwise keep the sheet short.
+    if long_path and has_decision:
         have = " ".join(cleaned).lower()
         for scaffold in GENERIC_LONG_SCAFFOLD:
             if len(cleaned) >= 6:
@@ -2238,13 +2431,22 @@ def _generic_pattern_means(concern: str, *, long_path: bool) -> str:
     )
 
 
+def _opening_sentence(concern: str) -> str:
+    """First whole sentence of the concern. The oval grows to fit; do not clip it."""
+    text = re.sub(r"\s+", " ", (concern or "Customer concern").strip())
+    parts = _split_sentences(text) or [text]
+    return _as_sentence(parts[0])
+
+
 def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchart:
     """OEM yes/no spine for any new concern — not a linear bot list."""
-    start = _as_sentence(_clip(concern or "Customer concern", 88))
+    start = _opening_sentence(concern or "Customer concern")
     raw_first = (steps[0] if steps else "") or "Do the first cited check."
-    first = _clip(clean_ocr_prose(raw_first.split(". ")[0]), 70)
-    if first and first[-1] not in ".!?":
-        first += "."
+    first = _strip_ocr_bullet(clean_ocr_prose(raw_first))
+    first = (_split_sentences(first) or [first])[0]
+    if _is_raw_ocr_step(first):
+        first = "Do the first cited check."
+    first = _as_sentence(first)
     return Flowchart(
         readable=True,
         nodes=[
@@ -2605,6 +2807,92 @@ def load_oem_figure_png(name: str) -> bytes:
     return (OEM_FIGURE_DIR / name).read_bytes()
 
 
+# Full manual pages are not figures. These boxes are the cited drawing on that page.
+_OEM_FIGURE_CROP = {
+    "ccd7990-p7.png": (48, 1088, 1056, 1368),
+    "ccd8666-p10.png": (28, 520, 728, 824),
+}
+MAX_SHEET_PAGES = 3
+MAX_FIGURES_PER_SHEET = 2
+FACT12_MISLABEL_CITE = "Indexed file is the FACR08 8K book, not the FACT12 model manual."
+
+
+def _cropped_oem_png(name: str) -> bytes:
+    raw = load_oem_figure_png(name)
+    box = _OEM_FIGURE_CROP.get(name)
+    if not box:
+        return raw
+    from PIL import Image
+
+    image = Image.open(BytesIO(raw)).convert("RGB")
+    return _png_bytes(image.crop(box))
+
+
+def crop_page_png_to_figure(png: bytes) -> bytes:
+    """Crop a rendered manual page down to a figure. Empty means keep the full page off the sheet."""
+    if not png:
+        return b""
+    try:
+        from PIL import Image
+    except Exception:
+        return b""
+    image = Image.open(BytesIO(png)).convert("RGB")
+    width, height = image.size
+    if max(width, height) < 900 or height < width * 1.15:
+        return png
+    box = _figure_band_box(image)
+    if not box:
+        return b""
+    x0, y0, x1, y1 = box
+    if (y1 - y0) > height * 0.72 and (x1 - x0) > width * 0.72:
+        return b""
+    return _png_bytes(image.crop((x0, y0, x1, y1)))
+
+
+def _figure_band_box(image) -> tuple[int, int, int, int] | None:
+    """A whitespace-separated band that is a figure, not the whole manual page."""
+    gray = image.convert("L")
+    width, height = gray.size
+    px = gray.load()
+    row = []
+    for y in range(height):
+        ink = 0
+        total = 0
+        for x in range(0, width, 3):
+            total += 1
+            if px[x, y] < 170:
+                ink += 1
+        row.append(ink / total if total else 0)
+    spans = []
+    y = 0
+    while y < height:
+        if row[y] < 0.02:
+            y += 1
+            continue
+        start = y
+        while y < height and row[y] >= 0.02:
+            y += 1
+        if spans and start - spans[-1][1] < 18:
+            spans[-1][1] = y
+        else:
+            spans.append([start, y])
+    best = None
+    best_score = 0.0
+    for start, end in spans:
+        band_h = end - start
+        if band_h < height * 0.12 or band_h > height * 0.62:
+            continue
+        seg = row[start:end]
+        avg = sum(seg) / len(seg)
+        var = sum((v - avg) ** 2 for v in seg) / len(seg)
+        score = var * 8.0 + min(band_h / height, 0.4)
+        if score > best_score:
+            best_score = score
+            pad = 12
+            best = (8, max(0, start - pad), width - 8, min(height, end + pad))
+    return best
+
+
 def _oem_library_figures(kind: str) -> list[BayFigure]:
     if kind == "ice":
         return [
@@ -2615,39 +2903,43 @@ def _oem_library_figures(kind: str) -> list[BayFigure]:
                 excerpt="Ice and Moisture. Figure 36 shows the rear-wall frost pattern.",
                 image_png=load_oem_figure_png("ccd8122-fig36.png"),
             ),
-            BayFigure(
-                title=FURRION_8122_TITLE,
-                page=36,
-                caption="CCD-0008122 page 36 Ice and Moisture",
-                excerpt="Ice and Moisture. Ice or Moisture in the Fridge. Figure 36.",
-                image_png=load_oem_figure_png("ccd8122-p36.png"),
-            ),
         ]
     if kind == "facr":
         return [
             BayFigure(
                 title=FACR_7990_TITLE,
                 page=7,
-                caption="CCD-0007990 page 7. Water enters the vehicle. Clean the drainage openings.",
+                caption="CCD-0007990 page 7. Clean the drainage openings.",
                 excerpt="Water enters the vehicle. Condensation water drainage openings are clogged.",
-                image_png=load_oem_figure_png("ccd7990-p7.png"),
+                image_png=_cropped_oem_png("ccd7990-p7.png"),
             ),
             BayFigure(
                 title=FACR_8666_TITLE,
                 page=10,
                 caption="CCD-0008666 page 10. Rooftop unit base and roof opening.",
-                excerpt="Installing the rooftop unit. Check gasket alignment at the roof opening.",
-                image_png=load_oem_figure_png("ccd8666-p10.png"),
-            ),
-            BayFigure(
-                title=FACR_7990_TITLE,
-                page=4,
-                caption="CCD-0007990 page 4. Assembly, decoration plate, and filters.",
-                excerpt="Cleaning and Maintenance. Remove the decoration plate and the filters.",
-                image_png=load_oem_figure_png("ccd7990-p4.png"),
+                excerpt="Check gasket alignment at the roof opening.",
+                image_png=_cropped_oem_png("ccd8666-p10.png"),
             ),
         ]
     return []
+
+
+_GENERIC_SEED_PNG = b""
+
+
+def _generic_seed_png() -> bytes:
+    global _GENERIC_SEED_PNG
+    if not _GENERIC_SEED_PNG:
+        _GENERIC_SEED_PNG = _seed_figure_png("generic")
+    return _GENERIC_SEED_PNG
+
+
+def figure_is_placeholder(fig: BayFigure) -> bool:
+    """The drawn 'Cited library figure' card is not a manual figure."""
+    if "cited library figure" in (fig.caption or "").lower():
+        return True
+    png = fig.image_png or b""
+    return bool(png) and png == _generic_seed_png()
 
 
 def _seed_path_figure(kind: str) -> BayFigure:
@@ -3013,6 +3305,7 @@ def compile_bay_procedure(
     model_text = model_text_from(brand, model)
     _, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
     ranked = rank_bay_chunks(chunks, category, model_text, concern, limit=8)
+    ranked, fact12_mislabeled_only = _separate_mislabeled_fact12(ranked, model_text)
 
     dial_off = is_fcr_dial_off_compressor_run_context(category, model_text, concern)
     ice = is_fridge_ice_moisture_context(category, model_text, concern)
@@ -3053,9 +3346,12 @@ def compile_bay_procedure(
         path_kind = "brand_miss"
     else:
         long_path = is_long_appliance_path(category, concern)
-        bay_order = _generic_bay_order(_steps_from_ranked(ranked), long_path=long_path)
+        step_pages = [] if fact12_mislabeled_only else list(ranked)
+        bay_order = _generic_bay_order(_steps_from_ranked(step_pages), long_path=long_path)
         spec = {
-            "primary_cite": _generic_primary_cite(ranked),
+            "primary_cite": (
+                FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
+            ),
             "pattern_means": _generic_pattern_means(concern, long_path=long_path),
             "flowchart": _generic_flowchart(concern or "Customer concern", bay_order),
             "bay_order": bay_order,
@@ -3085,7 +3381,23 @@ def compile_bay_procedure(
         if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
             sources.insert(0, spec["sources"][0])
             locked_count += 1
-    sources = polish_bay_sources(sources, locked_count, _procedure_topic(spec), path_kind)
+    sources = polish_bay_sources(
+        sources,
+        locked_count,
+        _procedure_topic(spec),
+        path_kind,
+        prefer_diagnostic=_is_fault_complaint(concern),
+    )
+    if fact12_mislabeled_only and not path_kind:
+        page = _page_int(ranked[0].get("page")) if ranked else None
+        sources = [
+            {
+                "title": "Indexed library file is FACR08 8K content, not the FACT12 model manual",
+                "page": page,
+                "excerpt": "This indexed file is the FACR08 8K book.",
+            }
+        ]
+        spec["primary_cite"] = FACT12_MISLABEL_CITE
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -3137,6 +3449,16 @@ def compile_bay_procedure(
                 figs[0].caption = figs[0].caption or seed.caption
             else:
                 figs = [seed]
+    figs = [
+        fig
+        for fig in figs
+        if not source_is_discontinued(fig.title or "", f"{fig.caption or ''} {fig.excerpt or ''}")
+    ]
+    if fact12_mislabeled_only and not path_kind:
+        seed = _seed_path_figure("generic")
+        seed.caption = FACT12_MISLABEL_CITE
+        seed.title = "Shop Document Library"
+        figs = [seed]
 
     display_model = spec.get("display_model") or ""
     if firefly:
@@ -3179,6 +3501,44 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     return apply_shop_channel_wording(proc)
+
+
+def _is_fact12_job(model_text: str) -> bool:
+    text = model_text or ""
+    if re.search(r"facr", text, re.I):
+        return False
+    return bool(re.search(r"fact\s*12", text, re.I))
+
+
+def _chunk_is_facr08_content(row: dict) -> bool:
+    """CCD-0008666 titled FACT12SA2-PS is the FACR08 8K book when the body says so."""
+    blob = f"{row.get('title') or ''} {row.get('excerpt') or ''}"
+    return bool(re.search(r"facr0?8|hesa2", blob, re.I))
+
+
+def _is_fault_complaint(concern: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(not cooling|no cool|won'?t|will not|dead|fault|error|lockout|leak|"
+            r"ice|frost|freeze|no heat|shows?\s+e\d|\be\d\b|flameout|overcool)\b",
+            concern or "",
+            re.I,
+        )
+    )
+
+
+def _separate_mislabeled_fact12(pages, model_text: str):
+    """Drop a FACT12-titled FACR08 file when a real FACT12 chunk is also retrieved."""
+    if not _is_fact12_job(model_text):
+        return list(pages or []), False
+    rows = list(pages or [])
+    good = [row for row in rows if not _chunk_is_facr08_content(row)]
+    bad = [row for row in rows if _chunk_is_facr08_content(row)]
+    if good and bad:
+        return good, False
+    if bad and not good:
+        return rows, True
+    return rows, False
 
 
 def _generic_primary_cite(ranked) -> str:
@@ -4174,13 +4534,15 @@ def _bar_metrics(title: str, width: float) -> TextMeasure:
     return measure_text(title, width - 16.0, 8.5, bold=True, leading=11.0)
 
 
-def _add_section(cur: _SheetFlow, title: str, fill, follow_h: float) -> None:
+def _add_section(cur: _SheetFlow, title: str, fill, follow_h: float, *, allow_break: bool = True) -> bool:
     """Draw a section bar. Move to a new page when the bar and its first line would not fit."""
     width = _CONTENT_W
     block = _bar_metrics(title, width)
     bar_h = max(16.0, block.height + 6.0)
     need = bar_h + 6.0 + min(max(follow_h, 12.0), 36.0)
     if cur.remaining() < need:
+        if not allow_break:
+            return False
         cur.new_page(cur.subtitle)
     top = cur.y
     bottom = top - bar_h
@@ -4196,6 +4558,7 @@ def _add_section(cur: _SheetFlow, title: str, fill, follow_h: float) -> None:
         )
     )
     cur.y = bottom - 6.0
+    return True
 
 
 def _paint_measured(cur: _SheetFlow, block: TextMeasure, *, x: float, size: float, bold: bool, color, role: str, owner: str, gap_after: float):
@@ -4227,9 +4590,21 @@ def _chunk_lines(block: TextMeasure, lines: list[str]) -> TextMeasure:
     return TextMeasure(lines, width, height, block.ascent, block.descent, block.leading, block.size, block.font)
 
 
-def _emit_block(cur: _SheetFlow, block: TextMeasure, *, x: float, size: float, bold: bool, color, role: str = "body", owner: str = "", gap_after: float = 4.0, on_break=None):
+def _emit_block(cur: _SheetFlow, block: TextMeasure, *, x: float, size: float, bold: bool, color, role: str = "body", owner: str = "", gap_after: float = 4.0, on_break=None, allow_break: bool = True):
     """Paint a measured block. Split across pages on line boundaries. `on_break` redraws a section bar."""
     if not block.lines:
+        return
+    if not allow_break and block.height + gap_after > cur.remaining():
+        take = 0
+        while take < len(block.lines):
+            nxt = _chunk_lines(block, block.lines[: take + 1])
+            if nxt.height + gap_after <= cur.remaining():
+                take += 1
+            else:
+                break
+        if take:
+            piece = _chunk_lines(block, block.lines[:take])
+            _paint_measured(cur, piece, x=x, size=size, bold=bold, color=color, role=role, owner=owner, gap_after=gap_after)
         return
     idx = 0
     first = True
@@ -4364,13 +4739,29 @@ def _add_step(cur: _SheetFlow, index: int, step: str):
         first = False
 
 
-def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None):
+def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None, allow_break: bool = True):
     block = measure_text(text, width or (_CONTENT_W - 16.0), size, leading=size + 2.6)
     _emit_block(
         cur, block,
         x=MARGIN + 8 if x is None else x,
         size=size, bold=False, color=color, gap_after=gap, on_break=on_break,
+        allow_break=allow_break,
     )
+
+
+def _measure_one_line(text: str, max_width: float, size: float, *, bold: bool, min_size: float = 5.5) -> TextMeasure:
+    """Shrink until the whole string is one line. A blank value draws nothing."""
+    text = (text or "").strip()
+    if not text:
+        return measure_text("", max_width, size, bold=bold, leading=size + 2.2)
+    current = size
+    font = _font_name(bold)
+    safe = _latin1_safe(text)
+    while current >= min_size:
+        if _string_width(safe, font, current) <= max_width + 0.2:
+            return measure_text(text, max_width, current, bold=bold, leading=current + 2.2)
+        current -= 0.25
+    return measure_text(text, max_width, min_size, bold=bold, leading=min_size + 2.2)
 
 
 def _paint_identity_header(page: SheetPage, proc: BayProcedure, banner_bottom: float) -> float:
@@ -4388,9 +4779,7 @@ def _paint_identity_header(page: SheetPage, proc: BayProcedure, banner_bottom: f
     cluster = labels["DATE"].width + 3 + date_m.width + 10 + labels["WO#"].width + 3 + wo_m.width
     value_x = left + pad_x + 64.0
     model_w = max(70.0, right - value_x - cluster - 8.0)
-    model_m = measure_text(proc.model_line or "-", model_w, value_size, bold=True, leading=11.2)
-    if len(model_m.lines) > 1:
-        model_m = measure_text(model_m.lines[0], model_w, value_size, bold=True, leading=11.2)
+    model_m = _measure_one_line(proc.model_line, model_w, value_size, bold=True)
     concern_m = measure_text(proc.concern or "-", right - value_x, value_size, bold=True, leading=11.4)
     primary_m = measure_text(proc.primary_cite or "-", right - value_x, value_size, bold=True, leading=11.4)
     model_row_h = max(model_m.height, date_m.height, wo_m.height, labels["MODEL"].height)
@@ -4440,7 +4829,7 @@ def _paint_identity_header(page: SheetPage, proc: BayProcedure, banner_bottom: f
     return header_bottom
 
 
-def _paint_figure_page(pages: list, fig: BayFigure, *, with_footer: bool):
+def _paint_figure_page(pages: list, fig: BayFigure, *, png: bytes, with_footer: bool):
     cur = _SheetFlow(pages, "Cited library figures")
     cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
     cap_m = measure_text(cap, _CONTENT_W - 16, 9, bold=True, leading=12)
@@ -4449,10 +4838,88 @@ def _paint_figure_page(pages: list, fig: BayFigure, *, with_footer: bool):
     cur.y -= 4
     img_h = cur.y - cur.floor
     img_w = _CONTENT_W - 32
-    if img_h >= 80 and fig.image_png:
-        cur.page.images.append(DrawnImage(fig.image_png, MARGIN + 16, cur.floor, img_w, img_h))
+    if img_h >= 80 and png:
+        cur.page.images.append(DrawnImage(png, MARGIN + 16, cur.floor, img_w, img_h))
     if with_footer:
         _add_3c_footer(cur.page)
+
+
+def _source_row_height(title: str, excerpt: str) -> float:
+    height = measure_text(title, _CONTENT_W - 16, 8.5, leading=11.1).height + 2.0
+    if excerpt:
+        height += measure_text(excerpt, _CONTENT_W - 28, 8, leading=10.6).height + 6.0
+    return height
+
+
+def _one_excerpt(text: str) -> str:
+    parts = _split_sentences(clean_ocr_prose(text or ""))
+    return parts[0] if parts else ""
+
+
+def _source_rows(sources: list[dict], *, mode: str) -> list[tuple[str, str]]:
+    rows = []
+    for source in sources:
+        bit = f"  page {source['page']}" if source.get("page") else ""
+        title = f"- {source.get('title') or 'Manual'}{bit}"
+        excerpt = (source.get("excerpt") or "").strip()
+        if mode == "one":
+            excerpt = _one_excerpt(excerpt)
+        elif mode == "none":
+            excerpt = ""
+        rows.append((title, excerpt))
+    return rows
+
+
+def _sources_that_fit(remaining: float, sources: list[dict]) -> list[tuple[str, str]] | None:
+    """Pack cites into the space left on this page. A short tail must not open a new page."""
+    bar = 72.0
+    variants: list[list[tuple[str, str]]] = []
+    variants.append(_source_rows(sources, mode="full"))
+    variants.append(_source_rows(sources, mode="one"))
+    variants.append(_source_rows(sources[:4], mode="one"))
+    variants.append(_source_rows(sources[:4], mode="none"))
+    variants.append(_source_rows(sources[:1], mode="none"))
+    for rows in variants:
+        if not rows:
+            continue
+        need = bar + sum(_source_row_height(title, excerpt) for title, excerpt in rows)
+        if need <= remaining:
+            return rows
+    return None
+
+
+def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_break: bool) -> None:
+    if not rows:
+        return
+    first_h = measure_text(rows[0][0], _CONTENT_W - 16, 8.5, leading=11.1).height
+    if not _add_section(
+        body,
+        "SOURCES (SHOP DOCUMENT LIBRARY)",
+        NAVY,
+        follow_h=min(first_h, 36),
+        allow_break=allow_break,
+    ):
+        return
+
+    def paint_row(title: str, excerpt: str):
+        _add_plain_item(body, title, size=8.5, gap=2.0, on_break=None, allow_break=allow_break)
+        if excerpt:
+            _add_plain_item(
+                body, excerpt, size=8, color=MUTED,
+                width=_CONTENT_W - 28, x=MARGIN + 18, gap=6.0, on_break=None,
+                allow_break=allow_break,
+            )
+
+    for index, (title, excerpt) in enumerate(rows):
+        need = _source_row_height(title, excerpt)
+        if need > body.remaining():
+            tail = sum(_source_row_height(t, e) for t, e in rows[index:])
+            if not allow_break or tail < 170.0:
+                return
+            body.new_page("Sources  ·  Tacoma RV Center")
+            if not _add_section(body, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=20, allow_break=True):
+                return
+        paint_row(title, excerpt)
 
 
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
@@ -4512,31 +4979,30 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         for item in proc.do_not:
             _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
     sources = list(proc.sources) or [{"title": "(no indexed excerpt retrieved this pass)", "page": None, "excerpt": ""}]
-    first_src = sources[0]
-    page_bit = f"  page {first_src['page']}" if first_src.get("page") else ""
-    first_line = measure_text(f"- {first_src.get('title') or 'Manual'}{page_bit}", _CONTENT_W - 16, 8.5, leading=11.1)
-    if body.remaining() < 16 + 12 + min(first_line.height, 24):
-        body.new_page("Sources  ·  Tacoma RV Center")
-    _add_section(body, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=min(first_line.height, 36))
+    fitted = _sources_that_fit(body.remaining(), sources)
+    if fitted is not None:
+        _paint_source_rows(body, fitted, allow_break=False)
+    else:
+        _paint_source_rows(body, _source_rows(sources, mode="one"), allow_break=True)
 
-    def _src_break(flow: _SheetFlow):
-        flow.new_page("Sources  ·  Tacoma RV Center")
-        _add_section(flow, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=20)
-
-    for source in sources:
-        bit = f"  page {source['page']}" if source.get("page") else ""
-        _add_plain_item(body, f"- {source.get('title') or 'Manual'}{bit}", size=8.5, gap=2.0, on_break=_src_break)
-        excerpt = (source.get("excerpt") or "").strip()
-        if excerpt:
-            _add_plain_item(
-                body, excerpt, size=8, color=MUTED,
-                width=_CONTENT_W - 28, x=MARGIN + 18, gap=6.0, on_break=_src_break,
+    imaged = []
+    for fig in proc.figures:
+        if not fig.image_png or figure_is_placeholder(fig):
+            continue
+        png = crop_page_png_to_figure(fig.image_png)
+        if not png:
+            continue
+        imaged.append((fig, png))
+    room = max(0, MAX_SHEET_PAGES - len(pages))
+    show = imaged[: min(MAX_FIGURES_PER_SHEET, room)]
+    if show:
+        for i, (fig, png) in enumerate(show):
+            _paint_figure_page(
+                pages,
+                fig,
+                png=png,
+                with_footer=bool(proc.include_3c and i == len(show) - 1),
             )
-
-    imaged = [fig for fig in proc.figures if fig.image_png]
-    if imaged:
-        for i, fig in enumerate(imaged[:3]):
-            _paint_figure_page(pages, fig, with_footer=bool(proc.include_3c and i == min(len(imaged), 3) - 1))
     elif proc.include_3c:
         _add_3c_footer(body.page)
     return pages

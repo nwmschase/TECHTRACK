@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.1
+RV TechTrack v4.19.2
+- v4.19.2: Bay sheets stay within 3 pages. Figures are the cited crop (1-2 per sheet), not a full manual page or a blank "Cited library figure" page. Generic steps are whole sentences, snippets drop OCR splits and parts-list dumps, the model line keeps the typed string, and a FACT12 file that is actually the FACR08 8K book is not cited as the FACT12 manual
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
 - Certificate Hub
@@ -93,7 +94,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.1``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.2``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -367,7 +368,9 @@ xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
+    MAX_FIGURES_PER_SHEET,
     compile_bay_procedure,
+    crop_page_png_to_figure,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
     suggested_pdf_filename,
@@ -5231,7 +5234,7 @@ def _attach_bay_figure_images(proc):
     """Best-effort shop-library page images for cited figures (R2 + pymupdf)."""
     if not r2_available() or not PYMUPDF_AVAILABLE:
         return proc
-    for fig in proc.figures[:3]:
+    for fig in proc.figures[:MAX_FIGURES_PER_SHEET]:
         if fig.image_png:
             continue
         title = (fig.title or "").strip()
@@ -5253,8 +5256,9 @@ def _attach_bay_figure_images(proc):
         if not data:
             continue
         png = render_pdf_page_png(data, int(page), zoom=1.2)
-        if png:
-            fig.image_png = png
+        cropped = crop_page_png_to_figure(png) if png else b""
+        if cropped:
+            fig.image_png = cropped
     return proc
 
 
