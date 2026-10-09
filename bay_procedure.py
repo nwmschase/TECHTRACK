@@ -77,6 +77,7 @@ from gd_library_coach import (
     level_up_search_symptom,
     page_has_figure_or_terminal_layout,
     lock_spark_free_part_g,
+    rewrite_shop_channel_words,
     rank_chunks_for_ac,
     rank_chunks_for_bal_tongue,
     rank_chunks_for_cooktop_pan_on,
@@ -910,15 +911,15 @@ def _facr_path() -> dict:
 
 
 def _bal_tongue_path() -> dict:
-    """Tongue jack only dead. Panel tongue channel, then pigtail. Not coupler-first."""
+    """Tongue jack only dead. Panel output wire, then pigtail. Not coupler-first."""
     return {
         "primary_cite": (
-            "BAL Soft-Touch SS 5.1 tongue jack. Prove the panel tongue channel, then the tongue pigtail."
+            "BAL Soft-Touch SS 5.1 tongue jack. Check the tongue jack output wire at the panel, then the tongue pigtail."
         ),
         "pattern_means": (
             "The electric tongue jack is the only jack that is dead. The other stabilizers "
             "still extend and retract, and the soft-touch panel lights still work. That is "
-            "a soft-touch panel tongue-channel prove, then the local tongue pigtail. It is "
+            "a check for 12V on the tongue jack output wire at the panel, then the local tongue pigtail. It is "
             "not a coupler, shear-pin, 30A fuse, or remote stabilizer harness job when the "
             "motor runs on direct 12V and the coupler is engaged."
         ),
@@ -937,7 +938,7 @@ def _bal_tongue_path() -> dict:
                 FlowNode(
                     "d_v",
                     "decision",
-                    "12V at the soft-touch\npanel tongue channel?",
+                    "12V on the tongue jack\noutput wire at the panel?",
                     0.30,
                     0.34,
                     w=220,
@@ -973,7 +974,7 @@ def _bal_tongue_path() -> dict:
                 FlowNode(
                     "e_ok",
                     "end",
-                    "Channel and pigtail passed.\nRetest the tongue jack.",
+                    "Output wire and pigtail passed.\nRetest the tongue jack.",
                     0.30,
                     0.90,
                     w=220,
@@ -992,15 +993,15 @@ def _bal_tongue_path() -> dict:
             (
                 "Confirm the electric tongue jack is the only jack that is dead. The other "
                 "stabilizers still extend and retract, and the soft-touch panel lights still "
-                "work. Go to the tongue-channel voltage prove."
+                "work. Go to the tongue output-wire voltage check."
             ),
             (
-                "Command tongue extend or retract and prove 12V at the soft-touch panel tongue "
-                "channel. If that channel has no 12V while the stabilizer channels and the lights "
+                "Press tongue extend/retract and check for 12V on the tongue jack output wire "
+                "at the panel. If that wire has no 12V while the other stabilizer circuits and the lights "
                 "still work, replace the soft-touch user panel 20300427. That is the confirmed correction."
             ),
             (
-                "If the tongue channel has 12V, check the local tongue pigtail and the panel-to-motor "
+                "If the tongue jack output wire has 12V, check the local tongue pigtail and the panel-to-motor "
                 "leads. If voltage stops in that pigtail, repair the pigtail and retest the tongue jack. "
                 "That is the confirmed correction after the panel voltage prove."
             ),
@@ -1019,8 +1020,8 @@ def _bal_tongue_path() -> dict:
                 "title": "BAL SS 5.1 Stabilizing System INS.STA.001",
                 "page": None,
                 "excerpt": (
-                    "Tongue jack only dead, stabilizers and panel lights working: prove 12V at the "
-                    "soft-touch panel tongue channel. No voltage there means soft-touch user panel "
+                    "Tongue jack only dead, stabilizers and panel lights working: check for 12V on the "
+                    "tongue jack output wire at the panel. No voltage there means soft-touch user panel "
                     "20300427. Voltage present means repair the local tongue pigtail."
                 ),
             },
@@ -2663,9 +2664,9 @@ def _seed_path_figure(kind: str) -> BayFigure:
         return BayFigure(
             title="BAL SS 5.1 Stabilizing System INS.STA.001",
             page=None,
-            caption="Soft-touch panel tongue channel and tongue pigtail",
+            caption="Soft-touch panel tongue jack output wire and tongue pigtail",
             excerpt=(
-                "Prove 12V at the soft-touch panel tongue channel. "
+                "Check for 12V on the tongue jack output wire at the panel. "
                 "No 12V means user panel 20300427. Voltage present means repair the pigtail."
             ),
             image_png=_seed_figure_png("generic"),
@@ -2857,8 +2858,8 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     if is_bal_soft_touch_tongue_only_context(category_name, model_text, concern):
         notes.append(
             "Tongue jack only dead, with the other stabilizers and panel lights working: "
-            "prove 12V at the soft-touch panel tongue channel, then the tongue pigtail. "
-            "No 12V on that channel means soft-touch user panel 20300427."
+            "check for 12V on the tongue jack output wire at the panel, then the tongue pigtail. "
+            "No 12V on that wire means soft-touch user panel 20300427."
         )
     if is_level_up_advantage_context(category_name, model_text, concern) and not is_firefly_can_path_context(
         category_name, model_text, concern
@@ -2935,6 +2936,35 @@ def _lock_dial_off_part_numbers(proc: "BayProcedure") -> "BayProcedure":
             "Replace the Spark-Free Thermostat part G 2021128850 when the compressor "
             "stops with C (blue) and T (black) open and no jumper."
         )
+    return proc
+
+
+def apply_shop_channel_wording(proc: "BayProcedure") -> "BayProcedure":
+    """Final shop-language pass on tech-facing sheet fields. Idempotent.
+
+    Manual titles stay as cites. Excerpt text is rewritten unless it is a
+    marked source quote.
+    """
+    proc.concern = rewrite_shop_channel_words(proc.concern)
+    proc.pattern_means = rewrite_shop_channel_words(proc.pattern_means)
+    proc.primary_cite = rewrite_shop_channel_words(proc.primary_cite)
+    proc.display_model = rewrite_shop_channel_words(proc.display_model)
+    proc.bay_order = [rewrite_shop_channel_words(step) for step in proc.bay_order]
+    proc.do_not = [rewrite_shop_channel_words(item) for item in proc.do_not]
+    proc.notes = [rewrite_shop_channel_words(note) for note in proc.notes]
+    for node in proc.flowchart.nodes:
+        node.text = rewrite_shop_channel_words(node.text)
+    for edge in proc.flowchart.edges:
+        if edge.label:
+            edge.label = rewrite_shop_channel_words(edge.label)
+    for check in proc.checks:
+        check.text = rewrite_shop_channel_words(check.text)
+    for fig in proc.figures:
+        fig.caption = rewrite_shop_channel_words(fig.caption or "")
+        fig.excerpt = rewrite_shop_channel_words(fig.excerpt or "")
+    for src in proc.sources:
+        if src.get("excerpt"):
+            src["excerpt"] = rewrite_shop_channel_words(src.get("excerpt") or "")
     return proc
 
 
@@ -3130,7 +3160,7 @@ def compile_bay_procedure(
     proc = apply_sheet_standard(proc)
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
-    return proc
+    return apply_shop_channel_wording(proc)
 
 
 def _generic_primary_cite(ranked) -> str:
@@ -3732,7 +3762,7 @@ def _simplify_ortho(pts):
 
 
 def _route_gutter(x1, y1, x2, y2, from_side, to_side, boxes, frame):
-    """Orthogonal path in the channels around node boxes, when a direct elbow cuts one."""
+    """Orthogonal path in the gutters around node boxes, when a direct elbow cuts one."""
     import heapq
 
     if not frame:
@@ -4591,6 +4621,7 @@ def render_bay_procedure_pdf(proc: BayProcedure, trace: list | None = None) -> b
     Pass a list as ``trace`` to record each drawn shape and text line. The
     reportlab path fills that list; it is what the layout test checks.
     """
+    apply_shop_channel_wording(proc)
     pages = compose_sheet(proc)
     for renderer in (_render_pdf_reportlab, _render_pdf_fpdf2, _render_pdf_raw_shapes):
         try:

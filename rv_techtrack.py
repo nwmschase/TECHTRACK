@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.18.3
+RV TechTrack v4.18.4
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
 - Certificate Hub
@@ -61,6 +61,7 @@ RV TechTrack v4.18.3
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.18.4: Guided Diagnostics replies and Bay PDF sheets use shop words (output wire, check the wire, check the circuit). A final pass rewrites engineering jargon in guard text, flowchart labels, bay-order steps, and sheet excerpts. Marked OEM source quotes stay verbatim
 - v4.18.3: Bay PDF SOURCES use a human document title, keep only cites that belong to the procedure, and quote whole sentences. Raw filenames, flat-rate lines for a different assembly, and mid-word OCR scraps stay off the sheet
 - v4.18.2: Generic bay sheets turn cited manual text into yes/no steps and end at a confirmed correction. OCR headers, footers, and duplicated words are stripped from the bay order and from SOURCES. A furnace job jumps R/W at the furnace, then proves the sail switch. Furrion FCR E2 follows Fan Fault Diagnostics and ends at the inverter PCB and fan. The MODEL line no longer repeats the brand.
 - v4.18.1: Bay procedure PDF keeps a known brand on its own manuals. Coleman-Mach 2111-0001 cites the Coleman rooftop books (12VDC wall-thermostat SM, 1976-536 and 1976-603, Peacemaker, 1976-695) and ends at fan motor plus control board only. If that brand has no manual, the sheet says so instead of citing another brand
@@ -90,7 +91,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.18.3``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.18.4``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -146,6 +147,8 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_level_up_manual_can_conflict_context",
     "is_bal_soft_touch_tongue_only_context",
     "ensure_bal_tongue_only_path",
+    "rewrite_shop_channel_words",
+    "SHOP_LANGUAGE_RULE",
     "ensure_facr_freeze_assembly_rr",
     "ensure_coleman_motor_board_auth",
     "is_coleman_2111_context",
@@ -256,6 +259,8 @@ ensure_fcr_dial_off_compressor_run_path = _gdc.ensure_fcr_dial_off_compressor_ru
 ensure_level_up_manual_can_path = _gdc.ensure_level_up_manual_can_path
 ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
 ensure_bal_tongue_only_path = _gdc.ensure_bal_tongue_only_path
+rewrite_shop_channel_words = _gdc.rewrite_shop_channel_words
+SHOP_LANGUAGE_RULE = _gdc.SHOP_LANGUAGE_RULE
 ensure_facr_freeze_assembly_rr = _gdc.ensure_facr_freeze_assembly_rr
 ensure_coleman_motor_board_auth = _gdc.ensure_coleman_motor_board_auth
 is_coleman_2111_context = _gdc.is_coleman_2111_context
@@ -3218,7 +3223,8 @@ CRITICAL RULES:
 14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt.
 15. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. Furrion FCR08/FCR10 flash codes need the SM temporary 10 mA LED on rear inverter D/+ - say that, or skip flash codes. Never invent a control-panel blink LED.
 16. SOURCE PAGE HONESTY: 📖 Source page must be the excerpt page that actually shows the figure/terminals you describe. Never invent markdown images.
-17. NO FAKE IMAGES: Never output ![alt](url) or HTML img tags in the plan."""
+17. NO FAKE IMAGES: Never output ![alt](url) or HTML img tags in the plan.
+18. """ + SHOP_LANGUAGE_RULE
 
         furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
         unity_rule = (
@@ -3305,7 +3311,7 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
             "Citations are 📖 Source lines from the shop Document Library. "
             "Ask Guided Diagnostics chat to show a page only if you need the illustration."
         )
-        return answer, sources_text, sources_json
+        return rewrite_shop_channel_words(answer), sources_text, sources_json
     except Exception as e:
         return f"Error contacting AI: {e}", sources_text, sources_json
 
@@ -4287,7 +4293,7 @@ def guided_diagnostics_reply(
                     record_cited_pages(f"📖 Source: {title} - page {page}")
                 except Exception:
                     pass
-            return reply, result.get("ask_flow")
+            return rewrite_shop_channel_words(reply), result.get("ask_flow")
     reply = ask_techtrack_reply(
         user_msg,
         category_name,
@@ -4296,7 +4302,7 @@ def guided_diagnostics_reply(
         unity_gate=unity_gate,
         extra_system_rule=extra,
     )
-    return reply, None
+    return rewrite_shop_channel_words(reply), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -4333,7 +4339,8 @@ Rules:
 21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
 22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
 23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping.
-24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels)."""
+24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels).
+25. """ + SHOP_LANGUAGE_RULE
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -4707,7 +4714,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
                 "No matching manual text found. Check category / try different wording, "
                 "or ask a manager to index the manual."
             )
-        return "\n".join(fallback)
+        return rewrite_shop_channel_words("\n".join(fallback))
 
     messages = [{"role": "system", "content": system_prompt}]
     for m in trim_coach_history(history):
@@ -4720,18 +4727,18 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         if dial_off_job and is_ai_request_too_large(e):
             reply = ensure_fcr_dial_off_compressor_run_path("", facts)
             record_cited_pages(reply)
-            return reply
+            return rewrite_shop_channel_words(reply)
         if facr_freeze_job:
             climax = ensure_facr_freeze_assembly_rr("", facts)
             if (climax or "").strip():
                 record_cited_pages(climax)
-                return climax
+                return rewrite_shop_channel_words(climax)
         if coleman_job and coleman_motor_board_evidence_complete(facts):
             climax = ensure_coleman_motor_board_auth("", facts)
             if (climax or "").strip():
                 record_cited_pages(climax)
-                return climax
-        return f"Error contacting AI: {e}"
+                return rewrite_shop_channel_words(climax)
+        return rewrite_shop_channel_words(f"Error contacting AI: {e}")
     reply = strip_path_complete_trap(strip_fake_markdown_images(reply))
     if fan_fault_job and claims_fcr_e2_board_only_cage(reply):
         retry_rule = (
@@ -4804,7 +4811,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "If a page image appears below, that is the real shop library page "
             "(not a chat photo embed). If nothing appears below, say so and use Download PDF / meter from the text labels."
         )
-    return reply
+    return rewrite_shop_channel_words(reply)
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:

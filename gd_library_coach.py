@@ -101,6 +101,96 @@ COACH_REQUEST_PHRASES = (
     "not that", "wrong path", "other check",
 )
 
+# Everyday shop words for tech-facing GD replies and Bay sheets.
+# The ban names the jargon once so the model is told not to say it.
+SHOP_LANGUAGE_RULE = (
+    "SHOP WORDS: Use everyday shop words (wire, plug, terminal, circuit, connector). "
+    'Avoid engineering jargon like "channel" or "channels". '
+    'Say "output wire", "check the wire", or "check the circuit".'
+)
+
+# Longest shop phrases first. Leftover "channel" / "channels" becomes wire / circuit.
+_CHANNEL_PHRASE_RE = re.compile(
+    r"\bat the soft-touch panel tongue[\s-]+channels?\b"
+    r"|\bsoft-touch panel tongue[\s-]+channels?\b"
+    r"|\bpanel tongue[\s-]+channels?\b"
+    r"|\btongue[\s-]+channels?\b"
+    r"|\bstabilizer channels\b"
+    r"|\bthat channels?\b"
+    r"|\bthis channels?\b"
+    r"|\bthe channels\b"
+    r"|\bthe channel\b"
+    r"|\bchannels\b"
+    r"|\bchannel\b",
+    re.I,
+)
+# A 📖 Source line, plus a quoted excerpt on the next line, stays verbatim.
+# So does an explicit "OEM source quote:" / "Source quote:" span.
+_MARKED_SOURCE_QUOTE_RE = re.compile(
+    r"📖[^\n]*\bSource\b[^\n]*(?:\n[ \t]*(?:\"[^\"]*\"|“[^”]*”))?"
+    r"|(?:OEM[ \t]+source[ \t]+quote|Source[ \t]+quote)[ \t]*:[ \t]*(?:\"[^\"]*\"|“[^”]*”)",
+    re.I,
+)
+
+
+def _match_shop_case(sample: str, replacement: str) -> str:
+    if sample.isupper():
+        return replacement.upper()
+    if sample[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
+def _channel_phrase_replacement(match: re.Match) -> str:
+    low = re.sub(r"[\s-]+", " ", match.group(0).lower()).strip()
+    if low.startswith("at the soft"):
+        repl = "on the tongue jack output wire at the panel"
+    elif "panel tongue" in low:
+        repl = "tongue jack output wire at the panel"
+    elif low.startswith("tongue"):
+        repl = "tongue jack output wire"
+    elif low == "stabilizer channels":
+        repl = "stabilizer circuits"
+    elif low.startswith("that"):
+        repl = "that wire"
+    elif low.startswith("this"):
+        repl = "this wire"
+    elif low == "the channels":
+        repl = "the circuits"
+    elif low == "the channel":
+        repl = "the wire"
+    elif low == "channels":
+        repl = "circuits"
+    else:
+        repl = "wire"
+    return _match_shop_case(match.group(0), repl)
+
+
+def _rewrite_channel_outside_quotes(text: str) -> str:
+    return _CHANNEL_PHRASE_RE.sub(_channel_phrase_replacement, text)
+
+
+def rewrite_shop_channel_words(text: str) -> str:
+    """Final tech-facing filter. Rewrites channel/channels outside marked OEM quotes.
+
+    Quoted OEM source snippets stay verbatim only inside a 📖 Source line
+    (and a quoted excerpt on the following line) or an explicit Source quote.
+    Everywhere else, use output wire / wire / circuit.
+    """
+    if not text:
+        return text or ""
+    if not _CHANNEL_PHRASE_RE.search(text):
+        return text
+    pieces = []
+    pos = 0
+    for marked in _MARKED_SOURCE_QUOTE_RE.finditer(text):
+        pieces.append(_rewrite_channel_outside_quotes(text[pos:marked.start()]))
+        pieces.append(marked.group(0))
+        pos = marked.end()
+    pieces.append(_rewrite_channel_outside_quotes(text[pos:]))
+    return "".join(pieces)
+
+
 OPEN_LIBRARY_COACH_RULE = """
 OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan):
 - Take the complaint and guide the tech from THIS SHOP's Document Library / service-manual excerpts only.
@@ -112,7 +202,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
-- BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: prove 12V at the soft-touch panel tongue channel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue channel → soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
+- BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: press tongue extend/retract and check for 12V on the tongue jack output wire at the panel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue output wire → soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
 - Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that whole path is reported good and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
@@ -124,6 +214,9 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
 - When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
 """
+OPEN_LIBRARY_COACH_RULE = (
+    OPEN_LIBRARY_COACH_RULE.rstrip() + "\n- " + SHOP_LANGUAGE_RULE + "\n"
+)
 
 # Board / terminal / PCB figure asks (Chase live: "show me labeled output terminals").
 BOARD_FIGURE_ASK_HINTS = (
@@ -3526,34 +3619,34 @@ BAL_TONGUE_DOC = "INS.STA.001"
 BAL_TONGUE_SOURCE = "📖 Source: BAL SS 5.1 Stabilizing System INS.STA.001"
 BAL_TONGUE_SEARCH_BOOST = (
     "BAL Soft-Touch SS 5.1 INS.STA.001 20300427 soft-touch user panel "
-    "tongue channel pigtail panel-to-motor"
+    "tongue jack output wire pigtail panel-to-motor"
 )
 BAL_TONGUE_PRODUCT_LOCK = """
 BAL SOFT-TOUCH SS 5.1 TONGUE JACK ONLY DEAD (INS.STA.001):
 - Named branch: electric tongue jack dead, other stabilizers still work, soft-touch panel lights still work. Motor OK on direct 12V and coupler OK is this complaint.
-- Order: (1) Prove 12V at the soft-touch panel tongue channel while commanding the tongue jack. (2) Then the local tongue pigtail / panel-to-motor leads. (3) No 12V on the tongue channel → replace soft-touch user panel 20300427. 12V present at that channel → repair the tongue pigtail.
+- Order: (1) Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. (2) Then the local tongue pigtail / panel-to-motor leads. (3) No 12V on the tongue output wire → replace soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail.
 - Do NOT lead with coupler, shear-pin, or coupler replacement. Do NOT lead with the fuse, a 30A supply fuse, or the remote stabilizer harness.
 - Coupler path ONLY if the manual override will not turn, or the motor fails a direct-12V prove. That is not this complaint when the motor runs on direct 12V and the coupler is engaged.
 - Cite INS.STA.001. Do not invent a page number.
 """
 BAL_TONGUE_PROVE_SHOP_LINE = (
     "The electric tongue jack is the only jack that is dead. The other stabilizers "
-    "and the soft-touch panel lights still work. Prove 12V at the soft-touch panel "
-    "tongue channel while you command extend or retract. No 12V on that channel means "
-    "replace the soft-touch user panel 20300427. If the tongue channel has 12V, check "
+    "and the soft-touch panel lights still work. Press tongue extend/retract and check "
+    "for 12V on the tongue jack output wire at the panel. No 12V on the tongue output wire means "
+    "replace the soft-touch user panel 20300427. If that output wire has 12V, check "
     "the local tongue pigtail and the panel-to-motor leads and repair that pigtail. "
     "Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness. "
     "Coupler replacement is only when the manual override will not turn, or the motor fails a direct-12V prove.\n"
     + BAL_TONGUE_SOURCE
 )
 BAL_TONGUE_PANEL_SHOP_LINE = (
-    "No 12V at the soft-touch panel tongue channel, and the other stabilizers and panel lights still work. "
+    "No 12V on the tongue jack output wire at the panel, and the other stabilizers and panel lights still work. "
     "Replace the soft-touch user panel 20300427. Do not replace the coupler or the shear pin, and do not open "
     "the 30A fuse or the remote stabilizer harness.\n"
     + BAL_TONGUE_SOURCE
 )
 BAL_TONGUE_PIGTAIL_SHOP_LINE = (
-    "12V is present at the soft-touch panel tongue channel. Repair the local tongue pigtail and the "
+    "12V is present on the tongue jack output wire at the panel. Repair the local tongue pigtail and the "
     "panel-to-motor leads. That is the confirmed correction after the panel voltage prove. "
     "Do not replace the coupler or open the 30A fuse or the remote stabilizer harness.\n"
     + BAL_TONGUE_SOURCE
@@ -3700,13 +3793,17 @@ def extract_bal_tongue_facts(text: str) -> dict:
         return {}
     facts = {}
     if re.search(
-        r"(no|0|zero|missing|without)\s+12\s*v.{0,48}tongue|"
+        r"(no|0|zero|missing|without)\s+12\s*v.{0,64}tongue|"
+        r"tongue (?:jack )?output(?: wire)?.{0,40}(no|0|zero|missing|dead)\s*12|"
         r"tongue channel.{0,40}(no|0|zero|missing|dead)\s*12|"
+        r"no voltage.{0,32}tongue (?:jack )?output|"
         r"no voltage.{0,24}tongue channel",
         norm,
     ):
         facts["tongue_channel_volts"] = "missing"
     elif re.search(
+        r"12\s*v.{0,72}tongue (?:jack )?output|"
+        r"tongue (?:jack )?output(?: wire)?.{0,40}(has|have|shows|reads|present|good|ok)|"
         r"12\s*v.{0,48}tongue channel|tongue channel.{0,40}(has|have|shows|reads|present|good|ok)|"
         r"(have|has|shows)\s+12\s*v.{0,32}tongue",
         norm,
@@ -3756,7 +3853,7 @@ def bal_tongue_search_symptom(category_name: str, model_text: str, symptom: str)
 
 def score_bal_tongue_chunk(page, query: str = "", category: str = "") -> int:
     """
-    Higher = INS.STA.001 / soft-touch user panel 20300427 / tongue channel.
+    Higher = INS.STA.001 / soft-touch user panel 20300427 / tongue output wire.
     Coupler, shear-pin, 30A, and remote-harness pages lose on the tongue-only class.
     """
     raw = _page_text_blob(page)
@@ -3839,7 +3936,14 @@ def reply_leads_with_bal_banned_primary(reply: str) -> bool:
     if banned_at is None:
         return False
     prove_at = None
-    for pat in (r"20300427", r"tongue channel", r"tongue pigtail", r"soft-touch user panel"):
+    for pat in (
+        r"20300427",
+        r"tongue channel",
+        r"tongue output",
+        r"output wire",
+        r"tongue pigtail",
+        r"soft-touch user panel",
+    ):
         m = re.search(pat, text, re.I)
         if m and (prove_at is None or m.start() < prove_at):
             prove_at = m.start()
@@ -3854,7 +3958,14 @@ def reply_leads_with_bal_fuse_harness(reply: str) -> bool:
     if fuse_at is None:
         return False
     action_at = None
-    for pat in (r"\bcoupler\b", r"20300427", r"tongue channel", r"tongue pigtail"):
+    for pat in (
+        r"\bcoupler\b",
+        r"20300427",
+        r"tongue channel",
+        r"tongue output",
+        r"output wire",
+        r"tongue pigtail",
+    ):
         m = re.search(pat, text, re.I)
         if m and (action_at is None or m.start() < action_at):
             action_at = m.start()
@@ -3865,7 +3976,10 @@ def reply_leads_with_bal_fuse_harness(reply: str) -> bool:
 
 def reply_names_tongue_channel_prove(reply: str) -> bool:
     t = _norm(reply)
-    return "tongue channel" in t and bool(re.search(r"12\s*v", t))
+    names_output = bool(
+        re.search(r"tongue (?:jack )?output(?: wire)?|tongue channel", t)
+    )
+    return names_output and bool(re.search(r"12\s*v", t))
 
 
 def reply_names_panel_20300427(reply: str) -> bool:
@@ -5426,8 +5540,8 @@ def format_stated_facts_rule(facts: dict) -> str:
             "only_dead": "BAL Soft-Touch tongue jack only is dead; other stabilizers and panel lights work",
         },
         "tongue_channel_volts": {
-            "missing": "no 12V at the soft-touch panel tongue channel",
-            "present": "12V is present at the soft-touch panel tongue channel",
+            "missing": "no 12V on the tongue jack output wire at the panel",
+            "present": "12V is present on the tongue jack output wire at the panel",
         },
         "tongue_motor_12v": {
             "ok": "tongue motor runs on direct 12V",
@@ -5633,20 +5747,21 @@ def format_stated_facts_rule(facts: dict) -> str:
             )
         elif stage == "panel":
             lines.append(
-                "No 12V at the soft-touch panel tongue channel. Climax is soft-touch "
+                "No 12V on the tongue jack output wire at the panel. Climax is soft-touch "
                 "user panel 20300427. Do NOT lead with coupler, shear pin, 30A fuse, or "
                 "the remote stabilizer harness."
             )
         elif stage == "pigtail":
             lines.append(
-                "12V is present at the soft-touch panel tongue channel. Climax is tongue "
+                "12V is present on the tongue jack output wire at the panel. Climax is tongue "
                 "pigtail / panel-to-motor lead repair. Do NOT lead with coupler, 30A fuse, "
                 "or the remote stabilizer harness."
             )
         else:
             lines.append(
-                "BAL Soft-Touch tongue-only dead is in play. Prove 12V at the soft-touch "
-                "panel tongue channel, then the local tongue pigtail. No 12V on that channel "
+                "BAL Soft-Touch tongue-only dead is in play. Press tongue extend/retract "
+                "and check for 12V on the tongue jack output wire at the panel, then the "
+                "local tongue pigtail. No 12V on the tongue output wire "
                 "→ user panel 20300427. Do NOT lead with coupler / shear-pin or fuse / 30A / "
                 "remote stabilizer harness. Coupler only if the override will not turn or the "
                 "motor fails direct 12V."
