@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.2
+RV TechTrack v4.19.3
+- v4.19.3: Ground Control 343633 gives the Electric Leveling zero-point sequence once (manual level, FRONT five times, REAR five times, ENTER) and does not swap a sensor. Dometic B57915 fan-runs/no-cold opens on diagnostic manual 3311071 with the Peacemaker and ceiling-selector bypass. A library-coverage sentence is said at most once.
 - v4.19.2: Bay sheets stay within 3 pages. Figures are the cited crop (1-2 per sheet), not a full manual page or a blank "Cited library figure" page. Generic steps are whole sentences, snippets drop OCR splits and parts-list dumps, the model line keeps the typed string, and a FACT12 file that is actually the FACR08 8K book is not cited as the FACT12 manual
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
@@ -94,7 +95,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.2``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.3``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -4766,6 +4767,19 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         system_prompt += "\n\n" + FACR_FREEZE_ASSEMBLY_LOCK
     if coleman_job:
         system_prompt += "\n\n" + COLEMAN_MOTOR_BOARD_LOCK
+    if _gdc.is_ground_control_context(category_name, model_text, search_symptom):
+        system_prompt += (
+            "\n\nGROUND CONTROL 343633: give the Electric Leveling zero-point sequence once. "
+            "Do not open later turns with it again, and do not swap a level sensor or replace a harness.\n"
+            + _gdc.GROUND_CONTROL_LEVEL_LINE
+        )
+    if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, search_symptom):
+        system_prompt += (
+            "\n\nDOMETIC B57915 FAN RUNS / NO COLD: turn 1 is diagnostic manual 3311071, "
+            "the Peacemaker bypass, then the ceiling selector. Do not open on a filter check "
+            "and do not say the library has no no-cool steps.\n"
+            + _gdc.DOMETIC_NOCOOL_OPEN
+        )
     if ice_moisture_job:
         system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
     if dial_off_job:
@@ -4876,12 +4890,12 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     if fan_fault_job:
         reply = ensure_fcr_e2_fan_rr(reply, facts)
     if cooktop_job:
-        reply = ensure_cooktop_tip_pan_check(reply, f"{search_symptom} {user_msg}")
+        reply = ensure_cooktop_tip_pan_check(reply, f"{search_symptom} {user_msg}", history)
     if _gdc.is_ground_control_context(category_name, model_text, search_symptom):
-        reply = _gdc.ensure_ground_control_level_path(reply)
+        reply = _gdc.ensure_ground_control_level_path(reply, history)
     if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, search_symptom):
         reply = _gdc.ensure_dometic_ceiling_thermostat(
-            reply, _gdc.dometic_bypass_facts(history, user_msg)
+            reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
     reply = _gdc.ensure_furnace_wall_thermostat(
         reply, history, user_msg, category_name, model_text
@@ -4926,6 +4940,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
                 reply = retry
         except Exception:
             pass
+    reply = _gdc.limit_library_miss_mentions(reply, history)
     record_cited_pages(reply)
     if wants_library_page_shown(user_msg):
         reply += (
