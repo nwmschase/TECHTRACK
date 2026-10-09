@@ -1553,24 +1553,314 @@ def _is_actionable_sentence(text: str) -> bool:
     return bool(_ACTION_RE.search(text or ""))
 
 
-def clean_source_excerpt(text: str) -> str:
-    """SOURCES line: a short cleaned sentence, never the OCR header block."""
-    cleaned = clean_ocr_prose(text)
+_ACRONYM_KEEP = {
+    "BAL", "SS", "OEM", "CAN", "USB", "PN", "HVAC", "PCB", "SM", "IM",
+    "AC", "DC", "RV", "ID", "OK", "LCD", "LED", "ATC", "VAC", "VDC",
+}
+_SMALL_TITLE_WORDS = {"and", "of", "the", "for", "a", "an", "or", "to", "in", "on"}
+# Lowercase OCR may still be a real sentence. A cut syllable ("er", "anel", "s") is not.
+_LOWER_SENTENCE_OPEN = {
+    "if", "the", "a", "an", "this", "that", "when", "then", "make", "check",
+    "open", "do", "no", "yes", "after", "before", "leave", "prove", "replace",
+    "measure", "connect", "disconnect", "confirm", "inspect", "record",
+    "bypass", "clear", "set", "use", "note", "watch", "verify", "reset",
+    "locate", "test", "clean", "jumper", "tongue", "panel", "compressor",
+    "door", "ice", "light", "water", "frost", "dial", "rooftop", "defrost",
+    "back", "unplug", "power", "spark", "listed", "both", "with",
+}
+_TOPIC_STOP = {
+    "this", "that", "with", "from", "into", "over", "then", "than", "them",
+    "they", "have", "been", "were", "will", "your", "about", "after",
+    "before", "when", "where", "which", "while", "there", "their", "only",
+    "still", "also", "just", "does", "doing", "done", "each", "other",
+    "some", "such", "these", "those", "very", "what", "make", "sure",
+}
+# Family keeps a cite on the same product. Climax overrides an off-procedure hit.
+_PATH_FAMILY = {
+    "bal_tongue": (
+        "tongue", "pigtail", "20300427", "soft-touch", "soft touch",
+        "stabilizer", "stabilizing", "ss 5.1", "c-jack", "c jack",
+        "ins.sta", "panel", "bal",
+    ),
+    "ice": (
+        "ice", "moisture", "frost", "gasket", "defrost", "drain",
+        "ccd-0008122", "rear wall", "dollar-bill", "dollar bill",
+    ),
+    "dial_off": (
+        "thermostat", "compressor", "spark-free", "spark free",
+        "2021128850", "jumper", "inverter", "harness", "dial",
+    ),
+    "facr": (
+        "rooftop", "condensate", "drain", "base pan", "base-pan", "freeze",
+        "suction", "ccd-0007990", "ccd-0008666", "evaporator", "assembly",
+    ),
+    "firefly": (
+        "firefly", "terminator", "manual mode", "807662", "level up",
+        "power connector", "onecontrol", "can",
+    ),
+    "furnace": ("furnace", "thermostat", "sail", "jumper", "limit"),
+    "e2": ("inverter", "fan", "e2", "pcb", "ccd-0008122", "12v"),
+    "coleman": (
+        "coleman", "peacemaker", "1976", "fan high", "9-pin", "capacitor", "airxcel",
+    ),
+}
+_PATH_CLIMAX = {
+    "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel"),
+    "ice": ("ice and moisture", "fig. 36", "figure 36", "dollar-bill", "rear wall"),
+    "dial_off": ("2021128850", "spark-free", "no jumper", "c (blue)", "t (black)"),
+    "facr": ("ccd-0007990", "condensate", "base pan", "base-pan", "suction"),
+    "firefly": ("807662", "terminator", "firefly", "power connector"),
+    "furnace": ("sail", "jumper", "r/w", "wall thermostat"),
+    "e2": ("inverter pcb", "f+", "f-", "fan fault"),
+    "coleman": ("peacemaker", "1976-536", "fan high", "control board"),
+}
+_PATH_OFF = {
+    "bal_tongue": (
+        r"rear leveling jack",
+        r"\b20300000\b",
+        r"flat[-\s]?rate",
+        r"\b30a\b",
+        r"remote stabilizer harness",
+        r"\bcoupler\b",
+        r"shear pin",
+    ),
+    "ice": (
+        r"\bfuse location\b",
+        r"\b15a\b",
+        r"\bno power\b",
+        r"flat[-\s]?rate",
+        r"rear leveling",
+    ),
+    "dial_off": (
+        r"\bfuse location\b",
+        r"\b15a\b",
+        r"ice and moisture",
+        r"flat[-\s]?rate",
+        r"rear leveling",
+    ),
+    "facr": (
+        r"\bcoleman\b",
+        r"peacemaker",
+        r"flat[-\s]?rate",
+        r"\bfurnace\b",
+        r"rear leveling",
+    ),
+    "firefly": (
+        r"flat[-\s]?rate",
+        r"unity board",
+        r"tongue jack",
+        r"\bcoleman\b",
+        r"rear leveling",
+    ),
+    "furnace": (r"flat[-\s]?rate", r"rear leveling", r"\bcoleman\b"),
+    "e2": (r"flat[-\s]?rate", r"rear leveling", r"ice and moisture", r"\bfuse location\b"),
+    "coleman": (r"\bfurrion\b", r"ccd-0008666", r"ccd-0007990", r"flat[-\s]?rate"),
+}
+
+
+def _is_raw_filename(title: str) -> bool:
+    """A stored title that is still a file slug, not a human document name."""
+    text = (title or "").strip()
+    if not text or re.search(r"\s", text):
+        return False
+    name = text.split("/")[-1]
+    if re.search(r"\.(pdf|docx?|txt|png|jpe?g)$", name, re.I):
+        return True
+    return bool(re.search(r"[-_]", name))
+
+
+def _pretty_title_token(token: str, *, first: bool = False) -> str:
+    if re.fullmatch(r"\d+(?:\.\d+)?", token):
+        return token
+    if re.fullmatch(r"[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+", token) and re.search(r"\d", token):
+        return token.upper()
+    if re.fullmatch(r"\d+(?:st|nd|rd|th)", token, re.I):
+        return token[:1] + token[1:].lower()
+    if "-" in token:
+        parts = [part for part in token.split("-") if part]
+        return "-".join(_pretty_title_token(part, first=(first and i == 0)) for i, part in enumerate(parts))
+    letters = re.sub(r"[^A-Za-z]", "", token)
+    if letters.upper() in _ACRONYM_KEEP and 2 <= len(letters) <= 5:
+        return letters.upper()
+    if letters.isupper() and 2 <= len(letters) <= 5:
+        return letters
+    pretty = token[:1].upper() + token[1:].lower() if token else token
+    if not first and pretty.lower() in _SMALL_TITLE_WORDS:
+        return pretty.lower()
+    return pretty
+
+
+def _title_from_filename(name: str) -> str:
+    """Hyphens to words, drop a leading catalog number, keep C-Jack and SS 5.1."""
+    base = (name or "").strip().split("/")[-1]
+    base = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", base)
+    base = re.sub(r"^\d+_\d+_", "", base)
+    base = re.sub(r"^[a-f0-9]{8,}_", "", base, flags=re.I)
+    protected: list[str] = []
+
+    def _protect(match):
+        protected.append(match.group(0))
+        return f" ZZP{len(protected) - 1}ZZ "
+
+    base = re.sub(r"(?<![A-Za-z0-9])([A-Za-z])-([A-Za-z][A-Za-z0-9]*)", _protect, base)
+    base = base.replace("_", " ").replace("-", " ")
+    for i, tok in enumerate(protected):
+        base = base.replace(f"ZZP{i}ZZ", tok)
+    base = re.sub(r"^\d{5,}\b\s*", "", base.strip())
+    words = [word for word in base.split() if word]
+    if not words:
+        return "Shop library"
+    return " ".join(_pretty_title_token(word, first=(i == 0)) for i, word in enumerate(words))
+
+
+def human_source_title(title: str = "", file_path: str = "") -> str:
+    """Use library metadata when it is already a title. Otherwise derive one from the filename."""
+    raw = re.sub(r"\s+", " ", (title or "").strip())
+    path = (file_path or "").strip()
+    if _is_raw_filename(raw):
+        return _title_from_filename(raw)
+    if raw:
+        raw = re.sub(r"\.(pdf|docx?|txt)$", "", raw, flags=re.I).strip()
+        return raw or "Shop library"
+    if path:
+        return _title_from_filename(path)
+    return "Shop library"
+
+
+def _first_word(text: str) -> str:
+    match = re.match(r"[A-Za-z0-9][A-Za-z0-9'+.-]*", (text or "").strip())
+    return match.group(0) if match else ""
+
+
+def excerpt_starts_mid_word(text: str) -> bool:
+    """True when a snippet begins on a cut OCR syllable instead of a sentence."""
+    token = _first_word(text)
+    if not token:
+        return True
+    if token[0].isdigit():
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", token)
+    if not letters:
+        return True
+    low = letters.lower()
+    if token[0].isupper():
+        if len(letters) <= 2 and low not in _SHORT_WORD_KEEP:
+            return True
+        return False
+    return low not in _LOWER_SENTENCE_OPEN
+
+
+def _capitalize_sentence(text: str) -> str:
+    text = (text or "").strip()
+    if text and text[0].islower():
+        return text[0].upper() + text[1:]
+    return text
+
+
+def _is_tiny_heading(text: str) -> bool:
+    return len((text or "").strip()) < 20
+
+
+def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
+    """SOURCES snippet: whole sentences only, never a mid-word OCR scrap."""
+    out = re.sub(r"\s+", " ", text or "").strip()
+    out = _OCR_HEADER_RE.sub(" ", out)
+    out = _collapse_repeated_phrases(out)
+    out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
+    out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
     kept = []
-    for sentence in _split_sentences(cleaned):
-        if _is_header_residue(sentence):
+    for sentence in _split_sentences(out):
+        if excerpt_starts_mid_word(sentence):
+            continue
+        if _is_tiny_heading(sentence):
+            continue
+        if not locked and _is_header_residue(sentence):
             continue
         if OPEN_THE_MANUAL_RE.search(sentence) or POWER_LOOKS_SANE_RE.search(sentence):
             continue
-        kept.append(sentence)
-        if len(kept) >= 2:
+        kept.append(_capitalize_sentence(sentence))
+        limit = 4 if locked else 2
+        if len(kept) >= limit:
             break
     if not kept:
         return ""
+    cap = 400 if locked else 280
+    while len(kept) > 1 and len(" ".join(kept)) > cap:
+        kept.pop()
     out = " ".join(kept)
-    if len(out) > 280:
-        out = out[:277].rstrip() + "..."
+    if len(out) > cap:
+        out = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
     return _as_sentence(out)
+
+
+def _has_source_needle(blob: str, needle: str) -> bool:
+    n = (needle or "").lower()
+    if not n:
+        return False
+    if re.search(r"[^a-z0-9]", n) or len(n) > 3:
+        return n in blob
+    return re.search(rf"\b{re.escape(n)}\b", blob) is not None
+
+
+def _topic_tokens(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9.+-]{3,}", (text or "").lower())
+    return {word for word in words if word not in _TOPIC_STOP}
+
+
+def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind: str) -> bool:
+    """Keep a cite that belongs to this procedure. Drop a different assembly or a labor-guide line."""
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    if not path_kind:
+        if re.search(r"flat[-\s]?rate|rear leveling jack|\b20300000\b", blob):
+            return False
+        return len(_topic_tokens(blob) & _topic_tokens(topic_text)) >= 2
+    has_climax = any(_has_source_needle(blob, needle) for needle in _PATH_CLIMAX.get(path_kind, ()))
+    has_family = any(_has_source_needle(blob, needle) for needle in _PATH_FAMILY.get(path_kind, ()))
+    has_off = any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ()))
+    if has_off and not has_climax:
+        return False
+    if has_climax or has_family:
+        return True
+    return len(_topic_tokens(blob) & _topic_tokens(topic_text)) >= 3
+
+
+def _procedure_topic(spec: dict) -> str:
+    parts = [
+        spec.get("primary_cite") or "",
+        spec.get("pattern_means") or "",
+        " ".join(spec.get("bay_order") or []),
+        " ".join(spec.get("do_not") or []),
+    ]
+    for src in spec.get("sources") or []:
+        parts.append(src.get("title") or "")
+        parts.append(src.get("excerpt") or "")
+    return " ".join(parts)
+
+
+def polish_bay_sources(
+    sources: list[dict],
+    locked_count: int,
+    topic_text: str,
+    path_kind: str,
+) -> list[dict]:
+    """Human titles, whole-sentence snippets, and only cites that belong on this sheet."""
+    out = []
+    seen = set()
+    for index, src in enumerate(sources or []):
+        locked = index < locked_count
+        title = human_source_title(src.get("title") or "", src.get("file_path") or "")
+        excerpt = clean_source_excerpt(src.get("excerpt") or "", locked=locked)
+        if not locked and not excerpt:
+            continue
+        if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
+            continue
+        page = _page_int(src.get("page"))
+        key = (title.lower(), page)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"title": title, "page": page, "excerpt": excerpt})
+    return out
 
 
 def _steps_from_ranked(pages) -> list[str]:
@@ -1627,7 +1917,7 @@ def _fitted_cite(ranked, needles, fallback: str) -> str:
     pool = preferred or hits
     if pool:
         d = max(pool, key=lambda row: _page_int(row.get("page")) or 0)
-        title = (d.get("title") or "").strip()
+        title = human_source_title((d.get("title") or "").strip(), d.get("file_path") or "")
         page = _page_int(d.get("page"))
         page_bit = f" page {page}" if page else ""
         cite = f"{title}{page_bit}"
@@ -2455,7 +2745,7 @@ def _unique_sources(chunks) -> list[dict]:
     seen = set()
     for ch in chunks or []:
         d = chunk_as_dict(ch)
-        title = (d.get("title") or "").strip() or "Shop library"
+        title = human_source_title(d.get("title") or "", d.get("file_path") or "")
         page = _page_int(d.get("page"))
         key = (title.lower(), page)
         if key in seen:
@@ -2465,6 +2755,7 @@ def _unique_sources(chunks) -> list[dict]:
             {
                 "title": title,
                 "page": page,
+                "file_path": d.get("file_path") or "",
                 "excerpt": clean_source_excerpt(d.get("excerpt") or ""),
             }
         )
@@ -2603,7 +2894,14 @@ def _merge_sources(
                 # Keep fuse pages off the primary source list for ice jobs.
                 continue
         seen.add(key)
-        out.append({"title": title, "page": page, "excerpt": (s.get("excerpt") or "")[:400]})
+        out.append(
+            {
+                "title": title,
+                "page": page,
+                "file_path": s.get("file_path") or "",
+                "excerpt": s.get("excerpt") or "",
+            }
+        )
     return out
 
 
@@ -2724,19 +3022,22 @@ def compile_bay_procedure(
 
     if coleman:
         sources = _coleman_sources(ranked)
+        locked_count = len(sources)
     elif brand_miss and path_kind == "brand_miss":
         sources = list(spec.get("sources") or [])
+        locked_count = len(sources)
     else:
+        locked_count = len(spec.get("sources") or [])
         sources = _merge_sources(
             spec.get("sources") or [],
             _unique_sources(ranked),
             ice=ice,
             dial_off=dial_off,
         )
-    if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
-        sources.insert(0, spec["sources"][0])
-    for src in sources:
-        src["excerpt"] = clean_source_excerpt(src.get("excerpt") or "")
+        if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
+            sources.insert(0, spec["sources"][0])
+            locked_count += 1
+    sources = polish_bay_sources(sources, locked_count, _procedure_topic(spec), path_kind)
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -2834,7 +3135,7 @@ def compile_bay_procedure(
 
 def _generic_primary_cite(ranked) -> str:
     for d in ranked or []:
-        title = (d.get("title") or "").strip()
+        title = human_source_title((d.get("title") or "").strip(), d.get("file_path") or "")
         if not title:
             continue
         page = _page_int(d.get("page"))
