@@ -2332,6 +2332,107 @@ def coleman_search_symptom(category_name: str, model_text: str, symptom: str) ->
     return f"{symptom} {COLEMAN_2111_SEARCH_BOOST}".strip()
 
 
+# Same brand list Guided Diagnostics uses to keep a named unit on its own manuals.
+# Coleman-Mach and Airxcel are one maker. Search boosts must not add a second brand.
+SHOP_BRAND_TOKENS = (
+    "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
+    "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
+    "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
+    "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
+    "coleman", "airxcel",
+)
+BRAND_CANON = {
+    "airxcel": "coleman",
+    "coleman": "coleman",
+}
+COLEMAN_LIBRARY_NEEDLES = (
+    "coleman", "airxcel", "1976-536", "1976-603", "1976-695",
+    "peacemaker", "12vdc wall", "12 vdc wall",
+    "wall-thermostat", "wall thermostat",
+)
+
+
+def named_shop_brands(*texts: str) -> list:
+    """Brand tokens in tech text or a manual title. 'pd' alone is ignored."""
+    blob = " ".join(t or "" for t in texts).lower()
+    found = [b for b in SHOP_BRAND_TOKENS if b in blob]
+    if "pd" in found and "progressive" not in blob and "intelli" not in blob:
+        found = [b for b in found if b != "pd"]
+    return found
+
+
+def canonical_shop_brands(*texts: str) -> set:
+    """Collapse maker aliases (Airxcel and Coleman-Mach) to one brand id."""
+    return {BRAND_CANON.get(b, b) for b in named_shop_brands(*texts)}
+
+
+def symptom_for_brand_detect(symptom: str) -> str:
+    """Drop AC search-boost sentences so 'Furrion' in the boost is not the unit brand."""
+    text = symptom or ""
+    for boost in (
+        AC_SEARCH_BOOST,
+        AC_FIGURE_SEARCH_BOOST,
+        FACR_FREEZE_SEARCH_BOOST,
+        FACR_FREEZE_FIGURE_SEARCH_BOOST,
+        FACR_ASSEMBLY_SEARCH_BOOST,
+    ):
+        if boost and boost in text:
+            text = text.replace(boost, " ")
+    return text
+
+
+def asked_brands_for_lookup(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> set:
+    """
+    Brands the tech named. A Coleman-Mach 2111-0001 job is Coleman even when an
+    Air Conditioning boost also says Furrion. Model/brand wins over the concern
+    text when both are present, except the 2111-0001 lock above.
+    """
+    cleaned = symptom_for_brand_detect(symptom)
+    if is_coleman_2111_context(category_name, model_text, cleaned):
+        return {"coleman"}
+    tech = canonical_shop_brands(model_text)
+    if tech:
+        return tech
+    return canonical_shop_brands(cleaned)
+
+
+def is_coleman_library_text(text: str) -> bool:
+    """True for the Coleman rooftop titles GD already cites. Not a Furrion FACT/FACR book."""
+    t = _norm(text)
+    if not t:
+        return False
+    return any(n in t for n in COLEMAN_LIBRARY_NEEDLES)
+
+
+def chunk_matches_asked_brand(
+    title: str = "",
+    keywords: str = "",
+    excerpt: str = "",
+    asked=None,
+    coleman_job: bool = False,
+) -> bool:
+    """
+    True when this library page is the asked brand, or a Coleman 2111 title
+    (1976-536 / Peacemaker / wall-thermostat) that does not name a different maker.
+    An empty asked set does not filter.
+    """
+    asked = set(asked or [])
+    if not asked:
+        return True
+    canon = canonical_shop_brands(title or "", keywords or "")
+    if asked & canon:
+        return True
+    if coleman_job and "coleman" in asked:
+        if canon - {"coleman"}:
+            return False
+        return is_coleman_library_text(f"{title or ''} {keywords or ''} {excerpt or ''}")
+    return False
+
+
 def _coleman_checks_asked(assistant_text: str) -> str:
     raw = _coleman_prep(assistant_text)
     if not raw or not re.search(r"\?|\b(?:check|measure|read|what|bypass)\b", raw):
