@@ -769,8 +769,10 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         self.assertIn("cool cycle", facr_order)
         self.assertIn("replace the rooftop", facr_order)
         self.assertIn("confirmed correction", facr_order)
-        self.assertGreaterEqual(len(compose_sheet(ice)), 3)
-        self.assertGreaterEqual(len(compose_sheet(facr)), 3)
+        self.assertGreaterEqual(len(compose_sheet(ice)), 2)
+        self.assertLessEqual(len(compose_sheet(ice)), 3)
+        self.assertGreaterEqual(len(compose_sheet(facr)), 2)
+        self.assertLessEqual(len(compose_sheet(facr)), 3)
         for proc in (ice, facr):
             body = procedure_body_text(proc)
             self.assertFalse(body_tells_tech_to_open_manual(body))
@@ -862,36 +864,49 @@ class TestNavAndGdUntouched(unittest.TestCase):
 
 
 class TestRealOemLibraryFigures(unittest.TestCase):
-    """Ice and FACR page-3 art is the OEM manual page, not a drawn cartoon."""
+    """Ice and FACR art is the cited figure crop, not a full manual page."""
 
-    def test_ice_embeds_ccd_0008122_page_36(self):
+    def test_ice_embeds_ccd_0008122_fig_36_crop(self):
+        from io import BytesIO
+
+        from PIL import Image
+
         proc = compile_bay_procedure(
             concern=WO_COMPLAINT, brand="Furrion", model=WO_MODEL, category="Refrigerators"
         )
-        self.assertGreaterEqual(len(proc.figures), 2)
-        self.assertTrue(all(fig.image_png for fig in proc.figures[:2]))
+        self.assertEqual(len(proc.figures), 1)
         self.assertEqual(proc.figures[0].page, 36)
         self.assertIn("fig. 36", proc.figures[0].caption.lower())
         self.assertEqual(proc.figures[0].image_png, load_oem_figure_png("ccd8122-fig36.png"))
-        self.assertEqual(proc.figures[1].image_png, load_oem_figure_png("ccd8122-p36.png"))
+        self.assertNotEqual(proc.figures[0].image_png, load_oem_figure_png("ccd8122-p36.png"))
         self.assertNotEqual(proc.figures[0].image_png, _seed_figure_png("ice"))
+        image = Image.open(BytesIO(proc.figures[0].image_png))
+        self.assertLess(max(image.size), 900)
 
-    def test_facr_embeds_7990_and_8666_pages(self):
+    def test_facr_embeds_cropped_7990_and_8666_figures(self):
+        from io import BytesIO
+
+        from PIL import Image
+
         proc = compile_bay_procedure(
             concern="FACR08 freeze up interior leak condensate",
             brand="Furrion",
             model="FACR08",
             category="Air Conditioning",
         )
-        self.assertGreaterEqual(len(proc.figures), 2)
+        self.assertEqual(len(proc.figures), 2)
         titles = " ".join((f.title or "") for f in proc.figures).lower()
         self.assertIn("ccd-0007990", titles)
         self.assertIn("ccd-0008666", titles)
         pages = {f.page for f in proc.figures}
-        self.assertTrue(7 in pages or 4 in pages)
+        self.assertIn(7, pages)
         self.assertIn(10, pages)
+        self.assertNotIn(4, pages)
         self.assertNotEqual(proc.figures[0].image_png, _seed_figure_png("facr"))
-        self.assertEqual(proc.figures[0].image_png, load_oem_figure_png("ccd7990-p7.png"))
+        self.assertNotEqual(proc.figures[0].image_png, load_oem_figure_png("ccd7990-p7.png"))
+        for fig in proc.figures:
+            image = Image.open(BytesIO(fig.image_png))
+            self.assertLess(image.size[1], 900, fig.caption)
 
 
 class TestNewConcernsInheritStandard(unittest.TestCase):
