@@ -282,12 +282,24 @@ class TestKnownCaseTechText(unittest.TestCase):
             ],
         )
         excerpt = proc.sources[0]["excerpt"]
-        prose, _sep, quoted = excerpt.partition("📖 Source:")
-        _assert_no_channel(self, prose, "excerpt prose")
-        self.assertIn("control channel", quoted)
+        # Source polish keeps the whole sentence and drops the marker line.
+        # The shop pass then rewrites the unmarked sentence.
+        self.assertEqual(excerpt, "Check the control wire before the swap.")
+        _assert_no_channel(self, excerpt, "compiled excerpt")
         self.assertEqual(proc.sources[0]["title"], "Shop service excerpt")
+        proc.sources[0]["excerpt"] = (
+            "Check the control channel before the swap.\n"
+            "📖 Source: OEM book - page 4\n"
+            '"leave the control channel quote"'
+        )
         again = apply_shop_channel_wording(proc)
-        self.assertEqual(again.sources[0]["excerpt"], excerpt)
+        kept = again.sources[0]["excerpt"]
+        prose, _sep, quoted = kept.partition("📖 Source:")
+        _assert_no_channel(self, prose, "excerpt prose")
+        self.assertIn("control wire", prose)
+        self.assertIn("control channel", quoted)
+        twice = apply_shop_channel_wording(again)
+        self.assertEqual(twice.sources[0]["excerpt"], kept)
 
 
 class TestPromptAndTemplateGrep(unittest.TestCase):
