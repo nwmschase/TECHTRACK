@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.5
+RV TechTrack v4.19.6
+- v4.19.6: Bay sheets use the same correction as Guided Diagnostics (1-month cooling-unit close, ceiling thermostat 3311071, Ground Control zero-point, FACT12 freeze-sensor resecure, petit tube before the control board, full jack R&R, thermocouple tip). Captions match the figure, generated sketches are not OEM pages, and snippets are not cut mid-word
 - v4.19.5: The Send path rewrites a B57915 turns-on / will-not-blow-cold reply after the model returns, from the raw complaint. A cached coach that still requires the word fan is reloaded.
 - v4.19.4: Dometic B57915 that turns on and will not blow cold opens turn 1 on diagnostic manual 3311071: confirm the fan runs, then the Peacemaker bypass. A stated running fan still starts at the Peacemaker bypass.
 - v4.19.3: Ground Control 343633 gives the Electric Leveling zero-point sequence once (manual level, FRONT five times, REAR five times, ENTER) and does not swap a sensor. Dometic B57915 fan-runs/no-cold opens on diagnostic manual 3311071 with the Peacemaker and ceiling-selector bypass. A library-coverage sentence is said at most once.
@@ -97,7 +98,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.5``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.6``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")

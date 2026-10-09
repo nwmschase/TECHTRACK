@@ -658,17 +658,21 @@ FURRION FCR / ARCTIC FRIDGE ICE AND MOISTURE PRODUCT LOCK (CCD-0008122 p.36 / Fi
 - Cite the real page and figure: 📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36). Never invent a "Fuse location" title with no page.
 - Never invent other OEM steps or page numbers. Use the Ice and Moisture excerpt actually retrieved.
 """
+ICE_MONTH_CLOSE = (
+    "If ice or moisture persists after drying and waiting 1 month, replace the unit."
+)
 ICE_MOISTURE_SHOP_LINE = (
     "CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). "
     "Rear/back-wall ice or frost (including half from the top) is a moisture path, "
     "not a no-power fuse / 12V inverter tree. Next from that section: note the frost "
     "pattern, then check whether the dial is at max, then the door gasket, then verify "
     "cooling — watch/replace only from that Ice and Moisture page. "
-    "If ice or moisture persists after drying and waiting 1 month, replace the unit. "
-    "Do not open the "
-    "15A fuse / 12V inverter path unless the complaint is no power / dead / won't run "
-    "/ no light.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36"
+    + ICE_MONTH_CLOSE
+    + (
+        " Do not open the 15A fuse / 12V inverter path unless the complaint is no power "
+        "/ dead / won't run / no light.\n"
+        "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36"
+    )
 )
 FRIDGE_NO_POWER_RE = re.compile(
     r"\b("
@@ -2645,6 +2649,48 @@ def is_dometic_b57915_nocoool_context(
     return bool(_DOMETIC_NOCOOL_COMPLAINT_RE.search(blob))
 
 
+def is_dometic_ceiling_sheet_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Bay sheet for B57915 no-cool. An E-code filter job stays off 3311071."""
+    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+        return False
+    if is_coleman_2111_context(category_name, model_text, symptom):
+        return False
+    if is_dometic_b57915_nocoool_context(category_name, model_text, symptom):
+        return True
+    blob = _blob(category_name, model_text, symptom)
+    if "b57915" not in blob and "3311071" not in blob:
+        return False
+    if re.search(r"\be\s*\d\b", blob):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:no|not|isn'?t|isnt)\s+(?:cold|cool|cooling)\b|"
+            r"\bwon'?t\s+cool\b|\bwont\s+cool\b|\bno\s+cooling\b",
+            blob,
+        )
+    )
+
+
+def is_fact12_freeze_code_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """FACT12 E2 or E3. Fridge FCR E2 and FACR freeze jobs are different paths."""
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        return False
+    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if not re.search(r"fact\s*12", blob):
+        return False
+    return bool(re.search(r"\be\s*[23]\b", blob))
+
+
 def page_is_ground_control_family(identity: str) -> bool:
     """Electric Leveling / Ground Control pages. A 'not Ground Control' aside does not count."""
     t = identity or ""
@@ -2788,6 +2834,19 @@ COOKTOP_TIP_LOW_REPAIR = (
     "Reposition the thermocouple tip in the burner flame with the pan on. "
     "That is the repair.\n"
     "📖 Source: Suburban Range/Cooktops SM"
+)
+# Shared with the Bay PDF. FACT12 E2/E3 is a freeze-sensor reseat, not a board swap.
+FACT12_FREEZE_RESECURE_LINE = (
+    "Resecure the freeze sensor on the evaporator coil. "
+    "That is the FACT12 E2 or E3 correction. "
+    "Do not replace the control board first.\n"
+    "📖 Source: Furrion FACT rooftop freeze-sensor check"
+)
+# Shared with the Bay PDF. Align the petit tube before any control-board talk.
+GIRARD_PETIT_ALIGN_LINE = (
+    "Align the petit tube in the burner flame first and retest. "
+    "Do not replace the control board before the petit tube is aligned.\n"
+    "📖 Source: Girard tankless water heater service manual"
 )
 _LIBRARY_NO_STEPS_RE = re.compile(
     r"("
@@ -3511,6 +3570,18 @@ def is_water_heater_context(
     return False
 
 
+def is_girard_petit_tube_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Girard GSWH-2 E8. Align the petit tube before a control board."""
+    if not is_water_heater_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    return bool(re.search(r"\be\s*8\b", blob) or "petit tube" in blob or "petit-tube" in blob)
+
+
 def tech_asks_unity_for_water_heater(
     category_name: str = "",
     model_text: str = "",
@@ -4048,6 +4119,19 @@ def is_cooktop_pan_on_flameout_context(
         return False
     blob = _blob(category_name, model_text, symptom)
     return _has_pan_on_flameout_marker(blob)
+
+
+def is_cooktop_tip_sheet_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Pan-on flameout or a thermocouple tip that sits low. Reposition the tip."""
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return True
+    if not is_cooktop_range_context(category_name, model_text, symptom):
+        return False
+    return cooktop_tip_sits_low(_blob(category_name, model_text, symptom))
 
 
 def cooktop_search_symptom(category_name: str, model_text: str, symptom: str) -> str:

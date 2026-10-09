@@ -182,7 +182,7 @@ class TestGenericDecisionSteps(unittest.TestCase):
         proc = compile_bay_procedure(
             concern="Rooftop air conditioner will not cool.",
             brand="Dometic",
-            model="B57915",
+            model="Penguin II",
             category="Air Conditioning",
             chunks=[
                 {
