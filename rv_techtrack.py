@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.4
+RV TechTrack v4.19.5
+- v4.19.5: The Send path rewrites a B57915 turns-on / will-not-blow-cold reply after the model returns, from the raw complaint. A cached coach that still requires the word fan is reloaded.
 - v4.19.4: Dometic B57915 that turns on and will not blow cold opens turn 1 on diagnostic manual 3311071: confirm the fan runs, then the Peacemaker bypass. A stated running fan still starts at the Peacemaker bypass.
 - v4.19.3: Ground Control 343633 gives the Electric Leveling zero-point sequence once (manual level, FRONT five times, REAR five times, ENTER) and does not swap a sensor. Dometic B57915 fan-runs/no-cold opens on diagnostic manual 3311071 with the Peacemaker and ceiling-selector bypass. A library-coverage sentence is said at most once.
 - v4.19.2: Bay sheets stay within 3 pages. Figures are the cited crop (1-2 per sheet), not a full manual page or a blank "Cited library figure" page. Generic steps are whole sentences, snippets drop OCR splits and parts-list dumps, the model line keeps the typed string, and a FACT12 file that is actually the FACR08 8K book is not cited as the FACT12 manual
@@ -96,7 +97,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.4``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.5``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -164,6 +165,8 @@ _GDC_STALE_GUARD_ATTRS = (
     "filter_chunks_for_unit",
     "ensure_ground_control_level_path",
     "ensure_dometic_ceiling_thermostat",
+    "DOMETIC_NOCOOL_CONFIRM_FAN",
+    "COACH_REVISION",
     "ensure_furnace_wall_thermostat",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
@@ -173,6 +176,9 @@ _GDC_STALE_GUARD_ATTRS = (
     "gd_category_select_options",
     "library_category_picker_names",
 )
+# Must match gd_library_coach.COACH_REVISION. A cached coach with an older
+# revision is dropped even when every older attribute name is still present.
+_GDC_REQUIRED_REVISION = "v4.19.5"
 
 
 def _load_gd_library_coach():
@@ -198,7 +204,11 @@ def _load_gd_library_coach():
     if root not in sys.path:
         sys.path.insert(0, root)
     cached = sys.modules.get("gd_library_coach")
-    if cached is not None and not all(hasattr(cached, name) for name in _GDC_STALE_GUARD_ATTRS):
+    revision = getattr(cached, "COACH_REVISION", "") if cached is not None else ""
+    if cached is not None and (
+        revision != _GDC_REQUIRED_REVISION
+        or not all(hasattr(cached, name) for name in _GDC_STALE_GUARD_ATTRS)
+    ):
         sys.modules.pop("gd_library_coach", None)
         cached = None
     if cached is not None:
@@ -4403,6 +4413,12 @@ def guided_diagnostics_reply(
         unity_gate=unity_gate,
         extra_system_rule=extra,
     )
+    # Last step on the Send path. Retrieval chunks and the model reply cannot
+    # skip this: the raw complaint is the trigger, not the boosted search string.
+    if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, user_msg):
+        reply = _gdc.ensure_dometic_ceiling_thermostat(
+            reply, _gdc.dometic_bypass_facts(history, user_msg), history
+        )
     return rewrite_shop_channel_words(reply), None
 
 
@@ -4774,7 +4790,12 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "Do not open later turns with it again, and do not swap a level sensor or replace a harness.\n"
             + _gdc.GROUND_CONTROL_LEVEL_LINE
         )
-    if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, search_symptom):
+    dometic_turn = _gdc.is_dometic_b57915_nocoool_context(
+        category_name, model_text, user_msg
+    ) or _gdc.is_dometic_b57915_nocoool_context(
+        category_name, model_text, search_symptom
+    )
+    if dometic_turn:
         system_prompt += (
             "\n\nDOMETIC B57915 TURNS ON / NO COLD: turn 1 is diagnostic manual 3311071. "
             "If the fan has not been confirmed, confirm the fan runs, then the Peacemaker bypass. "
@@ -4895,7 +4916,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply = ensure_cooktop_tip_pan_check(reply, f"{search_symptom} {user_msg}", history)
     if _gdc.is_ground_control_context(category_name, model_text, search_symptom):
         reply = _gdc.ensure_ground_control_level_path(reply, history)
-    if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, search_symptom):
+    if dometic_turn:
         reply = _gdc.ensure_dometic_ceiling_thermostat(
             reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
@@ -4943,6 +4964,11 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         except Exception:
             pass
     reply = _gdc.limit_library_miss_mentions(reply, history)
+    # A re-ask retry can replace the guard with another model draft. Put it back.
+    if dometic_turn:
+        reply = _gdc.ensure_dometic_ceiling_thermostat(
+            reply, _gdc.dometic_bypass_facts(history, user_msg), history
+        )
     record_cited_pages(reply)
     if wants_library_page_shown(user_msg):
         reply += (

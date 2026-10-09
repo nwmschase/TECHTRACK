@@ -15,6 +15,9 @@ import re
 
 # Product path: hard tree is never exclusive GD chat.
 HARD_TREE_EXCLUSIVE_CHAT = False
+# Bump when coach behavior changes without a new public name. rv_techtrack
+# reloads a cached module whose revision does not match.
+COACH_REVISION = "v4.19.5"
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
 # Match live library labels — do not invent OEM manuals here.
@@ -2794,7 +2797,8 @@ _LIBRARY_NO_STEPS_RE = re.compile(
     r"no (?:procedure|steps).{0,30}(?:library|manual)|"
     r"library (?:does not|doesn't|doesnt) cover|"
     r"(?:manual|excerpt|document library) (?:does not|doesn't|doesnt) cover|"
-    r"not covered by (?:the |this )?(?:library|manual|excerpt)"
+    r"not covered by (?:the |this )?(?:library|manual|excerpt)|"
+    r"no diagnostic steps"
     r")",
     re.I,
 )

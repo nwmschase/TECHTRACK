@@ -1,5 +1,6 @@
 """grok-4.3 Guided Diagnostics regressions: retrieval gaps and two partials."""
 import unittest
+from pathlib import Path
 
 from bay_procedure import bay_brand_retrieval, rank_bay_chunks
 from gd_library_coach import (
@@ -309,6 +310,50 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
             history=[{"role": "assistant", "content": turn1}],
         )
         self.assertEqual(restart, DOMETIC_NOCOOL_CONFIRM_FAN)
+        live = (
+            "The shop Document Library excerpts for the B57915 Brisk II cover "
+            "install, wiring, dimensions, and basic filter cleaning only. "
+            'No diagnostic steps for "turns on but no cold air" are in those pages. '
+            "Does the fan run at all, and have you checked the return air filter?"
+        )
+        from gd_library_coach import claims_library_missing_steps
+
+        self.assertTrue(claims_library_missing_steps(live))
+
+    def test_send_path_rewrites_the_live_turn1_reply(self):
+        """Same function the Send button calls, with the live grok-4.3 draft."""
+        src = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
+        cut = src.split("# ---------------- LOGIN ----------------", 1)[0]
+        ns = {
+            "__name__": "rv_techtrack_send_path",
+            "__file__": str(Path(__file__).resolve().parents[1] / "rv_techtrack.py"),
+        }
+        exec(compile(cut, "rv_techtrack.py", "exec"), ns)
+        live = (
+            "The shop Document Library excerpts for the B57915 Brisk II cover "
+            "install, wiring, dimensions, and basic filter cleaning only. "
+            'No diagnostic steps for "turns on but no cold air" are in those pages. '
+            "Does the fan run at all, and have you checked the return air filter?"
+        )
+        ns["ai_available"] = lambda: True
+        ns["ai_chat"] = lambda *args, **kwargs: live
+        complaint = "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold."
+        reply, flow = ns["guided_diagnostics_reply"](
+            complaint,
+            "Air Conditioning",
+            "B57915E711J0EMX",
+            [],
+            unity_gate="Not sure",
+        )
+        self.assertIsNone(flow)
+        self.assertEqual(reply, DOMETIC_NOCOOL_CONFIRM_FAN)
+        low = reply.lower()
+        self.assertIn("confirm the fan runs", low)
+        self.assertIn("peacemaker", low)
+        self.assertIn("3311071", reply)
+        self.assertNotIn("return air filter", low)
+        self.assertNotIn("no diagnostic steps", low)
+        self.assertNotIn("channel", low)
 
 
 class TestFurnaceWallThermostat(unittest.TestCase):
