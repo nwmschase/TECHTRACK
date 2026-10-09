@@ -119,7 +119,8 @@ class TestBalTongueCoach(unittest.TestCase):
             fixed = ensure_bal_tongue_only_path(bad, facts)
             low = fixed.lower()
             self.assertIn(BAL_TONGUE_PART, fixed)
-            self.assertIn("tongue channel", low)
+            self.assertIn("tongue jack output wire", low)
+            self.assertNotRegex(low, r"\bchannels?\b")
             self.assertIn("pigtail", low)
             self.assertIn("ins.sta.001", low)
             self.assertFalse(reply_leads_with_bal_banned_primary(fixed), fixed[:240])
@@ -147,7 +148,8 @@ class TestBalTongueCoach(unittest.TestCase):
         low = fixed.lower()
         self.assertIn("pigtail", low)
         self.assertIn("repair", low)
-        self.assertIn("tongue channel", low)
+        self.assertIn("tongue jack output wire", low)
+        self.assertNotRegex(low, r"\bchannels?\b")
         self.assertLess(low.find("pigtail"), low.find("coupler"))
 
     def test_override_wont_turn_keeps_coupler_and_not_fuse(self):
@@ -187,7 +189,8 @@ class TestBalTongueBayAndRank(unittest.TestCase):
         low = text.lower()
         self.assertIn("20300427", text)
         self.assertIn("ins.sta.001", low)
-        self.assertIn("tongue channel", low)
+        self.assertIn("tongue jack output wire", low)
+        self.assertNotRegex(low, r"\bchannels?\b")
         self.assertIn("pigtail", low)
         self.assertIn("12v", low)
         order = " ".join(proc.bay_order)
@@ -197,10 +200,11 @@ class TestBalTongueBayAndRank(unittest.TestCase):
         self.assertNotIn("shear", proc.bay_order[0].lower())
         self.assertNotIn("harness", proc.bay_order[0].lower())
         self.assertLess(order.lower().find("20300427"), order.lower().find("coupler"))
-        self.assertLess(order.lower().find("tongue channel"), order.lower().find("coupler"))
+        self.assertLess(order.lower().find("output wire"), order.lower().find("coupler"))
         flow = " ".join(node.text for node in proc.flowchart.nodes).lower()
         self.assertIn("20300427", flow)
-        self.assertIn("tongue channel", flow)
+        self.assertIn("output wire", flow)
+        self.assertNotRegex(flow, r"\bchannels?\b")
         self.assertIn("pigtail", flow)
         self.assertNotIn("coupler", flow)
         self.assertNotIn("fuse", flow)
@@ -215,7 +219,8 @@ class TestBalTongueBayAndRank(unittest.TestCase):
         pdf_low = _pdf_text(render_bay_procedure_pdf(proc)).lower()
         if pdf_low:
             self.assertIn("20300427", pdf_low)
-            self.assertIn("tongue channel", pdf_low)
+            self.assertIn("output wire", pdf_low)
+            self.assertNotRegex(pdf_low, r"\bchannels?\b")
             # The concern header quotes the customer ("Coupler OK"). Under the chart,
             # the panel part still appears before any coupler instruction.
             procedure = pdf_low.split("visual flowchart", 1)[-1]
