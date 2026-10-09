@@ -1,5 +1,5 @@
 """
-RV TechTrack v4.18.1
+RV TechTrack v4.18.2
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
 - Certificate Hub
@@ -61,6 +61,7 @@ RV TechTrack v4.18.1
 - v4.14.0: Bay procedure PDF replaces Diagnostic Jobs as the printable plan UI (GD chat stays)
 - v4.14.1: FCR08/FCR10 dial OFF + compressor running jumps to thermostat C/T prove (part 2021128850), not fuse/12V; GD retries a 413 with a smaller payload
 - v4.15.0: Bay procedure PDF is a human bay sheet — drawn yes/no flowchart, punch list, small 3C footer
+- v4.18.2: Generic bay sheets turn cited manual text into yes/no steps and end at a confirmed correction. OCR headers, footers, and duplicated words are stripped from the bay order and from SOURCES. A furnace job jumps R/W at the furnace, then proves the sail switch. Furrion FCR E2 follows Fan Fault Diagnostics and ends at the inverter PCB and fan. The MODEL line no longer repeats the brand.
 - v4.18.1: Bay procedure PDF keeps a known brand on its own manuals. Coleman-Mach 2111-0001 cites the Coleman rooftop books (12VDC wall-thermostat SM, 1976-536 and 1976-603, Peacemaker, 1976-695) and ends at fan motor plus control board only. If that brand has no manual, the sheet says so instead of citing another brand
 - v4.18.0: Guided Diagnostics, warranty story, and data-plate photos call xAI first (grok-4.6); Groq is the automatic fallback when the primary key is missing or the provider returns 401/403, 429, 5xx, timeout, or a transport error
 - v4.17.0: FACR08 freeze/leak climax is an authorization card for rooftop assembly R&R (CCD-0007990), never a library-miss R&R refusal or a compressor/DC-bus detour; Coleman-Mach 2111-0001 authorizes fan motor and control board only when Fan High is dead, the Peacemaker fan is locked, and the run cap is good
@@ -88,7 +89,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.18.1``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.18.2``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")

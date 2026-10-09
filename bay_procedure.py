@@ -58,12 +58,14 @@ from gd_library_coach import (
     cooktop_search_symptom,
     bal_tongue_search_symptom,
     dial_off_run_search_symptom,
+    fcr_e2_search_symptom,
     ice_moisture_search_symptom,
     is_air_conditioning_context,
     is_coleman_2111_context,
     is_coleman_library_text,
     is_bal_soft_touch_tongue_only_context,
     is_cooktop_pan_on_flameout_context,
+    is_cooktop_range_context,
     is_facr_rooftop_freeze_context,
     is_fcr_dial_off_compressor_run_context,
     is_fcr_e2_fan_fault_context,
@@ -454,8 +456,7 @@ class BayProcedure:
     def model_line(self) -> str:
         if (self.display_model or "").strip():
             return self.display_model.strip()
-        parts = [p for p in (self.brand.strip(), self.model.strip()) if p]
-        return " ".join(parts) or "—"
+        return join_brand_model(self.brand, self.model) or "—"
 
 
 # ---------------------------------------------------------------------------
@@ -1441,6 +1442,459 @@ def _no_brand_match_path(brand: str = "", model: str = "") -> dict:
     }
 
 
+_OCR_HEADER_RE = re.compile(
+    r"\brev\s*:\s*\d{1,2}[./]\d{1,2}[./]\d{2,4}\b"
+    r"|\bpage\s+\d{1,3}\b"
+    r"|\btime\s+line\s+description\b"
+    r"|\bsequence\s+of\s+operation\b"
+    r"|\bfor\s+\d+\s*vac\s+fan\s+control\s+module\s+board\b"
+    r"|\bpart\s+number\s+\d+\b"
+    r"|\bstart\s+time\b"
+    r"|\bthermostat\s+calls\s+for\s+heat\b",
+    re.I,
+)
+_SHORT_WORD_KEEP = {
+    "a", "an", "the", "if", "to", "of", "or", "on", "in", "at", "is", "it",
+    "no", "yes", "do", "be", "by", "as", "for", "and", "not", "but", "then",
+    "when", "with", "from", "into", "over", "both", "open", "fan", "gas",
+    "air", "heat", "this", "that", "after", "before",
+}
+_ACTION_RE = re.compile(
+    r"\b(inspect|check|measure|replace|verify|bypass|jumper|reset|connect|"
+    r"record|prove|retest|locate|clear|clean|test)\b",
+    re.I,
+)
+
+
+def _split_sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.!?])\s+", text or "")
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _collapse_repeated_phrases(text: str) -> str:
+    """Drop an OCR phrase that was printed twice in a row, and doubled words."""
+    words = (text or "").split()
+    if len(words) < 2:
+        return " ".join(words)
+    guard = 0
+    changed = True
+    while changed and guard < 6:
+        guard += 1
+        changed = False
+        upper = min(8, len(words) // 2)
+        for n in range(upper, 1, -1):
+            i = 0
+            out = []
+            while i < len(words):
+                nxt = words[i : i + n]
+                fol = words[i + n : i + 2 * n]
+                if len(fol) == n and [w.lower() for w in nxt] == [w.lower() for w in fol]:
+                    out.extend(nxt)
+                    i += 2 * n
+                    changed = True
+                else:
+                    out.append(words[i])
+                    i += 1
+            words = out
+    deduped = []
+    for word in words:
+        if deduped and deduped[-1].lower() == word.lower():
+            continue
+        deduped.append(word)
+    return " ".join(deduped)
+
+
+def _drop_leading_ocr_stub(text: str) -> str:
+    """Drop a 1–3 letter scrap left when a column wrapped ('s Purge', 'e issue')."""
+    words = (text or "").split()
+    while len(words) >= 2:
+        head = words[0]
+        if re.fullmatch(r"[A-Za-z]{1,3}", head) and head.lower() not in _SHORT_WORD_KEEP:
+            words.pop(0)
+            continue
+        break
+    return " ".join(words)
+
+
+def clean_ocr_prose(text: str) -> str:
+    """Strip manual headers, footers, and duplicated OCR from a library excerpt."""
+    out = re.sub(r"\s+", " ", text or "").strip()
+    out = _OCR_HEADER_RE.sub(" ", out)
+    out = _collapse_repeated_phrases(out)
+    out = _drop_leading_ocr_stub(out)
+    out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
+    return out
+
+
+def _is_header_residue(text: str) -> bool:
+    t = (text or "").strip()
+    if len(t) < 25:
+        return True
+    letters = re.sub(r"[^A-Za-z]", "", t)
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.6 and len(t) < 90:
+        return True
+    return False
+
+
+def _is_decision_sentence(text: str) -> bool:
+    raw = text or ""
+    low = raw.lower()
+    if low.startswith("do not") or low.startswith("don't"):
+        return False
+    if "?" in raw or re.search(r"\bif\b", low):
+        return True
+    return bool(re.search(r"\b(yes|no)\b", low) and _ACTION_RE.search(raw))
+
+
+def _is_actionable_sentence(text: str) -> bool:
+    low = (text or "").lower()
+    if low.startswith("do not") or low.startswith("don't"):
+        return False
+    return bool(_ACTION_RE.search(text or ""))
+
+
+def clean_source_excerpt(text: str) -> str:
+    """SOURCES line: a short cleaned sentence, never the OCR header block."""
+    cleaned = clean_ocr_prose(text)
+    kept = []
+    for sentence in _split_sentences(cleaned):
+        if _is_header_residue(sentence):
+            continue
+        if OPEN_THE_MANUAL_RE.search(sentence) or POWER_LOOKS_SANE_RE.search(sentence):
+            continue
+        kept.append(sentence)
+        if len(kept) >= 2:
+            break
+    if not kept:
+        return ""
+    out = " ".join(kept)
+    if len(out) > 280:
+        out = out[:277].rstrip() + "..."
+    return _as_sentence(out)
+
+
+def _steps_from_ranked(pages) -> list[str]:
+    """Yes/no and check sentences from the cited pages. Timeline headers are not steps."""
+    pieces = []
+    seen = set()
+    for d in pages or []:
+        cleaned = clean_ocr_prose(chunk_as_dict(d).get("excerpt") or "")
+        for sentence in _split_sentences(cleaned):
+            if _is_header_residue(sentence):
+                continue
+            if (
+                OPEN_THE_MANUAL_RE.search(sentence)
+                or POWER_LOOKS_SANE_RE.search(sentence)
+                or NETWORK_PLUGS_RE.search(sentence)
+            ):
+                continue
+            if not (_is_decision_sentence(sentence) or _is_actionable_sentence(sentence)):
+                continue
+            key = re.sub(r"\s+", " ", sentence.lower())[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            pieces.append(sentence)
+    return pieces
+
+
+def _is_furnace_bay(category: str = "", model_text: str = "", concern: str = "") -> bool:
+    """Furnace jobs use the thermostat-jumper prove. Cooktops do not."""
+    if is_cooktop_pan_on_flameout_context(category, model_text, concern):
+        return False
+    if is_cooktop_range_context(category, model_text, concern):
+        return False
+    blob = f"{category or ''} {model_text or ''} {concern or ''}".lower()
+    return "furnace" in blob
+
+
+def _fitted_cite(ranked, needles, fallback: str) -> str:
+    """Primary line stays inside the header. Prefer the prove page, then the latest page."""
+    hits = []
+    for d in ranked or []:
+        title = (d.get("title") or "").strip()
+        blob = f"{title} {d.get('excerpt') or ''}".lower()
+        if needles and not any(n in blob for n in needles):
+            continue
+        if title:
+            hits.append(d)
+    prefer = ("fan fault", "bypass", "jumper", "sail switch")
+    preferred = [
+        d
+        for d in hits
+        if any(k in f"{d.get('title') or ''} {d.get('excerpt') or ''}".lower() for k in prefer)
+    ]
+    pool = preferred or hits
+    if pool:
+        d = max(pool, key=lambda row: _page_int(row.get("page")) or 0)
+        title = (d.get("title") or "").strip()
+        page = _page_int(d.get("page"))
+        page_bit = f" page {page}" if page else ""
+        cite = f"{title}{page_bit}"
+        if len(cite) <= 91:
+            return _as_sentence(cite)
+        short = fallback.rstrip(".")
+        if page and f"page {page}" not in short.lower():
+            short = f"{short} page {page}"
+        return _as_sentence(_clip(short, 91))
+    return _as_sentence(_clip(fallback, 91))
+
+
+def _topic_figures(ranked, title: str, caption: str, excerpt: str) -> list[BayFigure]:
+    library = pick_cited_figures(ranked)
+    seed = _seed_path_figure("generic")
+    seed.title = title
+    seed.caption = caption
+    seed.excerpt = excerpt
+    if any(fig.image_png for fig in library):
+        return library
+    if library:
+        library[0].image_png = seed.image_png
+        library[0].caption = library[0].caption or caption
+        library[0].title = library[0].title or title
+        return library
+    return [seed]
+
+
+def _furnace_path(ranked) -> dict:
+    """Same climax GD uses: jumper R/W at the furnace, then the sail switch."""
+    return {
+        "primary_cite": _fitted_cite(
+            ranked,
+            ("furnace", "thermostat", "sail"),
+            "Suburban furnace service manual, thermostat bypass",
+        ),
+        "pattern_means": (
+            "The fan turns on and then shuts off, and the furnace will not blow warm. "
+            "Prove the wall thermostat first by jumping R/W at the furnace. A furnace "
+            "that runs on that jumper needs a wall thermostat. A furnace that does not "
+            "run on that jumper needs a sail-switch prove."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "The fan turns on, then shuts off. No warm air.",
+                    0.50,
+                    0.09,
+                    w=420,
+                    h=70,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Furnace dead with\nR and W jumped?",
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Remove the jumper.\nProve the sail switch.",
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Replace the wall\nthermostat.",
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Sail switch passes\npower out?",
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "Sail passed. That is the\nconfirmed correction.",
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Sail is not closed.\nProve airflow first.",
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Bypass the wall thermostat at the furnace. Jumper R/W at the furnace "
+                "thermostat terminals so the coach thermostat and its wiring are out of "
+                "the path. If the furnace runs on that jumper, the fault is the wall "
+                "thermostat or its wiring: replace the wall thermostat. That is the "
+                "confirmed correction."
+            ),
+            (
+                "If the furnace does not run with R/W jumped, remove the jumper and prove "
+                "the sail switch. With the blower running, power in and no power out means "
+                "the sail is not closed: prove airflow and the sail before the board. If "
+                "power in and power out are both present, the sail passed: go to the limit check."
+            ),
+            (
+                "After the sail switch passes and the furnace still will not blow warm, "
+                "check the limit switch and then the module board from the cited furnace "
+                "pages. If heat returns, that is the confirmed correction."
+            ),
+        ],
+        "do_not": [
+            "Do not condemn the module board before the wall thermostat is jumped at the furnace.",
+            "Do not leave the sail switch jumped.",
+        ],
+        "sources": [],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _e2_fan_path(ranked) -> dict:
+    """CCD-0008122 Fan Fault diamond: 12V at F+ and F-, then inverter PCB and fan."""
+    return {
+        "primary_cite": _fitted_cite(
+            ranked,
+            ("fan fault", "inverter", "f+", "f-"),
+            "Furrion fridge service manual, Fan Fault Diagnostics, page 27",
+        ),
+        "pattern_means": (
+            "An E2 or fan-fault code on this fridge is the fan-fault diagnostics path. "
+            "Measure about 12V at F+ and F- on the inverter PCB. No voltage means replace "
+            "the inverter PCB. Voltage present with the error still on after the connection "
+            "check means replace the inverter PCB and the fan."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "E2 or fan fault on this fridge.",
+                    0.50,
+                    0.09,
+                    w=420,
+                    h=70,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Nominal 12V at\nF+ and F-?",
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Check fan connections,\nthen reset power.",
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Replace the inverter PCB.",
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Did the error\ngo away?",
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "That is the confirmed\ncorrection.",
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Replace the inverter\nPCB and the fan.",
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Connect power and locate the inverter PCB. Measure voltage at the F+ and "
+                "F- terminals. Is the nominal voltage about 12V? If no, replace the inverter "
+                "PCB. That is the confirmed correction for a dead fan-voltage reading. If yes, "
+                "go to the connection check."
+            ),
+            (
+                "Check the fan connection at the inverter PCB F+ and F- terminals and the fan "
+                "quick connection. Reset power. Did the error code go away? If yes, that is "
+                "the confirmed correction."
+            ),
+            (
+                "If the error remains after the connections are checked and power is reset, "
+                "replace the inverter PCB and the fan. That is the confirmed correction."
+            ),
+        ],
+        "do_not": [
+            "Do not treat this E2 as a rooftop air-conditioner code.",
+            "Do not replace only the board when fan voltage is present and the error remains.",
+        ],
+        "sources": [],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = [e for e in excerpts if e and len(e) >= 20][:MAX_BAY_ORDER]
@@ -1488,7 +1942,8 @@ def _generic_pattern_means(concern: str, *, long_path: bool) -> str:
 def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchart:
     """OEM yes/no spine for any new concern — not a linear bot list."""
     start = _as_sentence(_clip(concern or "Customer concern", 88))
-    first = _clip((steps[0] if steps else "Do the first cited check."), 78)
+    raw_first = (steps[0] if steps else "") or "Do the first cited check."
+    first = _clip(clean_ocr_prose(raw_first.split(". ")[0]), 70)
     if first and first[-1] not in ".!?":
         first += "."
     return Flowchart(
@@ -1516,8 +1971,25 @@ def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchar
 # ---------------------------------------------------------------------------
 # Library helpers (same stack GD chat uses)
 # ---------------------------------------------------------------------------
+def join_brand_model(brand: str = "", model: str = "") -> str:
+    """One brand token. 'Suburban' plus 'Suburban NT-20SEQT' stays a single Suburban."""
+    brand = re.sub(r"\s+", " ", (brand or "").strip())
+    model = re.sub(r"\s+", " ", (model or "").strip())
+    if not brand:
+        return model
+    if not model:
+        return brand
+    rest = model
+    prefix = brand.lower() + " "
+    while rest.lower() == brand.lower() or rest.lower().startswith(prefix):
+        if rest.lower() == brand.lower():
+            return brand
+        rest = rest[len(brand) :].strip()
+    return f"{brand} {rest}" if rest else brand
+
+
 def model_text_from(brand: str = "", model: str = "") -> str:
-    return " ".join(p for p in ((brand or "").strip(), (model or "").strip()) if p)
+    return join_brand_model(brand, model)
 
 
 def chunk_as_dict(ch) -> dict:
@@ -1578,6 +2050,10 @@ def rewrite_bay_search_symptom(
         if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
             if FACR_FREEZE_SEARCH_BOOST not in symptom:
                 symptom = f"{symptom} {FACR_FREEZE_SEARCH_BOOST}".strip()
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        symptom = fcr_e2_search_symptom(category_name, model_text, symptom)
+    if _is_furnace_bay(category_name, model_text, symptom) and "thermostat bypass" not in symptom.lower():
+        symptom = f"{symptom} furnace sail switch thermostat bypass jumper".strip()
     symptom = water_heater_search_symptom(category_name, model_text, symptom)
     symptom = cooktop_search_symptom(category_name, model_text, symptom)
     symptom = bal_tongue_search_symptom(category_name, model_text, symptom)
@@ -1985,7 +2461,13 @@ def _unique_sources(chunks) -> list[dict]:
         if key in seen:
             continue
         seen.add(key)
-        out.append({"title": title, "page": page, "excerpt": (d.get("excerpt") or "")[:400]})
+        out.append(
+            {
+                "title": title,
+                "page": page,
+                "excerpt": clean_source_excerpt(d.get("excerpt") or ""),
+            }
+        )
     return out
 
 
@@ -2044,7 +2526,15 @@ def _lock_note(category_name: str, model_text: str, concern: str) -> list[str]:
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
         notes.append(
             "Furrion FCR E2 or Fan Fault Current is a freezer-fan and airflow path. "
+            "Measure F+ and F- on the inverter PCB, then replace the inverter PCB and "
+            "the fan when voltage is present and the error remains. "
             "It is not a rooftop air-conditioner code."
+        )
+    if _is_furnace_bay(category_name, model_text, concern):
+        notes.append(
+            "Bypass the wall thermostat at the furnace with a jumper on R and W. "
+            "If the furnace runs, replace the wall thermostat. If it does not run, "
+            "prove the sail switch."
         )
     if is_coleman_2111_context(category_name, model_text, concern):
         notes.append(
@@ -2184,6 +2674,8 @@ def compile_bay_procedure(
     facr = is_facr_rooftop_freeze_context(category, model_text, concern)
     bal_tongue = is_bal_soft_touch_tongue_only_context(category, model_text, concern)
     coleman = is_coleman_2111_context(category, model_text, concern)
+    furnace = _is_furnace_bay(category, model_text, concern)
+    e2_fan = is_fcr_e2_fan_fault_context(category, model_text, concern)
 
     path_kind = ""
     if dial_off:
@@ -2204,17 +2696,18 @@ def compile_bay_procedure(
     elif coleman:
         spec = _coleman_path()
         path_kind = "coleman"
+    elif e2_fan:
+        spec = _e2_fan_path(ranked)
+        path_kind = "e2"
+    elif furnace:
+        spec = _furnace_path(ranked)
+        path_kind = "furnace"
     elif brand_miss:
         spec = _no_brand_match_path(brand, model)
         path_kind = "brand_miss"
     else:
-        extra_steps = []
-        for d in ranked:
-            line = _excerpt_line(d)
-            if line:
-                extra_steps.append(line)
         long_path = is_long_appliance_path(category, concern)
-        bay_order = _generic_bay_order(extra_steps, long_path=long_path)
+        bay_order = _generic_bay_order(_steps_from_ranked(ranked), long_path=long_path)
         spec = {
             "primary_cite": _generic_primary_cite(ranked),
             "pattern_means": _generic_pattern_means(concern, long_path=long_path),
@@ -2242,6 +2735,8 @@ def compile_bay_procedure(
         )
     if ice and not any("ccd-0008122" in (s.get("title") or "").lower() for s in sources):
         sources.insert(0, spec["sources"][0])
+    for src in sources:
+        src["excerpt"] = clean_source_excerpt(src.get("excerpt") or "")
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -2266,6 +2761,20 @@ def compile_bay_procedure(
 
     if path_kind == "coleman":
         figs = _coleman_figures(ranked)
+    elif path_kind == "furnace":
+        figs = _topic_figures(
+            ranked,
+            "Suburban furnace service manual",
+            "Jumper R/W at the furnace, then prove the sail switch",
+            "If the furnace runs on the jumper, replace the wall thermostat.",
+        )
+    elif path_kind == "e2":
+        figs = _topic_figures(
+            ranked,
+            "Furrion fridge service manual",
+            "Fan Fault Diagnostics: F+ and F- on the inverter PCB",
+            "Replace the inverter PCB and the fan when the error remains.",
+        )
     elif path_kind == "brand_miss":
         figs = [_brand_miss_figure(brand, model)]
     elif path_kind:
