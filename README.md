@@ -20,6 +20,8 @@ Put these in Streamlit Cloud secrets (or the process environment). Names only - 
 
 Fallback covers a missing primary key, HTTP 401/403, 429, other request rejects except payload-too-large, 5xx, timeouts, and transport errors. HTTP 413 still shrinks the Guided Diagnostics payload and retries. A dead vision model id (HTTP 404) tries the next id on that provider, then the other provider.
 
+Each provider attempt waits at most 150 seconds and does not use the SDK's own retries (the OpenAI default is 10 minutes, twice). A stuck call falls through to the other provider. If both stall, the bay sees a message to send the same text again. The default model stays `grok-4.6`.
+
 `GD_LLM_PRIMARY=groq` flips the order without a code change. Groq is not removed.
 
 ## Other secrets

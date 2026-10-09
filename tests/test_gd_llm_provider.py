@@ -1,5 +1,6 @@
 """xAI primary, Groq fallback. Clients are mocks - no live network."""
 import os
+import time
 import unittest
 from pathlib import Path
 
@@ -359,6 +360,99 @@ class TestGdLlmProvider(unittest.TestCase):
         self.assertIn("openai/gpt-oss-120b", helper)
         self.assertIn("https://api.x.ai/v1", helper)
         self.assertIn('DEFAULT_XAI_MODEL = "grok-4.6"', helper)
+        self.assertIn("max_retries=0", helper)
+        self.assertIn("REQUEST_TIMEOUT_SEC = 150.0", helper)
+
+    def test_default_clients_bound_the_call_and_do_not_retry(self):
+        xai = gd_llm.default_client_factory(
+            "xai", api_key="test-key", base_url="https://api.x.ai/v1"
+        )
+        groq_client = gd_llm.default_client_factory(
+            "groq", api_key="test-key", base_url=""
+        )
+        self.assertEqual(xai.max_retries, 0)
+        self.assertEqual(groq_client.max_retries, 0)
+        self.assertEqual(xai.timeout.connect, gd_llm.CONNECT_TIMEOUT_SEC)
+        self.assertEqual(groq_client.timeout.connect, gd_llm.CONNECT_TIMEOUT_SEC)
+        self.assertEqual(xai.timeout.read, gd_llm.REQUEST_TIMEOUT_SEC)
+        self.assertEqual(groq_client.timeout.read, gd_llm.REQUEST_TIMEOUT_SEC)
+        self.assertEqual(gd_llm.DEFAULT_XAI_MODEL, "grok-4.6")
+
+    def _tight_deadline(self):
+        saved = (gd_llm.REQUEST_TIMEOUT_SEC, gd_llm.DEADLINE_SLACK_SEC)
+        gd_llm.REQUEST_TIMEOUT_SEC = 0.25
+        gd_llm.DEADLINE_SLACK_SEC = 0.05
+
+        def restore():
+            gd_llm.REQUEST_TIMEOUT_SEC, gd_llm.DEADLINE_SLACK_SEC = saved
+
+        self.addCleanup(restore)
+
+    def test_stuck_primary_falls_back_inside_the_deadline(self):
+        self._tight_deadline()
+        record = []
+
+        def factory(provider, *, api_key, base_url):
+            class Completions:
+                def create(self, **kwargs):
+                    record.append(provider)
+                    if provider == "xai":
+                        time.sleep(2)
+                    return _response("groq answered after the hang")
+
+            class Chat:
+                completions = Completions()
+
+            class Client:
+                chat = Chat()
+
+            return Client()
+
+        started = time.perf_counter()
+        text = gd_llm.complete_chat(
+            MESSAGES,
+            secret_fn=self._secrets(),
+            client_factory=factory,
+        )
+        elapsed = time.perf_counter() - started
+        self.assertEqual(text, "groq answered after the hang")
+        self.assertEqual(gd_llm.last_provider(), "groq")
+        self.assertEqual(record, ["xai", "groq"])
+        self.assertLess(elapsed, 1.5)
+
+    def test_both_providers_stuck_shows_retry_and_does_not_hang(self):
+        self._tight_deadline()
+
+        def factory(provider, *, api_key, base_url):
+            class Completions:
+                def create(self, **kwargs):
+                    time.sleep(2)
+                    return _response("too late")
+
+            class Chat:
+                completions = Completions()
+
+            class Client:
+                chat = Chat()
+
+            return Client()
+
+        started = time.perf_counter()
+        with self.assertRaises(gd_llm.LLMProviderError) as caught:
+            gd_llm.complete_chat(
+                MESSAGES,
+                secret_fn=self._secrets(),
+                client_factory=factory,
+            )
+        elapsed = time.perf_counter() - started
+        message = str(caught.exception)
+        self.assertIn("xAI:", message)
+        self.assertIn("Groq:", message)
+        self.assertIn("timed out", message.lower())
+        self.assertIn(gd_llm.TIMEOUT_RETRY_SENTENCE, message)
+        self.assertNotIn(XAI_KEY, message)
+        self.assertLess(elapsed, 1.5)
+        self.assertEqual(gd_llm.failure_action(gd_llm.LLMTimeoutError("timed out")), "switch_provider")
 
 
 if __name__ == "__main__":
