@@ -207,6 +207,43 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(
             loaded.skip_unity_for_water_heater("", "Girard GSWH-2", "water heater stopped working E8")
         )
+        self.assertEqual(loaded.COACH_REVISION, "v4.19.5")
+        self.assertTrue(
+            loaded.is_dometic_b57915_nocoool_context(
+                "Air Conditioning",
+                "B57915E711J0EMX",
+                "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold.",
+            )
+        )
+
+    def test_loader_reloads_when_revision_is_old_even_if_names_exist(self):
+        """v4.19.4 kept the v4.19.3 coach: every old name existed, so the fan-only detector stayed."""
+        src = (ROOT / "rv_techtrack.py").read_text()
+        start = src.index("_GDC_STALE_GUARD_ATTRS")
+        end = src.index("_gdc = _load_gd_library_coach()")
+        ns = {"__file__": str(ROOT / "rv_techtrack.py"), "Path": Path}
+        exec(compile(src[start:end], "attrs", "exec"), ns)
+        stale = types.ModuleType("gd_library_coach")
+        for name in ns["_GDC_STALE_GUARD_ATTRS"]:
+            setattr(stale, name, lambda *a, **k: False)
+        stale.COACH_REVISION = "v4.19.3"
+        stale.is_dometic_b57915_nocoool_context = lambda *a, **k: False
+        sys.modules["gd_library_coach"] = stale
+        self.addCleanup(lambda: sys.modules.pop("gd_library_coach", None))
+        exec(
+            compile(src[start:end] + "_gdc = _load_gd_library_coach()\n", "loader", "exec"),
+            ns,
+        )
+        loaded = ns["_gdc"]
+        self.assertEqual(loaded.COACH_REVISION, "v4.19.5")
+        self.assertIsNot(loaded, stale)
+        self.assertTrue(
+            loaded.is_dometic_b57915_nocoool_context(
+                "Air Conditioning",
+                "B57915E711J0EMX",
+                "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold.",
+            )
+        )
 
     def test_legacy_pr4_does_not_import_removed_hint(self):
         src = (ROOT / "rv_techtrackpr4").read_text()

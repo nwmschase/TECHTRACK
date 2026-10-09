@@ -15,6 +15,9 @@ import re
 
 # Product path: hard tree is never exclusive GD chat.
 HARD_TREE_EXCLUSIVE_CHAT = False
+# Bump when coach behavior changes without a new public name. rv_techtrack
+# reloads a cached module whose revision does not match.
+COACH_REVISION = "v4.19.5"
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
 # Match live library labels — do not invent OEM manuals here.
@@ -2595,28 +2598,55 @@ def is_ground_control_context(
     return False
 
 
+_DOMETIC_NOCOOL_COMPLAINT_RE = re.compile(
+    r"\b(?:no|not|isn'?t|isnt)\s+(?:cold|cool|cooling)\b|"
+    r"\bwon'?t\s+cool\b|\bwont\s+cool\b|\bno\s+cooling\b|"
+    r"\b(?:will not|won'?t|wont|does not|doesn'?t)\s+blow\s+cold\b|"
+    r"\bnot\s+blow\s+cold\b",
+    re.I,
+)
+_DOMETIC_NOCOOL_ON_RE = re.compile(
+    r"\bfan\b|"
+    r"\bturns?\s+on\b|"
+    r"\bpowered\s+on\b|"
+    r"\bpowers?\s+on\b|"
+    r"\bcomes?\s+on\b",
+    re.I,
+)
+
+
+def _dometic_complaint_blob(category_name: str, model_text: str, symptom: str) -> str:
+    """Tech words only. An AC search boost that says 'no cool' is not the complaint."""
+    cleaned = symptom or ""
+    for boost in (
+        AC_SEARCH_BOOST,
+        AC_FIGURE_SEARCH_BOOST,
+        "Dometic diagnostic service manual 3311071 no cool compressor ceiling thermostat selector",
+    ):
+        if boost and boost in cleaned:
+            cleaned = cleaned.replace(boost, " ")
+    return _blob(category_name, model_text, cleaned)
+
+
 def is_dometic_b57915_nocoool_context(
     category_name: str = "",
     model_text: str = "",
     symptom: str = "",
 ) -> bool:
-    """Dometic B57915 fan runs and there is no cold air. Not a Furrion freeze job."""
+    """
+    Dometic B57915 that turns on, or whose fan runs, and will not blow cold.
+    A Brisk E3 'no cool' with neither fact stays on the Brisk ranker.
+    """
     if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
         return False
     if is_coleman_2111_context(category_name, model_text, symptom):
         return False
-    blob = _blob(category_name, model_text, symptom)
+    blob = _dometic_complaint_blob(category_name, model_text, symptom)
     if "b57915" not in blob and "3311071" not in blob:
         return False
-    if not re.search(r"\bfan\b", blob):
+    if not _DOMETIC_NOCOOL_ON_RE.search(blob):
         return False
-    return bool(
-        re.search(
-            r"\b(?:no|not|isn'?t|isnt)\s+(?:cold|cool|cooling)\b|"
-            r"\bwon'?t\s+cool\b|\bwont\s+cool\b|\bno\s+cooling\b",
-            blob,
-        )
-    )
+    return bool(_DOMETIC_NOCOOL_COMPLAINT_RE.search(blob))
 
 
 def is_dometic_ceiling_sheet_context(
@@ -2784,6 +2814,16 @@ DOMETIC_NOCOOL_OPEN = (
     "Do not start on the filter check.\n"
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
+DOMETIC_NOCOOL_CONFIRM_FAN = (
+    "Dometic B57915 turns on and will not blow cold. "
+    "That is the no-cool path in diagnostic service manual 3311071. "
+    "Confirm the fan runs. Then Peacemaker bypass at the rooftop unit. "
+    "If that bypass cools, the unit is making cold air. "
+    "Then bypass the ceiling selector. "
+    "If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector. "
+    "Do not start on the filter check.\n"
+    "📖 Source: Dometic diagnostic service manual 3311071"
+)
 DOMETIC_NOCOOL_STEER = DOMETIC_NOCOOL_OPEN
 FURNACE_WALL_TSTAT_LINE = (
     "Replace the wall thermostat. If voltage is missing, check the wire run.\n"
@@ -2816,7 +2856,8 @@ _LIBRARY_NO_STEPS_RE = re.compile(
     r"no (?:procedure|steps).{0,30}(?:library|manual)|"
     r"library (?:does not|doesn't|doesnt) cover|"
     r"(?:manual|excerpt|document library) (?:does not|doesn't|doesnt) cover|"
-    r"not covered by (?:the |this )?(?:library|manual|excerpt)"
+    r"not covered by (?:the |this )?(?:library|manual|excerpt)|"
+    r"no diagnostic steps"
     r")",
     re.I,
 )
@@ -3011,12 +3052,39 @@ def dometic_bypass_facts(history: list = None, latest_msg: str = "") -> dict:
         and re.search(r"\bcool", blob)
     ):
         facts["dometic_ceiling_bypass"] = "cools"
+    if re.search(r"\bfan\b", blob) and re.search(
+        r"\b(?:runs?|running|operates|operating)\b", blob
+    ):
+        facts["dometic_fan"] = "runs"
     return facts
+
+
+def dometic_nocoool_open_line(facts: dict | None = None) -> str:
+    """Fan already running starts at the Peacemaker. Otherwise confirm the fan first."""
+    if (facts or {}).get("dometic_fan") == "runs":
+        return DOMETIC_NOCOOL_OPEN
+    return DOMETIC_NOCOOL_CONFIRM_FAN
 
 
 def _dometic_reply_has_bypass_path(reply: str) -> bool:
     low = _norm(reply)
     return bool("3311071" in (reply or "") and "peacemaker" in low and "selector" in low)
+
+
+def _history_has_dometic_bypass(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if _dometic_reply_has_bypass_path(message.get("content") or ""):
+            return True
+    return False
+
+
+def _dometic_reply_restarts_filter(reply: str) -> bool:
+    text = reply or ""
+    if not text.strip() or claims_library_missing_steps(text):
+        return True
+    return bool(re.search(r"\bfilters?\b", text, re.I))
 
 
 def ensure_dometic_ceiling_thermostat(
@@ -3025,11 +3093,13 @@ def ensure_dometic_ceiling_thermostat(
     history: list = None,
 ) -> str:
     """
-    Turn 1 of fan-runs / no-cold is the 3311071 Peacemaker and ceiling-selector path.
-    Both bypasses cooling means replace the ceiling thermostat/selector.
+    Turn 1 with no fan fact confirms the fan runs, then the 3311071 Peacemaker bypass.
+    A stated running fan starts at that bypass. Both bypasses cooling replaces the
+    ceiling thermostat/selector. A later turn keeps a real follow-up.
     """
     facts = facts or {}
     text = reply or ""
+    open_line = dometic_nocoool_open_line(facts)
     if (
         facts.get("dometic_unit_bypass") == "cools"
         and facts.get("dometic_ceiling_bypass") == "cools"
@@ -3042,13 +3112,9 @@ def ensure_dometic_ceiling_thermostat(
         r"\b(clean|replace|check) the filter\b", text, re.I
     ):
         return limit_library_miss_mentions(text, history)
-    if (
-        not text.strip()
-        or claims_library_missing_steps(text)
-        or re.search(r"\bfilters?\b", text, re.I)
-    ):
-        return DOMETIC_NOCOOL_OPEN
-    return limit_library_miss_mentions(text, history)
+    if _history_has_dometic_bypass(history) and not _dometic_reply_restarts_filter(text):
+        return limit_library_miss_mentions(text, history)
+    return open_line
 
 
 def is_suburban_furnace_context(

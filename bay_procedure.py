@@ -47,7 +47,6 @@ from gd_library_coach import (
     COOKTOP_TIP_LOW_REPAIR,
     DIAL_OFF_RUN_SEARCH_BOOST,
     DOMETIC_CEILING_LINE,
-    DOMETIC_NOCOOL_OPEN,
     FACR_FREEZE_SEARCH_BOOST,
     FACT12_FREEZE_RESECURE_LINE,
     FIREFLY_CAN_SEARCH_BOOST,
@@ -65,6 +64,7 @@ from gd_library_coach import (
     filter_chunks_for_unit,
     ground_control_search_symptom,
     cooktop_tip_sits_low,
+    dometic_nocoool_open_line,
     is_cooktop_tip_sheet_context,
     is_dometic_b57915_nocoool_context,
     is_dometic_ceiling_sheet_context,
@@ -3481,10 +3481,15 @@ def _ground_control_path(concern: str) -> dict:
     }
 
 
-def _dometic_ceiling_path() -> dict:
+def _dometic_ceiling_path(concern: str) -> dict:
+    fan_runs = bool(
+        re.search(r"\bfan\b", concern or "", re.I)
+        and re.search(r"\b(?:runs?|running|operates|operating)\b", concern or "", re.I)
+    )
+    opener = dometic_nocoool_open_line({"dometic_fan": "runs"} if fan_runs else {})
     return {
         "primary_cite": "Dometic diagnostic service manual 3311071",
-        "pattern_means": _shop_body(DOMETIC_NOCOOL_OPEN),
+        "pattern_means": _shop_body(opener),
         "flowchart": _named_fix_chart(
             "The fan runs and the rooftop unit is not cooling.",
             "Do both bypasses\ncool?",
@@ -3730,7 +3735,7 @@ def compile_bay_procedure(
         spec = _ground_control_path(concern)
         path_kind = "ground_control"
     elif dometic_ceiling:
-        spec = _dometic_ceiling_path()
+        spec = _dometic_ceiling_path(concern)
         path_kind = "dometic_ceiling"
     elif fact12_freeze:
         spec = _fact12_freeze_path()
