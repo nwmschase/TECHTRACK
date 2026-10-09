@@ -216,7 +216,10 @@ class TestBalTongueBayAndRank(unittest.TestCase):
         if pdf_low:
             self.assertIn("20300427", pdf_low)
             self.assertIn("tongue channel", pdf_low)
-            self.assertLess(pdf_low.find("20300427"), pdf_low.find("coupler"))
+            # The concern header quotes the customer ("Coupler OK"). Under the chart,
+            # the panel part still appears before any coupler instruction.
+            procedure = pdf_low.split("visual flowchart", 1)[-1]
+            self.assertLess(procedure.find("20300427"), procedure.find("coupler"))
 
 
 if __name__ == "__main__":

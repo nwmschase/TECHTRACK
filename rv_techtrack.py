@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.18.0
+RV TechTrack v4.18.1
+- v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
 - Login + Roles (Technician / Manager)
 - Certificate Hub
 - Searchable Document Library by Category
@@ -86,7 +87,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.18.0``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.18.1``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
