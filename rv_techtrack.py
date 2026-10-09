@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.3
+RV TechTrack v4.19.4
+- v4.19.4: Dometic B57915 that turns on and will not blow cold opens turn 1 on diagnostic manual 3311071: confirm the fan runs, then the Peacemaker bypass. A stated running fan still starts at the Peacemaker bypass.
 - v4.19.3: Ground Control 343633 gives the Electric Leveling zero-point sequence once (manual level, FRONT five times, REAR five times, ENTER) and does not swap a sensor. Dometic B57915 fan-runs/no-cold opens on diagnostic manual 3311071 with the Peacemaker and ceiling-selector bypass. A library-coverage sentence is said at most once.
 - v4.19.2: Bay sheets stay within 3 pages. Figures are the cited crop (1-2 per sheet), not a full manual page or a blank "Cited library figure" page. Generic steps are whole sentences, snippets drop OCR splits and parts-list dumps, the model line keeps the typed string, and a FACT12 file that is actually the FACR08 8K book is not cited as the FACT12 manual
 - v4.18.1: Bay procedure PDF measures wrapped text before drawing; flowchart ovals, diamonds, and rectangles grow to the inscribed text box; section bars follow the previous block's real height
@@ -95,7 +96,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.3``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.4``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -4775,10 +4776,11 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         )
     if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, search_symptom):
         system_prompt += (
-            "\n\nDOMETIC B57915 FAN RUNS / NO COLD: turn 1 is diagnostic manual 3311071, "
-            "the Peacemaker bypass, then the ceiling selector. Do not open on a filter check "
-            "and do not say the library has no no-cool steps.\n"
-            + _gdc.DOMETIC_NOCOOL_OPEN
+            "\n\nDOMETIC B57915 TURNS ON / NO COLD: turn 1 is diagnostic manual 3311071. "
+            "If the fan has not been confirmed, confirm the fan runs, then the Peacemaker bypass. "
+            "If the fan is already running, start at the Peacemaker bypass, then the ceiling selector. "
+            "Do not open on a filter check and do not say the library has no no-cool steps.\n"
+            + _gdc.dometic_nocoool_open_line(_gdc.dometic_bypass_facts(history, user_msg))
         )
     if ice_moisture_job:
         system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
