@@ -203,9 +203,9 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
 - Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
 - BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: press tongue extend/retract and check for 12V on the tongue jack output wire at the panel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue output wire → soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
-- Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
+- Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Closing step: if ice or moisture persists after drying and waiting 1 month, replace the unit. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After the tech reports the drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that whole path is reported good and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Order on CCD-0007990: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressures are reported and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize once pressures are reported. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
 - Coleman-Mach 2111-0001 that ran and then went dead: when board Fan High is dead (tester dark and/or about 0 VAC on the 9-pin black/white Fan High path), a Peacemaker bypass shows the compressor runs while the fan does not rotate and stall current is about 1.9 A, and the fan run capacitor measures about its rated value, authorize R&R of the fan motor and the control board only. Do not authorize the full 2111-0001 assembly. Stop further tests. Cite the 12VDC wall-thermostat rooftop service manual, 1976-536, 1976-603, the Peacemaker manual, and the mechanical-controls manual / 1976-695. Do not invent page numbers.
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
@@ -449,7 +449,7 @@ AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
 - Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
 - Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure. After drain clear + fan/filter OK + freeze sensor good, continue to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. When that path is reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When that path is reported and pressures are in, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
 - Coleman-Mach 2111-0001: Fan High dead (tester dark and/or about 0 VAC on 9-pin black/white) plus Peacemaker compressor running with the fan locked at about 1.9 A plus a fan run capacitor near its rated value authorizes R&R of the fan motor and the control board only. Do not authorize the full assembly. Stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
 - Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
@@ -650,7 +650,7 @@ ICE_MOISTURE_PRODUCT_LOCK = """
 FURRION FCR / ARCTIC FRIDGE ICE AND MOISTURE PRODUCT LOCK (CCD-0008122 p.36 / Fig.36):
 - Ice, frost, or icing on the rear/back wall (including about half from the top down) or moisture in the fridge cavity is Ice and Moisture → Ice or Moisture in the Fridge. It is NOT a No Power / 15A fuse / 12V inverter tree.
 - Search and cite Furrion FCR08/FCR10 SM CCD-0008122 Ice and Moisture (page 36, Fig. 36) FIRST.
-- Coach order — open language, one clarifying ask or 1–2 next checks per turn, not a quiz cage: pattern note → dial max? → gasket → cooling verify → watch/replace.
+- Coach order — open language, one clarifying ask or 1–2 next checks per turn, not a quiz cage: pattern note → dial max? → gasket → cooling verify → watch/replace. Closing step: if ice or moisture persists after drying and waiting 1 month, replace the unit.
 - Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light.
 - Cite the real page and figure: 📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36). Never invent a "Fuse location" title with no page.
 - Never invent other OEM steps or page numbers. Use the Ice and Moisture excerpt actually retrieved.
@@ -660,7 +660,9 @@ ICE_MOISTURE_SHOP_LINE = (
     "Rear/back-wall ice or frost (including half from the top) is a moisture path, "
     "not a no-power fuse / 12V inverter tree. Next from that section: note the frost "
     "pattern, then check whether the dial is at max, then the door gasket, then verify "
-    "cooling — watch/replace only from that Ice and Moisture page. Do not open the "
+    "cooling — watch/replace only from that Ice and Moisture page. "
+    "If ice or moisture persists after drying and waiting 1 month, replace the unit. "
+    "Do not open the "
     "15A fuse / 12V inverter path unless the complaint is no power / dead / won't run "
     "/ no light.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36"
@@ -1784,9 +1786,9 @@ FACR_FREEZE_ASSEMBLY_LOCK = """
 FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
 - Named branch: Furrion FACR* / Chill rooftop freeze, ice, frost, condensate, or interior leak.
 - Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
-- Walk drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, nozzles/ambient, then refrigerant pressure.
-- After the tech reports the condensate drain is clear, the fan and filter are OK, and the freeze sensor is good, CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. Replace the rooftop assembly.
-- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported good and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. The card is the authorization. Do not dump an R&R procedure. Do not return a blank card. Do not open a fuse or 12V-first tree.
+- Walk order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Suction line, thermostat, and nozzles/ambient stay on this prove.
+- Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. Drain clear plus fan/filter OK plus a good freeze sensor is not enough.
+- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. The card is the authorization. Do not dump an R&R procedure. Do not return a blank card. Do not open a fuse or 12V-first tree.
 - If the tech asks to authorize rooftop assembly R&R after that prove, emit that same authorization card. NEVER say the Document Library has no R&R steps. NEVER ask the tech to paste an R&R section or a page number.
 - Once this freeze/leak prove is the complaint, stay on it. Do NOT drift into compressor no-start, fan-winding continuity, or a DC bus measurement.
 - Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in. An unfinished prove does not get the assembly authorization card.
@@ -1802,16 +1804,15 @@ FACR_TERMINAL_ASSEMBLY_RR_LINE = (
 FACR_ASSEMBLY_RR_SHOP_LINE = (
     "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
     "Do not keep searching manuals and do not repeat a drain-only check. "
-    "Continue to rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
-    "Replace the rooftop assembly.\n"
+    "Read the refrigerant pressures before any rooftop assembly replacement. "
+    "Rooftop assembly replacement waits until those pressures are reported.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
 FACR_FREEZE_NEXT_SHOP_LINE = (
-    "Stay on the CCD-0007990 condensate and assembly path. "
+    "Stay on the CCD-0007990 condensate path. "
     "Do not stop to search manuals. "
-    "Prove the condensate drain, the fan and filter, and the freeze sensor. "
-    "When those three are good and the freeze or interior leak remains, "
-    "continue to rooftop assembly R&R.\n"
+    "Order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures. "
+    "Rooftop assembly replacement waits until those pressures are reported.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
 _SEARCHING_MANUALS_RE = re.compile(
@@ -1969,7 +1970,9 @@ def _facr_extended_proves_from_text(text: str) -> dict:
         facts["facr_ambient"] = "ok"
     if re.search(
         r"\b68\s*/\s*235\b|"
-        r"\b(pressures?|refrigerant)\b.{0,32}\b(good|ok|normal|pass|passed)\b",
+        r"\b(pressures?|refrigerant)\b.{0,32}\b(good|ok|normal|pass|passed|reported)\b|"
+        r"\b(pressures?|refrigerant|psi)\b.{0,24}\b\d{2,3}\s*/\s*\d{2,3}\b|"
+        r"\b\d{2,3}\s*/\s*\d{2,3}\b.{0,16}\bpsi\b",
         raw,
     ):
         facts["facr_pressure"] = "ok"
@@ -2139,7 +2142,17 @@ def facr_terminal_path_complete(facts: dict | None) -> bool:
 
 def reply_names_rooftop_assembly_rr(reply: str) -> bool:
     """True when the reply finishes on rooftop assembly R&R and CCD-0007990."""
-    t = _norm(reply)
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply or ""):
+        if re.search(
+            r"(do not|don't|not until|waits until|only after).{0,90}"
+            r"(authoriz|replace|r\s*&\s*r|rooftop assembly)",
+            part,
+            re.I,
+        ):
+            continue
+        kept.append(part)
+    t = _norm(" ".join(kept))
     if not t:
         return False
     assembly = "rooftop" in t and (
@@ -2200,7 +2213,7 @@ def _facr_reply_unusable(reply: str) -> bool:
 def _facr_climax_line(facts: dict | None) -> str:
     if facr_terminal_path_complete(facts):
         return FACR_TERMINAL_ASSEMBLY_RR_LINE
-    return FACR_ASSEMBLY_RR_SHOP_LINE
+    return _facr_stay_on_prove_line(facts)
 
 
 def reply_drifts_facr_off_freeze_path(reply: str) -> bool:
@@ -2260,11 +2273,11 @@ def _facr_terminal_reply_ok(reply: str) -> bool:
 
 def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str:
     """
-    Once drain / fan-filter / freeze sensor are proved, climax is rooftop assembly R&R.
-    After the full drain/pan/filter/suction/sensor/thermostat/nozzle/pressure path,
-    the terminal card authorizes rooftop assembly R&R. A library-miss refusal,
-    a paste-the-R&R request, or a compressor / DC-bus detour does not stand.
-    An unfinished prove does not get that authorization card.
+    Rooftop assembly R&R is authorized only after refrigerant pressures are reported
+    on the full drain/pan/filter/suction/sensor/thermostat/nozzle/pressure path.
+    Drain clear plus fan/filter OK plus a good freeze sensor is not that card.
+    A library-miss refusal, a paste-the-R&R request, or a compressor / DC-bus detour
+    does not stand. A blank card stays blank until that full path is in.
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
@@ -2272,34 +2285,21 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
         if _facr_terminal_reply_ok(reply):
             return reply
         return FACR_TERMINAL_ASSEMBLY_RR_LINE
-    if reply_drifts_facr_off_freeze_path(reply) or reply_refuses_facr_library_rr(reply):
+    # Pressures (and the rest of the prove) are still open. Never authorize R&R.
+    if (
+        reply_names_rooftop_assembly_rr(reply)
+        or reply_drifts_facr_off_freeze_path(reply)
+        or reply_refuses_facr_library_rr(reply)
+    ):
         return _facr_stay_on_prove_line(facts)
     if facts.get("facr_auth_request") == "yes" and _facr_reply_unusable(reply):
         return _facr_stay_on_prove_line(facts)
-    climax = facr_terminal_path_complete(facts) or facr_proves_complete(facts)
-    if climax:
-        line = _facr_climax_line(facts)
-        if _facr_reply_unusable(reply):
-            return line
-        if (
-            reply_names_rooftop_assembly_rr(reply)
-            and not reply_stalls_searching_manuals(reply)
-            and not reply_loops_drain_only(reply)
-            and not reply_opens_fuse_12v_no_power(reply)
-        ):
-            return reply
-        cleaned = strip_fuse_12v_no_power_claims(_strip_facr_stall_sentences(reply or ""))
-        if (
-            cleaned.strip()
-            and reply_names_rooftop_assembly_rr(cleaned)
-            and not reply_stalls_searching_manuals(cleaned)
-            and not reply_loops_drain_only(cleaned)
-            and not reply_opens_fuse_12v_no_power(cleaned)
-        ):
-            return cleaned
-        if cleaned.strip():
-            return f"{line}\n\n{cleaned}".strip()
-        return line
+    if facr_proves_complete(facts) and (
+        reply_stalls_searching_manuals(reply)
+        or reply_loops_drain_only(reply)
+        or reply_opens_fuse_12v_no_power(reply)
+    ):
+        return _facr_stay_on_prove_line(facts)
     if reply and reply_stalls_searching_manuals(reply) and not reply_names_rooftop_assembly_rr(reply):
         cleaned = _strip_facr_stall_sentences(reply)
         return f"{FACR_FREEZE_NEXT_SHOP_LINE}\n\n{cleaned}".strip()
@@ -2501,29 +2501,441 @@ def is_coleman_library_text(text: str) -> bool:
     return any(n in t for n in COLEMAN_LIBRARY_NEEDLES)
 
 
+def library_filename_words(file_path: str = "") -> str:
+    """Filename words Bay PDF uses when the stored title is a raw catalog name."""
+    name = (file_path or "").replace("\\", "/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.[A-Za-z0-9]{2,5}$", " ", name)
+    return name.replace("_", " ").replace("-", " ")
+
+
+def page_identity_blob(
+    title: str = "",
+    keywords: str = "",
+    excerpt: str = "",
+    file_path: str = "",
+) -> str:
+    """Title, keywords, excerpt, and filename words. GD and the Bay PDF share this."""
+    bits = []
+    for raw in (title, keywords, excerpt, library_filename_words(file_path)):
+        text = (raw or "").replace("_", " ").replace("-", " ")
+        bits.append(text)
+    return _norm(" ".join(bits))
+
+
 def chunk_matches_asked_brand(
     title: str = "",
     keywords: str = "",
     excerpt: str = "",
     asked=None,
     coleman_job: bool = False,
+    file_path: str = "",
 ) -> bool:
     """
     True when this library page is the asked brand, or a Coleman 2111 title
     (1976-536 / Peacemaker / wall-thermostat) that does not name a different maker.
+    Brand tokens in the filename count, same as a human title.
     An empty asked set does not filter.
     """
     asked = set(asked or [])
     if not asked:
         return True
-    canon = canonical_shop_brands(title or "", keywords or "")
+    name = library_filename_words(file_path)
+    canon = canonical_shop_brands(title or "", keywords or "", name)
     if asked & canon:
         return True
     if coleman_job and "coleman" in asked:
         if canon - {"coleman"}:
             return False
-        return is_coleman_library_text(f"{title or ''} {keywords or ''} {excerpt or ''}")
+        return is_coleman_library_text(
+            f"{title or ''} {keywords or ''} {excerpt or ''} {name}"
+        )
     return False
+
+
+def _page_fields(page) -> tuple:
+    if isinstance(page, dict):
+        excerpt = page.get("excerpt") or page.get("chunk_text") or ""
+        return (
+            page.get("title") or "",
+            page.get("keywords") or "",
+            excerpt,
+            page.get("file_path") or "",
+        )
+    excerpt = getattr(page, "chunk_text", "") or getattr(page, "excerpt", "") or ""
+    return (
+        getattr(page, "title", "") or "",
+        getattr(page, "keywords", "") or "",
+        excerpt,
+        getattr(page, "file_path", "") or getattr(page, "_lookup_file_path", "") or "",
+    )
+
+
+def is_ground_control_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """
+    Lippert Ground Control electric leveling (including 343633).
+    Hydraulic Level Up 807662 is a different product.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob:
+        return False
+    if any(p in blob for p in LEVEL_UP_PARTS) and "343633" not in blob and not is_ground_control_manual(blob):
+        return False
+    if "343633" in blob:
+        return True
+    if is_ground_control_manual(blob) and not any(p in blob for p in LEVEL_UP_PARTS):
+        return True
+    return False
+
+
+def is_dometic_b57915_nocoool_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Dometic B57915 fan runs and there is no cold air. Not a Furrion freeze job."""
+    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+        return False
+    if is_coleman_2111_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if "b57915" not in blob and "3311071" not in blob:
+        return False
+    if not re.search(r"\bfan\b", blob):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:no|not|isn'?t|isnt)\s+(?:cold|cool|cooling)\b|"
+            r"\bwon'?t\s+cool\b|\bwont\s+cool\b|\bno\s+cooling\b",
+            blob,
+        )
+    )
+
+
+def page_is_ground_control_family(identity: str) -> bool:
+    """Electric Leveling / Ground Control pages. A 'not Ground Control' aside does not count."""
+    t = identity or ""
+    if "343633" in t:
+        return True
+    if "ground control" in t and "not ground control" not in t:
+        return True
+    if "electric leveling" in t and "ground control" in t:
+        return True
+    return False
+
+
+def page_is_dometic_nocoool_family(identity: str) -> bool:
+    """Diagnostic manual 3311071 no-cool / compressor pages, not a filter-only page."""
+    t = identity or ""
+    if "3311071" in t:
+        return True
+    diagnostic = "diagnostic" in t or "service manual" in t
+    nocoool = any(k in t for k in ("no cool", "not cool", "no-cool", "not cooling", "no cooling"))
+    return bool(diagnostic and nocoool and "compressor" in t)
+
+
+def filter_chunks_for_unit(chunks, category_name: str = "", model_text: str = "", symptom: str = "") -> list:
+    """
+    Shared brand/model pick used by Guided Diagnostics and the Bay PDF.
+    When a Ground Control or Dometic no-cool page is in the set, keep that family.
+    """
+    rows = list(chunks or [])
+    gc = is_ground_control_context(category_name, model_text, symptom)
+    dom = is_dometic_b57915_nocoool_context(category_name, model_text, symptom)
+    if not gc and not dom:
+        return rows
+    family = []
+    for ch in rows:
+        title, keywords, excerpt, path = _page_fields(ch)
+        ident = page_identity_blob(title, keywords, excerpt, path)
+        if gc and page_is_ground_control_family(ident):
+            family.append(ch)
+        elif dom and page_is_dometic_nocoool_family(ident):
+            family.append(ch)
+    return family or rows
+
+
+def unit_page_score(page, model_text: str = "", symptom: str = "") -> int:
+    """Extra rank so the shared family page beats a same-brand cousin."""
+    title, keywords, excerpt, path = _page_fields(page)
+    ident = page_identity_blob(title, keywords, excerpt, path)
+    score = 0
+    if is_ground_control_context("", model_text, symptom):
+        if page_is_ground_control_family(ident):
+            score += 36
+            if "zero point" in ident or "zero-point" in ident:
+                score += 14
+            if "manual level" in ident:
+                score += 10
+        if "807662" in ident or "level up" in ident or "level-up" in ident:
+            score -= 24
+    if is_dometic_b57915_nocoool_context("", model_text, symptom):
+        if "3311071" in ident:
+            score += 36
+        if "compressor" in ident and any(
+            k in ident for k in ("no cool", "not cool", "no-cool", "not cooling")
+        ):
+            score += 16
+        if "filter" in ident and "3311071" not in ident and "compressor" not in ident:
+            score -= 14
+    return score
+
+
+def rank_chunks_for_ground_control(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer Ground Control electric leveling, manual level, and zero-point pages."""
+    kept = filter_chunks_for_unit(chunks, "", query, query)
+    scored = [(unit_page_score(ch, query, query), ch) for ch in kept]
+    scored.sort(key=lambda row: row[0], reverse=True)
+    return [ch for _sc, ch in scored[:limit]]
+
+
+def rank_chunks_for_dometic_nocoool(chunks, query: str = "", limit: int = 8) -> list:
+    """Prefer Dometic diagnostic manual 3311071 over a filter-only page."""
+    kept = filter_chunks_for_unit(chunks, "", query, query)
+    scored = [(unit_page_score(ch, query, query) + score_ac_product(ch, query), ch) for ch in kept]
+    scored.sort(key=lambda row: row[0], reverse=True)
+    return [ch for _sc, ch in scored[:limit]]
+
+
+GROUND_CONTROL_SEARCH_BOOST = (
+    "Lippert Ground Control electric leveling manual level zero-point calibration 343633"
+)
+DOMETIC_NOCOOL_SEARCH_BOOST = (
+    "Dometic diagnostic service manual 3311071 no cool compressor ceiling thermostat selector"
+)
+GROUND_CONTROL_LEVEL_LINE = (
+    "Run manual level, then zero-point calibration. "
+    "Auto-level that lifts the driver side is that zero-point prove on Lippert Ground Control.\n"
+    "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
+    "(Ground Control TT/2.0/3.0)"
+)
+DOMETIC_CEILING_LINE = (
+    "Peacemaker bypass at the unit cools, and bypassing the ceiling selector cools. "
+    "Replace the ceiling thermostat/selector.\n"
+    "📖 Source: Dometic diagnostic service manual 3311071"
+)
+DOMETIC_NOCOOL_STEER = (
+    "Fan running with no cold air is the Dometic no-cool / compressor path in "
+    "diagnostic service manual 3311071. Do not stop on the filter check.\n"
+    "📖 Source: Dometic diagnostic service manual 3311071"
+)
+FURNACE_WALL_TSTAT_LINE = (
+    "Replace the wall thermostat. If voltage is missing, check the wire run.\n"
+    "📖 Source: Suburban furnace service manual"
+)
+COOKTOP_TIP_LOW_REPAIR = (
+    "The thermocouple tip sits low and the pan pushes it out of the flame. "
+    "Reposition the thermocouple tip in the burner flame with the pan on. "
+    "That is the repair.\n"
+    "📖 Source: Suburban Range/Cooktops SM"
+)
+_LIBRARY_NO_STEPS_RE = re.compile(
+    r"("
+    r"library has no|"
+    r"no steps in the (?:library|manual|excerpt)|"
+    r"(?:does not|doesn't|do not|don't) have.{0,48}(?:steps|procedure)|"
+    r"no (?:procedure|steps).{0,30}(?:library|manual)"
+    r")",
+    re.I,
+)
+
+
+def ground_control_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    symptom = (symptom or "").strip()
+    if not is_ground_control_context(category_name, model_text, symptom):
+        return symptom
+    if GROUND_CONTROL_SEARCH_BOOST in symptom:
+        return symptom
+    return f"{symptom} {GROUND_CONTROL_SEARCH_BOOST}".strip()
+
+
+def dometic_nocoool_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
+    symptom = (symptom or "").strip()
+    if not is_dometic_b57915_nocoool_context(category_name, model_text, symptom):
+        return symptom
+    if DOMETIC_NOCOOL_SEARCH_BOOST in symptom:
+        return symptom
+    return f"{symptom} {DOMETIC_NOCOOL_SEARCH_BOOST}".strip()
+
+
+def claims_library_missing_steps(reply: str) -> bool:
+    return bool(_LIBRARY_NO_STEPS_RE.search(reply or ""))
+
+
+def strip_library_no_steps(reply: str) -> str:
+    if not reply or not claims_library_missing_steps(reply):
+        return reply or ""
+    kept = []
+    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
+        if part and not claims_library_missing_steps(part):
+            kept.append(part)
+    return " ".join(kept).strip()
+
+
+def reply_names_ground_control_calibration(reply: str) -> bool:
+    t = _norm(reply)
+    manual = "manual level" in t
+    zero = "zero-point" in t or "zero point" in t
+    return bool(manual and zero)
+
+
+def claims_library_missing_ground_control(reply: str) -> bool:
+    t = _norm(reply)
+    return bool(
+        re.search(
+            r"(library|manual|document).{0,70}(no|not|without|lack|missing).{0,40}"
+            r"(ground control|electric leveling)|"
+            r"(no|not any|don't have|do not have|doesn't have|does not have).{0,40}"
+            r"(ground control|electric leveling)",
+            t,
+        )
+    )
+
+
+def ensure_ground_control_level_path(reply: str) -> str:
+    """Manual level + zero-point calibration. Do not claim the library has no Ground Control docs."""
+    cleaned = strip_library_no_steps(reply or "")
+    if (
+        reply_names_ground_control_calibration(cleaned)
+        and not claims_library_missing_ground_control(cleaned)
+    ):
+        return cleaned
+    if cleaned and not claims_library_missing_ground_control(reply or ""):
+        return f"{GROUND_CONTROL_LEVEL_LINE}\n\n{cleaned}".strip()
+    return GROUND_CONTROL_LEVEL_LINE
+
+
+def dometic_bypass_facts(history: list = None, latest_msg: str = "") -> dict:
+    parts = []
+    for m in history or []:
+        if (m.get("role") or "") == "user":
+            parts.append(m.get("content") or "")
+    if latest_msg:
+        parts.append(latest_msg)
+    blob = _norm(" ".join(parts))
+    facts = {}
+    if (
+        "peacemaker" in blob
+        and "bypass" in blob
+        and re.search(r"\bcool", blob)
+    ):
+        facts["dometic_unit_bypass"] = "cools"
+    if (
+        "ceiling" in blob
+        and re.search(r"selector|thermostat", blob)
+        and "bypass" in blob
+        and re.search(r"\bcool", blob)
+    ):
+        facts["dometic_ceiling_bypass"] = "cools"
+    return facts
+
+
+def ensure_dometic_ceiling_thermostat(reply: str, facts: dict | None = None) -> str:
+    """
+    Fan runs / no cold: stay on 3311071.
+    Both bypasses cooling means replace the ceiling thermostat/selector.
+    """
+    facts = facts or {}
+    text = reply or ""
+    if (
+        facts.get("dometic_unit_bypass") == "cools"
+        and facts.get("dometic_ceiling_bypass") == "cools"
+    ):
+        low = _norm(text)
+        if "replace the ceiling thermostat" in low and "filter" not in low:
+            return text
+        return DOMETIC_CEILING_LINE
+    if re.search(r"\bfilters?\b", text, re.I) and "3311071" not in text and "compressor" not in _norm(text):
+        return f"{DOMETIC_NOCOOL_STEER}\n\n{strip_library_no_steps(text)}".strip()
+    return text
+
+
+def is_suburban_furnace_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Suburban furnace, including NT-20SEQT. Cooktops lose."""
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
+        return False
+    if is_cooktop_range_context(category_name, model_text, symptom):
+        return False
+    blob = _blob(category_name, model_text, symptom)
+    if re.search(r"\bnt[\s-]*20", blob):
+        return True
+    if "furnace" in blob and ("suburban" in blob or "nt-20" in blob or "nt20" in blob):
+        return True
+    if "furnace" in _norm(category_name) and "suburban" in blob:
+        return True
+    return False
+
+
+def _chat_user_blob(history: list = None, latest_msg: str = "") -> str:
+    parts = []
+    for m in history or []:
+        if (m.get("role") or "") == "user":
+            parts.append(m.get("content") or "")
+    if latest_msg:
+        parts.append(latest_msg)
+    return " ".join(parts)
+
+
+def furnace_rw_jumper_ran(text: str) -> bool:
+    t = _norm(text)
+    rw = bool(re.search(r"\br\s*/\s*w\b|\br\s+and\s+w\b", t))
+    ran = bool(re.search(r"\b(lights?|lit|runs|running|fires|fired|ignites|ignited)\b", t))
+    return bool(rw and ran)
+
+
+def asks_what_is_the_repair(text: str) -> bool:
+    return bool(re.search(r"what is the repair|what'?s the repair", _norm(text)))
+
+
+def reply_loops_furnace_12v(reply: str) -> bool:
+    if "replace the wall thermostat" in _norm(reply):
+        return False
+    return bool(re.search(r"\b12\s*v(?:dc)?\b", reply or "", re.I))
+
+
+def ensure_furnace_wall_thermostat(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """
+    R/W jumper lights and runs, and the tech asks for the repair:
+    replace the wall thermostat. If voltage is missing, check the wire run.
+    """
+    blob = _blob(category_name, model_text, _chat_user_blob(history, latest_msg))
+    if not is_suburban_furnace_context(category_name, model_text, blob):
+        return reply
+    if not furnace_rw_jumper_ran(blob) or not asks_what_is_the_repair(latest_msg or ""):
+        return reply
+    if (
+        "replace the wall thermostat" in _norm(reply)
+        and "wire run" in _norm(reply)
+        and not reply_loops_furnace_12v(reply)
+    ):
+        return reply
+    return FURNACE_WALL_TSTAT_LINE
+
+
+def cooktop_tip_sits_low(text: str) -> bool:
+    t = _norm(text)
+    return bool(
+        re.search(
+            r"tip.{0,48}(?:sits?\s+low|is\s+low|too\s+low|gets?\s+pushed|pushed)|"
+            r"(?:sits?|sitting|sat)\s+low|"
+            r"gets?\s+pushed|"
+            r"pushed\s+(?:down|out|away|off)",
+            t,
+        )
+    )
 
 
 def _coleman_checks_asked(assistant_text: str) -> str:
@@ -3366,6 +3778,8 @@ def _is_cooktop_range_blob(blob: str) -> bool:
         return True
     if re.search(r"\b(?:gas|lp|propane)\s+range\b", t):
         return True
+    if re.search(r"\bsdn\s*2", t):
+        return True
     return False
 
 
@@ -3552,11 +3966,23 @@ def reply_has_tip_pan_before_parts(reply: str) -> bool:
     return first_check < parts_at
 
 
-def ensure_cooktop_tip_pan_check(reply: str) -> str:
+def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "") -> str:
     """
     Deterministic shop line so pan-on flame-out cannot skip tip geometry.
-    Prepends so tip/position/pan appear before any parts R&R.
+    A low tip that the pan pushes gets that repair, without a library-miss line.
     """
+    cleaned = strip_library_no_steps(reply or "")
+    if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}"):
+        low = _norm(cleaned)
+        if (
+            "reposition" in low
+            and "tip" in low
+            and ("pan" in low or "cookware" in low)
+            and not claims_library_missing_steps(cleaned)
+        ):
+            return cleaned
+        return COOKTOP_TIP_LOW_REPAIR
+    reply = cleaned
     if not reply or not cooktop_reply_needs_tip_pan(reply):
         return reply
     if reply_has_tip_pan_before_parts(reply):
@@ -4450,23 +4876,43 @@ def strip_fuse_12v_no_power_claims(reply: str) -> str:
     return " ".join(kept).strip()
 
 
+def _ice_has_month_close(reply: str) -> bool:
+    t = _norm(reply)
+    return "1 month" in t and "replace the unit" in t
+
+
 def ensure_fridge_ice_moisture_path(reply: str) -> str:
     """
     Deterministic shop line so rear-wall ice cannot ship as fuse / 12V no-power.
     Uses CCD-0008122 Ice and Moisture p.36 / Fig.36 already in-library.
+    Closing step: ice or moisture that persists after drying and 1 month replaces the unit.
     """
+    if reply and reply_names_ice_moisture_p36(reply) and not ice_moisture_reply_needs_guard(reply):
+        if _ice_has_month_close(reply):
+            return reply
+        return f"{reply.rstrip()}\n\nIf ice or moisture persists after drying and waiting 1 month, replace the unit."
     if not reply or not ice_moisture_reply_needs_guard(reply):
         return reply
     cleaned = strip_fuse_12v_no_power_claims(reply)
     if cleaned and reply_opens_fuse_12v_no_power(cleaned):
         cleaned = ""
     if reply_names_ice_moisture_p36(cleaned) and not reply_opens_fuse_12v_no_power(cleaned):
-        return cleaned
+        if _ice_has_month_close(cleaned):
+            return cleaned
+        return (
+            f"{cleaned.rstrip()}\n\n"
+            "If ice or moisture persists after drying and waiting 1 month, replace the unit."
+        )
     if "ice and moisture" in _norm(cleaned) and any(
         k in _norm(cleaned) for k in ("page 36", "p.36", "p. 36", "fig. 36", "fig 36")
     ):
         if not reply_opens_fuse_12v_no_power(cleaned):
-            return cleaned
+            if _ice_has_month_close(cleaned):
+                return cleaned
+            return (
+                f"{cleaned.rstrip()}\n\n"
+                "If ice or moisture persists after drying and waiting 1 month, replace the unit."
+            )
     return f"{ICE_MOISTURE_SHOP_LINE}\n\n{cleaned}".strip()
 
 

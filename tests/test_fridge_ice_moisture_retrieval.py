@@ -203,8 +203,10 @@ class TestIceMoistureGuard(unittest.TestCase):
         self.assertNotIn("fuse location", low)
         self.assertIn(ICE_MOISTURE_SHOP_LINE.split("\n")[0][:40], fixed)
         self.assertIn("📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36", fixed)
+        self.assertIn("1 month", fixed.lower())
+        self.assertIn("replace the unit", fixed.lower())
 
-    def test_good_p36_reply_is_left_alone(self):
+    def test_good_p36_reply_gains_month_close(self):
         good = (
             "Rear-wall ice about half from the top is Ice and Moisture → "
             "Ice or Moisture in the Fridge. Note the frost pattern, then check "
@@ -214,7 +216,13 @@ class TestIceMoistureGuard(unittest.TestCase):
         self.assertTrue(reply_names_ice_moisture_p36(good))
         self.assertFalse(reply_opens_fuse_12v_no_power(good))
         self.assertFalse(ice_moisture_reply_needs_guard(good))
-        self.assertEqual(ensure_fridge_ice_moisture_path(good), good)
+        fixed = ensure_fridge_ice_moisture_path(good)
+        self.assertTrue(fixed.startswith(good))
+        self.assertIn("1 month", fixed.lower())
+        self.assertIn("replace the unit", fixed.lower())
+        self.assertNotIn("fuse location", fixed.lower())
+        again = ensure_fridge_ice_moisture_path(fixed)
+        self.assertEqual(again, fixed)
 
     def test_product_lock_is_p36_not_fuse_tree(self):
         self.assertFalse(reply_opens_fuse_12v_no_power(ICE_MOISTURE_PRODUCT_LOCK))
@@ -224,6 +232,8 @@ class TestIceMoistureGuard(unittest.TestCase):
         self.assertIn("fig. 36", low)
         self.assertIn("gasket", low)
         self.assertIn("dial max", low)
+        self.assertIn("1 month", low)
+        self.assertIn("replace the unit", low)
         self.assertIn("no power", low)
         self.assertIn("fuse location", low)
         self.assertIn("unless", low)

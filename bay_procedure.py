@@ -54,6 +54,12 @@ from gd_library_coach import (
     asked_brands_for_lookup,
     canonical_shop_brands,
     chunk_matches_asked_brand,
+    dometic_nocoool_search_symptom,
+    filter_chunks_for_unit,
+    ground_control_search_symptom,
+    is_dometic_b57915_nocoool_context,
+    is_ground_control_context,
+    library_filename_words,
     coleman_search_symptom,
     cooktop_search_symptom,
     bal_tongue_search_symptom,
@@ -79,6 +85,8 @@ from gd_library_coach import (
     lock_spark_free_part_g,
     rewrite_shop_channel_words,
     rank_chunks_for_ac,
+    rank_chunks_for_dometic_nocoool,
+    rank_chunks_for_ground_control,
     rank_chunks_for_bal_tongue,
     rank_chunks_for_cooktop_pan_on,
     rank_chunks_for_dial_off_run,
@@ -2349,6 +2357,8 @@ def rewrite_bay_search_symptom(
     symptom = cooktop_search_symptom(category_name, model_text, symptom)
     symptom = bal_tongue_search_symptom(category_name, model_text, symptom)
     symptom = stabilizer_search_symptom(category_name, model_text, symptom)
+    symptom = ground_control_search_symptom(category_name, model_text, symptom)
+    symptom = dometic_nocoool_search_symptom(category_name, model_text, symptom)
     return symptom
 
 
@@ -2370,9 +2380,12 @@ def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", c
         title = d.get("title") or ""
         keywords = d.get("keywords") or ""
         excerpt = d.get("excerpt") or ""
-        canon = canonical_shop_brands(title, keywords)
-        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt}")
-        if chunk_matches_asked_brand(title, keywords, excerpt, asked, coleman_job=coleman_job):
+        file_path = d.get("file_path") or ""
+        canon = canonical_shop_brands(title, keywords, library_filename_words(file_path))
+        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt} {library_filename_words(file_path)}")
+        if chunk_matches_asked_brand(
+            title, keywords, excerpt, asked, coleman_job=coleman_job, file_path=file_path
+        ):
             matched.append(d)
         elif canon or (coleman_text and not coleman_job):
             other.append(d)
@@ -2419,7 +2432,12 @@ def rank_bay_chunks(
 ) -> list:
     """Apply the same product ranking GD uses, after the brand lock."""
     pages, _brand_miss = bay_brand_retrieval(chunks, category_name, model_text, concern)
+    pages = filter_chunks_for_unit(pages, category_name, model_text, concern)
     query = f"{model_text or ''} {concern or ''}".strip()
+    if is_ground_control_context(category_name, model_text, concern):
+        return rank_chunks_for_ground_control(pages, query, limit=limit)
+    if is_dometic_b57915_nocoool_context(category_name, model_text, concern):
+        return rank_chunks_for_dometic_nocoool(pages, query, limit=limit)
     if is_coleman_2111_context(category_name, model_text, concern):
         return _rank_coleman_pages(pages, limit)
     if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
