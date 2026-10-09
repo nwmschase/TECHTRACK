@@ -44,11 +44,18 @@ import textwrap
 import zlib
 
 from gd_library_coach import (
+    COOKTOP_TIP_LOW_REPAIR,
     DIAL_OFF_RUN_SEARCH_BOOST,
+    DOMETIC_CEILING_LINE,
+    DOMETIC_NOCOOL_OPEN,
     FACR_FREEZE_SEARCH_BOOST,
+    FACT12_FREEZE_RESECURE_LINE,
     FIREFLY_CAN_SEARCH_BOOST,
+    GIRARD_PETIT_ALIGN_LINE,
+    GROUND_CONTROL_LEVEL_LINE,
+    ICE_MONTH_CLOSE,
     ICE_MOISTURE_SEARCH_BOOST,
-    ICE_MOISTURE_SHOP_LINE,
+    PSX1_ASSEMBLY_RR_SHOP_LINE,
     WIRED_COACH_CAN_RE,
     ac_search_symptom,
     asked_brands_for_lookup,
@@ -57,7 +64,12 @@ from gd_library_coach import (
     dometic_nocoool_search_symptom,
     filter_chunks_for_unit,
     ground_control_search_symptom,
+    cooktop_tip_sits_low,
+    is_cooktop_tip_sheet_context,
     is_dometic_b57915_nocoool_context,
+    is_dometic_ceiling_sheet_context,
+    is_fact12_freeze_code_context,
+    is_girard_petit_tube_context,
     is_ground_control_context,
     library_filename_words,
     coleman_search_symptom,
@@ -680,7 +692,7 @@ def _ice_path() -> dict:
                 FlowNode(
                     "d_ret",
                     "decision",
-                    "Heavy frost return\nafter 24 to 48 hours?",
+                    "Heavy frost return\nafter about 1 month?",
                     0.30,
                     0.82,
                     w=196,
@@ -689,7 +701,7 @@ def _ice_path() -> dict:
                 FlowNode(
                     "e_rep",
                     "end",
-                    "Replace the cooling unit\nafter that prove.",
+                    "Replace the cooling unit\nafter that month.",
                     0.82,
                     0.80,
                     w=188,
@@ -725,8 +737,10 @@ def _ice_path() -> dict:
             "Do a full manual defrost. Power the unit off, open both doors, and use towels. Do not scrape, do not use a heat gun, and do not set hot-water pans in the cabinet. When the ice is gone, go to the dry-and-drain step.",
             "Dry the cabinet completely. Clear the rear drain and trough with a soft plastic probe only so melt water can leave. If water backs up, keep clearing until it leaves, then go to the gasket. If the drain is already open, go to the gasket next.",
             "Check the door gasket with a dollar-bill test around the full perimeter, and check the hinges, latch, and door alignment. If the bill slides out with no drag, reseat or replace the gasket, set the dial to about 4 to 5, leave an air gap at the rear wall, and recheck in 24 to 48 hours. If the gasket holds, set the dial mid, leave the air gap, and recheck in 24 to 48 hours.",
-            "After 24 to 48 hours, if the frost is gone or only a light sheet remains on the back wall, the correction is the moisture path: mid setpoint, a holding gasket, and a clear drain. You are done. If heavy frost returns with a mid dial, a good gasket, and a clear drain, the unit is not cooling to target: replace the cooling unit.",
-            "If cooling is good but the same heavy frost still returns after the moisture path is cleared, dry the cabinet again and watch door-open time and humidity for about a month. If the heavy frost returns hard after that watch, replace the cooling unit. That is the confirmed correction.",
+            "After 24 to 48 hours, if the frost is gone or only a light sheet remains on the back wall, the correction is the moisture path: mid setpoint, a holding gasket, and a clear drain. You are done. If heavy frost returns with a mid dial, a good gasket, and a clear drain, leave the cooling unit in place. Dry the cabinet again and watch door-open time and humidity for about a month.",
+            ICE_MONTH_CLOSE
+            + " Replace the cooling unit only after that month. That is the confirmed correction. "
+            "If the heavy frost is gone after that watch, you are done.",
         ],
         "do_not": [
             "Do not knife the ice off the rear wall.",
@@ -1466,6 +1480,7 @@ _SHORT_WORD_KEEP = {
     "a", "an", "the", "if", "to", "of", "or", "on", "in", "at", "is", "it",
     "no", "yes", "do", "be", "by", "as", "for", "and", "not", "but", "then",
     "when", "with", "from", "into", "over", "both", "open", "fan", "gas",
+    "so", "up",
     "air", "heat", "this", "that", "after", "before",
 }
 _ACTION_RE = re.compile(
@@ -1533,15 +1548,25 @@ _FUSED_OCR = (
     (re.compile(r"gasfumes", re.I), "gas fumes"),
     (re.compile(r"anexplosion", re.I), "an explosion"),
     (re.compile(r"\bail connections\b", re.I), "all connections"),
+    (re.compile(r"\bCand Topen\b"), "C and T open"),
+    (re.compile(r"\bCand T\b"), "C and T"),
+    (re.compile(r"\bcavityso\b", re.I), "cavity so"),
+    (re.compile(r"\bpushingup\b", re.I), "pushing up"),
+    (re.compile(r"\bhookedup\b", re.I), "hooked up"),
 )
 _TRANSCRIPTION_RE = re.compile(
     r"transcription for techtrack search(?:\s*\(ocr companion\))?",
     re.I,
 )
+_BROCHURE_TEXT_RE = re.compile(r"brochure", re.I)
 _PARTS_LIST_RE = re.compile(
-    r"replaceable parts list|refer to the replaceable parts",
+    r"replaceable parts list|refer to the replaceable parts|"
+    r"\btools?\s+required\b|\btool\s+list\b|\bparts\s+list\b",
     re.I,
 )
+_NO_LIBRARY_STEP_RE = re.compile(r"no matching library excerpt", re.I)
+_FIG_CUT_RE = re.compile(r"\(\s*(?:Fig\.?|i\.?)\s*$", re.I)
+_SHORT_CUT_END_RE = re.compile(r"\b([A-Za-z]{1,2})\.$")
 # A lone article is a word. A leftover glyph glued to the next token is an OCR split.
 _OCR_ARTICLE = {"a", "i"}
 
@@ -1567,6 +1592,7 @@ def _rejoin_ocr_splits(text: str) -> str:
                 and 3 <= len(ncore) <= 6
                 and ncore.isalpha()
                 and nxt[:1].islower()
+                and ncore.lower() not in _SHORT_WORD_KEEP
             ):
                 out.append(f"{lead_s}{core}{ncore}{trail_s}")
                 i += 2
@@ -1614,6 +1640,8 @@ def _repair_ocr_text(text: str) -> str:
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
     out = _rejoin_ocr_splits(out)
+    for pattern, repl in _FUSED_OCR:
+        out = pattern.sub(repl, out)
     out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
     out = _OCR_HEADER_RE.sub(" ", out)
     out = _collapse_repeated_phrases(out)
@@ -1871,11 +1899,66 @@ def _is_tiny_heading(text: str) -> bool:
     return len((text or "").strip()) < 20
 
 
-def _is_parts_list_dump(text: str) -> bool:
-    """A replaceable-parts table, not a single cited part number."""
-    if _PARTS_LIST_RE.search(text or ""):
+def _is_brochure_text_companion(title: str = "", excerpt: str = "") -> bool:
+    """A 'Brochure - TEXT' OCR companion is not a procedure cite."""
+    blob = f"{title or ''} {excerpt or ''}"
+    return bool(_BROCHURE_TEXT_RE.search(blob) and re.search(r"\btext\b", blob, re.I))
+
+
+def _strip_incomplete_callout(text: str) -> str:
+    """Drop a snippet that was cut off at '(Fig.' or '(i.'."""
+    return re.sub(r"\s*\(\s*(?:Fig\.?|i\.?)\s*$", "", (text or "").strip(), flags=re.I).strip(" ,;:-")
+
+
+def _sentence_is_cut(text: str) -> bool:
+    """True when a snippet ends mid-word, on a cut figure callout, or on a stub."""
+    sentence = (text or "").strip()
+    if not sentence:
         return True
-    return len(re.findall(r"\b\d{5,}\b", text or "")) >= 4
+    if _FIG_CUT_RE.search(sentence) or re.search(r"\(\s*Fig\.(?!\s*\d)", sentence, re.I):
+        return True
+    if re.search(r"\(\s*i\.\s*$", sentence, re.I):
+        return True
+    if re.search(r"(?:->|→)\s*$", sentence):
+        return True
+    if re.search(r"\blippert\.$", sentence, re.I):
+        return True
+    if re.search(r"\bthe\s+(?:black|white|red|blue|green)\.$", sentence, re.I):
+        return True
+    match = _SHORT_CUT_END_RE.search(sentence)
+    if match:
+        token = match.group(1)
+        if token.lower() not in _SHORT_WORD_KEEP | {"ok", "ac", "dc", "v", "a"}:
+            # "Fa." or "ls." is a word cut in half. "12 V." is a unit.
+            if token.islower() or (len(token) == 2 and token[0].isupper() and token[1].islower()):
+                return True
+    return False
+
+
+def _is_question_bullet(text: str) -> bool:
+    """'?' left by a column read is not a sentence. A real 'if' question can keep one."""
+    sentence = (text or "").strip()
+    if "?" not in sentence:
+        return False
+    if sentence.startswith("?"):
+        return True
+    if re.search(r"\bif\b", sentence, re.I) and sentence.count("?") < 2:
+        return False
+    return True
+
+
+def _is_parts_list_dump(text: str) -> bool:
+    """A replaceable-parts or tool table, not a single cited part number."""
+    raw = text or ""
+    if _PARTS_LIST_RE.search(raw):
+        return True
+    if len(re.findall(r"\b\d{5,}\b", raw)) >= 4:
+        return True
+    if len(re.findall(r"\b[A-Za-z]{3,}x\s+\d+\b", raw)) >= 2:
+        return True
+    if len(re.findall(r"\?\s*[A-Za-z]", raw)) >= 2 and re.search(r"\bx\s+\d+", raw):
+        return True
+    return False
 
 
 def source_is_discontinued(title: str = "", excerpt: str = "") -> bool:
@@ -1910,6 +1993,11 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
     out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
     kept = []
     for sentence in _split_sentences(out):
+        sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence))
+        if not sentence or _is_question_bullet(sentence) or _sentence_is_cut(sentence):
+            continue
+        if _NO_LIBRARY_STEP_RE.search(sentence):
+            continue
         if excerpt_starts_mid_word(sentence):
             continue
         if _is_tiny_heading(sentence):
@@ -1931,7 +2019,10 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         kept.pop()
     out = " ".join(kept)
     if len(out) > cap:
-        out = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+        out = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    out = _strip_incomplete_callout(out)
+    if _sentence_is_cut(out):
+        return ""
     return _as_sentence(out)
 
 
@@ -1997,6 +2088,10 @@ def polish_bay_sources(
         title = human_source_title(src.get("title") or "", src.get("file_path") or "")
         if source_is_discontinued(title, raw_excerpt) or source_is_discontinued(src.get("title") or "", raw_excerpt):
             continue
+        if _is_brochure_text_companion(title, raw_excerpt) or _is_brochure_text_companion(
+            src.get("title") or "", raw_excerpt
+        ):
+            continue
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
         if not locked and not excerpt:
             continue
@@ -2036,6 +2131,10 @@ def _is_raw_ocr_step(text: str) -> bool:
     if t.startswith("?"):
         return True
     if "?" in t[:-1]:
+        return True
+    if _NO_LIBRARY_STEP_RE.search(t):
+        return True
+    if _sentence_is_cut(t):
         return True
     if re.match(r"^(?:note|warning|caution)\b", t, re.I) and not re.search(r"\bif\b", t, re.I):
         return True
@@ -2129,13 +2228,13 @@ def _topic_figures(ranked, title: str, caption: str, excerpt: str) -> list[BayFi
     seed.title = title
     seed.caption = caption
     seed.excerpt = excerpt
-    if any(fig.image_png for fig in library):
-        return library
-    if library:
-        library[0].image_png = seed.image_png
-        library[0].caption = library[0].caption or caption
-        library[0].title = library[0].title or title
-        return library
+    real = [
+        fig
+        for fig in library
+        if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+    ]
+    if real:
+        return real
     return [seed]
 
 
@@ -2398,8 +2497,7 @@ def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     if not cleaned:
         cleaned.append(
             _ensure_next_step(
-                "No matching library excerpt was retrieved. Re-check category or model keywords, "
-                "or ask a manager to index the unit in Document Library.",
+                "Write the first reading on this sheet, then ask a manager before any part swap.",
                 last=not long_path,
             )
         )
@@ -2733,8 +2831,20 @@ def _figure_font(size: int = 18):
         return None
 
 
+_SEED_CACHE: dict[str, bytes] = {}
+
+
 def _seed_figure_png(kind: str) -> bytes:
     """Ship ice-pattern / data-plate schematics so HIT sheets are not figure-empty."""
+    cached = _SEED_CACHE.get(kind)
+    if cached is not None:
+        return cached
+    png = _draw_seed_figure_png(kind)
+    _SEED_CACHE[kind] = png
+    return png
+
+
+def _draw_seed_figure_png(kind: str) -> bytes:
     from PIL import Image, ImageDraw
 
     img = Image.new("RGB", (900, 520), (248, 250, 252))
@@ -2809,7 +2919,8 @@ def load_oem_figure_png(name: str) -> bytes:
 
 # Full manual pages are not figures. These boxes are the cited drawing on that page.
 _OEM_FIGURE_CROP = {
-    "ccd7990-p7.png": (48, 1088, 1056, 1368),
+    # The drainage-openings row. The lower crop was the model spec table.
+    "ccd7990-p7.png": (36, 708, 1066, 848),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
@@ -2934,12 +3045,27 @@ def _generic_seed_png() -> bytes:
     return _GENERIC_SEED_PNG
 
 
+def _png_is_generated_sketch(png: bytes) -> bool:
+    """A drawn stand-in is not an OEM manual figure."""
+    if not png:
+        return False
+    return any(png == _seed_figure_png(kind) for kind in ("generic", "ice", "facr", "firefly"))
+
+
 def figure_is_placeholder(fig: BayFigure) -> bool:
-    """The drawn 'Cited library figure' card is not a manual figure."""
+    """A drawn sketch is not a manual figure, even when a library caption was pasted on it."""
     if "cited library figure" in (fig.caption or "").lower():
         return True
-    png = fig.image_png or b""
-    return bool(png) and png == _generic_seed_png()
+    return _png_is_generated_sketch(fig.image_png or b"")
+
+
+def _real_library_figures(ranked) -> list[BayFigure]:
+    """Library figures that already carry real page art. Sketches do not count."""
+    return [
+        fig
+        for fig in pick_cited_figures(ranked)
+        if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+    ]
 
 
 def _seed_path_figure(kind: str) -> BayFigure:
@@ -3025,30 +3151,36 @@ def _brand_miss_figure(brand: str = "", model: str = "") -> BayFigure:
 
 
 def resolve_path_figures(kind: str, ranked, explicit: list[BayFigure] | None = None) -> list[BayFigure]:
-    """Ice and FACR always use real OEM library art. Firefly may use the path seed."""
+    """Ice and FACR always use real OEM library art. A sketch is never captioned as an OEM page."""
     if kind in ("ice", "facr"):
-        if explicit and any(fig.image_png for fig in explicit):
-            return list(explicit)
+        if explicit and any(
+            fig.image_png and not _png_is_generated_sketch(fig.image_png) for fig in explicit
+        ):
+            return [
+                fig
+                for fig in explicit
+                if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+            ]
         return _oem_library_figures(kind)
     if kind == "dial_off":
         return [_seed_path_figure("dial_off")]
     if kind == "bal_tongue":
         return [_seed_path_figure("bal_tongue")]
-    if explicit:
-        if any(fig.image_png for fig in explicit):
-            return list(explicit)
-        seeded = _seed_path_figure(kind)
-        explicit[0].image_png = seeded.image_png
-        return list(explicit)
-    library = pick_cited_figures(ranked)
-    if any(fig.image_png for fig in library):
-        return library
-    seed = _seed_path_figure(kind)
-    if library:
-        library[0].image_png = seed.image_png
-        library[0].caption = library[0].caption or seed.caption
-        return library
-    return [seed]
+    real = _real_library_figures(ranked)
+    if real:
+        return real
+    if explicit and any(
+        fig.image_png and not _png_is_generated_sketch(fig.image_png) for fig in explicit
+    ):
+        return [
+            fig
+            for fig in explicit
+            if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+        ]
+    # No real page art. Keep a seed object for tests, but do not borrow an OEM caption.
+    if kind == "firefly":
+        return [_seed_path_figure("firefly")]
+    return [_seed_path_figure("generic")]
 
 
 def _unique_sources(chunks) -> list[dict]:
@@ -3278,6 +3410,250 @@ def apply_shop_channel_wording(proc: "BayProcedure") -> "BayProcedure":
     return proc
 
 
+def _shop_body(line: str) -> str:
+    """GD shop line without the source stamp. The cite stays on the sheet header."""
+    kept = []
+    for part in (line or "").splitlines():
+        part = part.strip()
+        if not part or part.startswith("📖"):
+            continue
+        kept.append(part)
+    return " ".join(kept)
+
+
+def _named_fix_chart(start: str, question: str, yes_text: str, no_text: str, process: str) -> Flowchart:
+    """Yes/no chart that names the correction. Not the generic first-check diamond."""
+    return Flowchart(
+        readable=True,
+        nodes=[
+            FlowNode("s", "start", start, 0.50, 0.10, w=430, h=72),
+            FlowNode("d1", "decision", question, 0.32, 0.38, w=236, h=96),
+            FlowNode("n1", "end", no_text, 0.80, 0.38, w=210, h=80),
+            FlowNode("p1", "process", process, 0.32, 0.64, w=280, h=80),
+            FlowNode("e1", "end", yes_text, 0.32, 0.88, w=280, h=72),
+        ],
+        edges=[
+            FlowEdge("s", "d1"),
+            FlowEdge("d1", "p1", "YES", "bottom", "top"),
+            FlowEdge("d1", "n1", "NO", "right", "left"),
+            FlowEdge("p1", "e1", "", "bottom", "top"),
+        ],
+    )
+
+
+def _ground_control_path(concern: str) -> dict:
+    body = _shop_body(GROUND_CONTROL_LEVEL_LINE)
+    return {
+        "primary_cite": (
+            "Lippert Internal Tech Support – Electric Leveling Systems "
+            "(Ground Control TT/2.0/3.0)"
+        ),
+        "pattern_means": (
+            "Auto-level that lifts one side of the coach is a zero-point calibration "
+            "on Lippert Ground Control. Run manual level, then set zero point. "
+            "Do not swap a level sensor and do not replace a harness."
+        ),
+        "flowchart": _named_fix_chart(
+            _opening_sentence(concern or "Auto-level lifts one side of the coach."),
+            "Does auto-level\nlift one side?",
+            "Manual level, then\nzero-point calibration.",
+            "Recheck the complaint.\nDo not swap a sensor.",
+            "FRONT five times, REAR five times,\nthen press ENTER.",
+        ),
+        "bay_order": [
+            "Confirm the controller, jack, and touch pad plugs are seated. If a plug is loose, reseat it and retest auto-level. If the plugs are seated, run manual level next.",
+            "Run manual level. In manual mode, run the jacks until the trailer is level: level front to back, then side to side. If the coach is level, turn the touch pad off and set zero point.",
+            body + " If auto-level still lifts one side after that sequence, repeat the zero-point calibration. That is the confirmed correction.",
+        ],
+        "do_not": [
+            "Do not swap a level sensor.",
+            "Do not replace a harness for an auto-level that lifts one side.",
+        ],
+        "sources": [
+            {
+                "title": "Lippert Internal Tech Support – Electric Leveling Systems (Ground Control TT/2.0/3.0)",
+                "page": None,
+                "excerpt": "Run manual level, then zero-point calibration. Press FRONT five times, REAR five times, then ENTER.",
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _dometic_ceiling_path() -> dict:
+    return {
+        "primary_cite": "Dometic diagnostic service manual 3311071",
+        "pattern_means": _shop_body(DOMETIC_NOCOOL_OPEN),
+        "flowchart": _named_fix_chart(
+            "The fan runs and the rooftop unit is not cooling.",
+            "Do both bypasses\ncool?",
+            "Replace the ceiling\nthermostat/selector.",
+            "Stay on the bypasses.\nDo not start on the filter.",
+            "Peacemaker bypass, then\nbypass the ceiling selector.",
+        ),
+        "bay_order": [
+            "Fan running with no cold air is the no-cool path. Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
+            "If the Peacemaker bypass cools, bypass the ceiling selector. If bypassing the ceiling selector does not cool, stay on that bypass and retest.",
+            _shop_body(DOMETIC_CEILING_LINE)
+            + " That is the confirmed correction per diagnostic manual 3311071.",
+        ],
+        "do_not": [
+            "Do not start on the filter check.",
+        ],
+        "sources": [
+            {
+                "title": "Dometic diagnostic service manual 3311071",
+                "page": None,
+                "excerpt": "Replace the ceiling thermostat/selector when both bypasses cool.",
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _fact12_freeze_path() -> dict:
+    return {
+        "primary_cite": "Resecure the FACT12 freeze sensor.",
+        "pattern_means": (
+            "A FACT12 E2 or E3 is a freeze-sensor seating fault. "
+            "Resecure the freeze sensor on the evaporator coil before any board swap."
+        ),
+        "flowchart": _named_fix_chart(
+            "FACT12 shows E2 or E3.",
+            "Is the freeze sensor\nloose or off the coil?",
+            "Resecure the freeze sensor.\nThat is the correction.",
+            "Reseat the sensor and retest\nbefore any board swap.",
+            "Resecure the freeze sensor\non the evaporator coil.",
+        ),
+        "bay_order": [
+            "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, resecure the freeze sensor.",
+            _shop_body(FACT12_FREEZE_RESECURE_LINE)
+            + " If the code clears, that resecure is the confirmed correction.",
+            "If the code returns, resecure the freeze sensor again and retest. If it is seated and the code remains, retest once more before any other part.",
+        ],
+        "do_not": [
+            "Do not replace the control board before the freeze sensor is reseated.",
+        ],
+        "sources": [
+            {
+                "title": "Furrion FACT rooftop freeze-sensor check",
+                "page": None,
+                "excerpt": "Resecure the freeze sensor on the evaporator coil for E2 or E3.",
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _girard_petit_path() -> dict:
+    return {
+        "primary_cite": "Girard tankless water heater, petit tube alignment",
+        "pattern_means": (
+            "Girard GSWH-2 E8 after flame starts at the petit tube. "
+            "Align the petit tube in the burner flame and retest before any control board."
+        ),
+        "flowchart": _named_fix_chart(
+            "Girard water heater shows E8 after flame.",
+            "Is the petit tube\nin the flame?",
+            "Petit tube aligned.\nThat is the correction.",
+            "Align the petit tube first.",
+            "Align the petit tube,\nthen retest the heater.",
+        ),
+        "bay_order": [
+            "Confirm the E8 code after the flame lights. If the heater locks out, look at the petit tube next.",
+            "If the petit tube is out of the burner flame, align the petit tube first. If it is already in the flame, retest the heater.",
+            _shop_body(GIRARD_PETIT_ALIGN_LINE) + " If E8 clears, that alignment is the confirmed correction.",
+            "If E8 returns with the petit tube aligned, check the air-pressure switch and the gas supply. If either fails, repair that and retest.",
+            "If the air-pressure switch and the gas are good and E8 remains, look at the petit tube again. If it has moved, align the petit tube and retest.",
+            "The confirmed correction is the petit tube aligned in the burner flame. Do not replace the control board before the petit tube is aligned.",
+        ],
+        "do_not": [
+            "Do not replace the control board before the petit tube is aligned.",
+        ],
+        "sources": [
+            {
+                "title": "Girard tankless water heater service manual",
+                "page": None,
+                "excerpt": "Align the petit tube in the burner flame first and retest.",
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _stabilizer_rr_path() -> dict:
+    return {
+        "primary_cite": "Lippert PSX1 front stabilizer, complete jack assembly",
+        "pattern_means": _shop_body(PSX1_ASSEMBLY_RR_SHOP_LINE),
+        "flowchart": _named_fix_chart(
+            "Power works. The manual override will not engage.",
+            "Is the roll pin\nor coupler broken?",
+            "Replace the complete\nfront stabilizer jack.",
+            "Retest power and the crank.\nDo not replace the coupler only.",
+            "Full jack R&R.\nReconnect mount and power.",
+        ),
+        "bay_order": [
+            "Confirm power extend and retract. If power is dead, fix power before the override. If power works, try the manual crank.",
+            "If the manual-override roll pin or coupler is broken or seized, do not replace the coupler only. Replace the complete front stabilizer jack assembly.",
+            "Reconnect the mount and the electrical connector, then retest power extend and retract and the manual crank. If both work, that is the confirmed correction.",
+        ],
+        "do_not": [
+            "Do not replace the coupler only.",
+        ],
+        "sources": [
+            {
+                "title": "Lippert PSX1 front stabilizer jack",
+                "page": None,
+                "excerpt": (
+                    "Replace the complete front stabilizer jack assembly when the "
+                    "override roll pin is broken or seized."
+                ),
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _cooktop_tip_path() -> dict:
+    body = _shop_body(COOKTOP_TIP_LOW_REPAIR)
+    return {
+        "primary_cite": "Suburban Range/Cooktops service manual",
+        "pattern_means": body,
+        "flowchart": _named_fix_chart(
+            "The burner goes out when a pan is set on it.",
+            "Does the tip sit\nlow in the flame?",
+            "Reposition the thermocouple tip.\nThat is the repair.",
+            "Relight with the pan on\nand watch the tip.",
+            "Reposition the thermocouple tip\nin the flame with the pan on.",
+        ),
+        "bay_order": [
+            "Set a pan on the lit burner. If the flame goes out, look at the thermocouple tip next.",
+            "If the thermocouple tip sits low, the pan pushes it out of the flame. Go to the reposition step.",
+            body + " If the flame holds with the pan on, that is the confirmed correction.",
+            "If the flame still goes out, reseat the thermocouple tip in the burner flame and retest with the pan on.",
+            "Relight with the pan on. If the flame holds, you are done. If it goes out, reposition the thermocouple tip again.",
+            "The confirmed correction is the thermocouple tip repositioned in the burner flame with the pan on.",
+        ],
+        "do_not": [
+            "Do not condemn the thermocouple until the tip has been repositioned in the flame with the pan on.",
+        ],
+        "sources": [
+            {
+                "title": "Suburban Range/Cooktops service manual",
+                "page": None,
+                "excerpt": "Reposition the thermocouple tip in the burner flame with the pan on.",
+            }
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -3315,6 +3691,12 @@ def compile_bay_procedure(
     coleman = is_coleman_2111_context(category, model_text, concern)
     furnace = _is_furnace_bay(category, model_text, concern)
     e2_fan = is_fcr_e2_fan_fault_context(category, model_text, concern)
+    ground_control = is_ground_control_context(category, model_text, concern)
+    dometic_ceiling = is_dometic_ceiling_sheet_context(category, model_text, concern)
+    fact12_freeze = is_fact12_freeze_code_context(category, model_text, concern)
+    girard_e8 = is_girard_petit_tube_context(category, model_text, concern)
+    stabilizer_rr = is_stabilizer_override_pin_context(category, model_text, concern)
+    cooktop_tip = is_cooktop_tip_sheet_context(category, model_text, concern)
 
     path_kind = ""
     if dial_off:
@@ -3344,6 +3726,24 @@ def compile_bay_procedure(
     elif brand_miss:
         spec = _no_brand_match_path(brand, model)
         path_kind = "brand_miss"
+    elif ground_control:
+        spec = _ground_control_path(concern)
+        path_kind = "ground_control"
+    elif dometic_ceiling:
+        spec = _dometic_ceiling_path()
+        path_kind = "dometic_ceiling"
+    elif fact12_freeze:
+        spec = _fact12_freeze_path()
+        path_kind = "fact12_freeze"
+    elif girard_e8:
+        spec = _girard_petit_path()
+        path_kind = "girard_e8"
+    elif stabilizer_rr:
+        spec = _stabilizer_rr_path()
+        path_kind = "stabilizer"
+    elif cooktop_tip:
+        spec = _cooktop_tip_path()
+        path_kind = "cooktop_tip"
     else:
         long_path = is_long_appliance_path(category, concern)
         step_pages = [] if fact12_mislabeled_only else list(ranked)
@@ -3388,7 +3788,7 @@ def compile_bay_procedure(
         path_kind,
         prefer_diagnostic=_is_fault_complaint(concern),
     )
-    if fact12_mislabeled_only and not path_kind:
+    if fact12_mislabeled_only and path_kind in ("", "fact12_freeze"):
         page = _page_int(ranked[0].get("page")) if ranked else None
         sources = [
             {
@@ -3397,7 +3797,12 @@ def compile_bay_procedure(
                 "excerpt": "This indexed file is the FACR08 8K book.",
             }
         ]
-        spec["primary_cite"] = FACT12_MISLABEL_CITE
+        if path_kind == "fact12_freeze":
+            spec["primary_cite"] = (
+                "Resecure the FACT12 freeze sensor. " + FACT12_MISLABEL_CITE
+            )
+        else:
+            spec["primary_cite"] = FACT12_MISLABEL_CITE
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -3414,7 +3819,7 @@ def compile_bay_procedure(
     if not checks:
         checks.append(
             BayCheck(
-                text="No matching library excerpt was retrieved. Re-check category or model keywords.",
+                text="Write the first reading on this sheet, then ask a manager before any part swap.",
                 source_title="Document Library",
                 kind="note",
             )
@@ -3441,14 +3846,15 @@ def compile_bay_procedure(
     elif path_kind:
         figs = resolve_path_figures(path_kind, ranked, figures)
     else:
-        figs = list(figures or []) or pick_cited_figures(ranked)
-        if not any(fig.image_png for fig in figs):
-            seed = _seed_path_figure("generic")
-            if figs:
-                figs[0].image_png = seed.image_png
-                figs[0].caption = figs[0].caption or seed.caption
-            else:
-                figs = [seed]
+        figs = _real_library_figures(ranked)
+        if figures:
+            figs = [
+                fig
+                for fig in figures
+                if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+            ] or figs
+        if not figs:
+            figs = [_seed_path_figure("generic")]
     figs = [
         fig
         for fig in figs
@@ -3853,8 +4259,9 @@ def _cluster_rows(nodes: list[FlowNode], tol: float = 0.07) -> list[list[FlowNod
 
 
 def _flowchart_inner(frame_x: float, frame_y: float, frame_w: float, frame_h: float):
-    """Gutters keep node boxes off the title and the frame stroke."""
-    return (frame_x + 12.0, frame_y + 10.0, frame_w - 24.0, frame_h - 40.0)
+    """Gutters keep node boxes and loop-back arrows off the frame stroke."""
+    # Right inset is wide enough for a return stub to stay inside the frame.
+    return (frame_x + 12.0, frame_y + 10.0, frame_w - 44.0, frame_h - 40.0)
 
 
 def _pack_rows(flow: Flowchart, inner_w: float, inner_h: float, readable: bool, scale: float):
@@ -4080,9 +4487,10 @@ def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_
     elif from_side in ("left", "right") and to_side in ("left", "right"):
         horizontal_then_down()
     elif from_side == "right" and to_side == "top":
-        out_x = x1 + 16.0
+        limit = (frame[2] - 10.0) if frame else (x1 + 12.0)
+        out_x = min(x1 + 12.0, limit)
         if out_x < x2:
-            out_x = (x1 + x2) / 2.0
+            out_x = min((x1 + x2) / 2.0, limit)
         lanes = _lane_candidates(y1, y2, 2.6 if y1 > y2 else -2.6)
         lane = next((y for y in lanes if not _span_hits_boxes("h", y, out_x, x2, boxes)), lanes[0])
         pts.extend([(out_x, y1), (out_x, lane), (x2, lane), (x2, y2)])
@@ -4101,8 +4509,25 @@ def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_
     if boxes and _polyline_hits(pts, boxes):
         alt = _route_gutter(x1, y1, x2, y2, from_side, to_side, boxes, frame)
         if alt and not _polyline_hits(alt, boxes):
-            return alt
-    return pts
+            return _inset_route(alt, frame)
+    return _inset_route(pts, frame)
+
+
+def _inset_route(pts, frame, inset: float = 8.0):
+    """Keep elbow corners inside the frame. Ports stay where the nodes put them."""
+    if not frame or len(pts) < 3:
+        return pts
+    fx0, fy0, fx1, fy1 = frame
+    out = [pts[0]]
+    for x, y in pts[1:-1]:
+        out.append(
+            (
+                min(max(x, fx0 + inset), fx1 - inset),
+                min(max(y, fy0 + inset), fy1 - inset),
+            )
+        )
+    out.append(pts[-1])
+    return out
 
 
 def _polyline_hits(pts, boxes) -> bool:

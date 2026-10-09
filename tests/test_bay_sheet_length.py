@@ -185,7 +185,7 @@ class TestSheetLengthAndGenericPath(unittest.TestCase):
 
     def test_generic_path_does_not_paste_raw_ocr_or_an_install_manual(self):
         proc = compile_bay_procedure(
-            concern="Dometic B57915 rooftop air conditioner is not cooling.",
+            concern="Dometic B57915 Brisk no cool E3.",
             brand="Dometic",
             model="B57915",
             category="Air Conditioning",
@@ -249,7 +249,8 @@ class TestSheetLengthAndGenericPath(unittest.TestCase):
         blob = " ".join(proc.bay_order)
         self.assertNotIn("Duct size", blob)
         self.assertNotIn("?", blob)
-        self.assertIn("CN1", blob)
+        self.assertIn("petit tube", blob.lower())
+        self.assertLess(blob.lower().index("petit tube"), blob.lower().index("control board"))
         box = next(node.text for node in proc.flowchart.nodes if node.kind == "process")
         self.assertFalse(box.strip().startswith("?"))
 
