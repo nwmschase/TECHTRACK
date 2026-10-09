@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import math
 import re
 import textwrap
 import zlib
@@ -368,6 +369,8 @@ class DrawnShape:
     stroke_w: float = 1.2
     radius: float = 4.0
     points: list = field(default_factory=list)
+    id: str = ""
+    role: str = ""  # chrome | frame | banner | node | bar | box | check | connector
 
 
 @dataclass
@@ -379,8 +382,11 @@ class DrawnText:
     size: float = 9.0
     bold: bool = False
     color: tuple = INK
-    align: str = "left"  # left | center
+    align: str = "left"  # left | center | right
     leading: float = 0.0
+    lines: list = field(default_factory=list)
+    owner: str = ""
+    role: str = ""  # header | bar | body | node | label
 
 
 @dataclass
@@ -397,6 +403,23 @@ class SheetPage:
     shapes: list[DrawnShape] = field(default_factory=list)
     texts: list[DrawnText] = field(default_factory=list)
     images: list[DrawnImage] = field(default_factory=list)
+
+
+@dataclass
+class LayoutMark:
+    """One drawn element, in PDF points (origin at the bottom-left)."""
+
+    page: int
+    kind: str
+    role: str
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    owner: str = ""
+    text: str = ""
+    id: str = ""
+    points: list = field(default_factory=list)
 
 
 @dataclass
@@ -2048,61 +2071,297 @@ def _latin1_safe(text: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Visual flowchart + sheet composition (shared by all renderers)
+#
+# Every shape is sized from measured text before anything is drawn. Ovals and
+# diamonds wrap into the inscribed rectangle of the shape, not the bounding
+# box. Section bars are placed from the previous block's real height.
 # ---------------------------------------------------------------------------
-def _node_size(node: FlowNode, *, readable: bool = False) -> tuple[float, float]:
-    if node.w and node.h:
-        return node.w, node.h
-    if node.kind == "decision":
-        return (220.0, 100.0) if readable else (132.0, 58.0)
-    if node.kind in ("start", "end"):
-        return (320.0, 66.0) if readable else (210.0, 38.0)
-    return (270.0, 80.0) if readable else (230.0, 40.0)
+_SQRT2 = math.sqrt(2.0)
+_FLOW_GAP = 16.0
+_PAD_X = 7.0
+_PAD_Y = 5.0
+_CONTENT_W = PAGE_W - 2 * MARGIN
 
 
-def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, float]:
-    if side == "top":
-        return cx, cy + h / 2.0
-    if side == "bottom":
-        return cx, cy - h / 2.0
-    if side == "left":
-        return cx - w / 2.0, cy
-    if side == "right":
-        return cx + w / 2.0, cy
-    return cx, cy
+def _next_id(prefix: str) -> str:
+    _next_id.n += 1
+    return f"{prefix}-{_next_id.n}"
+
+
+_next_id.n = 0
+
+
+@dataclass
+class TextMeasure:
+    lines: list
+    width: float
+    height: float
+    ascent: float
+    descent: float
+    leading: float
+    size: float
+    font: str
+
+
+def _font_name(bold: bool) -> str:
+    return "Helvetica-Bold" if bold else "Helvetica"
+
+
+def _font_ascent_descent(font: str, size: float) -> tuple[float, float]:
+    try:
+        from reportlab.pdfbase.pdfmetrics import getAscent, getDescent
+
+        return float(getAscent(font, size)), abs(float(getDescent(font, size)))
+    except Exception:
+        return 0.72 * size, 0.21 * size
+
+
+def _string_width(text: str, font: str, size: float) -> float:
+    try:
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+
+        return float(stringWidth(text or "", font, size))
+    except Exception:
+        return 0.52 * size * len(text or "")
+
+
+def _break_word(word: str, max_width: float, font: str, size: float) -> list[str]:
+    if not word:
+        return [""]
+    if _string_width(word, font, size) <= max_width + 0.2:
+        return [word]
+    pieces: list[str] = []
+    cur = ""
+    for ch in word:
+        trial = cur + ch
+        if cur and _string_width(trial, font, size) > max_width + 0.05:
+            pieces.append(cur)
+            cur = ch
+        else:
+            cur = trial
+    if cur:
+        pieces.append(cur)
+    return pieces or [word]
+
+
+def _wrap_lines(text: str, max_width: float, font: str, size: float) -> list[str]:
+    """Wrap on the same width the PDF drawer will paint. Hard-break long tokens."""
+    max_width = max(float(max_width), 8.0)
+    lines: list[str] = []
+    raw = _latin1_safe(text or "")
+    for para in raw.split("\n"):
+        if para == "":
+            lines.append("")
+            continue
+        words = para.split()
+        if not words:
+            lines.append("")
+            continue
+        cur = ""
+        for word in words:
+            for piece in _break_word(word, max_width, font, size):
+                trial = piece if not cur else f"{cur} {piece}"
+                if _string_width(trial, font, size) <= max_width + 0.2:
+                    cur = trial
+                else:
+                    if cur:
+                        lines.append(cur)
+                    cur = piece
+        lines.append(cur)
+    return lines or [""]
+
+
+def measure_text(text: str, max_width: float, size: float, bold: bool = False, leading: float = 0.0) -> TextMeasure:
+    """Width and height of wrapped text, using the font the PDF will draw."""
+    font = _font_name(bold)
+    ascent, descent = _font_ascent_descent(font, size)
+    leading = leading or (size + 2.0)
+    lines = _wrap_lines(text, max_width, font, size)
+    width = 0.0
+    for line in lines:
+        width = max(width, _string_width(line, font, size))
+    height = ascent + descent + max(0, len(lines) - 1) * leading
+    return TextMeasure(lines, width, height, ascent, descent, leading, size, font)
+
+
+def _shape_kind(node_kind: str) -> str:
+    if node_kind == "decision":
+        return "diamond"
+    if node_kind in ("start", "end"):
+        return "ellipse"
+    return "roundrect"
+
+
+def _node_font(kind: str, readable: bool, scale: float) -> tuple[float, bool, float]:
+    if kind == "decision":
+        size = (12.0 if readable else 7.5) * scale
+        bold = True
+    else:
+        size = (11.0 if readable else 7.5) * scale
+        bold = False
+    leading = size + ((3.2 if readable else 1.6) * scale)
+    return size, bold, leading
+
+
+def _outer_size(kind: str, block: TextMeasure) -> tuple[float, float]:
+    """Bounding box whose inscribed rectangle contains the measured text plus padding."""
+    inner_w = max(block.width, 8.0) + 2 * _PAD_X
+    inner_h = block.height + 2 * _PAD_Y
+    if kind == "ellipse":
+        return inner_w * _SQRT2, inner_h * _SQRT2
+    if kind == "diamond":
+        return inner_w * 2.0, inner_h * 2.0
+    return inner_w, inner_h
+
+
+def _content_width(kind: str, outer_w: float) -> float:
+    if kind == "ellipse":
+        return outer_w / _SQRT2 - 2 * _PAD_X
+    if kind == "diamond":
+        return outer_w / 2.0 - 2 * _PAD_X
+    return outer_w - 2 * _PAD_X
+
+
+def _fit_node(node: FlowNode, alloc_w: float, readable: bool, scale: float):
+    kind = _shape_kind(node.kind)
+    size, bold, leading = _node_font(node.kind, readable, scale)
+    cw = max(36.0, _content_width(kind, alloc_w) + 1.25)
+    block = measure_text(node.text, cw, size, bold=bold, leading=leading)
+    w, h = _outer_size(kind, block)
+    return w, h, block, size, bold, leading, kind
+
+
+def _cluster_rows(nodes: list[FlowNode], tol: float = 0.07) -> list[list[FlowNode]]:
+    ordered = sorted(nodes, key=lambda n: (n.y, n.x))
+    rows: list[list[FlowNode]] = []
+    for node in ordered:
+        if not rows or node.y - rows[-1][0].y > tol:
+            rows.append([node])
+        else:
+            rows[-1].append(node)
+    for row in rows:
+        row.sort(key=lambda n: n.x)
+    return rows
 
 
 def _flowchart_inner(frame_x: float, frame_y: float, frame_w: float, frame_h: float):
-    """Readable OEM gutters — keep boxes off the title bar and frame edge."""
-    return (
-        frame_x + 16,
-        frame_y + 14,
-        frame_w - 32,
-        frame_h - 38,
-    )
+    """Gutters keep node boxes off the title and the frame stroke."""
+    return (frame_x + 12.0, frame_y + 10.0, frame_w - 24.0, frame_h - 40.0)
+
+
+def _pack_rows(flow: Flowchart, inner_w: float, inner_h: float, readable: bool, scale: float):
+    rows = _cluster_rows(list(flow.nodes))
+    if not rows:
+        return None
+    packed_rows = []
+    for row in rows:
+        prefs = []
+        for node in row:
+            size, bold, leading = _node_font(node.kind, readable, scale)
+            block = measure_text(node.text, 380.0, size, bold=bold, leading=leading)
+            pw, ph = _outer_size(_shape_kind(node.kind), block)
+            prefs.append(pw)
+        if len(row) == 1:
+            max_w = inner_w - 2.0
+            if row[0].x < 0.40 or row[0].x > 0.60:
+                max_w = min(max_w, inner_w * 0.74)
+            alloc = min(prefs[0], max_w)
+            fitted = [_fit_node(row[0], alloc, readable, scale)]
+        else:
+            avail = inner_w - _FLOW_GAP * (len(row) - 1)
+            if sum(prefs) <= avail:
+                allocs = prefs
+            else:
+                allocs = [pw * avail / sum(prefs) for pw in prefs]
+            fitted = [_fit_node(node, alloc, readable, scale) for node, alloc in zip(row, allocs)]
+            if sum(item[0] for item in fitted) + _FLOW_GAP * (len(row) - 1) > inner_w + 1.5:
+                return None
+        packed_rows.append(fitted)
+    heights = [max(item[1] for item in row) for row in packed_rows]
+    total_h = sum(heights) + _FLOW_GAP * (len(rows) - 1)
+    if total_h > inner_h + 0.5:
+        return None
+    return rows, packed_rows, heights
+
+
+def _pack_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float) -> dict:
+    inner_x, inner_y, inner_w, inner_h = _flowchart_inner(frame_x, frame_y, frame_w, frame_h)
+    readable = bool(getattr(flow, "readable", False))
+    chosen = None
+    for scale in (1.0, 0.94, 0.88, 0.82, 0.76, 0.70):
+        packed = _pack_rows(flow, inner_w, inner_h, readable, scale)
+        if packed is not None:
+            chosen = (scale, packed)
+            break
+    if chosen is None:
+        chosen = (0.70, _pack_rows(flow, inner_w, inner_h, readable, 0.70) or (
+            _cluster_rows(list(flow.nodes)),
+            [],
+            [],
+        ))
+        # Last attempt may have returned None because a row is wider than the frame.
+        # Fit every node into an equal share so the chart still draws.
+        if not chosen[1][1]:
+            rows = _cluster_rows(list(flow.nodes))
+            packed_rows = []
+            for row in rows:
+                share = max(80.0, (inner_w - _FLOW_GAP * (len(row) - 1)) / max(len(row), 1))
+                packed_rows.append([_fit_node(node, share, readable, 0.70) for node in row])
+            heights = [max(item[1] for item in row) for row in packed_rows] or []
+            chosen = (0.70, (rows, packed_rows, heights))
+    _scale, (rows, packed_rows, heights) = chosen
+    placed: dict = {}
+    if not rows:
+        return placed
+    top = inner_y + inner_h
+    for row, fitted, rh in zip(rows, packed_rows, heights):
+        cy = top - rh / 2.0
+        widths = [item[0] for item in fitted]
+        if len(row) == 1:
+            w = widths[0]
+            node = row[0]
+            if node.x < 0.40:
+                cx = inner_x + w / 2.0
+            elif node.x > 0.60:
+                cx = inner_x + inner_w - w / 2.0
+            else:
+                cx = inner_x + inner_w / 2.0
+            cxs = [min(max(cx, inner_x + w / 2.0), inner_x + inner_w - w / 2.0)]
+        elif len(row) == 2:
+            w1, w2 = widths
+            cxs = [inner_x + w1 / 2.0, inner_x + inner_w - w2 / 2.0]
+        else:
+            used = sum(widths) + _FLOW_GAP * (len(row) - 1)
+            extra = max(0.0, inner_w - used)
+            cursor = inner_x + extra / 2.0
+            cxs = []
+            for w in widths:
+                cxs.append(cursor + w / 2.0)
+                cursor += w + _FLOW_GAP
+        for node, item, cx in zip(row, fitted, cxs):
+            w, h, block, size, bold, leading, kind = item
+            placed[node.id] = {
+                "cx": cx,
+                "cy": cy,
+                "w": w,
+                "h": h,
+                "lines": list(block.lines),
+                "size": size,
+                "bold": bold,
+                "leading": leading,
+                "kind": kind,
+                "text": node.text,
+            }
+        top -= rh + _FLOW_GAP
+    return placed
 
 
 def place_flowchart_nodes(
     flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float
 ) -> dict[str, tuple[float, float, float, float]]:
-    """Place nodes in PDF space. Clamp to the frame only — never pull neighbors together."""
-    inner_x, inner_y, inner_w, inner_h = _flowchart_inner(frame_x, frame_y, frame_w, frame_h)
-    readable = bool(getattr(flow, "readable", False))
-    placed: dict[str, tuple[float, float, float, float]] = {}
-    for node in flow.nodes:
-        w, h = _node_size(node, readable=readable)
-        cx = inner_x + node.x * inner_w
-        cy = inner_y + inner_h - node.y * inner_h
-        pad = 10 if readable else 2
-        min_cx = inner_x + w / 2 + pad
-        max_cx = inner_x + inner_w - w / 2 - pad
-        min_cy = inner_y + h / 2 + pad
-        max_cy = inner_y + inner_h - h / 2 - pad
-        if min_cx <= max_cx:
-            cx = min(max(cx, min_cx), max_cx)
-        if min_cy <= max_cy:
-            cy = min(max(cy, min_cy), max_cy)
-        placed[node.id] = (cx, cy, w, h)
-    return placed
+    """Place nodes in PDF space. Sizes come from measured text, then rows are separated."""
+    placed = _pack_flowchart(flow, frame_x, frame_y, frame_w, frame_h)
+    return {nid: (p["cx"], p["cy"], p["w"], p["h"]) for nid, p in placed.items()}
 
 
 def flowchart_node_rects(
@@ -2129,130 +2388,468 @@ def flowchart_boxes_overlap(rects: dict[str, tuple[float, float, float, float]],
     return hits
 
 
-def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_side: str):
-    """Orthogonal service-manual elbows. No diagonal cuts across boxes."""
+def _span_hits_boxes(axis: str, fixed: float, a: float, b: float, boxes, margin: float = 1.4) -> bool:
+    """True when an orthogonal stroke enters a node interior (the port edge is allowed)."""
+    lo, hi = (a, b) if a <= b else (b, a)
+    for x0, y0, x1, y1 in boxes:
+        if axis == "h":
+            if not (y0 + margin < fixed < y1 - margin):
+                continue
+            if hi > x0 + margin and lo < x1 - margin:
+                return True
+        else:
+            if not (x0 + margin < fixed < x1 - margin):
+                continue
+            if hi > y0 + margin and lo < y1 - margin:
+                return True
+    return False
+
+
+def _lane_candidates(src: float, dst: float, toward_dst: float) -> list[float]:
+    """Crossbar positions, nearest the destination first, so the source gap stays free."""
+    if abs(src - dst) < 3.0:
+        return [(src + dst) / 2.0]
+    step = 2.0 if src > dst else -2.0
+    lanes = []
+    y = dst + toward_dst
+    limit = src - (2.0 if src > dst else -2.0)
+    guard = 0
+    while (y < limit if step > 0 else y > limit) and guard < 24:
+        lanes.append(y)
+        y += step
+        guard += 1
+    mid = (src + dst) / 2.0
+    if all(abs(y - mid) > 0.4 for y in lanes):
+        lanes.append(mid)
+    return lanes or [mid]
+
+
+def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_side: str, boxes=None, frame=None):
+    """Orthogonal service-manual elbows. The crossbar stays out of node text."""
+    boxes = list(boxes or [])
     pts = [(x1, y1)]
-    if from_side == "bottom" and to_side == "top":
+
+    def vertical_then_across():
         if abs(x1 - x2) < 1.5:
             pts.append((x2, y2))
-        else:
-            mid_y = (y1 + y2) / 2.0
-            pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
-    elif from_side == "top" and to_side == "bottom":
-        if abs(x1 - x2) < 1.5:
-            pts.append((x2, y2))
-        else:
-            mid_y = (y1 + y2) / 2.0
-            pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
-    elif from_side == "right" and to_side == "left":
+            return
+        toward = 2.6 if y1 > y2 else -2.6
+        chosen = None
+        for lane in _lane_candidates(y1, y2, toward):
+            if _span_hits_boxes("v", x1, y1, lane, boxes):
+                continue
+            if _span_hits_boxes("h", lane, x1, x2, boxes):
+                continue
+            if _span_hits_boxes("v", x2, lane, y2, boxes):
+                continue
+            chosen = lane
+            break
+        if chosen is None:
+            chosen = _lane_candidates(y1, y2, toward)[0]
+        pts.extend([(x1, chosen), (x2, chosen), (x2, y2)])
+
+    def horizontal_then_down():
         if abs(y1 - y2) < 1.5:
             pts.append((x2, y2))
-        else:
-            mid_x = (x1 + x2) / 2.0
-            pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
-    elif from_side == "left" and to_side == "right":
-        if abs(y1 - y2) < 1.5:
-            pts.append((x2, y2))
-        else:
-            mid_x = (x1 + x2) / 2.0
-            pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
+            return
+        toward = -2.6 if x1 < x2 else 2.6
+        chosen = None
+        for lane in _lane_candidates(x1, x2, toward):
+            if _span_hits_boxes("h", y1, x1, lane, boxes):
+                continue
+            if _span_hits_boxes("v", lane, y1, y2, boxes):
+                continue
+            if _span_hits_boxes("h", y2, lane, x2, boxes):
+                continue
+            chosen = lane
+            break
+        if chosen is None:
+            chosen = _lane_candidates(x1, x2, toward)[0]
+        pts.extend([(chosen, y1), (chosen, y2), (x2, y2)])
+
+    if from_side in ("bottom", "top") and to_side in ("top", "bottom"):
+        vertical_then_across()
+    elif from_side in ("left", "right") and to_side in ("left", "right"):
+        horizontal_then_down()
     elif from_side == "right" and to_side == "top":
         out_x = x1 + 16.0
         if out_x < x2:
             out_x = (x1 + x2) / 2.0
-        mid_y = y2 + 14.0
-        pts.extend([(out_x, y1), (out_x, mid_y), (x2, mid_y), (x2, y2)])
+        lanes = _lane_candidates(y1, y2, 2.6 if y1 > y2 else -2.6)
+        lane = next((y for y in lanes if not _span_hits_boxes("h", y, out_x, x2, boxes)), lanes[0])
+        pts.extend([(out_x, y1), (out_x, lane), (x2, lane), (x2, y2)])
     elif from_side == "left" and to_side == "top":
         out_x = x1 - 36.0
-        mid_y = y2 + 14.0
-        pts.extend([(out_x, y1), (out_x, mid_y), (x2, mid_y), (x2, y2)])
-    elif from_side == "bottom" and to_side == "left":
-        pts.extend([(x1, y2), (x2, y2)])
-    elif from_side == "bottom" and to_side == "right":
+        lanes = _lane_candidates(y1, y2, 2.6 if y1 > y2 else -2.6)
+        lane = next((y for y in lanes if not _span_hits_boxes("h", y, out_x, x2, boxes)), lanes[0])
+        pts.extend([(out_x, y1), (out_x, lane), (x2, lane), (x2, y2)])
+    elif from_side == "bottom" and to_side in ("left", "right"):
+        # Drop beside the source, then enter the side port on that port's own y.
         pts.extend([(x1, y2), (x2, y2)])
     elif from_side in ("left", "right"):
-        mid_x = (x1 + x2) / 2.0
-        pts.extend([(mid_x, y1), (mid_x, y2), (x2, y2)])
+        horizontal_then_down()
     else:
-        mid_y = (y1 + y2) / 2.0
-        pts.extend([(x1, mid_y), (x2, mid_y), (x2, y2)])
+        vertical_then_across()
+    if boxes and _polyline_hits(pts, boxes):
+        alt = _route_gutter(x1, y1, x2, y2, from_side, to_side, boxes, frame)
+        if alt and not _polyline_hits(alt, boxes):
+            return alt
     return pts
 
 
-def _branch_label_point(x1: float, y1: float, from_side: str) -> tuple[float, float]:
-    """YES/NO sit on the first arrow segment, off the diamond — not on the question text."""
-    if from_side == "bottom":
-        return x1 + 16.0, y1 - 12.0
-    if from_side == "top":
-        return x1 + 16.0, y1 + 10.0
-    if from_side == "right":
-        return x1 + 10.0, y1 + 14.0
-    if from_side == "left":
-        return x1 - 38.0, y1 + 14.0
-    return x1 + 12.0, y1 + 10.0
+def _polyline_hits(pts, boxes) -> bool:
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        if abs(ay - by) <= 0.6:
+            if _span_hits_boxes("h", (ay + by) / 2.0, ax, bx, boxes):
+                return True
+        elif abs(ax - bx) <= 0.6:
+            if _span_hits_boxes("v", (ax + bx) / 2.0, ay, by, boxes):
+                return True
+        else:
+            return True
+    return False
+
+
+def _simplify_ortho(pts):
+    out = []
+    for p in pts:
+        if out and abs(p[0] - out[-1][0]) < 0.35 and abs(p[1] - out[-1][1]) < 0.35:
+            continue
+        out.append(p)
+    cleaned = []
+    for p in out:
+        if len(cleaned) >= 2:
+            ax, ay = cleaned[-2]
+            bx, by = cleaned[-1]
+            colinear = (abs(ax - bx) <= 0.6 and abs(bx - p[0]) <= 0.6) or (
+                abs(ay - by) <= 0.6 and abs(by - p[1]) <= 0.6
+            )
+            if colinear:
+                cleaned[-1] = p
+                continue
+        cleaned.append(p)
+    return cleaned
+
+
+def _route_gutter(x1, y1, x2, y2, from_side, to_side, boxes, frame):
+    """Orthogonal path in the channels around node boxes, when a direct elbow cuts one."""
+    import heapq
+
+    if not frame:
+        return None
+    fx0, fy0, fx1, fy1 = frame
+    pad = 6.0
+
+    def stub(x, y, side, dist):
+        if side == "bottom":
+            return x, y - dist
+        if side == "top":
+            return x, y + dist
+        if side == "left":
+            return x - dist, y
+        if side == "right":
+            return x + dist, y
+        return x, y
+
+    def clear_stub(x, y, side):
+        for dist in (8.0, 5.5, 3.5, 2.2):
+            sx, sy = stub(x, y, side, dist)
+            if not (fx0 + 2 <= sx <= fx1 - 2 and fy0 + 2 <= sy <= fy1 - 2):
+                continue
+            if not _polyline_hits([(x, y), (sx, sy)], boxes):
+                return sx, sy
+        return stub(x, y, side, 2.2)
+
+    sx, sy = clear_stub(x1, y1, from_side)
+    dx, dy = clear_stub(x2, y2, to_side)
+    xs = {round(sx, 1), round(dx, 1), round(fx0 + 8.0, 1), round(fx1 - 8.0, 1)}
+    ys = {round(sy, 1), round(dy, 1), round(fy0 + 8.0, 1), round(fy1 - 8.0, 1)}
+    for x0, y0, x1b, y1b in boxes:
+        for x in (x0 - pad, x1b + pad):
+            if fx0 + 3 <= x <= fx1 - 3:
+                xs.add(round(x, 1))
+        for y in (y0 - pad, y1b + pad):
+            if fy0 + 3 <= y <= fy1 - 3:
+                ys.add(round(y, 1))
+    xs = sorted(xs)
+    ys = sorted(ys)
+
+    def nearest(val, arr):
+        return min(range(len(arr)), key=lambda i: abs(arr[i] - val))
+
+    start = (nearest(sx, xs), nearest(sy, ys))
+    goal = (nearest(dx, xs), nearest(dy, ys))
+    heap = [(0.0, start[0], start[1], 0, None)]
+    best = {}
+    parent = {}
+    while heap:
+        cost, ix, iy, direction, prev = heapq.heappop(heap)
+        key = (ix, iy, direction)
+        if key in best:
+            continue
+        best[key] = cost
+        parent[key] = prev
+        if (ix, iy) == goal:
+            path = []
+            cur = key
+            while cur is not None:
+                path.append((xs[cur[0]], ys[cur[1]]))
+                cur = parent[cur]
+            path.reverse()
+            full = [(x1, y1)]
+            for p in path:
+                full.append(p)
+            full.append((x2, y2))
+            full = _simplify_ortho(full)
+            if _polyline_hits(full, boxes):
+                return None
+            return full
+        for nix, niy, ndir in ((ix + 1, iy, 1), (ix - 1, iy, 1), (ix, iy + 1, 2), (ix, iy - 1, 2)):
+            if not (0 <= nix < len(xs) and 0 <= niy < len(ys)):
+                continue
+            if ndir == 1:
+                if not (abs(xs[ix] - xs[nix]) < 0.2 or not _span_hits_boxes("h", ys[iy], xs[ix], xs[nix], boxes)):
+                    continue
+                dist = abs(xs[nix] - xs[ix])
+            else:
+                if not (abs(ys[iy] - ys[niy]) < 0.2 or not _span_hits_boxes("v", xs[ix], ys[iy], ys[niy], boxes)):
+                    continue
+                dist = abs(ys[niy] - ys[iy])
+            bend = 0 if direction in (0, ndir) else 1
+            nkey = (nix, niy, ndir)
+            if nkey in best:
+                continue
+            heapq.heappush(heap, (cost + dist + bend * 18.0, nix, niy, ndir, key))
+    return None
+
+
+def _port(cx: float, cy: float, w: float, h: float, side: str) -> tuple[float, float]:
+    if side == "top":
+        return cx, cy + h / 2.0
+    if side == "bottom":
+        return cx, cy - h / 2.0
+    if side == "left":
+        return cx - w / 2.0, cy
+    if side == "right":
+        return cx + w / 2.0, cy
+    return cx, cy
+
+
+def _rects_hit(a, b, gap: float = 0.0) -> bool:
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    return ax1 + gap > bx0 and bx1 + gap > ax0 and ay1 + gap > by0 and by1 + gap > ay0
+
+
+def _label_box(x: float, baseline: float, block: TextMeasure):
+    top = baseline + block.ascent
+    bottom = baseline - (block.height - block.ascent)
+    return (x, bottom, x + block.width, top)
+
+
+def _segment_box(x1: float, y1: float, x2: float, y2: float, pad: float = 3.5):
+    return (min(x1, x2) - pad, min(y1, y2) - pad, max(x1, x2) + pad, max(y1, y2) + pad)
+
+
+def _stroke_hits_box(box, pts, pad: float = 0.4) -> bool:
+    """True when a polyline sample lands inside the label's glyph box."""
+    x0, y0, x1, y1 = box
+    if not pts or len(pts) < 2:
+        return False
+    for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+        dist = math.hypot(bx - ax, by - ay)
+        n = max(1, int(dist / 2.0))
+        for i in range(n + 1):
+            t = i / n
+            x = ax + (bx - ax) * t
+            y = ay + (by - ay) * t
+            if (x0 - pad) < x < (x1 + pad) and (y0 - pad) < y < (y1 + pad):
+                return True
+    return False
+
+
+def _port_host(px: float, py: float, obstacles):
+    """Node box the port sits on. Stroke corridors are too thin to qualify."""
+    best = None
+    best_area = -1.0
+    for box in obstacles:
+        x0, y0, x1, y1 = box
+        if (x1 - x0) < 24 or (y1 - y0) < 18:
+            continue
+        if x0 - 1.6 <= px <= x1 + 1.6 and y0 - 1.6 <= py <= y1 + 1.6:
+            area = (x1 - x0) * (y1 - y0)
+            if area > best_area:
+                best = box
+                best_area = area
+    return best
+
+
+def _place_branch_label(text: str, port, side: str, obstacles, frame, size: float, routes=None):
+    """Put YES/NO beside the arrow, outside every node box and every stroke."""
+    routes = list(routes or [])
+    px, py = port
+    fx0, fy0, fx1, fy1 = frame
+    toward_right = px <= (fx0 + fx1) / 2.0
+    sizes = []
+    trial = float(size)
+    while trial >= 6.4:
+        sizes.append(trial)
+        trial -= 1.25
+
+    def accept(box) -> bool:
+        if box[0] < fx0 + 1.5 or box[2] > fx1 - 1.5 or box[1] < fy0 + 1.5 or box[3] > fy1 - 1.5:
+            return False
+        if any(_rects_hit(box, obs, 1.0) for obs in obstacles):
+            return False
+        if any(_stroke_hits_box(box, pts, pad=0.55) for pts in routes):
+            return False
+        return True
+
+    host = _port_host(px, py, obstacles)
+    for sz in sizes:
+        block = measure_text(text, 80.0, sz, bold=True, leading=sz + 1.0)
+        w = block.width
+        h = block.height
+        tops = []
+
+        def add_top(x: float, top: float):
+            tops.append((x, top - block.ascent))
+
+        if side == "bottom":
+            top = py - 1.1
+            first = px + 4.5 if toward_right else px - 4.5 - w
+            second = px - 4.5 - w if toward_right else px + 4.5
+            add_top(first, top)
+            add_top(second, top)
+        elif side == "top":
+            top = py + 1.1 + h
+            first = px + 4.5 if toward_right else px - 4.5 - w
+            second = px - 4.5 - w if toward_right else px + 4.5
+            add_top(first, top)
+            add_top(second, top)
+        elif side == "right":
+            add_top(px + 4.0, py + h + 2.5)
+            add_top(px + 4.0, py - 1.0)
+        elif side == "left":
+            add_top(px - 4.0 - w, py + h + 2.5)
+            add_top(px - 4.0 - w, py - 1.0)
+        else:
+            add_top(px + 4.0, py + h + 2.0)
+        for step in (10.0, 18.0, 28.0, 42.0):
+            add_top(px + step, py + h + 2.0)
+            add_top(px - step - w, py + h + 2.0)
+            add_top(px + 4.0, py - step)
+            add_top(px - w - 4.0, py - step)
+        if host:
+            x0, y0, x1, y1 = host
+            add_top(x1 + 3.0, y1)
+            add_top(x0 - 3.0 - w, y1)
+            add_top(max(fx0 + 2.0, min(px - w / 2.0, fx1 - w - 2.0)), y1 + h + 2.0)
+            add_top(max(fx0 + 2.0, min(px - w / 2.0, fx1 - w - 2.0)), y0 - 2.0)
+            add_top(x0, y1 + h + 2.0)
+            add_top(x1 - w, y0 - 2.0)
+        for x, baseline in tops:
+            box = _label_box(x, baseline, block)
+            if accept(box):
+                return x, baseline, block, box
+    block = measure_text(text, 80.0, 6.5, bold=True, leading=7.5)
+    x = min(max(px + 4.0, fx0 + 2.0), fx1 - block.width - 2.0)
+    baseline = min(max(py + 2.0, fy0 + block.descent + 2.0), fy1 - block.ascent - 2.0)
+    return x, baseline, block, _label_box(x, baseline, block)
 
 
 def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float):
-    """OEM SM flowchart: large boxes/diamonds, orthogonal yes/no, finger-walk spacing."""
+    """OEM SM flowchart. Node shapes are sized to their measured text."""
     shapes: list[DrawnShape] = []
     texts: list[DrawnText] = []
-
+    frame_id = _next_id("flow")
     shapes.append(
-        DrawnShape("roundrect", frame_x, frame_y, frame_w, frame_h, fill=PALE, stroke=NAVY, stroke_w=1.6, radius=6)
+        DrawnShape(
+            "roundrect", frame_x, frame_y, frame_w, frame_h,
+            fill=PALE, stroke=NAVY, stroke_w=1.6, radius=6,
+            id=frame_id, role="frame",
+        )
     )
+    title = measure_text("VISUAL FLOWCHART", 220, 9, bold=True, leading=11)
+    title_base = frame_y + frame_h - 14.0 - title.ascent
     texts.append(
         DrawnText(
             "VISUAL FLOWCHART",
             frame_x + 12,
-            frame_y + frame_h - 18,
-            w=220,
+            title_base,
+            w=title.width + 4,
             size=9,
             bold=True,
             color=NAVY,
+            leading=title.leading,
+            lines=list(title.lines),
+            owner=frame_id,
+            role="header",
         )
     )
-
-    readable = bool(getattr(flow, "readable", False))
-    placed = place_flowchart_nodes(flow, frame_x, frame_y, frame_w, frame_h)
-    kind_of = {n.id: n.kind for n in flow.nodes}
-    text_of = {n.id: n.text for n in flow.nodes}
-
-    for nid, (cx, cy, w, h) in placed.items():
-        kind = kind_of.get(nid, "process")
-        x, y = cx - w / 2.0, cy - h / 2.0
-        if kind == "decision":
-            shapes.append(DrawnShape("diamond", x, y, w, h, fill=GOLD, stroke=NAVY, stroke_w=2.0))
-            size = 12.0 if readable else 7.5
-        elif kind in ("start", "end"):
-            fill = GREEN if kind == "start" else NAVY
-            shapes.append(DrawnShape("ellipse", x, y, w, h, fill=fill, stroke=NAVY, stroke_w=1.7))
-            size = 11.0 if readable else 7.5
+    placed = _pack_flowchart(flow, frame_x, frame_y, frame_w, frame_h)
+    node_boxes = []
+    for nid, node in placed.items():
+        x = node["cx"] - node["w"] / 2.0
+        y = node["cy"] - node["h"] / 2.0
+        sid = f"node-{nid}"
+        kind = node["kind"]
+        if kind == "diamond":
+            shapes.append(DrawnShape("diamond", x, y, node["w"], node["h"], fill=GOLD, stroke=NAVY, stroke_w=2.0, id=sid, role="node"))
+        elif kind == "ellipse":
+            raw = next((n for n in flow.nodes if n.id == nid), None)
+            fill = GREEN if raw and raw.kind == "start" else NAVY
+            shapes.append(DrawnShape("ellipse", x, y, node["w"], node["h"], fill=fill, stroke=NAVY, stroke_w=1.7, id=sid, role="node"))
         else:
-            shapes.append(DrawnShape("roundrect", x, y, w, h, fill=WHITE, stroke=NAVY, stroke_w=1.6, radius=7))
-            size = 11.0 if readable else 7.5
-        color = WHITE if kind in ("start", "end") else INK
+            shapes.append(
+                DrawnShape(
+                    "roundrect", x, y, node["w"], node["h"],
+                    fill=WHITE, stroke=NAVY, stroke_w=1.6, radius=7,
+                    id=sid, role="node",
+                )
+            )
+        raw = next((n for n in flow.nodes if n.id == nid), None)
+        color = WHITE if raw and raw.kind in ("start", "end") else INK
         texts.append(
             DrawnText(
-                text_of.get(nid, ""),
-                cx,
-                cy,
-                w=w - (30 if readable else 14),
-                size=size,
-                bold=kind == "decision",
+                node["text"],
+                node["cx"],
+                node["cy"],
+                w=max(_content_width(kind, node["w"]), 20),
+                size=node["size"],
+                bold=node["bold"],
                 color=color,
                 align="center",
-                leading=size + (4.0 if readable else 1.5),
+                leading=node["leading"],
+                lines=list(node["lines"]),
+                owner=sid,
+                role="node",
             )
         )
+        node_boxes.append((x, y, x + node["w"], y + node["h"]))
 
+    frame = (frame_x, frame_y, frame_x + frame_w, frame_y + frame_h)
+    # Keep arrows and YES/NO off the frame title.
+    node_boxes.append(
+        (
+            frame_x + 8.0,
+            title_base - title.descent - 1.0,
+            frame_x + 16.0 + title.width,
+            title_base + title.ascent + 1.0,
+        )
+    )
+    label_boxes = []
+    readable = bool(getattr(flow, "readable", False))
+    label_size = 11.0 if readable else 7.0
+    routed = []
     for edge in flow.edges:
         if edge.from_id not in placed or edge.to_id not in placed:
             continue
-        fx, fy, fw, fh = placed[edge.from_id]
-        tx, ty, tw, th = placed[edge.to_id]
-        x1, y1 = _port(fx, fy, fw, fh, edge.from_side)
-        x2, y2 = _port(tx, ty, tw, th, edge.to_side)
-        pts = _route_elbow(x1, y1, x2, y2, edge.from_side, edge.to_side)
+        src = placed[edge.from_id]
+        dst = placed[edge.to_id]
+        x1, y1 = _port(src["cx"], src["cy"], src["w"], src["h"], edge.from_side)
+        x2, y2 = _port(dst["cx"], dst["cy"], dst["w"], dst["h"], edge.to_side)
+        pts = _route_elbow(x1, y1, x2, y2, edge.from_side, edge.to_side, node_boxes, frame)
         shapes.append(
             DrawnShape(
                 "arrow",
@@ -2263,38 +2860,351 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
                 stroke=NAVY,
                 stroke_w=1.6 if readable else 1.15,
                 points=pts,
+                id=_next_id("arrow"),
+                role="connector",
             )
         )
+        corridors = [_segment_box(ax, ay, bx, by, pad=2.2) for (ax, ay), (bx, by) in zip(pts, pts[1:])]
+        routed.append((edge, pts, (x1, y1), corridors))
+    for index, (edge, pts, port, _own) in enumerate(routed):
         if edge.label:
-            mx, my = _branch_label_point(x1, y1, edge.from_side)
+            other_strokes = [box for j, item in enumerate(routed) if j != index for box in item[3]]
+            all_routes = [item[1] for item in routed]
+            lx, ly, block, box = _place_branch_label(
+                edge.label.upper(),
+                port,
+                edge.from_side,
+                node_boxes + label_boxes + other_strokes,
+                frame,
+                label_size,
+                routes=all_routes,
+            )
             color = GREEN if edge.label.upper() == "YES" else RED
             texts.append(
                 DrawnText(
                     edge.label.upper(),
-                    mx,
-                    my,
-                    w=40,
-                    size=12 if readable else 7,
+                    lx,
+                    ly,
+                    w=max(block.width, 12),
+                    size=block.size,
                     bold=True,
                     color=color,
                     align="left",
+                    leading=block.leading,
+                    lines=list(block.lines),
+                    role="label",
                 )
             )
+            label_boxes.append(box)
     return shapes, texts
 
 
-def _add_section_bar(page: SheetPage, x: float, y: float, w: float, title: str, fill=NAVY):
-    page.shapes.append(DrawnShape("rect", x, y, w, 16, fill=fill, stroke=fill, stroke_w=0.4))
-    page.texts.append(DrawnText(title, x + 6, y + 4.5, w=w - 12, size=8.5, bold=True, color=WHITE))
+class _SheetFlow:
+    """Top-down cursor. `y` is the top of the next free band (PDF y grows upward)."""
+
+    def __init__(self, pages: list, subtitle: str):
+        self.pages = pages
+        self.subtitle = subtitle
+        self.floor = MARGIN + 36.0
+        self.page = _new_sheet_page()
+        pages.append(self.page)
+        self.banner_bottom = _paint_top_bar(self.page, subtitle)
+        self.y = self.banner_bottom - 8.0
+
+    def remaining(self) -> float:
+        return self.y - self.floor
+
+    def new_page(self, subtitle: str):
+        self.subtitle = subtitle
+        self.page = _new_sheet_page()
+        self.pages.append(self.page)
+        self.banner_bottom = _paint_top_bar(self.page, subtitle)
+        self.y = self.banner_bottom - 8.0
 
 
-def _wrap(text: str, width: int) -> list[str]:
-    text = _latin1_safe(text or "")
-    out = []
-    for para in text.splitlines() or [""]:
-        wrapped = textwrap.wrap(para, width=width) or [""]
-        out.extend(wrapped)
-    return out
+def _bar_metrics(title: str, width: float) -> TextMeasure:
+    return measure_text(title, width - 16.0, 8.5, bold=True, leading=11.0)
+
+
+def _add_section(cur: _SheetFlow, title: str, fill, follow_h: float) -> None:
+    """Draw a section bar. Move to a new page when the bar and its first line would not fit."""
+    width = _CONTENT_W
+    block = _bar_metrics(title, width)
+    bar_h = max(16.0, block.height + 6.0)
+    need = bar_h + 6.0 + min(max(follow_h, 12.0), 36.0)
+    if cur.remaining() < need:
+        cur.new_page(cur.subtitle)
+    top = cur.y
+    bottom = top - bar_h
+    sid = _next_id("bar")
+    cur.page.shapes.append(
+        DrawnShape("rect", MARGIN, bottom, width, bar_h, fill=fill, stroke=fill, stroke_w=0.4, id=sid, role="bar")
+    )
+    baseline = bottom + (bar_h - block.height) / 2.0 + block.descent
+    cur.page.texts.append(
+        DrawnText(
+            title, MARGIN + 8, baseline, w=width - 16, size=8.5, bold=True, color=WHITE,
+            leading=block.leading, lines=list(block.lines), owner=sid, role="bar",
+        )
+    )
+    cur.y = bottom - 6.0
+
+
+def _paint_measured(cur: _SheetFlow, block: TextMeasure, *, x: float, size: float, bold: bool, color, role: str, owner: str, gap_after: float):
+    baseline = cur.y - block.ascent
+    cur.page.texts.append(
+        DrawnText(
+            "\n".join(block.lines),
+            x,
+            baseline,
+            w=max(block.width, 12),
+            size=size,
+            bold=bold,
+            color=color,
+            align="left",
+            leading=block.leading,
+            lines=list(block.lines),
+            owner=owner,
+            role=role,
+        )
+    )
+    cur.y = baseline - (len(block.lines) - 1) * block.leading - block.descent - gap_after
+
+
+def _chunk_lines(block: TextMeasure, lines: list[str]) -> TextMeasure:
+    height = block.ascent + block.descent + max(0, len(lines) - 1) * block.leading
+    width = 0.0
+    for line in lines:
+        width = max(width, _string_width(line, block.font, block.size))
+    return TextMeasure(lines, width, height, block.ascent, block.descent, block.leading, block.size, block.font)
+
+
+def _emit_block(cur: _SheetFlow, block: TextMeasure, *, x: float, size: float, bold: bool, color, role: str = "body", owner: str = "", gap_after: float = 4.0, on_break=None):
+    """Paint a measured block. Split across pages on line boundaries. `on_break` redraws a section bar."""
+    if not block.lines:
+        return
+    idx = 0
+    first = True
+    while idx < len(block.lines):
+        if on_break and not first:
+            on_break(cur)
+        room = cur.remaining() - gap_after
+        if block.ascent + block.descent > room:
+            if on_break:
+                on_break(cur)
+            else:
+                cur.new_page(cur.subtitle)
+            room = cur.remaining() - gap_after
+        take = 1
+        while idx + take < len(block.lines):
+            nxt = _chunk_lines(block, block.lines[idx : idx + take + 1])
+            if nxt.height + gap_after <= cur.remaining():
+                take += 1
+            else:
+                break
+        # Keep a short block together when the next page can hold it.
+        whole = _chunk_lines(block, block.lines[idx:])
+        if first and take < len(block.lines) - idx and whole.height + gap_after <= (cur.banner_bottom - 8.0 - cur.floor - 28):
+            if on_break:
+                on_break(cur)
+            else:
+                cur.new_page(cur.subtitle)
+            take = len(block.lines) - idx
+        piece = _chunk_lines(block, block.lines[idx : idx + take])
+        _paint_measured(cur, piece, x=x, size=size, bold=bold, color=color, role=role, owner=owner, gap_after=gap_after)
+        idx += take
+        first = False
+
+
+def _add_boxed_text(cur: _SheetFlow, text: str, *, size: float = 9.0, leading: float = 12.0, color=INK):
+    width = _CONTENT_W
+    inner_w = width - 16.0
+    block = measure_text(text or "-", inner_w, size, leading=leading)
+    pad = 6.0
+
+    def paint_box(piece: TextMeasure):
+        box_h = piece.height + pad * 2
+        if box_h > cur.remaining():
+            return False
+        top = cur.y
+        bottom = top - box_h
+        sid = _next_id("box")
+        cur.page.shapes.append(
+            DrawnShape("rect", MARGIN, bottom, width, box_h, fill=WHITE, stroke=RULE, stroke_w=0.8, id=sid, role="box")
+        )
+        baseline = top - pad - piece.ascent
+        cur.page.texts.append(
+            DrawnText(
+                "\n".join(piece.lines), MARGIN + 8, baseline, w=inner_w, size=size, color=color,
+                leading=piece.leading, lines=list(piece.lines), owner=sid, role="body",
+            )
+        )
+        cur.y = bottom - 8.0
+        return True
+
+    if paint_box(block):
+        return
+    idx = 0
+    while idx < len(block.lines):
+        take = 1
+        while idx + take < len(block.lines):
+            piece = _chunk_lines(block, block.lines[idx : idx + take + 1])
+            if piece.height + pad * 2 + 8 <= cur.remaining():
+                take += 1
+            else:
+                break
+        piece = _chunk_lines(block, block.lines[idx : idx + take])
+        if not paint_box(piece):
+            cur.new_page(cur.subtitle)
+            _add_section(cur, "WHAT THIS PATTERN USUALLY MEANS", NAVY, follow_h=piece.height + pad * 2)
+            paint_box(piece)
+        idx += take
+
+
+def _add_step(cur: _SheetFlow, index: int, step: str):
+    text_x = MARGIN + 24.0
+    text_w = _CONTENT_W - 32.0
+    block = measure_text(f"{index}. {step}", text_w, 8.5, leading=11.2)
+    gap = 8.0
+
+    def continued(flow: _SheetFlow):
+        flow.new_page("Bay order continued")
+        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=block.height)
+
+    if block.height + gap > cur.remaining():
+        fresh = cur.banner_bottom - 8.0 - cur.floor - 40.0
+        if block.height + gap <= fresh:
+            continued(cur)
+        # else the emitter splits the step
+    checkbox = True
+
+    def paint_piece(piece: TextMeasure, with_box: bool):
+        if with_box:
+            baseline = cur.y - piece.ascent
+            mid = baseline + (piece.ascent - piece.descent) / 2.0
+            box = 8.0
+            cur.page.shapes.append(
+                DrawnShape(
+                    "rect", MARGIN + 8, mid - box / 2.0, box, box,
+                    fill=WHITE, stroke=NAVY, stroke_w=0.9,
+                    id=_next_id("check"), role="check",
+                )
+            )
+        _paint_measured(cur, piece, x=text_x, size=8.5, bold=False, color=INK, role="body", owner="", gap_after=gap)
+
+    if block.height + gap <= cur.remaining():
+        paint_piece(block, True)
+        return
+    idx = 0
+    first = True
+    while idx < len(block.lines):
+        if not first:
+            continued(cur)
+        take = 1
+        while idx + take < len(block.lines):
+            nxt = _chunk_lines(block, block.lines[idx : idx + take + 1])
+            if nxt.height + gap <= cur.remaining():
+                take += 1
+            else:
+                break
+        piece = _chunk_lines(block, block.lines[idx : idx + take])
+        if piece.height + gap > cur.remaining():
+            continued(cur)
+        paint_piece(piece, checkbox and idx == 0)
+        checkbox = False
+        idx += take
+        first = False
+
+
+def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None):
+    block = measure_text(text, width or (_CONTENT_W - 16.0), size, leading=size + 2.6)
+    _emit_block(
+        cur, block,
+        x=MARGIN + 8 if x is None else x,
+        size=size, bold=False, color=color, gap_after=gap, on_break=on_break,
+    )
+
+
+def _paint_identity_header(page: SheetPage, proc: BayProcedure, banner_bottom: float) -> float:
+    left = MARGIN
+    width = _CONTENT_W
+    pad_x, pad_y, row_gap = 8.0, 6.0, 4.0
+    label_size, value_size = 7.0, 9.0
+    right = left + width - pad_x
+    labels = {
+        name: measure_text(name, 80, label_size, bold=True, leading=9)
+        for name in ("CONCERN", "MODEL", "DATE", "WO#", "PRIMARY")
+    }
+    date_m = measure_text(proc.created.strftime("%Y-%m-%d"), 90, value_size, bold=True, leading=11.2)
+    wo_m = measure_text(_clip(proc.wo_number or "-", 18), 90, value_size, bold=True, leading=11.2)
+    cluster = labels["DATE"].width + 3 + date_m.width + 10 + labels["WO#"].width + 3 + wo_m.width
+    value_x = left + pad_x + 64.0
+    model_w = max(70.0, right - value_x - cluster - 8.0)
+    model_m = measure_text(proc.model_line or "-", model_w, value_size, bold=True, leading=11.2)
+    if len(model_m.lines) > 1:
+        model_m = measure_text(model_m.lines[0], model_w, value_size, bold=True, leading=11.2)
+    concern_m = measure_text(proc.concern or "-", right - value_x, value_size, bold=True, leading=11.4)
+    primary_m = measure_text(proc.primary_cite or "-", right - value_x, value_size, bold=True, leading=11.4)
+    model_row_h = max(model_m.height, date_m.height, wo_m.height, labels["MODEL"].height)
+    inner_h = concern_m.height + row_gap + model_row_h + row_gap + primary_m.height
+    header_h = inner_h + pad_y * 2
+    header_top = banner_bottom - 8.0
+    header_bottom = header_top - header_h
+    sid = _next_id("header")
+    page.shapes.append(
+        DrawnShape("rect", left, header_bottom, width, header_h, fill=CREAM, stroke=NAVY, stroke_w=1.0, id=sid, role="box")
+    )
+
+    def emit(block: TextMeasure, x: float, top: float, *, size: float, bold: bool, color):
+        page.texts.append(
+            DrawnText(
+                "\n".join(block.lines),
+                x,
+                top - block.ascent,
+                w=max(block.width, 8),
+                size=size,
+                bold=bold,
+                color=color,
+                leading=block.leading,
+                lines=list(block.lines),
+                owner=sid,
+                role="header",
+            )
+        )
+
+    y = header_top - pad_y
+    emit(labels["CONCERN"], left + pad_x, y, size=label_size, bold=True, color=GREEN)
+    emit(concern_m, value_x, y, size=value_size, bold=True, color=INK)
+    y -= concern_m.height + row_gap
+    emit(labels["MODEL"], left + pad_x, y, size=label_size, bold=True, color=GREEN)
+    emit(model_m, value_x, y, size=value_size, bold=True, color=INK)
+    wo_x = right - wo_m.width
+    wo_label_x = wo_x - 3 - labels["WO#"].width
+    date_x = wo_label_x - 10 - date_m.width
+    date_label_x = date_x - 3 - labels["DATE"].width
+    emit(labels["DATE"], date_label_x, y, size=label_size, bold=True, color=GREEN)
+    emit(date_m, date_x, y, size=value_size, bold=True, color=INK)
+    emit(labels["WO#"], wo_label_x, y, size=label_size, bold=True, color=GREEN)
+    emit(wo_m, wo_x, y, size=value_size, bold=True, color=INK)
+    y -= model_row_h + row_gap
+    emit(labels["PRIMARY"], left + pad_x, y, size=label_size, bold=True, color=GREEN)
+    emit(primary_m, value_x, y, size=value_size, bold=True, color=INK)
+    return header_bottom
+
+
+def _paint_figure_page(pages: list, fig: BayFigure, *, with_footer: bool):
+    cur = _SheetFlow(pages, "Cited library figures")
+    cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
+    cap_m = measure_text(cap, _CONTENT_W - 16, 9, bold=True, leading=12)
+    _add_section(cur, "CITED LIBRARY FIGURES", NAVY, follow_h=cap_m.height + 40)
+    _emit_block(cur, cap_m, x=MARGIN + 8, size=9, bold=True, color=NAVY, gap_after=8)
+    cur.y -= 4
+    img_h = cur.y - cur.floor
+    img_w = _CONTENT_W - 32
+    if img_h >= 80 and fig.image_png:
+        cur.page.images.append(DrawnImage(fig.image_png, MARGIN + 16, cur.floor, img_w, img_h))
+    if with_footer:
+        _add_3c_footer(cur.page)
 
 
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
@@ -2302,193 +3212,93 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     BAY_SHEET_STANDARD is enforced here: readable OEM yes/no flowchart first,
     then pattern meaning, full bay order, do-not, sources, figures. Long paths
-    paginate. Never clip a long path to a hint card. See BAY_SHEET_STANDARD_PATH.
+    paginate from measured block heights. See BAY_SHEET_STANDARD_PATH.
     """
     pages: list[SheetPage] = []
-    page = SheetPage()
+    page = _new_sheet_page()
     pages.append(page)
-
-    # Page frame
-    page.shapes.append(DrawnShape("rect", 0, 0, PAGE_W, PAGE_H, fill=WHITE, stroke=WHITE, stroke_w=0))
-    page.shapes.append(
-        DrawnShape("rect", MARGIN - 4, MARGIN - 4, PAGE_W - 2 * MARGIN + 8, PAGE_H - 2 * MARGIN + 8, fill=WHITE, stroke=NAVY, stroke_w=1.6)
-    )
-
-    # Top brand bar
-    bar_y = PAGE_H - MARGIN - 28
-    page.shapes.append(DrawnShape("rect", MARGIN, bar_y, PAGE_W - 2 * MARGIN, 28, fill=NAVY, stroke=NAVY, stroke_w=0.3))
-    page.texts.append(DrawnText("BAY PROCEDURE", MARGIN + 10, bar_y + 9, w=220, size=13, bold=True, color=WHITE))
-    page.texts.append(
-        DrawnText(
-            "Tacoma RV Center  ·  Document Library",
-            PAGE_W - MARGIN - 10,
-            bar_y + 10,
-            w=260,
-            size=8,
-            color=WHITE,
-            align="right",
-        )
-    )
-
-    # Compact header so the OEM flowchart can use the rest of page 1.
+    banner_bottom = _paint_top_bar(page, "Tacoma RV Center  ·  Document Library")
+    header_bottom = _paint_identity_header(page, proc, banner_bottom)
+    cursor_top = header_bottom - 8.0
     big_flow = bool(getattr(proc.flowchart, "readable", False) or proc.flow_tall)
-    header_top = bar_y - 8
-    header_h = 50 if big_flow else 64
-    header_y = header_top - header_h
-    page.shapes.append(
-        DrawnShape("rect", MARGIN, header_y, PAGE_W - 2 * MARGIN, header_h, fill=CREAM, stroke=NAVY, stroke_w=1.0)
-    )
-    y = header_top - 14
-    page.texts.append(DrawnText("CONCERN", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
-    concern_lines = _wrap(proc.concern or "-", 88)
-    page.texts.append(DrawnText(concern_lines[0], MARGIN + 78, y, w=450, size=9, bold=True, color=INK))
-    y -= 13
-    if len(concern_lines) > 1 and not big_flow:
-        page.texts.append(DrawnText(concern_lines[1], MARGIN + 78, y, w=450, size=9, bold=True, color=INK))
-        y -= 12
-    page.texts.append(DrawnText("MODEL", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
-    page.texts.append(DrawnText(_clip(proc.model_line, 56), MARGIN + 78, y, w=230, size=9, bold=True, color=INK))
-    page.texts.append(DrawnText("DATE", MARGIN + 310, y, w=36, size=7, bold=True, color=GREEN))
-    page.texts.append(DrawnText(proc.created.strftime("%Y-%m-%d"), MARGIN + 348, y, w=80, size=9, bold=True, color=INK))
-    page.texts.append(DrawnText("WO#", MARGIN + 440, y, w=28, size=7, bold=True, color=GREEN))
-    page.texts.append(DrawnText(_clip(proc.wo_number or "-", 16), MARGIN + 470, y, w=70, size=9, bold=True, color=INK))
-    y -= 13
-    page.texts.append(DrawnText("PRIMARY", MARGIN + 8, y, w=70, size=7, bold=True, color=GREEN))
-    page.texts.append(DrawnText(_clip(proc.primary_cite or "-", 92), MARGIN + 78, y, w=460, size=9, bold=True, color=INK))
+    if not big_flow:
+        # Short charts keep the pattern paragraph on page 1, above the flowchart.
+        probe = _SheetFlow.__new__(_SheetFlow)
+        probe.pages = pages
+        probe.page = page
+        probe.subtitle = "Bay procedure"
+        probe.floor = MARGIN + 220.0
+        probe.banner_bottom = banner_bottom
+        probe.y = cursor_top
+        means = measure_text(proc.pattern_means or "-", _CONTENT_W - 16, 9, leading=12)
+        _add_section(probe, "WHAT THIS PATTERN USUALLY MEANS", NAVY, follow_h=means.height + 16)
+        _add_boxed_text(probe, proc.pattern_means or "-")
+        cursor_top = probe.y
+    flow_bottom = MARGIN + 12.0
+    flow_h = max(200.0, cursor_top - flow_bottom)
+    f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_bottom, _CONTENT_W, flow_h)
+    page.shapes.extend(f_shapes)
+    page.texts.extend(f_texts)
 
-    means_lines = _wrap(proc.pattern_means or "-", 96)
+    body = _SheetFlow(pages, "Bay order  ·  Tacoma RV Center")
     if big_flow:
-        # Finger-walk chart first. Pattern prose lives with the bay order.
-        flow_top = header_y - 8
-        flow_y = MARGIN + 14
-        flow_h = max(420.0, flow_top - flow_y)
-        f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
-        page.shapes.extend(f_shapes)
-        page.texts.extend(f_texts)
-    else:
-        means_top = header_y - 10
-        means_h = 18 + 11 * max(len(means_lines), 1) + 8
-        means_y = means_top - means_h
-        _add_section_bar(page, MARGIN, means_top - 16, PAGE_W - 2 * MARGIN, "WHAT THIS PATTERN USUALLY MEANS")
-        page.shapes.append(
-            DrawnShape("rect", MARGIN, means_y, PAGE_W - 2 * MARGIN, means_h - 16, fill=WHITE, stroke=RULE, stroke_w=0.8)
-        )
-        ty = means_top - 30
-        for line in means_lines[:8]:
-            page.texts.append(DrawnText(line, MARGIN + 8, ty, w=520, size=9, color=INK))
-            ty -= 11
-        flow_top = means_y - 8
-        flow_y = MARGIN + 16
-        flow_h = max(240.0, flow_top - flow_y)
-        f_shapes, f_texts = layout_flowchart(proc.flowchart, MARGIN, flow_y, PAGE_W - 2 * MARGIN, flow_h)
-        page.shapes.extend(f_shapes)
-        page.texts.extend(f_texts)
-
-    # Page 2+: pattern meaning, full bay order, do-not, sources.
-    body_page = _new_sheet_page()
-    pages.append(body_page)
-    _paint_top_bar(body_page, "Bay order  ·  Tacoma RV Center")
-    y = PAGE_H - MARGIN - 50
-    floor = MARGIN + 28
-    if big_flow:
-        _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "WHAT THIS PATTERN USUALLY MEANS")
-        y -= 20
-        body_page.shapes.append(
-            DrawnShape(
-                "rect",
-                MARGIN,
-                y - 11 * max(len(means_lines), 1) - 10,
-                PAGE_W - 2 * MARGIN,
-                11 * max(len(means_lines), 1) + 16,
-                fill=WHITE,
-                stroke=RULE,
-                stroke_w=0.8,
-            )
-        )
-        for line in means_lines[:10]:
-            body_page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=9, color=INK))
-            y -= 11
-        y -= 16
-    _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "BAY ORDER (DO THIS FIRST)", GREEN)
-    y -= 22
-    shown_order = proc.bay_order[:MAX_BAY_ORDER]
-    for i, step in enumerate(shown_order, 1):
-        wrapped = _wrap(f"{i}. {step}", 96)[:10]
-        need = len(wrapped) * 11 + 6
-        if y - need < floor:
-            body_page = _new_sheet_page()
-            pages.append(body_page)
-            _paint_top_bar(body_page, "Bay order continued")
-            y = PAGE_H - MARGIN - 50
-            _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "BAY ORDER (CONTINUED)", GREEN)
-            y -= 22
-        body_page.shapes.append(DrawnShape("rect", MARGIN + 8, y - 1, 8, 8, fill=WHITE, stroke=NAVY, stroke_w=0.9))
-        for line in wrapped:
-            body_page.texts.append(DrawnText(line, MARGIN + 22, y, w=520, size=8.5, color=INK))
-            y -= 11
-        y -= 6
-
+        means = measure_text(proc.pattern_means or "-", _CONTENT_W - 16, 9, leading=12)
+        _add_section(body, "WHAT THIS PATTERN USUALLY MEANS", NAVY, follow_h=min(means.height + 20, 80))
+        _add_boxed_text(body, proc.pattern_means or "-")
+    steps = list(proc.bay_order)
+    if steps:
+        first = measure_text(f"1. {steps[0]}", _CONTENT_W - 32, 8.5, leading=11.2)
+        _add_section(body, "BAY ORDER (DO THIS FIRST)", GREEN, follow_h=min(first.height, 48))
+        for i, step in enumerate(steps, 1):
+            _add_step(body, i, step)
     if proc.do_not:
-        need = 28 + 14 * min(len(proc.do_not), 6)
-        if y - need < floor:
-            body_page = _new_sheet_page()
-            pages.append(body_page)
-            _paint_top_bar(body_page, "Do not  ·  Tacoma RV Center")
-            y = PAGE_H - MARGIN - 50
-        _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "DO NOT", RED)
-        y -= 22
-        for item in proc.do_not[:6]:
-            for line in _wrap(f"- {item}", 96)[:4]:
-                body_page.texts.append(DrawnText(line, MARGIN + 8, y, w=520, size=8.5, color=INK))
-                y -= 11
-            y -= 4
+        first = measure_text(f"- {proc.do_not[0]}", _CONTENT_W - 16, 8.5, leading=11.1)
+        if body.remaining() < 16 + 12 + min(first.height, 24):
+            body.new_page("Do not  ·  Tacoma RV Center")
+        _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36))
 
-    if y - 60 < floor:
-        body_page = _new_sheet_page()
-        pages.append(body_page)
-        _paint_top_bar(body_page, "Sources  ·  Tacoma RV Center")
-        y = PAGE_H - MARGIN - 50
-    _add_section_bar(body_page, MARGIN, y, PAGE_W - 2 * MARGIN, "SOURCES (SHOP DOCUMENT LIBRARY)")
-    y -= 22
-    src_rows = proc.sources[:5] or [{"title": "(no indexed excerpt retrieved this pass)", "page": None}]
-    for s in src_rows:
-        page_bit = f"  page {s['page']}" if s.get("page") else ""
-        line = f"- {s.get('title') or 'Manual'}{page_bit}"
-        body_page.texts.append(DrawnText(_clip(line, 110), MARGIN + 8, y, w=520, size=8.5, color=INK))
-        y -= 12
-        excerpt = (s.get("excerpt") or "").strip()
+        def _do_break(flow: _SheetFlow):
+            flow.new_page("Do not  ·  Tacoma RV Center")
+            _add_section(flow, "DO NOT", RED, follow_h=20)
+
+        for item in proc.do_not:
+            _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
+    sources = list(proc.sources) or [{"title": "(no indexed excerpt retrieved this pass)", "page": None, "excerpt": ""}]
+    first_src = sources[0]
+    page_bit = f"  page {first_src['page']}" if first_src.get("page") else ""
+    first_line = measure_text(f"- {first_src.get('title') or 'Manual'}{page_bit}", _CONTENT_W - 16, 8.5, leading=11.1)
+    if body.remaining() < 16 + 12 + min(first_line.height, 24):
+        body.new_page("Sources  ·  Tacoma RV Center")
+    _add_section(body, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=min(first_line.height, 36))
+
+    def _src_break(flow: _SheetFlow):
+        flow.new_page("Sources  ·  Tacoma RV Center")
+        _add_section(flow, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=20)
+
+    for source in sources:
+        bit = f"  page {source['page']}" if source.get("page") else ""
+        _add_plain_item(body, f"- {source.get('title') or 'Manual'}{bit}", size=8.5, gap=2.0, on_break=_src_break)
+        excerpt = (source.get("excerpt") or "").strip()
         if excerpt:
-            for line in _wrap(excerpt, 96)[:3]:
-                body_page.texts.append(DrawnText(line, MARGIN + 18, y, w=510, size=8, color=MUTED))
-                y -= 10
-        if y < floor + 20:
-            break
+            _add_plain_item(
+                body, excerpt, size=8, color=MUTED,
+                width=_CONTENT_W - 28, x=MARGIN + 18, gap=6.0, on_break=_src_break,
+            )
 
     imaged = [fig for fig in proc.figures if fig.image_png]
     if imaged:
         for i, fig in enumerate(imaged[:3]):
-            fig_page = _new_sheet_page()
-            pages.append(fig_page)
-            _paint_top_bar(fig_page, "Cited library figures")
-            top = PAGE_H - MARGIN - 50
-            _add_section_bar(fig_page, MARGIN, top, PAGE_W - 2 * MARGIN, "CITED LIBRARY FIGURES")
-            y = top - 18
-            cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
-            fig_page.texts.append(DrawnText(_clip(cap, 100), MARGIN + 8, y, w=520, size=9, bold=True, color=NAVY))
-            y -= 16
-            img_h = max(220.0, y - (MARGIN + 36))
-            fig_page.images.append(DrawnImage(fig.image_png, MARGIN + 16, y - img_h, 520, img_h))
-            if proc.include_3c and i == min(len(imaged), 3) - 1:
-                _add_3c_footer(fig_page)
+            _paint_figure_page(pages, fig, with_footer=bool(proc.include_3c and i == min(len(imaged), 3) - 1))
     elif proc.include_3c:
-        _add_3c_footer(body_page)
-
+        _add_3c_footer(body.page)
     return pages
 
 
 def _new_sheet_page() -> SheetPage:
     page = SheetPage()
-    page.shapes.append(DrawnShape("rect", 0, 0, PAGE_W, PAGE_H, fill=WHITE, stroke=WHITE, stroke_w=0))
+    page.shapes.append(
+        DrawnShape("rect", 0, 0, PAGE_W, PAGE_H, fill=WHITE, stroke=WHITE, stroke_w=0, id=_next_id("page"), role="chrome")
+    )
     page.shapes.append(
         DrawnShape(
             "rect",
@@ -2499,24 +3309,42 @@ def _new_sheet_page() -> SheetPage:
             fill=WHITE,
             stroke=NAVY,
             stroke_w=1.6,
+            id=_next_id("frame"),
+            role="frame",
         )
     )
     return page
 
 
 def _paint_top_bar(page: SheetPage, subtitle: str = "") -> float:
-    bar_y = PAGE_H - MARGIN - 28
-    page.shapes.append(DrawnShape("rect", MARGIN, bar_y, PAGE_W - 2 * MARGIN, 28, fill=NAVY, stroke=NAVY, stroke_w=0.3))
-    page.texts.append(DrawnText("BAY PROCEDURE", MARGIN + 10, bar_y + 9, w=220, size=13, bold=True, color=WHITE))
+    bar_h = 28.0
+    bar_y = PAGE_H - MARGIN - bar_h
+    sid = _next_id("banner")
+    page.shapes.append(
+        DrawnShape(
+            "rect", MARGIN, bar_y, PAGE_W - 2 * MARGIN, bar_h,
+            fill=NAVY, stroke=NAVY, stroke_w=0.3, id=sid, role="banner",
+        )
+    )
+    title = measure_text("BAY PROCEDURE", 240, 13, bold=True, leading=16)
+    title_base = bar_y + (bar_h - title.height) / 2.0 + title.descent
     page.texts.append(
         DrawnText(
-            subtitle or "Tacoma RV Center  ·  Document Library",
-            PAGE_W - MARGIN - 10,
-            bar_y + 10,
-            w=300,
-            size=8,
-            color=WHITE,
-            align="right",
+            "BAY PROCEDURE", MARGIN + 10, title_base, w=title.width + 4, size=13, bold=True, color=WHITE,
+            leading=title.leading, lines=list(title.lines), owner=sid, role="header",
+        )
+    )
+    sub = subtitle or "Tacoma RV Center  ·  Document Library"
+    right = PAGE_W - MARGIN - 10
+    max_w = max(40.0, right - (MARGIN + 10 + title.width) - 14)
+    sub_m = measure_text(sub, max_w, 8, leading=10)
+    if sub_m.height > bar_h - 8 and len(sub_m.lines) > 1:
+        sub_m = measure_text(sub_m.lines[0], max_w, 8, leading=10)
+    sub_base = bar_y + (bar_h - sub_m.height) / 2.0 + sub_m.descent
+    page.texts.append(
+        DrawnText(
+            "\n".join(sub_m.lines), right, sub_base, w=max(sub_m.width, 20), size=8, color=WHITE,
+            align="right", leading=sub_m.leading, lines=list(sub_m.lines), owner=sid, role="header",
         )
     )
     return bar_y
@@ -2525,15 +3353,23 @@ def _paint_top_bar(page: SheetPage, subtitle: str = "") -> float:
 def _add_3c_footer(page: SheetPage):
     """Small footer only — never the main body."""
     y = MARGIN + 4
-    page.shapes.append(DrawnShape("rect", MARGIN, y, PAGE_W - 2 * MARGIN, 20, fill=PALE, stroke=RULE, stroke_w=0.7))
+    h = 22.0
+    sid = _next_id("footer")
+    page.shapes.append(
+        DrawnShape(
+            "rect", MARGIN, y, PAGE_W - 2 * MARGIN, h,
+            fill=PALE, stroke=RULE, stroke_w=0.7, id=sid, role="box",
+        )
+    )
+    msg = "3C footer (blank):  CONCERN ____________    CAUSE ____________    CORRECTION ____________"
+    block = measure_text(msg, PAGE_W - 2 * MARGIN - 16, 7, leading=9)
+    if len(block.lines) > 1:
+        block = measure_text(block.lines[0], PAGE_W - 2 * MARGIN - 16, 7, leading=9)
+    baseline = y + (h - block.height) / 2.0 + block.descent
     page.texts.append(
         DrawnText(
-            "3C footer (blank):  CONCERN ____________    CAUSE ____________    CORRECTION ____________",
-            MARGIN + 8,
-            y + 6,
-            w=530,
-            size=7,
-            color=MUTED,
+            block.lines[0], MARGIN + 8, baseline, w=block.width + 4, size=7, color=MUTED,
+            leading=block.leading, lines=list(block.lines), owner=sid, role="body",
         )
     )
 
@@ -2549,12 +3385,16 @@ def _rgb(color: tuple) -> tuple[float, float, float]:
     return color
 
 
-def render_bay_procedure_pdf(proc: BayProcedure) -> bytes:
-    """Return non-empty PDF bytes with a drawn flowchart (not text-only)."""
+def render_bay_procedure_pdf(proc: BayProcedure, trace: list | None = None) -> bytes:
+    """Return non-empty PDF bytes with a drawn flowchart (not text-only).
+
+    Pass a list as ``trace`` to record each drawn shape and text line. The
+    reportlab path fills that list; it is what the layout test checks.
+    """
     pages = compose_sheet(proc)
     for renderer in (_render_pdf_reportlab, _render_pdf_fpdf2, _render_pdf_raw_shapes):
         try:
-            data = renderer(proc, pages)
+            data = renderer(proc, pages, trace=trace)
             if data and data.startswith(b"%PDF") and len(data) > 200:
                 return data
         except Exception:
@@ -2562,7 +3402,7 @@ def render_bay_procedure_pdf(proc: BayProcedure) -> bytes:
     raise RuntimeError("Bay procedure PDF renderer produced empty output")
 
 
-def _render_pdf_reportlab(proc: BayProcedure, pages: list[SheetPage]) -> bytes:
+def _render_pdf_reportlab(proc: BayProcedure, pages: list[SheetPage], trace: list | None = None) -> bytes:
     from reportlab.lib.utils import ImageReader
     from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.pdfgen import canvas
@@ -2579,25 +3419,41 @@ def _render_pdf_reportlab(proc: BayProcedure, pages: list[SheetPage]) -> bytes:
     for i, page in enumerate(pages):
         if i:
             c.showPage()
-        _rl_draw_page(c, page, stringWidth, ImageReader)
+        _rl_draw_page(c, page, stringWidth, ImageReader, trace, i)
     c.save()
     return buf.getvalue()
 
 
-def _rl_draw_page(c, page: SheetPage, stringWidth, ImageReader):
+def _record_mark(trace, **kwargs):
+    if trace is None:
+        return
+    x0, y0, x1, y1 = kwargs["x0"], kwargs["y0"], kwargs["x1"], kwargs["y1"]
+    if x1 < x0:
+        x0, x1 = x1, x0
+    if y1 < y0:
+        y0, y1 = y1, y0
+    kwargs["x0"], kwargs["y0"], kwargs["x1"], kwargs["y1"] = x0, y0, x1, y1
+    trace.append(LayoutMark(**kwargs))
+
+
+def _rl_draw_page(c, page: SheetPage, stringWidth, ImageReader, trace=None, page_index: int = 0):
     for sh in page.shapes:
-        _rl_draw_shape(c, sh)
+        _rl_draw_shape(c, sh, trace, page_index)
     for tx in page.texts:
-        _rl_draw_text(c, tx, stringWidth)
+        _rl_draw_text(c, tx, stringWidth, trace, page_index)
     for im in page.images:
         try:
             img = ImageReader(BytesIO(im.png))
             c.drawImage(img, im.x, im.y, width=im.w, height=im.h, preserveAspectRatio=True, mask="auto")
+            _record_mark(
+                trace, page=page_index, kind="image", role="image",
+                x0=im.x, y0=im.y, x1=im.x + im.w, y1=im.y + im.h, id=_next_id("img"),
+            )
         except Exception:
             continue
 
 
-def _rl_draw_shape(c, sh: DrawnShape):
+def _rl_draw_shape(c, sh: DrawnShape, trace=None, page_index: int = 0):
     fill = _rgb(sh.fill)
     stroke = _rgb(sh.stroke)
     c.setFillColorRGB(*fill)
@@ -2630,6 +3486,20 @@ def _rl_draw_shape(c, sh: DrawnShape):
                 _rl_arrowhead(c, pts[-2][0], pts[-2][1], pts[-1][0], pts[-1][1], stroke)
         else:
             c.line(sh.x, sh.y, sh.x2, sh.y2)
+    if sh.kind in ("line", "arrow"):
+        pts = list(sh.points) if sh.points else [(sh.x, sh.y), (sh.x2, sh.y2)]
+        xs = [p[0] for p in pts] or [sh.x, sh.x2]
+        ys = [p[1] for p in pts] or [sh.y, sh.y2]
+        _record_mark(
+            trace, page=page_index, kind=sh.kind, role=sh.role or "connector",
+            x0=min(xs), y0=min(ys), x1=max(xs), y1=max(ys),
+            id=sh.id, points=pts,
+        )
+    else:
+        _record_mark(
+            trace, page=page_index, kind=sh.kind, role=sh.role or "shape",
+            x0=sh.x, y0=sh.y, x1=sh.x + sh.w, y1=sh.y + sh.h, id=sh.id,
+        )
 
 
 def _rl_arrowhead(c, x1, y1, x2, y2, stroke):
@@ -2649,47 +3519,163 @@ def _rl_arrowhead(c, x1, y1, x2, y2, stroke):
     c.drawPath(p, stroke=0, fill=1)
 
 
-def _rl_draw_text(c, tx: DrawnText, stringWidth):
-    text = _latin1_safe(tx.text)
-    font = "Helvetica-Bold" if tx.bold else "Helvetica"
+def _text_glyphs(tx: DrawnText, stringWidth):
+    """Baselines and glyph boxes for the lines layout already measured."""
+    font = _font_name(tx.bold)
     size = tx.size
     leading = tx.leading or (size + 2)
+    ascent, descent = _font_ascent_descent(font, size)
+    if tx.lines:
+        lines = list(tx.lines)
+    else:
+        lines = _wrap_lines(tx.text, max(tx.w, 20), font, size)
+    n = len(lines) or 1
+    block_h = ascent + descent + max(0, n - 1) * leading
+    if tx.align == "center":
+        baseline = tx.y + block_h / 2.0 - ascent
+    else:
+        baseline = tx.y
+    glyphs = []
+    for i, line in enumerate(lines):
+        y = baseline - i * leading
+        width = stringWidth(line, font, size) if line else 0.0
+        if tx.align == "center":
+            left = tx.x - width / 2.0
+        elif tx.align == "right":
+            left = tx.x - width
+        else:
+            left = tx.x
+        glyphs.append((line, left, y, width, y - descent, y + ascent))
+    return font, size, glyphs
+
+
+def _point_in_mark(x: float, y: float, shape: LayoutMark, eps: float = 0.85) -> bool:
+    cx = (shape.x0 + shape.x1) / 2.0
+    cy = (shape.y0 + shape.y1) / 2.0
+    a = (shape.x1 - shape.x0) / 2.0 + eps
+    b = (shape.y1 - shape.y0) / 2.0 + eps
+    if a <= 0 or b <= 0:
+        return False
+    if shape.kind == "ellipse":
+        return ((x - cx) / a) ** 2 + ((y - cy) / b) ** 2 <= 1.0
+    if shape.kind == "diamond":
+        return abs(x - cx) / a + abs(y - cy) / b <= 1.0
+    return (shape.x0 - eps) <= x <= (shape.x1 + eps) and (shape.y0 - eps) <= y <= (shape.y1 + eps)
+
+
+def _text_inside_shape(text: LayoutMark, shape: LayoutMark, eps: float = 0.85) -> bool:
+    corners = (
+        (text.x0, text.y0),
+        (text.x0, text.y1),
+        (text.x1, text.y0),
+        (text.x1, text.y1),
+    )
+    return all(_point_in_mark(x, y, shape, eps) for x, y in corners)
+
+
+def _marks_overlap(a: LayoutMark, b: LayoutMark, eps: float = 0.6) -> bool:
+    ix = min(a.x1, b.x1) - max(a.x0, b.x0)
+    iy = min(a.y1, b.y1) - max(a.y0, b.y0)
+    return ix > eps and iy > eps
+
+
+def _connector_samples(mark: LayoutMark, step: float = 4.0) -> list[tuple[float, float]]:
+    pts = list(mark.points) or [(mark.x0, mark.y0), (mark.x1, mark.y1)]
+    out = []
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        dist = math.hypot(x2 - x1, y2 - y1)
+        n = max(1, int(dist / step))
+        for i in range(n + 1):
+            t = i / n
+            out.append((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t))
+    return out
+
+
+def layout_problems(trace: list[LayoutMark]) -> list[str]:
+    """Failures when text leaves its shape or drawn elements overlap.
+
+    Page chrome and the outer frame may contain other marks. A connector may
+    touch the node edge it leaves. Everything else must be disjoint, and text
+    that names an owner must sit inside that shape (ellipse and diamond use
+    the real curve, not the bounding box).
+    """
+    problems = []
+    pages: dict[int, list[LayoutMark]] = {}
+    for mark in trace:
+        pages.setdefault(mark.page, []).append(mark)
+    filled = {"node", "bar", "box", "check", "banner", "image"}
+    for page, items in pages.items():
+        by_id = {m.id: m for m in items if m.id}
+        texts = [m for m in items if m.kind == "text"]
+        for text in texts:
+            if text.x0 < -1 or text.y0 < -1 or text.x1 > PAGE_W + 1 or text.y1 > PAGE_H + 1:
+                problems.append(f"p{page + 1} text off page {text.text!r}")
+            if not text.owner:
+                continue
+            shape = by_id.get(text.owner)
+            if shape is None:
+                problems.append(f"p{page + 1} text {text.text!r} has no shape {text.owner}")
+                continue
+            if not _text_inside_shape(text, shape):
+                problems.append(
+                    f"p{page + 1} text outside {shape.kind} {text.text!r} "
+                    f"text=({text.x0:.1f},{text.y0:.1f},{text.x1:.1f},{text.y1:.1f}) "
+                    f"shape=({shape.x0:.1f},{shape.y0:.1f},{shape.x1:.1f},{shape.y1:.1f})"
+                )
+        content = [m for m in items if m.role in filled or m.kind == "text"]
+        for i, a in enumerate(content):
+            for b in content[i + 1 :]:
+                if a.kind == "text" and b.kind != "text" and a.owner and a.owner == b.id:
+                    continue
+                if b.kind == "text" and a.kind != "text" and b.owner and b.owner == a.id:
+                    continue
+                if not _marks_overlap(a, b):
+                    continue
+                problems.append(
+                    f"p{page + 1} overlap {a.role or a.kind}:{a.text[:40]!r} "
+                    f"vs {b.role or b.kind}:{b.text[:40]!r}"
+                )
+        for bar in (m for m in items if m.role == "bar" and m.kind != "text"):
+            followed = False
+            for other in items:
+                if other is bar or (bar.id and other.owner == bar.id):
+                    continue
+                if other.kind in ("text", "image") and other.role not in ("header", "bar") and other.y1 <= bar.y0 + 0.8:
+                    followed = True
+                    break
+            if not followed:
+                problems.append(f"p{page + 1} orphan section bar")
+        texts_only = [m for m in texts if m.role != "header"]
+        for conn in (m for m in items if m.role == "connector"):
+            for x, y in _connector_samples(conn):
+                for text in texts_only:
+                    if (text.x0 + 0.8) < x < (text.x1 - 0.8) and (text.y0 + 0.8) < y < (text.y1 - 0.8):
+                        problems.append(f"p{page + 1} arrow through text {text.text!r}")
+                        break
+    return problems
+
+
+def _rl_draw_text(c, tx: DrawnText, stringWidth, trace=None, page_index: int = 0):
+    font, size, glyphs = _text_glyphs(tx, stringWidth)
     color = _rgb(tx.color)
     c.setFillColorRGB(*color)
     c.setFont(font, size)
-    paragraphs = text.split("\n")
-    lines = []
-    max_w = max(tx.w, 20)
-    for para in paragraphs:
-        words = para.split()
-        if not words:
-            lines.append("")
-            continue
-        cur = words[0]
-        for word in words[1:]:
-            trial = f"{cur} {word}"
-            if stringWidth(trial, font, size) <= max_w:
-                cur = trial
-            else:
-                lines.append(cur)
-                cur = word
-        lines.append(cur)
-    total = (len(lines) - 1) * leading
-    if tx.align == "center":
-        y = tx.y + total / 2.0 - size * 0.30
-        for line in lines:
-            c.drawCentredString(tx.x, y, line)
-            y -= leading
-    elif tx.align == "right":
-        c.drawRightString(tx.x, tx.y, lines[0] if lines else "")
-    else:
-        y = tx.y
-        for line in lines:
-            c.drawString(tx.x, y, line)
-            y -= leading
+    for line, left, baseline, width, bottom, top in glyphs:
+        if tx.align == "center":
+            c.drawCentredString(tx.x, baseline, line)
+        elif tx.align == "right":
+            c.drawRightString(tx.x, baseline, line)
+        else:
+            c.drawString(left, baseline, line)
+        if line.strip():
+            _record_mark(
+                trace, page=page_index, kind="text", role=tx.role or "body",
+                x0=left, y0=bottom, x1=left + width, y1=top,
+                owner=tx.owner, text=line,
+            )
 
 
-def _render_pdf_fpdf2(proc: BayProcedure, pages: list[SheetPage]) -> bytes:
+def _render_pdf_fpdf2(proc: BayProcedure, pages: list[SheetPage], trace: list | None = None) -> bytes:
     from fpdf import FPDF
 
     pdf = FPDF(unit="pt", format="Letter")
@@ -2775,7 +3761,7 @@ def _escape_pdf(text: str) -> str:
     return _latin1_safe(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def _render_pdf_raw_shapes(proc: BayProcedure, pages: list[SheetPage]) -> bytes:
+def _render_pdf_raw_shapes(proc: BayProcedure, pages: list[SheetPage], trace: list | None = None) -> bytes:
     """Uncompressed PDF 1.4 with real re / m / l / c / h path operators."""
     content_objs = []
     for page in pages:
