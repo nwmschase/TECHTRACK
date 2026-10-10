@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.41
-- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED.
+- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
 - v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
@@ -4826,6 +4826,8 @@ def guided_diagnostics_reply(
     history: list,
     unity_gate: str = "",
     ask_flow: dict = None,
+    photo: tuple | None = None,
+    photo_review: dict | None = None,
 ):
     """
     Open library coach is the product path.
@@ -4833,6 +4835,15 @@ def guided_diagnostics_reply(
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
+    if photo_review is None and photo and photo[0]:
+        import gd_step_photo as _photos
+
+        asked = ""
+        for message in reversed(history or []):
+            if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
+                asked = message.get("content") or ""
+                break
+        photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", asked, user_msg)
     facts = facts_from_chat(history, user_msg)
     extra += "\n\n" + format_stated_facts_rule(facts)
     # The lead-jack card is already the shop line. Waiting on the model only
@@ -4848,7 +4859,12 @@ def guided_diagnostics_reply(
             reply, history, user_msg, category_name, model_text
         )
         reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-        return _append_stored_figure_offer(reply, user_msg, category_name, model_text), None
+        reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
+        if photo_review:
+            import gd_step_photo as _photos
+
+            reply = _photos.present_photo_review(reply, photo_review)
+        return reply, None
     if HARD_TREE_EXCLUSIVE_CHAT:
         result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
         if result.get("used_engine") and not result.get("yielded_to_coach"):
@@ -4877,7 +4893,7 @@ def guided_diagnostics_reply(
             reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
     reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text
+        reply, history, user_msg, category_name, model_text, photo_review=photo_review
     )
     reply = _gdc.without_reading_filler(
         reply, history, user_msg, category_name, model_text
@@ -4890,6 +4906,10 @@ def guided_diagnostics_reply(
         reply, history, user_msg, category_name, model_text
     )
     reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
+    if photo_review:
+        import gd_step_photo as _photos
+
+        reply = _photos.present_photo_review(reply, photo_review)
     return reply, None
 
 
@@ -6177,6 +6197,7 @@ with tab_ask:
     # Ctrl+Enter in a bare text_area only commits the widget and reruns.
     # It does not click Send, so the draft stayed in the box. A form submits
     # on Ctrl+Enter and sends the text with that same click (no lost first click).
+    _photo_gen = int(st.session_state.get("ask_photo_gen") or 0)
     with st.form("gd_send_form", clear_on_submit=False):
         st.text_area(
             "Your message",
@@ -6184,11 +6205,17 @@ with tab_ask:
             height=100,
             placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
         )
+        ask_photo = st.file_uploader(
+            "Photo (optional)",
+            type=["jpg", "jpeg", "png", "webp"],
+            key=f"ask_photo_{_photo_gen}",
+            help="Tag, leak, connector, meter reading, or the part. A photo is optional. You can type what you see.",
+        )
         send_col, hint_col = st.columns([1, 2])
         with send_col:
             send = st.form_submit_button("Send", type="primary", use_container_width=True)
         with hint_col:
-            st.caption("Ctrl+Enter sends this message.")
+            st.caption("Ctrl+Enter sends this message. Add a photo when the step asks, or type what you see.")
     b2, b3 = st.columns(2)
     with b2:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
@@ -6206,13 +6233,32 @@ with tab_ask:
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
         st.session_state["gd_unity_memory"] = "Not sure"
+        st.session_state["ask_photo_gen"] = int(st.session_state.get("ask_photo_gen") or 0) + 1
         st.rerun()
 
     if send or st.session_state.pop("ask_force_send", False):
         msg = (st.session_state.pop("ask_pending_answer", None) or st.session_state.get("ask_input") or "").strip()
-        if not msg:
-            st.warning("Type a message first.")
+        photo_bytes = b""
+        photo_mime = "image/jpeg"
+        if ask_photo is not None:
+            photo_bytes = ask_photo.getvalue() if hasattr(ask_photo, "getvalue") else bytes(ask_photo)
+            photo_mime = getattr(ask_photo, "type", None) or "image/jpeg"
+        if not msg and not photo_bytes:
+            st.warning("Type what you see, or add a photo.")
         else:
+            import gd_step_photo as _photos
+
+            photo_review = None
+            if photo_bytes:
+                asked = ""
+                for message in reversed(history or []):
+                    if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
+                        asked = message.get("content") or ""
+                        break
+                with st.spinner("Reading the photo…"):
+                    photo_review = _photos.review_step_photo(
+                        photo_bytes, photo_mime, asked, msg
+                    )
             with st.spinner("Searching manuals and thinking…"):
                 reply, new_flow = guided_diagnostics_reply(
                     msg,
@@ -6221,18 +6267,21 @@ with tab_ask:
                     history,
                     unity_gate=unity_gate,
                     ask_flow=st.session_state.get("ask_flow"),
+                    photo_review=photo_review,
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
-            history.append({"role": "user", "content": msg})
+            stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
+            history.append({"role": "user", "content": stored_msg})
             history.append({"role": "assistant", "content": reply})
             st.session_state["ask_chat"] = history
+            st.session_state["ask_photo_gen"] = _photo_gen + 1
             st.session_state["ask_chat_id"] = persist_ask_turn(
                 user["id"],
                 st.session_state.get("ask_chat_id"),
                 category_name,
                 ask_model or "",
-                msg,
+                stored_msg,
                 reply,
             )
             import manual_figures as _mf

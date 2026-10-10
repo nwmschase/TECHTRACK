@@ -5345,6 +5345,9 @@ THETFORD_SUPPLY_LINE = (
     "Back of the toilet: check the water supply line connection at the water valve. "
     "Secure or tighten it as necessary. "
     "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED.\n"
+    "Take a photo of the connector.\n"
+    "A photo is optional.\n"
+    "You can type what you see.\n"
     + THETFORD_CITE_42088
 )
 THETFORD_VACUUM_LINE = (
@@ -5352,6 +5355,9 @@ THETFORD_VACUUM_LINE = (
     "If it leaks, replace the vacuum breaker or the water module, depending on model. "
     "Leaks only while flushing. That limit is UNCONFIRMED. "
     "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377.\n"
+    "Take a photo of the leak.\n"
+    "A photo is optional.\n"
+    "You can type what you see.\n"
     "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
 )
 THETFORD_VACUUM_REPLACE_LINE = (
@@ -5365,6 +5371,9 @@ THETFORD_VALVE_LINE = (
     "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109. "
     "Kit 42049 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
     "spring 42010, and retainer 42099.\n"
+    "Take a photo of the leak.\n"
+    "A photo is optional.\n"
+    "You can type what you see.\n"
     "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
 )
 THETFORD_VALVE_REPLACE_LINE = (
@@ -5377,6 +5386,9 @@ THETFORD_FLANGE_LINE = (
     "It is 7/16 inch above the floor. Replace the flange seal. "
     "Closet flange seal 02125 is on the kits. "
     "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED.\n"
+    "Take a photo of the leak.\n"
+    "A photo is optional.\n"
+    "You can type what you see.\n"
     + THETFORD_CITE_42088
 )
 
@@ -5447,7 +5459,11 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
     """Checks already answered, or skipped with 'Not checked yet'.
 
     A skipped check stays closed. The next reply asks the next one in order.
+    A mismatched or unclear photo does not close the check just asked.
     """
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
     slots: set[str] = set()
     pending = ""
 
@@ -5478,7 +5494,11 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     'Not checked yet' closes the check that was just asked and advances.
     A closed check is not asked again. A weep does not skip the vacuum breaker.
     A proven leak starts that repair only after the earlier checks are closed.
+    A mismatched or unclear photo does not close the check.
     """
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
     blob = _user_blob(history, latest_msg)
     slots = _thetford_closed_slots(history, latest_msg)
     if "supply" not in slots and not _thetford_supply_ok(blob):
@@ -5500,8 +5520,20 @@ _PHOTO_CONFIRM_RE = re.compile(
 )
 
 
+def _thetford_text_confirms(content: str) -> bool:
+    if not _PHOTO_CONFIRM_RE.search(content or ""):
+        return False
+    if re.search(r"\bno\b", content or "", re.I) and not re.search(
+        r"\b(?:photo|picture)\b", content or "", re.I
+    ):
+        return False
+    return True
+
+
 def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> bool:
-    """The tech sent a photo or said yes after this step was shown."""
+    """Yes after this step was shown. A bad photo does not count as yes."""
+    import gd_step_photo as _photos
+
     seen = False
     for message in history or []:
         role = message.get("role") or ""
@@ -5509,17 +5541,14 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
         if role == "assistant" and f"Step {number} of" in content:
             seen = True
             continue
-        if seen and role == "user" and _PHOTO_CONFIRM_RE.search(content):
-            if re.search(r"\bno\b", content, re.I) and not re.search(r"\b(?:photo|picture)\b", content, re.I):
-                continue
+        if seen and role == "user" and _thetford_text_confirms(content):
             return True
-    if seen and _PHOTO_CONFIRM_RE.search(latest_msg or ""):
-        if re.search(r"\bno\b", latest_msg or "", re.I) and not re.search(
-            r"\b(?:photo|picture)\b", latest_msg or "", re.I
-        ):
-            return False
-        return True
-    return False
+    if not seen:
+        return False
+    decided = _photos.latest_confirms_step(latest_msg, _photos.current())
+    if decided is not None:
+        return decided
+    return _thetford_text_confirms(latest_msg)
 
 
 def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
@@ -6448,19 +6477,45 @@ def avoid_duplicate_reply(
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    photo_review=None,
 ) -> str:
     """Do not send the same reply twice, and do not ask a check that was already asked.
 
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
+    photo_review is the xAI read of an optional step photo. None keeps typed findings.
     """
+    import gd_step_photo as _photos
+
+    token = _photos.activate(photo_review)
+    try:
+        return _avoid_duplicate_reply_body(
+            reply, history, latest_msg, category_name, model_text, photo_review
+        )
+    finally:
+        _photos.deactivate(token)
+
+
+def _avoid_duplicate_reply_body(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    photo_review=None,
+) -> str:
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
+
     def _out(text: str) -> str:
         text = _strip_facr_internal_guard(text)
-        return guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+        text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+        return _photos.present_photo_review(text, photo_review)
 
     text = _strip_stop_no_further_tests((reply or "").strip())
     if _is_offline_notice(text):
-        return text
+        return _photos.present_photo_review(text, photo_review)
     closed = _live_close_reply(history, latest_msg, category_name, model_text)
     if closed:
         return _out(closed)
