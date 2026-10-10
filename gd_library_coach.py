@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.34"
+COACH_REVISION = "v4.19.35"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -55,8 +55,13 @@ def library_category_picker_names(existing_names=None):
 
 
 def gd_category_select_options(existing_names=None):
-    """Same list the Guided Diagnostics category selectbox uses."""
-    return ["(any)"] + library_category_picker_names(existing_names)
+    """Guided Diagnostics category select. Water Heaters stays visible at the top."""
+    names = library_category_picker_names(existing_names)
+    if WATER_HEATERS_CATEGORY in names:
+        names = [WATER_HEATERS_CATEGORY] + [
+            name for name in names if name != WATER_HEATERS_CATEGORY
+        ]
+    return ["(any)"] + names
 
 # Groq retired llama-4-scout on 2026-07-17 (404 / no access).
 # Current Groq vision: https://console.groq.com/docs/vision
@@ -2362,6 +2367,39 @@ def facr_terminal_path_complete(facts: dict | None) -> bool:
     return facr_sensor_proved(facts)
 
 
+def facr_pressure_authorizes_rr(facts: dict | None) -> bool:
+    """Pressures on the drain, pan, filter, fan, suction, and sensor prove authorize rooftop R&R.
+
+    The cool setpoint is not a later ask. Pressures alone do not authorize.
+    An iced suction line is not this path.
+    """
+    facts = facts or {}
+    if facts.get("facr_pressure") != "ok" or facts.get("facr_suction") == "iced":
+        return False
+    fan = facts.get("facr_fan_filter") == "ok" or (
+        facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok"
+    )
+    return bool(
+        facts.get("facr_drain") == "clear"
+        and facts.get("facr_pan_slope") == "ok"
+        and fan
+        and facts.get("facr_suction") == "clear"
+        and facr_sensor_proved(facts)
+    )
+
+
+def facr_pressure_rr_line(facts: dict | None = None) -> str:
+    """Firm rooftop R&R once pressures are in. Do not claim a setpoint that was not reported."""
+    if facr_terminal_path_complete(facts):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    return (
+        "Refrigerant pressures are reported and the freeze or interior leak remains. "
+        "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
+        "Replace the rooftop assembly.\n"
+        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+    )
+
+
 def reply_names_rooftop_assembly_rr(reply: str) -> bool:
     """True when the reply finishes on rooftop assembly R&R and CCD-0007990."""
     kept = []
@@ -2433,8 +2471,8 @@ def _facr_reply_unusable(reply: str) -> bool:
 
 
 def _facr_climax_line(facts: dict | None) -> str:
-    if facr_terminal_path_complete(facts):
-        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
+        return facr_pressure_rr_line(facts)
     if facr_reported_path_supports_rr(facts):
         return facr_reported_assembly_rr_line(facts)
     return _facr_stay_on_prove_line(facts)
@@ -2452,6 +2490,7 @@ def reply_refuses_facr_library_rr(reply: str) -> bool:
 
 def _facr_next_prove_prompt(facts: dict | None) -> str:
     facts = facts or {}
+    pressures_in = facts.get("facr_pressure") == "ok"
     steps = (
         ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
         ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
@@ -2464,22 +2503,37 @@ def _facr_next_prove_prompt(facts: dict | None) -> str:
         ("facr_pressure", "ok", "Read the refrigerant pressures."),
     )
     for key, val, prompt in steps:
+        if pressures_in and key == "facr_thermostat":
+            continue
         if key == "sensor":
             if not facr_sensor_proved(facts):
                 return prompt
             continue
         if facts.get(key) != val:
             return prompt
+    if pressures_in:
+        return "Report the prove that is still open."
     return "Read the refrigerant pressures."
+
+
+_FACR_INTERNAL_GUARD_RE = re.compile(
+    r"Stay on the FACR condensate and freeze prove\.?\s*"
+    r"|Do not leave this prove[^.]*\.?\s*"
+    r"|Do not ask the tech to supply a procedure excerpt\.?\s*",
+    re.I,
+)
+
+
+def _strip_facr_internal_guard(text: str) -> str:
+    """The prove-guard sentences are coach notes. They are not a shop reply."""
+    cleaned = _FACR_INTERNAL_GUARD_RE.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 def _facr_stay_on_prove_line(facts: dict | None) -> str:
     prompt = _facr_next_prove_prompt(facts)
     return (
-        "Stay on the FACR condensate and freeze prove. "
-        "Do not leave this prove for a no-start tree or a high-voltage bus measurement. "
-        "Do not ask the tech to supply a procedure excerpt. "
-        f"Next check: {prompt}\n"
+        f"Next check on the CCD-0007990 condensate path: {prompt}\n"
         "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
     )
 
@@ -2505,7 +2559,7 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
-    if facr_terminal_path_complete(facts):
+    if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
         if _facr_terminal_reply_ok(reply):
             return reply
         return _facr_climax_line(facts)
@@ -4635,8 +4689,10 @@ def _proved_shop_reply(
         return LEVELUP_FIREFLY_FIRM_LINE
     if job == "leadjack" and _leadjack_stage(history, latest_msg) == "cartridge":
         return LEADJACK_CARTRIDGE_LINE
-    if job == "facr" and facr_terminal_path_complete(facr_proves_from_chat(history, latest_msg)):
-        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if job == "facr":
+        facr_facts = facr_proves_from_chat(history, latest_msg)
+        if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
+            return facr_pressure_rr_line(facr_facts)
     if job == "ice" and _ice_cooling_unit_ready(blob):
         return ICE_COOLING_UNIT_LINE
     if job == "girard" and _girard_seating_confirmed(blob):
@@ -4728,8 +4784,8 @@ def _conditional_lines(
         ]
     if job == "facr":
         facr_facts = facr_proves_from_chat(history, latest_msg)
-        if facr_terminal_path_complete(facr_facts):
-            return [FACR_TERMINAL_ASSEMBLY_RR_LINE]
+        if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
+            return [facr_pressure_rr_line(facr_facts)]
         if facr_facts.get("facr_pressure") == "ok":
             return [_facr_stay_on_prove_line(facr_facts)]
         return [
@@ -4773,6 +4829,8 @@ def _conditional_lines(
             "If the override roll pin is broken or seized, replace the complete front stabilizer jack assembly and retest the manual crank.",
         ]
     if job == "ice":
+        if _ice_cooling_unit_ready(user):
+            return [ICE_COOLING_UNIT_LINE]
         if re.search(r"gasket", user) and re.search(r"seal", user):
             return [
                 "Leave the cabinet dry after the overnight wait. If heavy frost returns, replace the cooling unit.",
@@ -4854,7 +4912,7 @@ LEADJACK_PLUMB_LINE = (
     "📖 Source: Lippert QR-109, page 3\n"
     "📖 Source: Lippert TI-143, page 2\n"
     "📖 Source: Lippert TI-324, page 2\n"
-    "📖 Source: Lippert Level Up owner's manual, hose diagram"
+    "📖 Source: Lippert Level Up FW Owner's Manual, page 13"
 )
 LEADJACK_OVERRIDE_LINE = (
     "Confirm the manual override screw is backed out and report what you find.\n"
@@ -5850,15 +5908,36 @@ def polish_shop_reply(
     text = ensure_thetford_flush_reply(
         text, history, latest_msg, category_name, model_text, original=reply or ""
     )
+    text = _strip_facr_internal_guard(text)
     text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
-    return without_reading_filler(text, history, latest_msg, category_name, model_text)
+    return without_reading_filler(
+        _strip_facr_internal_guard(text), history, latest_msg, category_name, model_text
+    )
 
 
 def _ice_cooling_unit_ready(blob: str) -> bool:
-    """Overnight dry-and-wait plus frost back is the cooling-unit repair."""
+    """Dry-and-wait plus frost back is the cooling-unit repair."""
     raw = blob or ""
-    overnight = bool(re.search(r"\bovernight\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
-    dried = bool(re.search(r"\b(?:dried|towel)\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    overnight = bool(
+        re.search(
+            r"\bovernight\b"
+            r"|\bdry-and-wait\b"
+            r"|\bdry and wait\b"
+            r"|\b(?:dried|drying|dry)\b.{0,48}\bwait(?:ed|ing|s)?\b"
+            r"|\bwait(?:ed|ing)?\b.{0,48}\b(?:dry|dried|drying|overnight|month)\b"
+            r"|\b(?:1|one)\s+month\b",
+            raw,
+            re.I,
+        )
+    )
+    dried = bool(
+        re.search(
+            r"\b(?:dried|drying|towel)\b|\bdry-and-wait\b|\bdry and wait\b|\bdry\b|"
+            r"\bovernight\b|\b(?:1|one)\s+month\b",
+            raw,
+            re.I,
+        )
+    )
     back = bool(
         re.search(
             r"\b(?:frost|ice|icing)\b.{0,40}\b(?:return(?:ed|s)?|came back|persists?)\b|"
@@ -5909,8 +5988,8 @@ def _live_close_reply(
     blob = _user_blob(history, latest_msg)
     if job == "facr":
         facts = facr_proves_from_chat(history, latest_msg)
-        if facr_terminal_path_complete(facts):
-            return FACR_TERMINAL_ASSEMBLY_RR_LINE
+        if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
+            return facr_pressure_rr_line(facts)
         if facts.get("facr_pressure") == "ok":
             return _facr_stay_on_prove_line(facts)
         return ""
@@ -5945,6 +6024,7 @@ def avoid_duplicate_reply(
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
     def _out(text: str) -> str:
+        text = _strip_facr_internal_guard(text)
         return guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
 
     text = _strip_stop_no_further_tests((reply or "").strip())
