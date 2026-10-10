@@ -2083,6 +2083,25 @@ _FACR_SHORT_PASS_RE = re.compile(
     re.I,
 )
 _FACR_YES_RE = re.compile(r"\b(yes|yep|yeah)\b", re.I)
+# Live techs write 2k, 2.0 k, 2 kohm, and 2000 ohms. The old pattern needed "k ohm".
+_FACR_SENSOR_OHM_RE = re.compile(
+    r"\b(?:2(?:\.0+)?\s*k(?:\s*ohms?)?|2000\s*ohms?)\b"
+)
+_FACR_25C_RE = re.compile(r"\b25\s*(?:c|degrees?|deg)\b")
+
+
+def _facr_sensor_reading_reported(raw: str) -> bool:
+    """A freeze-sensor resistance the tech actually typed."""
+    if not raw:
+        return False
+    if _FACR_SENSOR_OHM_RE.search(raw) and (
+        _FACR_25C_RE.search(raw) or re.search(r"freeze[\s-]*sensor|\bsensor\b", raw)
+    ):
+        return True
+    return bool(
+        re.search(r"freeze[\s-]*sensor", raw)
+        and re.search(r"\b\d+(?:\.\d+)?\s*(?:k|ohms?)\b", raw)
+    )
 
 
 def facr_freeze_proves_from_text(text: str) -> dict:
@@ -2149,7 +2168,7 @@ def _facr_extended_proves_from_text(text: str) -> dict:
         raw,
     ):
         facts["facr_suction"] = "clear"
-    if re.search(r"\b2\s*k\s*ohms?\b.{0,30}\b25\s*c\b|\b25\s*c\b.{0,30}\b2\s*k\s*ohms?\b", raw):
+    if _facr_sensor_reading_reported(raw):
         facts["facr_sensor_reading"] = "reported"
     if re.search(
         r"\b(cool\s+)?set ?point\b.{0,20}\b68\s*f\b|"
@@ -2267,7 +2286,9 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
     ):
         return _mark_facr_asked(asked)
     facts = {}
-    if "facr_freeze_sensor" in asked and re.search(r"\b2\s*k\s*ohms?\b", raw):
+    if "facr_freeze_sensor" in asked and (
+        _FACR_SENSOR_OHM_RE.search(raw) or _facr_sensor_reading_reported(raw)
+    ):
         facts["facr_sensor_reading"] = "reported"
     if "facr_thermostat" in asked and re.search(r"\b68\s*f\b", raw):
         facts["facr_thermostat"] = "good"
@@ -4959,6 +4980,9 @@ def _firm_repair_reply(
     if not (asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)):
         return ""
     job = _job_key(history, latest_msg, category_name, model_text)
+    # "What is the repair procedure?" is the full list. A one-line harvest is not.
+    if job == "thetford" and re.search(r"\brepair procedure\b", latest_msg or "", re.I):
+        return ""
     answered = _answered_checks(_user_blob(history, latest_msg))
     lead = ""
     other = ""
@@ -5476,20 +5500,64 @@ _PHOTO_CONFIRM_RE = re.compile(
     r"\b(?:photo|picture|sent|attached|yes|done|ok|okay|here)\b",
     re.I,
 )
+_THETFORD_HOLD_RE = re.compile(r"\b(?:not yet|not checked yet|hold on|wait)\b", re.I)
+
+
+def _thetford_step_hold(content: str) -> bool:
+    return bool(_THETFORD_HOLD_RE.search(content or ""))
+
+
+def _thetford_asks_procedure_list(content: str) -> bool:
+    return bool(re.search(r"\brepair procedure\b", content or "", re.I))
+
+
+def _thetford_show_ask(content: str) -> bool:
+    return bool(re.search(r"\bshow\b", content or "", re.I))
+
+
+def _thetford_short_step_answer(content: str) -> bool:
+    """A typed yes, no, or short finding. A hold, a figure ask, or the procedure list is not one."""
+    raw = re.sub(r"\s+", " ", (content or "")).strip()
+    if not raw or _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
+        return False
+    if raw.endswith("?") and not re.fullmatch(r"(?:yes|no)\??", raw, re.I):
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", raw)
+    return bool(words) and len(words) <= 12
 
 
 def _thetford_text_confirms(content: str) -> bool:
-    if not _PHOTO_CONFIRM_RE.search(content or ""):
+    raw = (content or "").strip()
+    if _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
         return False
-    if re.search(r"\bno\b", content or "", re.I) and not re.search(
-        r"\b(?:photo|picture)\b", content or "", re.I
-    ):
-        return False
-    return True
+    if re.fullmatch(r"(?:yes|no)[.!]?", raw, re.I):
+        return True
+    if _PHOTO_CONFIRM_RE.search(raw):
+        if re.search(r"\bno\b", raw, re.I) and not re.search(
+            r"\b(?:photo|picture|yes)\b", raw, re.I
+        ):
+            return _thetford_short_step_answer(raw)
+        return True
+    return _thetford_short_step_answer(raw)
+
+
+def _thetford_wait_shown(history: list, number: int) -> bool:
+    import manual_figures as mf
+
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        if f"Step {number} of" in content and mf.PHOTO_WAIT in content:
+            return True
+    return False
 
 
 def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> bool:
-    """Yes after this step was shown. A bad photo does not count as yes."""
+    """Yes, no, or a short answer after this step was shown. A bad photo does not count.
+
+    'Not yet' holds the step once. The same hold after that ask moves on.
+    """
     import gd_step_photo as _photos
 
     seen = False
@@ -5506,6 +5574,8 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
     decided = _photos.latest_confirms_step(latest_msg, _photos.current())
     if decided is not None:
         return decided
+    if _thetford_step_hold(latest_msg):
+        return _thetford_wait_shown(history, number)
     return _thetford_text_confirms(latest_msg)
 
 
@@ -5535,7 +5605,8 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
         for message in history or []
         if (message.get("role") or "") == "assistant"
     )
-    if already:
+    # The photo line is optional and is added once. A typed answer does not see it again.
+    if already and _thetford_step_hold(latest_msg) and not _thetford_wait_shown(history, number):
         text = f"{text}\n{mf.PHOTO_WAIT}"
     if kind == "valve":
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
@@ -5586,6 +5657,32 @@ def _thetford_keep(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def _thetford_procedure_catalog(stage: str) -> str:
+    """The numbered Removal and Installation list. Not the step the tech is on."""
+    import manual_figures as mf
+
+    if stage == "vacuum_replace":
+        kinds = ("breaker",)
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+    elif stage == "valve_replace":
+        kinds = ("valve",)
+        cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
+    else:
+        kinds = ("valve", "breaker")
+        cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
+    parts = []
+    for kind in kinds:
+        text = mf.procedure_handoff(mf.thetford_kit_layout(kind))
+        if text:
+            parts.append(text)
+    if not parts:
+        return ""
+    body = "\n\n".join(parts)
+    if cite not in body:
+        body = f"{body}\n{cite}"
+    return body
+
+
 def ensure_thetford_flush_reply(
     reply: str,
     history: list = None,
@@ -5598,6 +5695,10 @@ def ensure_thetford_flush_reply(
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
     stage = _thetford_stage(history, latest_msg)
+    if _thetford_asks_procedure_list(latest_msg):
+        listed = _thetford_procedure_catalog(stage)
+        if listed:
+            return listed
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)

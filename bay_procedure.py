@@ -6143,6 +6143,17 @@ def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
     return None
 
 
+def _proc_is_thetford_leak(proc: BayProcedure) -> bool:
+    """The real Thetford leak sheet. A library miss stays a miss, with no kit pasted on."""
+    cite = (proc.primary_cite or "").lower()
+    if "document in the shop library for this unit" in cite:
+        return False
+    blob = " ".join(
+        part for part in (proc.brand, proc.model, proc.concern, proc.category) if part
+    )
+    return bool(re.search(r"thetford|42070|flush\s+lever|flush\s+pedal", blob, re.I))
+
+
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     """Put each cropped figure on the step it supports, and quote that chunk's how-to.
 
@@ -6167,6 +6178,11 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         if figures:
             packets.append({**data, "figures": figures})
     if not packets:
+        if _proc_is_thetford_leak(proc):
+            job = " ".join(
+                part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
+            )
+            proc.procedures = _plain_kit_procedures(mf.thetford_demo_packets(), job)
         return proc
     job = " ".join(
         part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
@@ -6220,6 +6236,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     proc.bay_order = order
     proc.step_figures = groups
     proc.procedures = _plain_kit_procedures(packets, job)
+    if not proc.procedures and _proc_is_thetford_leak(proc):
+        proc.procedures = _plain_kit_procedures(mf.thetford_demo_packets(), job)
     owned = set()
     for procedure in proc.procedures:
         for step in procedure.get("steps") or []:

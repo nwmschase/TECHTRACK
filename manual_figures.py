@@ -621,8 +621,11 @@ def missing_figure_photo_ask(has_figure: bool) -> str:
 
 
 YES_LINE = "Yes, go to the next step."
+NO_LINE = "No, do this step again."
 PHOTO_STEP = "Take a photo of this step and send it."
 PHOTO_WAIT = "Send the photo before the next step."
+# One chat turn can hold a few sheet actions that share a figure.
+SECTION_ACTION_CAP = 4
 
 # One shop step. Every Thetford check and every repair step uses these labels.
 STEP_FIELDS = (
@@ -666,6 +669,8 @@ def format_step_fields(fields: dict) -> str:
     for name in STEP_FIELDS:
         value = re.sub(r"\s+", " ", str((fields or {}).get(name) or "")).strip()
         lines.append(f"{name}: {value or 'UNCONFIRMED'}")
+    lines.append(YES_LINE)
+    lines.append(NO_LINE)
     return "\n".join(lines)
 
 
@@ -788,8 +793,27 @@ def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> di
 
 
 def step_field_lines(step: dict) -> list[str]:
+    """Eight shop fields, then each extra action in this section, then yes or no."""
     fields = step.get("fields") or {}
-    return [f"{name}: {(fields.get(name) or '').strip() or 'UNCONFIRMED'}" for name in STEP_FIELDS]
+    actions = []
+    for item in step.get("actions") or []:
+        text = (item or "").strip()
+        if text and text not in actions:
+            actions.append(text)
+    how = (fields.get("HOW") or "").strip()
+    if how and how not in actions:
+        actions.insert(0, how)
+    lines = []
+    for name in STEP_FIELDS:
+        if name == "HOW":
+            lines.append(f"HOW: {actions[0] if actions else 'UNCONFIRMED'}")
+            for extra in actions[1:]:
+                lines.append(extra)
+            continue
+        lines.append(f"{name}: {(fields.get(name) or '').strip() or 'UNCONFIRMED'}")
+    lines.append(YES_LINE)
+    lines.append(NO_LINE)
+    return lines
 
 _ACTION_VERB = (
     r"turn|pull|put|lift|flush|take|set|push|hit|press|tighten|connect|disconnect|"
@@ -1259,6 +1283,66 @@ def _display_title(doc_title: str, text: str) -> str:
     return " ".join(words[:6]) or "Repair"
 
 
+def _figure_group_key(step: dict):
+    figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+    if not figure or not (figure.get("label") or figure.get("png")):
+        return None
+    return (figure.get("label") or "", figure.get("page"), figure.get("title") or "")
+
+
+def _group_procedure_steps(steps: list) -> list:
+    """Join a few actions that share a section and a figure into one short section."""
+    groups = []
+    current: list = []
+    for step in steps or []:
+        if not current:
+            current = [step]
+            continue
+        same = (
+            step.get("section") == current[0].get("section")
+            and _figure_group_key(step) == _figure_group_key(current[0])
+            and len(current) < SECTION_ACTION_CAP
+        )
+        if same:
+            current.append(step)
+        else:
+            groups.append(current)
+            current = [step]
+    if current:
+        groups.append(current)
+    merged = []
+    for group in groups:
+        lead = dict(group[0])
+        actions = []
+        sources = []
+        caution = ""
+        good = ""
+        for step in group:
+            text = (step.get("text") or "").strip()
+            if text and text not in actions:
+                actions.append(text)
+            source = (step.get("source") or "").strip()
+            if source:
+                sources.append(source)
+            if not caution and step.get("caution"):
+                caution = step["caution"]
+            gb = ((step.get("fields") or {}).get("GOOD vs BAD") or "")
+            if not good and gb and "Good: UNCONFIRMED" not in gb:
+                good = gb
+        lead["actions"] = actions or [lead.get("text") or ""]
+        lead["text"] = lead["actions"][0]
+        lead["source"] = " ".join(sources)
+        lead["caution"] = caution
+        fields = dict(lead.get("fields") or {})
+        fields["WHERE"] = _where_field(lead["source"])
+        fields["HOW"] = lead["text"]
+        if good:
+            fields["GOOD vs BAD"] = good
+        lead["fields"] = fields
+        merged.append(lead)
+    return merged
+
+
 def procedure_from_sheet(text: str, figures: list | None = None, title: str = "") -> dict:
     """Turn one library sheet into short steps. Nothing is stored for one model."""
     parsed = factory_procedure(text or "", figures)
@@ -1354,7 +1438,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
         if readability_problems(step):
             continue
         kept.append(step)
-    steps = kept
+    steps = _group_procedure_steps(kept)
     if not steps:
         return {}
     for index, step in enumerate(steps):
@@ -1399,6 +1483,146 @@ def thetford_kit_layout(kind: str, figures: list | None = None) -> dict:
             for fig in indexed["figures"]
         ]
     return procedure_from_sheet(text, figures, doc)
+
+
+_THETFORD_DEMO_PACKETS = None
+
+
+def job_is_thetford(*parts) -> bool:
+    """True when this turn is the Thetford toilet, not another brand's job."""
+    blob = " ".join(str(part or "") for part in parts)
+    return bool(
+        re.search(
+            r"thetford|42070|42088|42109|34122|34123|aqua-magic|flush\s+lever|flush\s+pedal",
+            blob,
+            re.I,
+        )
+    )
+
+
+def thetford_demo_packets() -> list:
+    """Kit sheets bundled with the app. Used when the shop library has no crops."""
+    global _THETFORD_DEMO_PACKETS
+    if _THETFORD_DEMO_PACKETS is not None:
+        return _THETFORD_DEMO_PACKETS
+    built = []
+    for kind in ("valve", "breaker"):
+        paths = _kit_paths(kind)
+        if not paths:
+            continue
+        path, doc = paths
+        if not path.is_file():
+            continue
+        indexed = index_pdf_bytes(path.read_bytes())
+        text = "\n".join(page.get("text") or "" for page in indexed["pages"])
+        figures = []
+        for fig in indexed["figures"]:
+            png = fig.get("png") or b""
+            if not png or png_is_blank(png):
+                continue
+            figures.append(
+                {
+                    "label": fig.get("label") or "Fig.",
+                    "png": png,
+                    "page": fig.get("page") or 1,
+                    "title": doc,
+                }
+            )
+        pages = []
+        for page in indexed["pages"]:
+            png = page.get("png") or b""
+            if not png or png_is_blank(png):
+                continue
+            pages.append({"page": page["page"], "png": png})
+        built.append(
+            {
+                "title": doc,
+                "page": 1,
+                "excerpt": text,
+                "figures": figures,
+                "pages": pages,
+                "file_path": str(path),
+            }
+        )
+    _THETFORD_DEMO_PACKETS = built
+    return built
+
+
+def bundled_thetford_offers(
+    reply: str = "",
+    user_msg: str = "",
+    category: str = "",
+    model: str = "",
+) -> list:
+    """Page images and figure crops for a Thetford turn. Empty for every other job.
+
+    Each offer carries the PNG, so the chat can show it without a library row.
+    """
+    if not job_is_thetford(reply, user_msg, category, model):
+        return []
+    blob = f"{reply or ''}\n{user_msg or ''}"
+    low = blob.lower()
+    names_valve = bool(re.search(r"water valve|42109|42049|weep|pedal|retainer|pocket", low))
+    names_breaker = bool(re.search(r"vacuum|breaker|34122|34123", low))
+    if names_breaker and not names_valve:
+        want = "breaker"
+    elif names_valve:
+        want = "valve"
+    else:
+        want = ""
+    named = _numbers_named(reply or "") or _numbers_named(user_msg or "")
+    offers = []
+    for packet in thetford_demo_packets():
+        title = packet["title"]
+        title_l = title.lower()
+        if want == "breaker" and "breaker" not in title_l and "34122" not in title_l:
+            continue
+        if want == "valve" and "valve" not in title_l and "42109" not in title_l:
+            continue
+        crops = []
+        for fig in packet.get("figures") or []:
+            nums = _figure_numbers(fig.get("label") or "")
+            if named and not any(number in named for number in nums):
+                continue
+            crops.append(fig)
+        if named and not crops:
+            crops = []
+        elif not crops:
+            crops = list(packet.get("figures") or [])
+        for fig in crops:
+            png = fig.get("png") or b""
+            if not png:
+                continue
+            page = fig.get("page") or 1
+            label = fig.get("label") or ""
+            offers.append(
+                {
+                    "title": title,
+                    "page": page,
+                    "label": label,
+                    "caption": display_caption(title, page, label),
+                    "png": png,
+                    "file_path": packet.get("file_path") or "",
+                    "document_id": 0,
+                }
+            )
+        for page in packet.get("pages") or []:
+            png = page.get("png") or b""
+            if not png:
+                continue
+            offers.append(
+                {
+                    "title": title,
+                    "page": page["page"],
+                    "label": "page",
+                    "caption": display_caption(title, page["page"], "page"),
+                    "png": png,
+                    "file_path": packet.get("file_path") or "",
+                    "document_id": 0,
+                }
+            )
+            break
+    return offers
 
 
 _PROVING_PHOTO_CONNECTOR = (

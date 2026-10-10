@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.41
-- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED.
+- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Thetford kit page images and figure crops show in chat even when the shop library has no stored figure. A Bay sheet with no library crops still prints the full kit Removal and Installation, with the figure beside each pictured step. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
 - v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
@@ -4739,9 +4739,13 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
 
 
 def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_text: str):
-    """Figure crops for this job. Another brand's image is left out."""
+    """Figure crops for this job. Another brand's image is left out.
+
+    An empty shop library still serves the bundled Thetford kit pages and crops.
+    """
     import manual_figures as mf
 
+    rows = []
     try:
         rows = (
             session.query(DocAsset, Document)
@@ -4750,9 +4754,9 @@ def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_
             .all()
         )
     except Exception:
-        return []
+        rows = []
     if not rows:
-        return []
+        return mf.bundled_thetford_offers(reply, user_msg, category_name, model_text)
     job = f"{category_name} {model_text} {user_msg} {reply}"
     blob = (reply or "").lower()
     if "vacuum" in blob:
@@ -4787,7 +4791,9 @@ def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_
             "file_path": doc.file_path,
             "document_id": doc.id,
         })
-    return chosen
+    if chosen:
+        return chosen
+    return mf.bundled_thetford_offers(reply, user_msg, category_name, model_text)
 
 
 def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, model_text: str) -> str:
@@ -4797,11 +4803,6 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     """
     import manual_figures as mf
 
-    try:
-        if session.query(DocAsset).count() == 0:
-            return reply
-    except Exception:
-        return reply
     physical = bool(re.search(
         r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
         reply or "",
@@ -4816,15 +4817,19 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     limit = 3 if asked else 1
     extra = []
     first = chosen[0]
-    chunk_text = "\n".join(
-        (row.chunk_text or "")
-        for row in session.query(DocChunk).filter_by(
-            document_id=first["document_id"], page=first["page"]
-        ).all()
-    )
-    detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
-    if detail and detail not in (reply or ""):
-        extra.append(detail)
+    if first.get("document_id"):
+        try:
+            chunk_text = "\n".join(
+                (row.chunk_text or "")
+                for row in session.query(DocChunk).filter_by(
+                    document_id=first["document_id"], page=first["page"]
+                ).all()
+            )
+        except Exception:
+            chunk_text = ""
+        detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
+        if detail and detail not in (reply or ""):
+            extra.append(detail)
     for item in chosen[:limit]:
         if item["caption"] not in (reply or ""):
             extra.append(item["caption"])

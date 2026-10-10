@@ -52,7 +52,10 @@ class TestReadability(unittest.TestCase):
                 else:
                     self.assertIsNone(step.get("figure"))
                     self.assertEqual(step["fields"]["FIGURE"], "UNCONFIRMED")
-            blob = " ".join(step["text"].lower() for step in layout["steps"])
+            blob = " ".join(
+                " ".join(step.get("actions") or [step["text"]]).lower()
+                for step in layout["steps"]
+            )
             source = " ".join(page["text"].lower() for page in mf.index_pdf_bytes(
                 (VALVE_PDF if kind == "valve" else BREAKER_PDF).read_bytes()
             )["pages"])
@@ -77,7 +80,10 @@ class TestReadability(unittest.TestCase):
         """
         figures = [{"label": "Fig. 1 LEVER LOCK", "png": b"png", "page": 1}]
         layout = mf.procedure_from_sheet(text, figures, "Widget lever sheet")
-        blob = " ".join(step["text"].lower() for step in layout["steps"])
+        blob = " ".join(
+            " ".join(step.get("actions") or [step["text"]]).lower()
+            for step in layout["steps"]
+        )
         self.assertIn("lever", blob)
         self.assertIn("lock", blob)
         self.assertIn("slot a", blob)
@@ -87,7 +93,10 @@ class TestReadability(unittest.TestCase):
         pictured = [step for step in layout["steps"] if step.get("figure")]
         self.assertTrue(pictured)
         for step in pictured:
-            self.assertIn("1", step["text"] + " " + step.get("explain", ""))
+            self.assertIn(
+                "1",
+                step["text"] + " " + step.get("explain", "") + " " + (step.get("fields") or {}).get("FIGURE", ""),
+            )
         for step in layout["steps"]:
             self.assertEqual(mf.readability_problems(step), [])
 
