@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.40"
+COACH_REVISION = "v4.19.41"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -5343,21 +5343,15 @@ def ensure_level_up_lead_jack_reply(
 THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
 THETFORD_SUPPLY_LINE = (
     "Back of the toilet: check the water supply line connection at the water valve. "
-    "Secure or tighten it as necessary.\n"
+    "Secure or tighten it as necessary. "
+    "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED.\n"
     + THETFORD_CITE_42088
-)
-THETFORD_VALVE_LINE = (
-    "Check whether water valve 42049 weeps at the pedal. "
-    "If it weeps, replace it with water valve kit 42109.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
-)
-THETFORD_VALVE_REPLACE_LINE = (
-    "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
 )
 THETFORD_VACUUM_LINE = (
     "Check whether the vacuum breaker leaks while flushing. "
-    "If it leaks, replace the vacuum breaker or the water module, depending on model.\n"
+    "If it leaks, replace the vacuum breaker or the water module, depending on model. "
+    "Leaks only while flushing. That limit is UNCONFIRMED. "
+    "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377.\n"
     "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
 )
 THETFORD_VACUUM_REPLACE_LINE = (
@@ -5365,9 +5359,24 @@ THETFORD_VACUUM_REPLACE_LINE = (
     "Replace the vacuum breaker or the water module, depending on model.\n"
     "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
 )
+THETFORD_VALVE_LINE = (
+    "Pull the pedal off. "
+    "Look for a weep at the cartridge, the drive arm, or a cracked housing. UNCONFIRMED. "
+    "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109. "
+    "Kit 42049 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
+    "spring 42010, and retainer 42099.\n"
+    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
+)
+THETFORD_VALVE_REPLACE_LINE = (
+    "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.\n"
+    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
+)
 THETFORD_FLANGE_LINE = (
     "Between the closet flange and the toilet, check the flange nuts. "
-    "If the leak continues, check the flange height and replace the flange seal.\n"
+    "If the leak continues, check the flange height. "
+    "It is 7/16 inch above the floor. Replace the flange seal. "
+    "Closet flange seal 02125 is on the kits. "
+    "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED.\n"
     + THETFORD_CITE_42088
 )
 
@@ -5464,23 +5473,24 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
 
 
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
-    """Supply, then the pedal valve, then the vacuum breaker, then the flange.
+    """Supply, then the vacuum breaker, then the valve body, then the flange.
 
     'Not checked yet' closes the check that was just asked and advances.
-    A closed check is not asked again.
+    A closed check is not asked again. A weep does not skip the vacuum breaker.
+    A proven leak starts that repair only after the earlier checks are closed.
     """
     blob = _user_blob(history, latest_msg)
     slots = _thetford_closed_slots(history, latest_msg)
-    if _thetford_valve_bad(blob):
-        return "valve_replace"
-    if _thetford_vacuum_bad(blob):
-        return "vacuum_replace"
     if "supply" not in slots and not _thetford_supply_ok(blob):
         return "supply"
-    if "valve" not in slots and not _thetford_valve_ok(blob):
-        return "valve"
+    if _thetford_vacuum_bad(blob):
+        return "vacuum_replace"
     if "vacuum" not in slots and not _thetford_vacuum_ok(blob):
         return "vacuum"
+    if _thetford_valve_bad(blob):
+        return "valve_replace"
+    if "valve" not in slots and not _thetford_valve_ok(blob):
+        return "valve"
     return "flange"
 
 
@@ -5610,7 +5620,7 @@ def ensure_thetford_flush_reply(
     stage = _thetford_stage(history, latest_msg)
     stage_slot = {"valve_replace": "valve", "vacuum_replace": "vacuum"}.get(stage, stage)
     asked = _thetford_line_slot(reply) or _thetford_line_slot(original)
-    # A vacuum-breaker draft does not ship while the supply or the water valve is still open.
+    # A draft for another check does not ship. Open order is supply, vacuum, valve, flange.
     if asked and asked != stage_slot:
         return nxt
     if _thetford_not_checked(latest_msg):

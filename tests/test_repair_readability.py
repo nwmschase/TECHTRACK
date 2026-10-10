@@ -140,10 +140,24 @@ class TestProcedureHandoff(unittest.TestCase):
             {"role": "user", "content": "toilet leaks under the flush lever"},
             {"role": "assistant", "content": "Back of the toilet: check the water supply line."},
         ]
-        first = avoid_duplicate_reply(
+        asked = avoid_duplicate_reply(
             "Check whether the vacuum breaker leaks while flushing.",
             history,
             "Supply is tight. The water valve weeps at the pedal.",
+            "Plumbing / Toilets",
+            "Style II 42070",
+        )
+        self.assertIn("vacuum breaker", asked.lower())
+        self.assertNotIn("Step 1 of", asked)
+        self.assertNotIn("42049", asked)
+        history = history + [
+            {"role": "user", "content": "Supply is tight. The water valve weeps at the pedal."},
+            {"role": "assistant", "content": asked},
+        ]
+        first = avoid_duplicate_reply(
+            "",
+            history,
+            "Vacuum breaker is dry. No leak there.",
             "Plumbing / Toilets",
             "Style II 42070",
         )
@@ -152,12 +166,13 @@ class TestProcedureHandoff(unittest.TestCase):
         self.assertIn("Take a photo of this step and send it.", first)
         self.assertIn("You should see:", first)
         self.assertNotIn("Step 2 of", first)
+        self.assertIn("42109", first)
         for sentence in re.split(r"\n+", first):
             if sentence.startswith("📖"):
                 continue
             self.assertLessEqual(mf._word_count(sentence), 15, sentence)
         history = history + [
-            {"role": "user", "content": "Supply is tight. The water valve weeps at the pedal."},
+            {"role": "user", "content": "Vacuum breaker is dry. No leak there."},
             {"role": "assistant", "content": first},
         ]
         held = avoid_duplicate_reply(
