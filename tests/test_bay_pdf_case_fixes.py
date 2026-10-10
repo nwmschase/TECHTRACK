@@ -479,17 +479,21 @@ class TestBayCaseFixes(unittest.TestCase):
         ):
             proc, text = _sheet(concern, "Furrion", "FACT12SA2", "Air Conditioning", chunks=[bad])
             low = text.lower()
-            self.assertIn("resecure the freeze sensor", low, concern)
-            self.assertIn(FACT12_FREEZE_RESECURE_LINE.split(".")[0].lower(), low)
             self.assertNotIn("not the fact12", low)
             self.assertNotIn("only the facr08 book", low)
+            self.assertNotIn("closest reference", low)
             self.assertIn("ccd-0008666", low)
             self.assertNotIn("boltx", low)
             self.assertNotIn("?", " ".join(proc.bay_order))
             self.assertNotIn("did the first", low)
-            nodes = " ".join(node.text for node in proc.flowchart.nodes).lower()
-            self.assertNotIn("reseat", nodes)
-            self.assertIn("resecure", nodes)
+            if "e3" in concern.lower():
+                self.assertIn("data line", low)
+                self.assertIn("page 15", low)
+                self.assertIn("page 18", low)
+                self.assertIn("reseat the freeze sensor", low)
+            else:
+                self.assertIn("reseat the freeze sensor", low)
+                self.assertIn("page 5", low)
             _no_generic_chart(text)
         titled = {
             "title": "Furrion FACT12SA2-PS 8K Electronic Control IM CCD-0008666",
@@ -505,8 +509,8 @@ class TestBayCaseFixes(unittest.TestCase):
         )
         low = text.lower()
         self.assertNotIn("fact12sa2-ps", low)
-        self.assertIn("facr08", low)
         self.assertIn("ccd-0008666", low)
+        self.assertIn("data line", low)
 
     def test_s13_aligns_the_petit_tube_before_the_control_board(self):
         proc, text = _sheet(
@@ -523,16 +527,18 @@ class TestBayCaseFixes(unittest.TestCase):
             ],
         )
         order = " ".join(proc.bay_order).lower()
-        self.assertIn("align the petit tube", order)
-        self.assertIn(GIRARD_PETIT_ALIGN_LINE.split(".")[0].lower(), order)
-        self.assertLess(order.index("petit tube"), order.index("control board"))
+        self.assertIn("sensing tube", order)
+        self.assertIn("blower", order)
+        self.assertIn("suction", order)
+        self.assertNotIn("burner flame", order)
+        self.assertLess(order.index("blower"), order.index("control board"))
         self.assertFalse(any(step.lower().startswith("replace the control board") for step in proc.bay_order))
         self.assertEqual(len(proc.bay_order), len({step.strip() for step in proc.bay_order}))
-        yes = next(node.text.lower() for node in proc.flowchart.nodes if "already in the flame" in node.text.lower())
-        no = next(node.text.lower() for node in proc.flowchart.nodes if node.text.lower().startswith("align the petit"))
+        yes = next(node.text.lower() for node in proc.flowchart.nodes if "suction is present" in node.text.lower())
+        no = next(node.text.lower() for node in proc.flowchart.nodes if "seat the sensing tube" in node.text.lower())
         self.assertNotEqual(yes, no)
-        self.assertNotIn("align", yes)
-        self.assertIn("align", no)
+        self.assertNotIn("burner flame", yes)
+        self.assertIn("blower", no)
         low = text.lower()
         self.assertNotIn("(fig.", low)
         self.assertNotIn("efault", low)
@@ -809,14 +815,17 @@ class TestSnippetScrubRegressions(unittest.TestCase):
             ],
         )
         cite = proc.primary_cite.lower()
-        self.assertIn("resecure the fact12 freeze sensor", cite)
+        self.assertIn("ccd-0008666", cite)
+        self.assertIn("15", cite)
+        self.assertIn("18", cite)
+        self.assertNotIn("closest reference", cite)
         self.assertNotIn("only the facr08 book", cite)
         self.assertNotIn("not the fact12", cite)
         titles = " ".join(src.get("title") or "" for src in proc.sources).lower()
         self.assertIn("ccd-0008666", titles)
-        self.assertIn("facr08", titles)
+        self.assertNotIn("closest reference", titles)
         self.assertNotIn("retest once more", text.lower())
-        self.assertIn("replace the freeze sensor", proc.bay_order[2].lower())
+        self.assertIn("reseat", proc.bay_order[2].lower())
         self.assertEqual(_glued_tokens(text), [])
 
     def test_s13_does_not_repeat_the_alignment_and_does_not_glue_codewater(self):
@@ -851,7 +860,9 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("codewater", low)
         self.assertNotIn("water flow", low)
         self.assertNotIn("water-flow", low)
-        self.assertIn("petit tube", low)
+        self.assertIn("sensing tube", low)
+        self.assertIn("blower", low)
+        self.assertNotIn("burner flame", low)
         self.assertNotIn("? before", low)
         self.assertEqual(_glued_tokens(text), [])
 
@@ -1089,14 +1100,13 @@ class TestSnippetScrubRegressions(unittest.TestCase):
             "FACT12SA2",
             "Air Conditioning",
         )
-        self.assertNotIn("resecure", proc.bay_order[0].lower())
-        self.assertIn("resecure the freeze sensor", proc.bay_order[1].lower())
-        self.assertIn("replace the freeze sensor", proc.bay_order[2].lower())
+        self.assertIn("12 v", proc.bay_order[0].lower())
+        self.assertIn("connector", proc.bay_order[1].lower())
+        self.assertIn("reseat", proc.bay_order[2].lower())
         ends = {node.text.lower() for node in proc.flowchart.nodes if node.kind == "end"}
         process = " ".join(node.text.lower() for node in proc.flowchart.nodes if node.kind == "process")
-        self.assertTrue(any("replace the freeze sensor" in text for text in ends))
-        self.assertIn("resecure the freeze sensor", process)
-        self.assertFalse(any("resecure the freeze sensor" in text for text in ends))
+        self.assertTrue(any("data line" in text or "12 v" in text for text in ends))
+        self.assertIn("reseat the freeze sensor", process)
 
     def test_s13_states_the_out_of_flame_condition_with_step_two(self):
         proc, text = _sheet(
@@ -1114,11 +1124,11 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         )
         step2 = proc.bay_order[1].lower()
         step3 = proc.bay_order[2].lower()
-        self.assertIn("out of the flame", step2)
-        self.assertIn("align the petit tube", step2)
-        self.assertNotIn("already in the burner flame", step2)
-        self.assertIn("already in the burner flame", step3)
-        self.assertNotIn("out of the flame", step3)
+        self.assertIn("suction", step2)
+        self.assertIn("blower", step2)
+        self.assertNotIn("burner flame", step2)
+        self.assertNotIn("burner flame", step3)
+        self.assertIn("retest", step3)
         self.assertNotIn("? before", text.lower())
         self.assertEqual(len(proc.bay_order), 6)
 

@@ -248,8 +248,8 @@ class TestSheetLengthAndGenericPath(unittest.TestCase):
         blob = " ".join(proc.bay_order)
         self.assertNotIn("Duct size", blob)
         self.assertNotIn("?", blob)
-        self.assertIn("petit tube", blob.lower())
-        self.assertLess(blob.lower().index("petit tube"), blob.lower().index("control board"))
+        self.assertIn("sensing tube", blob.lower())
+        self.assertLess(blob.lower().index("blower"), blob.lower().index("control board"))
         box = next(node.text for node in proc.flowchart.nodes if node.kind == "process")
         self.assertFalse(box.strip().startswith("?"))
 

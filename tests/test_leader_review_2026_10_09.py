@@ -165,7 +165,7 @@ class TestStrictSources(unittest.TestCase):
                         "excerpt": "General troubleshooting starts with the control board.",
                     },
                 ],
-                ["blower", "water flow", "general troubleshooting"],
+                ["water flow", "general troubleshooting"],
             ),
         ]
         for concern, brand, model, category, chunks, banned in cases:
@@ -239,7 +239,11 @@ class TestInternalNotesStayOffTheSheet(unittest.TestCase):
             self.assertNotIn("not the fact12", blob)
             self.assertFalse(any(sheet_has_internal_note(src.get("excerpt") or "") for src in proc.sources))
             self.assertFalse(sheet_has_internal_note(proc.primary_cite))
-        self.assertIn("resecure", fact.primary_cite.lower())
+        self.assertIn("ccd-0008666", fact.primary_cite.lower())
+        self.assertIn("15", fact.primary_cite)
+        self.assertIn("18", fact.primary_cite)
+        self.assertNotIn("closest reference", fact.primary_cite.lower())
+        self.assertNotIn("resecure", fact.primary_cite.lower())
         self.assertIn("ccd-0008666", _blob(fact))
 
 
@@ -315,10 +319,11 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         blob = _blob(proc)
         self.assertIn("terminator - leave", blob)
         self.assertIn("onecontrol - unplug", blob)
-        # Locked TI-005, QR-092, and shop PN 807662 lines have no page, so they stay off Sources.
-        self.assertNotIn("ti-005", blob)
-        self.assertNotIn("qr-092", blob)
-        self.assertTrue(all(src.get("page") for src in proc.sources))
+        self.assertIn("ti-005", blob)
+        self.assertIn("qr-092", blob)
+        self.assertIn("807662", blob)
+        self.assertTrue(proc.sources)
+        self.assertTrue(any(src.get("title_only") or not src.get("page") for src in proc.sources))
 
     def test_expected_pages_are_on_the_sheet(self):
         facr = compile_bay_procedure(

@@ -149,11 +149,8 @@ class TestFacrTerminalCard(unittest.TestCase):
         facts, card = _terminal_card(short, "")
         self.assertFalse(facr_terminal_path_complete(facts), facts)
         self.assertIsNone(facts.get("facr_pressure"))
-        self.assertTrue(card.strip(), card)
-        self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
-        self.assertIn("replace the rooftop assembly", card.lower())
-        self.assertIn("CCD-0007990", card)
-        self.assertNotIn("read the refrigerant pressures", card.lower())
+        self.assertFalse(card.strip(), card)
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card)
 
     def test_rr_before_pressures_is_kept(self):
         short = GOOD_PATH[:-2]
@@ -161,8 +158,9 @@ class TestFacrTerminalCard(unittest.TestCase):
         self.assertFalse(facr_terminal_path_complete(facts), facts)
         self.assertIsNone(facts.get("facr_pressure"))
         self.assertTrue(reply_names_rooftop_assembly_rr(GOOD))
-        self.assertTrue(reply_names_rooftop_assembly_rr(card), card[:400])
-        self.assertIn("replace the rooftop assembly", card.lower())
+        self.assertFalse(reply_names_rooftop_assembly_rr(card), card[:400])
+        self.assertNotIn("replace the rooftop assembly", card.lower())
+        self.assertIn("refrigerant pressures", card.lower())
         self.assertIn("CCD-0007990", card)
         _, kept = _terminal_card(GOOD_PATH, GOOD)
         self.assertTrue(reply_names_rooftop_assembly_rr(kept), kept[:400])

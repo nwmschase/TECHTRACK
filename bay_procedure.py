@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.21"
+MODULE_REVISION = "v4.19.22"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -218,9 +218,10 @@ FIREFLY_CAN_PORT_PROVE = (
     "Then try Manual Mode again."
 )
 FIREFLY_HOLDS_BRANCH = (
-    "If Manual Mode holds with the Firefly CAN cable unplugged, Firefly / OneControl CAN "
-    "is in the dump. Do not start a Level Up controller fault path. Next, call Firefly at "
-    "574-825-4600 for USB firmware plus interim."
+    "If Manual Mode holds with the Firefly CAN cable unplugged, update the Firefly firmware. "
+    "Call Firefly at 574-825-4600. Use a USB stick of 4 GB or smaller. "
+    "For the interim, turn the front-bay main battery switch OFF and take the Firefly cable out, "
+    "or leave that cable unplugged with the rubber-boot terminator in."
 )
 FIREFLY_STILL_DUMPS_BRANCH = (
     "If Manual Mode still dumps home with the Firefly CAN cable unplugged, Firefly CAN is "
@@ -910,7 +911,7 @@ def _facr_path() -> dict:
                 FlowEdge("s", "d_drain"),
                 FlowEdge("d_drain", "p_clear", "YES", "right", "left"),
                 FlowEdge("d_drain", "d_retest", "NO", "bottom", "top"),
-                FlowEdge("p_clear", "d_retest", "", "right", "top"),
+                FlowEdge("p_clear", "d_retest", "", "bottom", "right"),
                 FlowEdge("d_retest", "e_ok", "NO", "right", "left"),
                 FlowEdge("d_retest", "d_slope", "YES", "bottom", "top"),
                 FlowEdge("d_slope", "p_slope", "YES", "right", "left"),
@@ -1114,7 +1115,7 @@ def _firefly_path() -> dict:
                 FlowNode(
                     "y2",
                     "end",
-                    "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
+                    "Manual Mode held.\nCall Firefly at 574-825-4600.\nUse a USB stick of 4 GB or smaller.",
                     0.32,
                     0.91,
                     w=280,
@@ -1141,7 +1142,7 @@ def _firefly_path() -> dict:
         ),
         "bay_order": [
             "Confirm Auto Level still works and clear sticky Low Voltage, Excess Angle, or External Sensor text if it is present. If Auto is dead, this is not the Firefly path — stay on Level Up hydraulics. If Auto works, check the POWER CONNECTOR next.",
-            "Back-probe the labeled POWER CONNECTOR. Measure Red versus Green ground. You want solid 12V+. Note Yellow. If you do not have solid 12V+, fix power first. If power is solid 12V+, do the CAN prove next.",
+            "Back-probe the labeled POWER CONNECTOR. Measure Red versus Green ground. You want solid 12V+. If you do not have solid 12V+, fix power first. If power is solid 12V+, do the CAN prove next.",
             FIREFLY_CAN_PORT_PROVE,
             FIREFLY_HOLDS_BRANCH + " " + FIREFLY_STILL_DUMPS_BRANCH,
         ],
@@ -1153,36 +1154,25 @@ def _firefly_path() -> dict:
         ],
         "sources": [
             {
-                "title": FIREFLY_PATH_TITLE,
-                "page": None,
-                "excerpt": (
-                    "Back-probe the labeled POWER CONNECTOR, Red versus Green ground, "
-                    "solid 12V+. "
-                    + FIREFLY_CAN_PORT_PROVE
-                ),
-            },
-            {
                 "title": "Level Up Advantage controller shop PN 807662",
                 "page": None,
-                "excerpt": "Shop part 807662 is the Level Up Advantage controller on this coach.",
+                "excerpt": "",
+                "title_only": True,
             },
             {
                 "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
                 "page": None,
-                "excerpt": (
-                    "When Manual Mode flashes back to the home screen and Auto Level still works, "
-                    "prove Firefly communication before a Level Up controller fault."
-                ),
+                "excerpt": "",
+                "title_only": True,
             },
             {
                 "title": "Lippert QR-092 Level-Up wiring",
                 "page": None,
-                "excerpt": (
-                    "The QR-092 Level-Up wiring drawing shows the two CAN ports on the controller."
-                ),
+                "excerpt": "",
+                "title_only": True,
             },
         ],
-        "display_model": "Level Up Advantage controller (Brinkley / Firefly)",
+        "display_model": "807662",
         "flow_tall": True,
     }
 
@@ -3302,10 +3292,10 @@ def polish_bay_sources(
         out = [src for src in (out or titled) if src.get("page")]
     if path_kind == "stabilizer" and not out:
         out = _cooktop_title_only(sources, "Lippert PSX1 front stabilizer jack")
-    # A source line needs a page. A page-less line is dropped.
+    # A source line needs a page. A locked title-only cite (no invented page) may stay.
     kept = []
     for src in out:
-        if not src.get("page"):
+        if not src.get("page") and not src.get("title_only"):
             continue
         src.pop("_chunk_text", None)
         kept.append(src)
@@ -4205,7 +4195,7 @@ def _draw_seed_figure_png(kind: str) -> bytes:
         draw.text((450, 215), "to Firefly / OneControl.", fill=(18, 18, 36), font=body_f)
         draw.text((450, 270), "POWER CONNECTOR", fill=(1, 20, 124), font=body_f)
         draw.text((450, 305), "Red versus Green ground.", fill=(18, 18, 36), font=small_f)
-        draw.text((450, 335), "Want solid 12V+. Note Yellow.", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 335), "Want solid 12V+.", fill=(18, 18, 36), font=small_f)
         draw.text((450, 380), "Shop PN 807662 (Sources only)", fill=(90, 90, 90), font=small_f)
     return _png_bytes(img)
 
@@ -4343,8 +4333,31 @@ def _figure_band_box(image) -> tuple[int, int, int, int] | None:
         return None
     if (end - start) < max(80, width * 0.16):
         return None
-    pad = 8
-    return (8, max(0, start - pad), width - 8, min(height, end + pad))
+    pad = 22
+    x0, y0, x1, y1 = 8, max(0, start - pad), width - 8, min(height, end + pad)
+    # A light grey cabinet frame is fainter than the ink threshold. Grow to include it,
+    # and drop a stray rule that is only a dark column in the right margin.
+    gray = image.convert("L")
+    px = gray.load()
+    def _row_has_frame(y: int) -> bool:
+        if y < 0 or y >= height:
+            return False
+        mid = sum(1 for x in range(0, width, 3) if 80 <= px[x, y] <= 210)
+        return mid > width / 30
+    while y1 < height - 1 and _row_has_frame(y1):
+        y1 += 1
+    while y0 > 0 and _row_has_frame(y0 - 1):
+        y0 -= 1
+    # Trim a lone vertical rule in an otherwise white right margin.
+    while x1 - x0 > 40:
+        column = [px[x1 - 1, y] for y in range(y0, y1, 3)]
+        dark = sum(1 for value in column if value < 80)
+        white = sum(1 for value in column if value > 230)
+        if dark and white > len(column) * 0.7:
+            x1 -= 1
+            continue
+        break
+    return (x0, y0, x1, y1)
 
 
 def _oem_library_figures(kind: str) -> list[BayFigure]:
@@ -5065,18 +5078,102 @@ def _dometic_ceiling_path(concern: str) -> dict:
     }
 
 
-def _fact12_freeze_path() -> dict:
+def _fact12_e3_path() -> dict:
     return {
-        "primary_cite": "Resecure the FACT12 freeze sensor on the evaporator coil.",
+        "primary_cite": "Furrion Chill FACR CCD-0008666, pages 15 and 18.",
         "pattern_means": (
-            "A FACT12 E2 or E3 is a freeze-sensor seating fault. "
-            "Resecure the freeze sensor on the evaporator coil before any board swap. "
-            "If the code is still present after that, replace the freeze sensor."
+            "A FACT12 E3 is a communication fault. Measure 12 V and the data line at the connector "
+            "before any board swap. Then confirm the freeze sensor is seated on the evaporator coil."
         ),
         "flowchart": Flowchart(
             readable=True,
             nodes=[
-                FlowNode("s", "start", "FACT12 shows E2 or E3.", 0.50, 0.08, w=420, h=56),
+                FlowNode("s", "start", "FACT12 shows E3.", 0.50, 0.10, w=360, h=56),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Is 12 V present\non the data connector?",
+                    0.32,
+                    0.34,
+                    w=240,
+                    h=96,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Repair the 12 V feed\nor the data line.",
+                    0.78,
+                    0.34,
+                    w=210,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Is the freeze sensor\non the coil?",
+                    0.32,
+                    0.62,
+                    w=230,
+                    h=90,
+                ),
+                FlowNode(
+                    "p1",
+                    "process",
+                    "Reseat the freeze sensor\non the evaporator coil.",
+                    0.32,
+                    0.86,
+                    w=250,
+                    h=72,
+                ),
+                FlowNode(
+                    "e_ok",
+                    "end",
+                    "Sensor is seated.\nRetest the code.",
+                    0.78,
+                    0.62,
+                    w=200,
+                    h=72,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "d2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("d2", "e_ok", "YES", "right", "left"),
+                FlowEdge("d2", "p1", "NO", "bottom", "top"),
+            ],
+        ),
+        "bay_order": [
+            "On a FACT12 E3, measure 12 V at the communication connector and check the data line. If 12 V is missing, repair that feed and retest. If 12 V is present, check the connector next.",
+            "Confirm the data connector is seated. If a pin is pushed back or the connector is loose, repair it and retest the code.",
+            "Check the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated and E3 remains, write the readings and stop.",
+        ],
+        "do_not": [
+            "Do not replace the control board before the 12 V, data line, and connector checks.",
+        ],
+        "sources": [
+            {"title": "Furrion Chill FACR CCD-0008666", "page": 15, "excerpt": ""},
+            {"title": "Furrion Chill FACR CCD-0008666", "page": 18, "excerpt": ""},
+        ],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _fact12_freeze_path(concern: str = "") -> dict:
+    if re.search(r"\be\s*3\b", concern or "", re.I):
+        return _fact12_e3_path()
+    return {
+        "primary_cite": "Furrion Chill FACR08 8K manual CCD-0008666, page 5.",
+        "pattern_means": (
+            "A FACT12 E2 is a freeze-sensor seating fault. "
+            "Check the freeze sensor on the evaporator coil before any board swap. "
+            "If it is loose or off the coil, reseat it and retest."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode("s", "start", "FACT12 shows E2.", 0.50, 0.08, w=420, h=56),
                 FlowNode(
                     "d1",
                     "decision",
@@ -5142,16 +5239,16 @@ def _fact12_freeze_path() -> dict:
             ],
         ),
         "bay_order": [
-            "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, do the seating correction next. If it is already seated, go to the replace step.",
-            "Resecure the freeze sensor on the evaporator coil. Do not replace the control board first. If the code clears, that is the confirmed correction.",
-            "If the sensor is seated and the code remains, replace the freeze sensor and retest. Do not replace the control board first.",
+            "On a FACT12 E2, find the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated, go to the replace step.",
+            "Reseat the freeze sensor on the evaporator coil. If the code clears, that is the confirmed correction.",
+            "If the sensor is seated and the code remains, replace the freeze sensor and retest.",
         ],
         "do_not": [
             "Do not replace the control board before the freeze sensor is resecured.",
         ],
         "sources": [
             {
-                "title": "Furrion CCD-0008666 (FACR08 manual, closest reference)",
+                "title": "Furrion Chill FACR08 8K manual CCD-0008666",
                 "page": 5,
                 "excerpt": "",
             },
@@ -5165,8 +5262,9 @@ def _girard_petit_path() -> dict:
     return {
         "primary_cite": "Girard tankless water heater service manual CCD-0009390, page 23.",
         "pattern_means": (
-            "Girard GSWH-2 E8 after flame starts at the petit tube. "
-            "Align the petit tube in the burner flame and retest before any control board."
+            "Girard GSWH-2 E8 is the air pressure switch. "
+            "Its sensing tube is at the blower. Confirm suction there while the blower runs "
+            "before any control board."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -5174,7 +5272,7 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "s",
                     "start",
-                    "Girard water heater shows E8 after flame.",
+                    "Girard water heater shows E8.",
                     0.50,
                     0.10,
                     w=420,
@@ -5183,7 +5281,7 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "d_in",
                     "decision",
-                    "Is the petit tube\nin the flame?",
+                    "Does the blower tube\nshow suction?",
                     0.32,
                     0.38,
                     w=230,
@@ -5192,7 +5290,7 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "e_yes",
                     "end",
-                    "Already in the flame.\nRetest the heater.",
+                    "Suction is present.\nRetest the heater.",
                     0.78,
                     0.38,
                     w=210,
@@ -5201,7 +5299,7 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "p_no",
                     "process",
-                    "Align the petit tube first,\nthen retest.",
+                    "Seat the sensing tube\nat the blower, then retest.",
                     0.32,
                     0.66,
                     w=280,
@@ -5210,7 +5308,7 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "e_no",
                     "end",
-                    "Alignment is the correction.\nDo not start on the board.",
+                    "Blower-tube suction\nis the correction.",
                     0.32,
                     0.88,
                     w=280,
@@ -5225,15 +5323,15 @@ def _girard_petit_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Confirm the E8 code after the flame lights. Look at the petit tube before any other part.",
-            "If the tube is out of the flame, align the petit tube in the burner flame first and retest. That is the confirmed correction.",
-            "If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
-            "If E8 remains after that alignment, check the air-pressure switch. Repair it and retest if it fails.",
+            "Confirm the E8 code. E8 is the air pressure switch. Look at the sensing tube at the blower before any other part.",
+            "With the blower running, confirm suction at that tube. If the tube is off the blower or has no suction, seat it at the blower and retest. That is the confirmed correction.",
+            "If the tube is on the blower and suction is present, retest the heater. If E8 clears, that position is the correction.",
+            "If E8 remains after suction is confirmed, check the air-pressure switch. Repair it and retest if it fails.",
             "If the air-pressure switch is good, check the gas supply and retest the heater.",
             "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
         ],
         "do_not": [
-            "Do not replace the control board before the petit tube is aligned.",
+            "Do not replace the control board before the blower sensing tube shows suction.",
         ],
         "sources": [
             {
@@ -5435,7 +5533,7 @@ def compile_bay_procedure(
         spec = _dometic_ceiling_path(concern)
         path_kind = "dometic_ceiling"
     elif fact12_freeze:
-        spec = _fact12_freeze_path()
+        spec = _fact12_freeze_path(concern)
         path_kind = "fact12_freeze"
     elif girard_e8:
         spec = _girard_petit_path()
@@ -5527,12 +5625,16 @@ def compile_bay_procedure(
             )
             spec["primary_cite"] = "Suburban Furnace Service and Training Manual, page 26."
     if path_kind == "fact12_freeze":
+        sources = list(spec.get("sources") or [])
+    if path_kind == "firefly":
         sources = [
             {
-                "title": "Furrion CCD-0008666 (FACR08 manual, closest reference)",
-                "page": 5,
+                "title": src.get("title"),
+                "page": None,
                 "excerpt": "",
+                "title_only": True,
             }
+            for src in (_firefly_path().get("sources") or [])
         ]
     if fact12_mislabeled_only and path_kind != "fact12_freeze":
         page = _page_int(ranked[0].get("page")) if ranked else None
@@ -5540,14 +5642,14 @@ def compile_bay_procedure(
         if page:
             sources = [
                 {
-                    "title": "Furrion CCD-0008666 (FACR08 manual, closest reference)",
+                    "title": "Furrion Chill FACR08 8K manual CCD-0008666",
                     "page": page,
                     "excerpt": "",
                 }
             ]
-            spec["primary_cite"] = f"Furrion CCD-0008666 (FACR08 manual, closest reference), page {page}."
+            spec["primary_cite"] = f"Furrion Chill FACR08 8K manual CCD-0008666, page {page}."
         else:
-            spec["primary_cite"] = "Furrion CCD-0008666 (FACR08 manual, closest reference)."
+            spec["primary_cite"] = "Furrion Chill FACR08 8K manual CCD-0008666."
 
     if path_kind == "e2":
         final_pages = _cited_pages(spec.get("primary_cite") or "")
@@ -5623,7 +5725,7 @@ def compile_bay_procedure(
 
     display_model = spec.get("display_model") or ""
     if firefly:
-        display_model = "Level Up Advantage controller (Brinkley / Firefly)"
+        display_model = "807662"
     elif facr:
         named = re.search(r"\b(FACR\d+[A-Z0-9]*(?:-[A-Z0-9]+)+)\b", f"{concern} {model}", re.I)
         if named:
@@ -6533,10 +6635,10 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             return False
         if not clears_heads(box):
             return False
-        if _port_distance(box, px, py) > 34.0:
+        if _port_distance(box, px, py) > 48.0:
             return False
         gap = _shaft_gap(box, ax, ay, bx, by)
-        if not (2.2 <= gap <= 10.0):
+        if not (2.2 <= gap <= 18.0):
             return False
         if horizontal and bx >= ax and box[0] < px - 1.0:
             return False
@@ -6569,10 +6671,10 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
                 candidates.append((x, baseline))
         elif by < ay:
             for along in (4.0, 10.0, 16.0):
-                for side in (8.0, 14.0, 20.0):
+                for side in (8.0, 14.0, 22.0, 32.0):
                     top = py - along
-                    candidates.append((px + side, top - block.ascent))
                     candidates.append((px - side - w, top - block.ascent))
+                    candidates.append((px + side, top - block.ascent))
         else:
             for along in (2.0, 8.0):
                 x = px + 3.0
@@ -7311,7 +7413,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
         for item in proc.do_not:
             _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
-    sources = [src for src in proc.sources if src.get("page")]
+    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
     fitted = _sources_that_fit(body.remaining(), sources)
     if fitted is not None:
         _paint_source_rows(body, fitted, allow_break=False)

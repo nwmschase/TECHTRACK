@@ -325,7 +325,7 @@ class TestLockedSourceRegression(unittest.TestCase):
                         ),
                     },
                 ],
-                "required": ["firefly", "terminator", "level up advantage manual mode"],
+                "required": ["807662", "ti-005", "qr-092"],
                 "forbidden": [
                     "flat rate",
                     "20300000",

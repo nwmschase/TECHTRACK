@@ -217,8 +217,7 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("unplug that one only", low)
         self.assertNotIn("network plugs", low)
         self.assertNotIn("power looks sane", low)
-        self.assertIn("level up advantage controller (brinkley / firefly)", proc.model_line.lower())
-        self.assertNotIn("807662", proc.model_line)
+        self.assertEqual(proc.model_line, "807662")
         self.assertTrue(firefly_sheet_uses_service_names(text), text[:1200])
         self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
         self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
@@ -305,8 +304,7 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertIn("12v+", low)
         self.assertIn("unplug that one only", low)
         self.assertIn("level up controller", low)
-        self.assertIn("level up advantage controller (brinkley / firefly)", proc.model_line.lower())
-        self.assertNotIn("807662", proc.model_line)
+        self.assertEqual(proc.model_line, "807662")
         self.assertNotIn("network plugs", low)
         self.assertNotIn("power looks sane", low)
         self.assertTrue(firefly_sheet_uses_service_names(text))
@@ -634,14 +632,12 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
             pdf = render_bay_procedure_pdf(proc)
             self.assertGreater(len(pdf), 2000)
             if category == "Leveling":
-                self.assertEqual(
-                    proc.model_line,
-                    "Level Up Advantage controller (Brinkley / Firefly)",
-                )
-                self.assertNotIn("807662", proc.model_line)
+                self.assertEqual(proc.model_line, "807662")
                 src = " ".join((s.get("excerpt") or "") + (s.get("title") or "") for s in proc.sources)
-                self.assertNotIn("807662", src)
-                self.assertTrue(all(s.get("page") for s in proc.sources))
+                self.assertIn("807662", src)
+                self.assertIn("ti-005", src.lower())
+                self.assertIn("qr-092", src.lower())
+                self.assertTrue(any(s.get("title_only") or not s.get("page") for s in proc.sources))
                 self.assertFalse(body_uses_network_plugs(body))
                 self.assertFalse(body_uses_power_looks_sane(body))
                 self.assertFalse(body_uses_stays_open(body))
@@ -802,7 +798,7 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
                 "Leave the rubber-boot terminator in.\nUnplug the Firefly CAN cable only.\nThen try Manual Mode again.",
                 "This is not the Firefly path.\nStay on Level Up hydraulics.",
                 "Does Manual\nMode hold?",
-                "Firefly CAN is in the dump.\nCall Firefly at 574-825-4600\nfor USB plus interim.",
+                "Manual Mode held.\nCall Firefly at 574-825-4600.\nUse a USB stick of 4 GB or smaller.",
                 "Firefly CAN is ruled out.\nDiagnose the remaining\nLevel Up path.",
             ],
         )
