@@ -50,6 +50,44 @@ class TestReadability(unittest.TestCase):
                     self.assertIn(number, step["text"] + " " + step.get("explain", ""))
                 else:
                     self.assertIsNone(step.get("figure"))
+            blob = " ".join(step["text"].lower() for step in layout["steps"])
+            source = " ".join(page["text"].lower() for page in mf.index_pdf_bytes(
+                (VALVE_PDF if kind == "valve" else BREAKER_PDF).read_bytes()
+            )["pages"])
+            if kind == "valve":
+                for token in ("pedal", "retainer", "pocket a", "pocket b"):
+                    self.assertIn(token, blob, token)
+                    self.assertIn(token.replace("pocket ", "pocket "), source)
+            else:
+                self.assertIn("clamp a", blob)
+                self.assertIn("clamp a", source)
+
+    def test_steps_come_from_the_sheet_not_a_stored_script(self):
+        text = """
+        Before Beginning
+        Read all instructions completely.
+        Remove the lever
+        1. Turn off the power.
+        2. Pull the lever up and off.
+        3. Rotate the lock to the right until it stops (Fig. 1).
+        Install the lever
+        1. Put the pin in slot A (Fig. 1).
+        """
+        figures = [{"label": "Fig. 1 LEVER LOCK", "png": b"png", "page": 1}]
+        layout = mf.procedure_from_sheet(text, figures, "Widget lever sheet")
+        blob = " ".join(step["text"].lower() for step in layout["steps"])
+        self.assertIn("lever", blob)
+        self.assertIn("lock", blob)
+        self.assertIn("slot a", blob)
+        self.assertNotIn("water valve", blob)
+        self.assertNotIn("pocket", blob)
+        self.assertNotIn("vacuum breaker", blob)
+        pictured = [step for step in layout["steps"] if step.get("figure")]
+        self.assertTrue(pictured)
+        for step in pictured:
+            self.assertIn("1", step["text"] + " " + step.get("explain", ""))
+        for step in layout["steps"]:
+            self.assertEqual(mf.readability_problems(step), [])
 
     def test_bay_pdf_shows_removal_installation_and_no_extra_image(self):
         proc = compile_bay_procedure(

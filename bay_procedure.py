@@ -6248,14 +6248,8 @@ def _plain_kit_procedures(packets, job: str) -> list:
         title = packet.get("title") or ""
         if mf.brands_conflict(job, title):
             continue
-        low = title.lower()
-        if "42109" in low or "water valve" in low:
-            kind = "valve"
-        elif re.search(r"34122|34123|vacuum breaker", low):
-            kind = "breaker"
-        else:
-            continue
-        if kind in seen:
+        key = title.lower()
+        if key in seen:
             continue
         figures = []
         for figure in packet.get("figures") or []:
@@ -6274,12 +6268,18 @@ def _plain_kit_procedures(packets, job: str) -> list:
             )
         if not figures:
             continue
-        layout = mf.thetford_kit_layout(kind, figures)
+        layout = mf.procedure_from_sheet(packet.get("excerpt") or "", figures, title)
         if not layout.get("steps"):
             continue
         built.append(layout)
-        seen.add(kind)
-    built.sort(key=lambda item: 0 if item.get("title", "").lower().startswith("water") else 1)
+        seen.add(key)
+    built.sort(
+        key=lambda item: 0
+        if "water" in (item.get("title") or "").lower()
+        else 1
+        if "vacuum" in (item.get("title") or "").lower() or "breaker" in (item.get("title") or "").lower()
+        else 2
+    )
     return built
 
 

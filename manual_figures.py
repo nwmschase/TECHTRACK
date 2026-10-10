@@ -581,8 +581,19 @@ _FOREIGN_LINE_RE = re.compile(
     re.I,
 )
 _SECTION_HEAD_RE = re.compile(
-    r"^(before beginning|remove toilet|remove old water valve|remove old vacuum(?: breaker)?|"
-    r"install new water valve|install new vacuum(?: breaker)?|reinstall toilet)\b",
+    r"^(before beginning|preparation|prerequisites|removal|installation|"
+    r"remove(?:\s+\S+){0,4}|install(?:\s+\S+){0,4}|reinstall(?:\s+\S+){0,3})\s*$",
+    re.I,
+)
+_FOREIGN_CUT_RE = re.compile(
+    r"\b(?:les|des|sur|pour|avec|dans|une|los|las|del|para|con|le|la|el|suivants|"
+    r"crampons|placez|remettez|boulons|chapeaux|chasse|pince|alicates|"
+    r"inodoro|dispositivo|trousse|coupez|serviette|suministro|"
+    r"recubrimiento|manguera|anti-refoulement|tuyau|evacuation|évacuation|"
+    r"desodorante|bride|feuille|cabinet|enveloppe|soulevez|débranchez|"
+    r"debranchez|ouvrez|retirez|apriete|instale|abrazadera|tuercas|"
+    r"haga|vuelva|destape|brida|receptaculo|receptáculo|"
+    r"levante|coloque|envuelva|fije|separe|corra|jetez|resserrez|sous|pise)\b",
     re.I,
 )
 _STEP_NUM_RE = re.compile(r"^(\d+)[\.\)]\s+(\S.*)$")
@@ -613,90 +624,6 @@ YES_LINE = "Yes, go to the next step."
 PHOTO_STEP = "Take a photo of this step and send it."
 PHOTO_WAIT = "Send the photo before the next step."
 
-# One action, short words, a yes/no check, and the kit figure when the sheet has one.
-# fig is the manual figure number, or None when that step has no picture.
-_PLAIN_BEFORE = (
-    "Read all the steps first.",
-    "Rinse the toilet.",
-    "Drain the holding tank.",
-    "Put on gloves and glasses.",
-    "Gloves cover your hands.",
-    "Wash the toilet.",
-)
-# section, text, see, no, fig, explain, caution
-_VALVE_PLAIN = (
-    ("removal", "Turn off the water to the RV.", "No water comes out.", "turn the water off.", None, "", ""),
-    ("removal", "Flush the toilet one time.", "The bowl water goes down.", "flush it one more time.", None, "", ""),
-    ("removal", "Put a towel under the water hose.", "The towel is under the hose.", "move the towel under the hose.", None, "The hose brings water to the toilet.", ""),
-    ("removal", "Pull the water hose off the toilet.", "The hose is off the toilet.", "pull the hose off.", None, "", ""),
-    ("removal", "Take off the bolt covers.", "The bolts are bare.", "pull the covers off.", None, "Bolts hold the toilet to the floor.", ""),
-    ("removal", "Lift the toilet off the floor.", "The toilet is off the floor.", "lift the toilet again.", None, "", ""),
-    ("removal", "Cover the tank hole with a towel.", "The hole is covered.", "cover the hole.", None, "", ""),
-    ("removal", "Pull off the old floor seal.", "The old seal is off.", "pull the old seal off.", None, "", ""),
-    ("removal", "Throw the old seal away.", "The old seal is in the trash.", "throw the old seal away.", None, "", ""),
-    ("removal", "Lay the toilet on its side.", "The toilet is on its side.", "lay the toilet on its side.", None, "", ""),
-    ("removal", "Point the pedal up.", "The pedal points up.", "turn the pedal up.", None, "The pedal is the foot lever.", ""),
-    ("removal", "Pull the pedal up and off.", "The pedal is off.", "pull the pedal off.", None, "", ""),
-    ("removal", "Lift the retainer tab.", "The tab is up.", "lift the tab again.", 1, "The retainer is the lock tab. See figure 1.", ""),
-    ("removal", "Turn the retainer to the right.", "The retainer hits the spring.", "turn the retainer again.", 1, "See figure 1.", ""),
-    ("removal", "Pull the water valve out.", "The valve is out.", "pull the valve out.", 1, "See figure 1.", ""),
-    ("removal", "Throw the old valve away.", "The old valve is in the trash.", "throw the old valve away.", None, "", ""),
-    ("removal", "Pull the old inlet seal out with small pliers.", "The old seal is out.", "pull the seal out.", None, "Pliers are a hand tool.", ""),
-    ("installation", "Put the new inlet seal in.", "The seal is in the hole.", "push the seal in.", 2, "See figure 2.", ""),
-    ("installation", "Push the new valve in until it stops.", "The valve sits all the way in.", "push the valve in again.", None, "", ""),
-    ("installation", "Turn the retainer until the tab locks.", "The tab is locked.", "turn the retainer again.", None, "", ""),
-    ("installation", "Set the drive pin to closed.", "The pin matches figure 3.", "move the pin to closed.", 3, "Closed means the pin is shut. See figure 3.", ""),
-    ("installation", "Set the pedal on the pivot.", "The pedal sits on the pivot.", "set the pedal on the pivot.", 4, "See figure 4.", ""),
-    ("installation", "Put the spring tab in pocket A.", "The tab is in pocket A.", "put the tab in pocket A.", 4, "See figure 4.", ""),
-    ("installation", "Put the drive pin in pocket B.", "The pin is in pocket B.", "put the pin in pocket B.", 4, "See figure 4.", ""),
-    ("installation", "Hit the outside button until it snaps.", "The pedal snaps on.", "hit the button again.", 4, "See figure 4.", ""),
-    ("installation", "Stand the toilet up.", "The toilet is upright.", "stand the toilet up.", None, "", ""),
-    ("installation", "Press the pedal a few times.", "The waste ball opens and closes.", "press the pedal again.", None, "The waste ball is the round door in the bowl.", ""),
-    ("installation", "Put the new floor seal on.", "The seal lip faces down.", "put the seal on lip down.", None, "", ""),
-    ("installation", "Take the towel off the tank hole.", "The hole is open.", "take the towel off.", None, "", ""),
-    ("installation", "Set the toilet on the floor bolts.", "The holes line up on the bolts.", "set the toilet on the bolts.", None, "", ""),
-    ("installation", "Tighten the nuts until the toilet is still.", "The toilet does not rock.", "tighten the nuts a little more.", None, "", "Do not make the nuts too tight."),
-    ("installation", "Put the bolt covers back on.", "The covers are on.", "press the covers on.", None, "", ""),
-    ("installation", "Push the water hose onto the toilet.", "The hose is on tight.", "push the hose on again.", None, "", ""),
-    ("installation", "Turn the RV water on.", "Water is on.", "turn the water on.", None, "", ""),
-    ("installation", "Flush the toilet one time.", "No water leaks out.", "tighten the wet joint.", None, "", ""),
-)
-_BREAKER_PLAIN = (
-    ("removal", "Turn off the water to the RV.", "No water comes out.", "turn the water off.", None, "", ""),
-    ("removal", "Flush the toilet one time.", "The bowl water goes down.", "flush it one more time.", None, "", ""),
-    ("removal", "Take the outer cover off.", "The cover is off.", "pull the cover off.", None, "Do this only if your toilet has a cover.", ""),
-    ("removal", "Put a towel under the water hose.", "The towel is under the hose.", "move the towel under the hose.", None, "", ""),
-    ("removal", "Pull the water hose off the toilet.", "The hose is off the toilet.", "pull the hose off.", None, "", ""),
-    ("removal", "Take off the bolt covers.", "The bolts are bare.", "pull the covers off.", None, "Bolts hold the toilet to the floor.", ""),
-    ("removal", "Lift the toilet off the floor.", "The toilet is off the floor.", "lift the toilet again.", None, "", ""),
-    ("removal", "Cover the tank hole with a towel.", "The hole is covered.", "cover the hole.", None, "", ""),
-    ("removal", "Pull off the old floor seal.", "The old seal is off.", "pull the old seal off.", None, "", ""),
-    ("removal", "Throw the old seal away.", "The old seal is in the trash.", "throw the old seal away.", None, "", ""),
-    ("removal", "Take the pod off.", "The pod is off.", "pull the pod off.", None, "The pod is the small cover on this model.", ""),
-    ("removal", "Slide clamp A down the inlet tube.", "Clamp A is lower on the tube.", "slide clamp A down.", 1, "A clamp is a ring that holds a hose. See figure 1.", ""),
-    ("removal", "Pull the inlet tube off the breaker.", "The tube is off the breaker.", "pull the tube off.", 1, "The vacuum breaker stops waste water going back. See figure 1.", ""),
-    ("removal", "Slide clamp C back on the flush hose.", "Clamp C is back on the hose.", "slide clamp C back.", 1, "See figure 1.", ""),
-    ("removal", "Pull the vacuum breaker off the hose.", "The breaker is off the hose.", "pull the breaker off.", 1, "See figure 1.", ""),
-    ("removal", "Throw the old breaker away.", "The old breaker is in the trash.", "throw the old breaker away.", None, "", ""),
-    ("removal", "Throw the old clamps away.", "The old clamps are in the trash.", "throw the old clamps away.", None, "", ""),
-    ("installation", "Put the new flush hose on the nozzle.", "The hose is on the nozzle.", "push the hose on.", None, "", ""),
-    ("installation", "Tighten the hose with new clamp C.", "Clamp C holds the hose.", "tighten clamp C.", 1, "See figure 1.", ""),
-    ("installation", "Slide new clamp B on the flush hose.", "Clamp B is on the hose.", "slide clamp B on.", 1, "See figure 1.", ""),
-    ("installation", "Push the new breaker onto the hose.", "The breaker is on the hose.", "push the breaker on.", 1, "See figure 1.", ""),
-    ("installation", "Tighten the breaker with new clamp B.", "Clamp B holds the breaker.", "tighten clamp B.", 1, "See figure 1.", ""),
-    ("installation", "Slide new clamp A on the inlet tube.", "Clamp A is on the tube.", "slide clamp A on.", 1, "See figure 1.", ""),
-    ("installation", "Push the inlet tube on the breaker.", "The tube is on the breaker.", "push the tube on.", 1, "See figure 1.", ""),
-    ("installation", "Tighten the tube with new clamp A.", "Clamp A holds the tube.", "tighten clamp A.", 1, "See figure 1.", ""),
-    ("installation", "Put the pod back on.", "The pod is on.", "push the pod on.", None, "Skip this if you did not take a pod off.", ""),
-    ("installation", "Put the new floor seal on.", "The seal lip faces down.", "put the seal on lip down.", None, "", ""),
-    ("installation", "Take the towel off the tank hole.", "The hole is open.", "take the towel off.", None, "", ""),
-    ("installation", "Set the toilet on the floor bolts.", "The holes line up on the bolts.", "set the toilet on the bolts.", None, "", ""),
-    ("installation", "Tighten the nuts until the toilet is still.", "The toilet does not rock.", "tighten the nuts a little more.", None, "", "Do not make the nuts too tight."),
-    ("installation", "Put the bolt covers back on.", "The covers are on.", "press the covers on.", None, "", ""),
-    ("installation", "Push the water hose onto the toilet.", "The hose is on tight.", "push the hose on again.", None, "", ""),
-    ("installation", "Turn the RV water on.", "Water is on.", "turn the water on.", None, "", ""),
-    ("installation", "Flush the toilet one time.", "No water leaks out.", "tighten the wet joint.", None, "", ""),
-)
 _ACTION_VERB = (
     r"turn|pull|put|lift|flush|take|set|push|hit|press|tighten|connect|disconnect|"
     r"lay|wash|rinse|throw|slide|cover|point|stand|read|move"
@@ -739,25 +666,6 @@ def readability_problems(step: dict) -> list[str]:
     return problems
 
 
-def _plain_row(row) -> dict:
-    section, text, see, no, fig, explain, caution = row
-    return {
-        "section": section,
-        "text": text,
-        "see": see,
-        "no": no,
-        "fig": fig,
-        "explain": explain,
-        "caution": caution,
-        "figure": None,
-    }
-
-
-def plain_steps(kind: str) -> list[dict]:
-    rows = _VALVE_PLAIN if kind == "valve" else _BREAKER_PLAIN if kind == "breaker" else ()
-    return [_plain_row(row) for row in rows]
-
-
 def format_one_step(step: dict, number: int, total: int) -> str:
     """One GD turn: the action, the check, and a photo ask."""
     lines = [
@@ -794,30 +702,535 @@ def _figures_by_number(figures: list) -> dict:
 
 
 def _kit_paths(kind: str):
+    """Demo library files. Step text is parsed from the file, not stored here."""
     root = Path(__file__).resolve().parent / "tests" / "fixtures"
     if kind == "valve":
-        return (
-            root / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf",
-            "Water valve 42049 / kit 42109",
-            "Thetford Water Valve Kit 42109",
-        )
+        return root / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf", "Thetford Water Valve Kit 42109"
     if kind == "breaker":
-        return (
-            root / "34123-34122-VacBrkr-1.pdf",
-            "Vacuum breaker 34122 / kit 34123",
-            "Thetford Vacuum Breaker Kit 34123/34122",
-        )
+        return root / "34123-34122-VacBrkr-1.pdf", "Thetford Vacuum Breaker Kit 34123/34122"
     return None
 
 
+_THEN_SPLIT_RE = re.compile(r"\s*,?\s*\bthen\b\s*", re.I)
+_AND_VERB_SPLIT_RE = re.compile(
+    r"\s+\band\b\s+(?=(?:pull|turn|put|take|lift|flush|slide|throw|cover|press|hit|push|"
+    r"tighten|lay|wash|rinse|set|stand|read|move|grab|place|remove|rotate|insert|install|"
+    r"replace|discard|connect|disconnect|unhook|spread|wrap|secure|activate|align|grasp|"
+    r"hold|lower)\b)",
+    re.I,
+)
+_LETTER_SPLIT_RE = re.compile(r"(?:^|:)\s*[a-d]\.\s+", re.I)
+_FIG_BIT_RE = re.compile(r"\(?\s*(?:see\s+)?figs?\.?\s*\d+(?:\s*&\s*\d+)?\s*\)?\.?", re.I)
+_NOUN_SWAPS = (
+    (r"\brv water supply line\b", "water hose"),
+    (r"\bwater supply line\b", "water hose"),
+    (r"\brv water supply\b", "water"),
+    (r"\bwater connection\b", "water hose"),
+    (r"\bcloset flange bolt covers\b", "bolt covers"),
+    (r"\bcloset flange nuts\b", "nuts"),
+    (r"\bcloset flange seal\b", "floor seal"),
+    (r"\bcloset bolts\b", "floor bolts"),
+    (r"\bmounting holes\b", "holes"),
+    (r"\bholding tank opening\b", "tank hole"),
+    (r"\bwater valve cartridge retainer\b", "retainer"),
+    (r"\bwater valve cartridge assembly\b", "water valve"),
+    (r"\bwater valve assembly\b", "water valve"),
+    (r"\bwater valve drive pin\b", "drive pin"),
+    (r"\bpedal return spring tab\b", "spring tab"),
+    (r"\bdrive arm pin\b", "drive pin"),
+    (r"\bwater inlet seal assembly\b", "inlet seal"),
+    (r"\bwater inlet seal\b", "inlet seal"),
+    (r"\bcompression spring\b", "spring"),
+    (r"\bwater inlet opening\b", "inlet hole"),
+    (r"\bsmall needle-nose pliers\b", "small pliers"),
+    (r"\bneedle-nose pliers\b", "small pliers"),
+    (r"\bneedle nose pliers\b", "small pliers"),
+    (r"\btowel\(s\)\b", "a towel"),
+    (r"\bclockwise\b", "to the right"),
+    (r"\bcounter-?clockwise\b", "to the left"),
+    (r"\binstructions\b", "the steps"),
+    (r"\bholding tank deodorant\b", "tank deodorant"),
+    (r"\bshroud\b", "cover"),
+    (r"\bo-rings?\b", "rings"),
+)
+_FILLER_RES = (
+    r"\bper rv owner's manual\b",
+    r"\bcompletely\b",
+    r"\bthoroughly\b",
+    r"\bslightly\b",
+    r"\bfirmly\b",
+    r"\bwith a quick motion\b",
+    r"\bholding bowl,?\s*",
+    r"\bto catch water\b",
+    r"\bto avoid contact with human waste\b",
+    r"\(if present\)",
+    r"\bif present\b",
+    r"\bto assure\b",
+    r"\bentire\b",
+    r"\bprotective\b",
+    r"\blong sleeves,?\s*(?:and\s*)?",
+    r"\bnose/face mask\b",
+    r"\bthetford\b",
+)
+# Longer, more specific frames first. Nouns are already swapped.
+_ACTION_FRAMES = (
+    (r"^turn off (?:the )?water$", "Turn off the water to the RV"),
+    (r"^turn on (?:the )?water$", "Turn the RV water on"),
+    (r"^turn (?:the )?water on$", "Turn the RV water on"),
+    (r"^flush test (?:the )?toilet.*$", "Flush the toilet one time"),
+    (r"^flush (?:the )?toilet.*$", "Flush the toilet one time"),
+    (r"^place (?:a )?towel.*$", "Put a towel under the water hose"),
+    (r"^place on (?:a |the )?trash bag$", "Put the toilet on a trash bag"),
+    (r"^grab (?:the )?front underside of (?:the )?pedal$", "Grab the front of the pedal"),
+    (r"^insert (?:a |the )?new water valve.*$", "Push the new valve in until it stops"),
+    (r"^uncover (?:the )?tank hole$", "Take the towel off the tank hole"),
+    (r"^remove (?:a |the )?towel.*$", "Take the towel off"),
+    (r"^holding down (?:the )?pedal,?\s*spread (?:the )?cover apart.*$", "Pull the cover off while you hold the pedal down"),
+    (r"^disconnect (?:the )?(.+) from (?:the )?(.+)$", r"Pull the \1 off the \2"),
+    (r"^connect (?:the )?(.+) (?:to|onto) (?:the )?(.+)$", r"Push the \1 onto the \2"),
+    (r"^remove (?:the )?(.+?) and (?:the )?nuts$", r"Take off the \1 and the nuts"),
+    (r"^with pliers,\s*slide clamp ([a-c]) down (?:the )?(.+)$", r"Slide clamp \1 down the \2"),
+    (r"^slide (?:the )?clamp ([a-c]) down (?:the )?(.+)$", r"Slide clamp \1 down the \2"),
+    (r"^slide (?:the )?clamp ([a-c]) back(?:ward)? on (?:the )?(.+)$", r"Slide clamp \1 back on the \2"),
+    (r"^slide (?:a |the )?new clamp ([a-c]) (?:up|on) (?:the )?(.+)$", r"Slide new clamp \1 on the \2"),
+    (r"^remove (?:the )?(.+?) from (?:the )?(.+)$", r"Pull the \1 off the \2"),
+    (r"^secure (?:it )?with (?:a |the )?new clamp ([a-c])$", r"Tighten it with new clamp \1"),
+    (r"^pull (?:the )?pedal up and off.*$", "Pull the pedal up and off"),
+    (r"^pull up on (?:the )?tab.*$", "Pull the tab up a little"),
+    (r"^pull (?:the )?(.+?) out.*pliers.*$", r"Pull the \1 out with small pliers"),
+    (r"^place (?:your )?thumb in (?:the )?(?:depression|low spot)$", "Put your thumb in the low spot"),
+    (r"^place (?:your |index )?finger under (?:the )?tab.*$", "Put your finger under the retainer tab"),
+    (r"^rotate (?:the )?retainer to the right until it hits (?:the )?spring$", "Turn the retainer to the right until it hits the spring"),
+    (r"^rotate (?:the )?pedal.*until (?:the )?(.+?) aligns with (pocket [a-c])$", r"Turn the pedal until the \1 is in \2"),
+    (r"^rotate (?:the )?(.+?) until (.+)$", r"Turn the \1 until \2"),
+    (r"^rotate (?:the )?(.+)$", r"Turn the \1"),
+    (r"^grasp (?:the )?(.+)$", r"Hold the \1"),
+    (r"^pull (?:the )?water valve out$", "Pull the water valve out"),
+    (r"^insert (?:the )?(.+?) until (.+)$", r"Push the \1 in until \2"),
+    (r"^insert (?:the )?(.+?) (?:in|into) (?:the )?(.+)$", r"Put the \1 in the \2"),
+    (r"^place (?:the )?(.+?) in (?:the )?closed position$", r"Set the \1 to closed"),
+    (r"^align (?:the )?pedal onto (?:the )?pedal pivot$", "Set the pedal on the pivot"),
+    (r"^align (?:the )?(.+?) with (pocket [a-c])$", r"Put the \1 in \2"),
+    (r"^holding (?:the )?pedal down,? hit (?:the )?button.*$", "Hit the outside button until the pedal snaps"),
+    (r"^hit (?:the )?button.*pedal snaps.*$", "Hit the outside button until the pedal snaps"),
+    (r"^place (?:the )?toilet upright$", "Stand the toilet up"),
+    (r"^activate (?:the )?pedal.*$", "Press the pedal a few times"),
+    (r"^lay (?:the )?toilet on its side.*$", "Lay the toilet on its side with the pedal up"),
+    (r"^install (?:a |the )?new floor seal, lip side down.*$", "Put the new floor seal on with the lip down"),
+    (r"^install (?:a |the )?(.+?), lip side down.*$", r"Put the \1 on with the lip down"),
+    (r"^install (?:a |the )?new (.+?) on (?:the )?(.+)$", r"Put the new \1 on the \2"),
+    (r"^install (?:a |the )?(.+?) on (?:the )?(.+)$", r"Put the \1 on the \2"),
+    (r"^uncover (?:the )?(.+?) and (?:remove|take) (?:a |the )?towel.*$", r"Take the towel off the \1"),
+    (r"^place (?:the )?toilet on (?:the )?(?:floor|flange).*$", "Set the toilet on the floor bolts"),
+    (r"^tighten (?:the )?(.+?) until (.+)$", r"Tighten the \1 until \2"),
+    (r"^replace (?:the )?(.+)$", r"Put the \1 back on"),
+    (r"^lift (?:the )?(.+?) from (?:the )?(.+)$", r"Lift the \1 off the \2"),
+    (r"^cover (?:the )?(.+?) with (?:a )?(.+)$", r"Cover the \1 with a \2"),
+    (r"^discard (?:the )?(.+)$", r"Throw the \1 away"),
+    (r"^remove (?:the )?(.+)$", r"Take off the \1"),
+    (r"^unhook (?:the )?(?:two )?rings.*$", "Unhook the two rings on the back of the cover"),
+    (r"^spread (?:the )?cover apart.*$", "Pull the cover off while you hold the pedal down"),
+    (r"^read all (?:the )?steps.*$", "Read all the steps first"),
+    (r"^rinse (?:the )?toilet.*$", "Rinse the toilet"),
+    (r"^drain (?:the )?holding tank.*$", "Drain the holding tank"),
+    (r"^wash (?:the )?toilet.*$", "Wash the toilet"),
+    (r"^add (?:the )?tank deodorant.*$", "Add the tank deodorant"),
+    (r"^wear .*\bgloves\b.*$", "Put on gloves and glasses"),
+    (r"^pull (?:the )?(.+)$", r"Pull the \1"),
+    (r"^lift (?:the )?(.+)$", r"Lift the \1"),
+    (r"^lay (?:the )?(.+)$", r"Lay the \1"),
+    (r"^place (?:the )?(.+)$", r"Put the \1"),
+    (r"^install (?:a |the )?(.+)$", r"Put the \1 on"),
+    (r"^leave the toilet in place.*$", "Leave the toilet in place if you have room"),
+)
+_GLOSSARY = (
+    ("water hose", "The hose brings water to the toilet."),
+    ("clamp", "A clamp is a ring that holds a hose."),
+    ("pedal", "The pedal is the foot lever."),
+    ("retainer", "The retainer is the lock tab."),
+    ("pliers", "Pliers are a hand tool."),
+    ("vacuum breaker", "The vacuum breaker stops waste water going back."),
+    ("bolt", "Bolts hold the toilet to the floor."),
+    ("pocket", "A pocket is the hole the part fits in."),
+    ("waste ball", "The waste ball is the round door in the bowl."),
+    ("pod", "The pod is the small cover."),
+    ("floor seal", "The floor seal sits under the toilet."),
+    ("drive pin", "The drive pin is the small metal pin."),
+    ("inlet seal", "The inlet seal is the ring in the hole."),
+)
+
+
+def _split_actions(text: str) -> list[str]:
+    """One physical action. 'Then' and a second verb become the next step."""
+    cleaned = _FIG_BIT_RE.sub(" ", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .;-")
+    parts = []
+    for chunk in _LETTER_SPLIT_RE.split(cleaned):
+        for sentence in re.split(r"(?<=[.])\s+", chunk):
+            for piece in _THEN_SPLIT_RE.split(sentence):
+                for bit in _AND_VERB_SPLIT_RE.split(piece):
+                    bit = re.sub(r"^(?:style\s+\w+\s+only\s*-\s*)", "", bit, flags=re.I)
+                    bit = bit.strip(" .;")
+                    if re.fullmatch(r"discard", bit, re.I) or _word_count(bit) >= 2:
+                        parts.append(bit)
+    return parts
+
+
+def _polish_sentence(sentence: str, limit: int = 14) -> str:
+    sentence = re.sub(r"\s+", " ", sentence or "").strip(" .")
+    sentence = re.sub(r"\b(?:the|a)\s+(?:the|a)\b", "the", sentence, flags=re.I)
+    sentence = re.sub(r"\s+", " ", sentence).strip()
+    if not sentence or _word_count(sentence) > limit:
+        return ""
+    sentence = sentence[0].upper() + sentence[1:]
+    sentence = re.sub(r"\bpocket ([a-c])\b", lambda m: "pocket " + m.group(1).upper(), sentence, flags=re.I)
+    sentence = re.sub(
+        r"\b(clamps?\s+)([a-c])\b",
+        lambda m: m.group(1) + m.group(2).upper(),
+        sentence,
+        flags=re.I,
+    )
+    sentence = re.sub(r"\b([abc])(?=,)", lambda m: m.group(1).upper(), sentence)
+    sentence = re.sub(r"\band ([abc])(?=\s+away\b)", lambda m: "and " + m.group(1).upper(), sentence)
+    if not sentence.endswith("."):
+        sentence += "."
+    return sentence
+
+
+def _short_action(raw: str) -> str:
+    """Short words for one action. The nouns come from the sheet."""
+    text = (raw or "").lower().replace("’", "'")
+    text = re.sub(r"^(?:style\s+\w+\s*(?:only\s*)?-\s*)", "", text).strip()
+    if text.endswith(":"):
+        return ""
+    if re.match(r"^disconnect\b", text) and "water" in text:
+        return _polish_sentence("Pull the water hose off the toilet")
+    if re.match(r"^connect\b", text) and "water" in text:
+        return _polish_sentence("Push the water hose onto the toilet")
+    if re.fullmatch(r"discard", text):
+        return _polish_sentence("Throw the old part away")
+    for pattern in _FILLER_RES:
+        text = re.sub(pattern, " ", text, flags=re.I)
+    for pattern, repl in _NOUN_SWAPS:
+        text = re.sub(pattern, repl, text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip(" .,-")
+    if re.search(r"\bskip\b", text) and re.search(r"\btoilet\b", text):
+        text = "leave the toilet in place if you have room"
+    for pattern, repl in _ACTION_FRAMES:
+        match = re.match(pattern, text, re.I)
+        if not match:
+            continue
+        try:
+            done = match.expand(repl) if "\\" in repl else repl
+        except re.error:
+            done = repl
+        polished = _polish_sentence(done)
+        if polished:
+            return polished
+    polished = _polish_sentence(text)
+    return polished
+
+
+def _yes_no(action: str) -> tuple[str, str]:
+    low = action.rstrip(".").lower()
+    no = low + "."
+    if _word_count(f"No, {no}") > 15:
+        no = "do this step again."
+    see = "It looks right."
+    until = re.search(r"\buntil (.+)$", low)
+    if until:
+        tail = until.group(1)
+        see = tail[0].upper() + tail[1:] + "."
+        see = re.sub(r"\bpocket ([a-c])\b", lambda m: "pocket " + m.group(1).upper(), see, flags=re.I)
+    else:
+        frames = (
+            (r"^turn off\b", "No water comes out."),
+            (r"^turn the rv water on$", "Water is on."),
+            (r"^flush\b", "The bowl water goes down."),
+            (r"^put the new floor seal\b", "The seal lip faces down."),
+            (r"^put the .+ back on$", "It is back on."),
+            (r"^put a towel\b", "The towel is under the hose."),
+            (r"^put the toilet on a trash bag$", "The toilet is on a trash bag."),
+            (r"^grab the front\b", "You are holding the front of the pedal."),
+            (r"^take the towel off the\b", "The hole is open."),
+            (r"^take the towel off$", "The towel is off."),
+            (r"^pull the water hose off\b", "The hose is off the toilet."),
+            (r"^push the water hose\b", "The hose is on tight."),
+            (r"^pull the pedal\b", "The pedal is off."),
+            (r"^take off the (.+)$", "ARE_OFF"),
+            (r"^throw the (.+) away$", "The {0} is in the trash."),
+            (r"^throw it away$", "It is in the trash."),
+            (r"^lift the toilet\b", "The toilet is off the floor."),
+            (r"^cover the\b", "The hole is covered."),
+            (r"^lay the toilet\b", "The toilet is on its side."),
+            (r"^put your thumb\b", "Your thumb is in the low spot."),
+            (r"^put your finger\b", "Your finger is under the tab."),
+            (r"^pull the tab\b", "The tab is up."),
+            (r"^hold the (.+)$", "You are holding the {0}."),
+            (r"^put the (.+) in (pocket [a-c])$", "The {0} is in {1}."),
+            (r"^put the (.+) in the (.+)$", "The {0} is in the {1}."),
+            (r"^put the (.+) on\b", "The {0} is on."),
+            (r"^push the (.+) in\b", "It is all the way in."),
+            (r"^push the (.+) onto\b", "The {0} is on."),
+            (r"^pull the (.+) out\b", "The {0} is out."),
+            (r"^pull the (.+) off\b", "The {0} is off."),
+            (r"^set the pedal\b", "The pedal sits on the pivot."),
+            (r"^set the (.+) to closed$", "The pin is closed."),
+            (r"^set the toilet\b", "The holes line up on the bolts."),
+            (r"^stand the toilet\b", "The toilet is upright."),
+            (r"^press the pedal\b", "The waste ball opens and closes."),
+            (r"^hit the outside button\b", "The pedal snaps on."),
+            (r"^slide clamp\b", "The clamp has moved."),
+            (r"^slide new clamp\b", "The clamp is on."),
+            (r"^tighten it with\b", "The clamp is tight."),
+            (r"^tighten the nuts\b", "The toilet does not rock."),
+            (r"^unhook\b", "The rings are off."),
+            (r"^read all\b", "You have read the steps."),
+            (r"^rinse\b", "The toilet is rinsed."),
+            (r"^drain\b", "The tank is drained."),
+            (r"^wash\b", "The toilet is clean."),
+            (r"^put on gloves\b", "Gloves and glasses are on."),
+            (r"^leave the toilet\b", "The toilet can stay down."),
+            (r"^add the\b", "It is in."),
+        )
+        for pattern, template in frames:
+            match = re.match(pattern, low, re.I)
+            if not match:
+                continue
+            if template == "ARE_OFF":
+                obj = match.group(1)
+                verb = "are" if " and " in obj or obj.endswith("s") else "is"
+                see = f"The {obj} {verb} off."
+            else:
+                see = template.format(*match.groups()) if match.groups() else template
+            see = re.sub(r"\bpocket ([a-c])\b", lambda m: "pocket " + m.group(1).upper(), see, flags=re.I)
+            break
+    if _word_count(f"You should see: {see}") > 15:
+        see = "It looks right."
+    return see, no
+
+
+def _as_figure(figure) -> dict:
+    if isinstance(figure, dict):
+        return figure
+    return {
+        "label": getattr(figure, "caption", "") or "",
+        "png": getattr(figure, "image_png", b"") or b"",
+        "page": getattr(figure, "page", 1),
+    }
+
+
+def _pick_figure(source: str, callouts: list, figures: list):
+    """The crop this step names. The same crop may sit beside more than one step."""
+    figures = [_as_figure(fig) for fig in figures or []]
+    named = _numbers_named(source)
+    for item in callouts or []:
+        named.extend(_numbers_named(item))
+    named = list(dict.fromkeys(named))
+    candidates = []
+    for figure in figures:
+        nums = _figure_numbers(figure.get("label") or "")
+        if named and any(number in named for number in nums):
+            candidates.append(figure)
+    if not candidates:
+        talks = re.search(r"\b(?:clamp|pocket|pin)\s+[A-C]\b", source or "", re.I) or any(
+            re.search(r"\b(?:clamp|pocket|pin)\b", item or "", re.I) for item in callouts or []
+        )
+        if talks and len(figures) == 1:
+            return figures[0]
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    words = set(re.findall(r"[a-z]{4,}", (source or "").lower()))
+    best = candidates[-1]
+    best_score = -1
+    for figure in candidates:
+        label_words = set(re.findall(r"[a-z]{4,}", (figure.get("label") or "").lower()))
+        score = len(words & label_words)
+        if score >= best_score:
+            best = figure
+            best_score = score
+    return best
+
+
+def _explain_for(action: str, figure, explained: set) -> str:
+    bits = []
+    low = (action or "").lower()
+    for word, line in _GLOSSARY:
+        if word in explained:
+            continue
+        if re.search(rf"\b{re.escape(word)}\b", low):
+            bits.append(line)
+            explained.add(word)
+            break
+    number = ""
+    if figure:
+        nums = _figure_numbers(figure.get("label") or "")
+        if nums:
+            number = f"See figure {nums[0]}."
+    if number:
+        bits.append(number)
+    explain = " ".join(bits).strip()
+    if explain and _word_count(explain) > 15:
+        explain = number or bits[0]
+    return explain
+
+
+def _short_before(items: list[str]) -> list[str]:
+    out = []
+    for item in items or []:
+        bits = re.split(r"\s*[:,]\s+|\s+\band\b\s+", item or "")
+        for bit in bits:
+            bit = re.sub(r"^(?:and|note)\s+", "", bit.strip(), flags=re.I)
+            for piece in _split_actions(bit) or [bit]:
+                short = _short_action(piece)
+                if not short or short in out or _word_count(short) > 15:
+                    continue
+                if not re.match(r"^(?:Read|Rinse|Drain|Put|Wash|Leave|Add|Turn)\b", short):
+                    continue
+                out.append(short)
+    return out[:8]
+
+
+def _display_title(doc_title: str, text: str) -> str:
+    """A short name from the document's own words."""
+    blob = f"{doc_title}\n{text or ''}"
+    low = blob.lower()
+    if "water valve" in low:
+        bits = ["Water valve"]
+        if re.search(r"\b42049\b", blob):
+            bits.append("42049")
+        if re.search(r"\b42109\b", blob):
+            bits.append("kit 42109")
+        if len(bits) == 1:
+            return "Water valve"
+        return "Water valve " + " / ".join(bits[1:])
+    if "vacuum breaker" in low:
+        nums = [number for number in ("34122", "34123") if number in blob]
+        if not nums:
+            return "Vacuum breaker"
+        return "Vacuum breaker " + " / ".join(nums)
+    words = re.findall(r"[A-Za-z0-9]+", doc_title or "")
+    return " ".join(words[:6]) or "Repair"
+
+
+def procedure_from_sheet(text: str, figures: list | None = None, title: str = "") -> dict:
+    """Turn one library sheet into short steps. Nothing is stored for one model."""
+    parsed = factory_procedure(text or "", figures)
+    raw_steps = list(parsed.get("removal") or []) + list(parsed.get("installation") or [])
+    if not raw_steps:
+        return {}
+    explained: set[str] = set()
+    steps = []
+    for section in ("removal", "installation"):
+        for raw in parsed.get(section) or []:
+            source = raw.get("text") or ""
+            callouts = list(raw.get("callouts") or [])
+            figure = _pick_figure(source, callouts, figures or [])
+            style_m = re.match(r"style\s+(plus|lite)\b", source, re.I)
+            style_note = f"Do this only on a Style {style_m.group(1).title()}." if style_m else ""
+            first_piece = True
+            for piece in _split_actions(source):
+                short = _short_action(piece)
+                if not short:
+                    continue
+                if short == "Throw the old part away." and steps:
+                    prev = steps[-1]["text"].rstrip(".")
+                    named = re.match(
+                        r"^(?:Take off|Pull) the (.+?)(?:\s+off\b.*|\s+out\b.*)?$",
+                        prev,
+                        re.I,
+                    )
+                    if named:
+                        thrown = _polish_sentence(f"Throw the {named.group(1)} away")
+                        if thrown:
+                            short = thrown
+                if (
+                    short == "Take the towel off."
+                    and steps
+                    and steps[-1]["text"].startswith("Take the towel off")
+                ):
+                    continue
+                if steps and steps[-1]["text"] == short:
+                    continue
+                if not re.match(
+                    r"^(?:turn|flush|take|unhook|pull|put|cover|throw|slide|tighten|set|stand|"
+                    r"press|hit|grab|lay|lift|hold|push|wrap|spread|lower|secure)\b",
+                    short,
+                    re.I,
+                ):
+                    continue
+                if _too_foreign(short):
+                    continue
+                see, no = _yes_no(short)
+                caution = ""
+                if raw.get("caution") and re.search(r"\btighten\b|\bnuts?\b", short, re.I):
+                    if re.search(r"\bnuts?\b", short, re.I):
+                        caution = "Do not make the nuts too tight."
+                    else:
+                        caution = "Do not make it too tight."
+                explain = _explain_for(short, figure if figure else None, explained)
+                fig_num = None
+                attached = None
+                if figure:
+                    nums = _figure_numbers(figure.get("label") or "")
+                    fig_num = nums[0] if nums else None
+                    attached = figure
+                    if fig_num and str(fig_num) not in f"{short} {explain}":
+                        extra = f"See figure {fig_num}."
+                        joined = f"{explain} {extra}".strip()
+                        explain = joined if _word_count(joined) <= 15 else extra
+                if first_piece and style_note:
+                    joined = f"{style_note} {explain}".strip()
+                    if _word_count(joined) <= 15:
+                        explain = joined
+                    elif not explain:
+                        explain = style_note
+                first_piece = False
+                step = {
+                    "section": section,
+                    "text": short,
+                    "see": see,
+                    "no": no,
+                    "fig": fig_num,
+                    "explain": explain,
+                    "caution": caution,
+                    "figure": attached,
+                }
+                if readability_problems(step):
+                    continue
+                steps.append(step)
+    if not steps:
+        return {}
+    removal = [step for step in steps if step["section"] == "removal"]
+    installation = [step for step in steps if step["section"] == "installation"]
+    spec = "Torque is not stated in this sheet."
+    for sentence in _sentences(text or ""):
+        if _TORQUE_RE.search(sentence) and re.search(r"\d", sentence):
+            spec = sentence.strip()
+            break
+    return {
+        "title": _display_title(title, text),
+        "doc": title or "the manual",
+        "before": _short_before(parsed.get("before") or []),
+        "removal": removal,
+        "installation": installation,
+        "steps": steps,
+        "spec": spec,
+    }
+
+
 def thetford_kit_layout(kind: str, figures: list | None = None) -> dict:
-    """Short Thetford R&R. Figures come from the kit sheet, never a made-up picture."""
+    """Demo layout. The words are read from the kit sheet in the library."""
     paths = _kit_paths(kind)
     if not paths:
         return {}
-    _path, title, doc = paths
-    if figures is None and _path.is_file():
-        indexed = index_pdf_bytes(_path.read_bytes())
+    path, doc = paths
+    if not path.is_file():
+        return {}
+    indexed = index_pdf_bytes(path.read_bytes())
+    text = "\n".join(page["text"] for page in indexed["pages"])
+    if figures is None:
         figures = [
             {
                 "label": fig["label"],
@@ -827,24 +1240,7 @@ def thetford_kit_layout(kind: str, figures: list | None = None) -> dict:
             }
             for fig in indexed["figures"]
         ]
-    by_number = _figures_by_number(figures or [])
-    steps = plain_steps(kind)
-    if not steps:
-        return {}
-    for step in steps:
-        number = step.get("fig")
-        step["figure"] = by_number.get(number) if number else None
-    removal = [step for step in steps if step["section"] == "removal"]
-    installation = [step for step in steps if step["section"] == "installation"]
-    return {
-        "title": title,
-        "doc": doc,
-        "before": list(_PLAIN_BEFORE),
-        "removal": removal,
-        "installation": installation,
-        "steps": steps,
-        "spec": "Torque is not stated in this sheet.",
-    }
+    return procedure_from_sheet(text, figures, doc)
 
 
 def procedure_handoff(layout: dict) -> str:
@@ -871,6 +1267,16 @@ def procedure_handoff(layout: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _too_foreign(line: str) -> bool:
+    hits = re.findall(
+        r"\b(?:le|la|les|des|du|et|el|los|las|del|para|que|una|"
+        r"jetez|resserrez|levante|coloque|envuelva|fije|separe|corra|sous|pince)\b",
+        line or "",
+        re.I,
+    )
+    return len(hits) >= 2
+
+
 def _is_english_line(line: str) -> bool:
     if _FOREIGN_LINE_RE.search(line):
         return False
@@ -881,11 +1287,27 @@ def _is_english_line(line: str) -> bool:
     return odd / len(letters) < 0.08
 
 
+def _clip_english(line: str) -> str:
+    """Keep the English column when a bilingual sheet mixes languages on one line."""
+    mark = _FOREIGN_CUT_RE.search(line or "")
+    if mark:
+        line = line[: mark.start()]
+    return re.sub(r"\s+", " ", line or "").strip(" -–—")
+
+
 def _manual_lines(text: str) -> list[str]:
     """English sheet lines, with wrapped Fig. numbers and sentences rejoined."""
+    text = text or ""
+    text = re.sub(r"\u00ad\s*", "", text)
+    text = text.replace("ﬁ ", "fi").replace("ﬂ ", "fl").replace("ﬁ", "fi").replace("ﬂ", "fl")
+    text = text.replace("’", "'").replace("–", "-").replace("—", "-")
+    text = re.sub(r"\bfl\s+oor\b", "floor", text, flags=re.I)
+    text = re.sub(r"\bfl\s+ange\b", "flange", text, flags=re.I)
+    text = re.sub(r"\bfi\s+nger\b", "finger", text, flags=re.I)
+    text = re.sub(r"\bfi\s+cient\b", "ficient", text, flags=re.I)
     raw_lines = []
-    for raw in re.split(r"[\r\n]+", text or ""):
-        line = re.sub(r"\s+", " ", raw).strip(" \t•■▪●*")
+    for raw in re.split(r"[\r\n]+", text):
+        line = _clip_english(re.sub(r"\s+", " ", raw).strip(" \t•■▪●*"))
         if not line:
             continue
         if re.fullmatch(r"(?:english|fran[cç]ais|espa[nñ]ol)", line, re.I):
@@ -914,7 +1336,17 @@ def _manual_lines(text: str) -> list[str]:
             lines[-1] = f"{lines[-1]} {line}".strip()
             continue
         lines.append(line)
-    return lines
+    stitched = []
+    for line in lines:
+        if (
+            stitched
+            and re.fullmatch(r"trash bag\.?", line, re.I)
+            and re.search(r"\bplace on$", stitched[-1], re.I)
+        ):
+            stitched[-1] = f"{stitched[-1]} trash bag."
+            continue
+        stitched.append(line)
+    return stitched
 
 
 def _clean_step(text: str) -> str:
@@ -929,8 +1361,11 @@ def _clean_step(text: str) -> str:
         return ""
     if re.search(r"[àáâäèéêëìíîïòóôöùúûüñç]", text, re.I):
         return ""
+    if _too_foreign(text):
+        return ""
     if re.search(
-        r"\b(?:placez|soulevez|débranchez|debranchez|remontez|ouvrez|retirez|"
+        r"\b(?:placez|soulevez|débranchez|debranchez|remontez|ouvrez|retirez|remettez|"
+        r"boulons|chapeaux|les|sur|pour|"
         r"retire el|retire la|apriete|instale|abrazadera|tuercas|haga pasar|"
         r"vuelva|destape|tape la|brida|receptaculo|receptáculo)\b",
         text,
@@ -1023,10 +1458,10 @@ def factory_procedure(text: str, figures: list | None = None) -> dict:
         if head:
             flush()
             name = head.group(1).lower()
-            if name == "before beginning":
+            if name in ("before beginning", "preparation", "prerequisites"):
                 section = "before"
                 bucket = None
-            elif name.startswith("remove"):
+            elif name == "removal" or name.startswith("remove"):
                 section = "removal"
                 bucket = removal
             else:
@@ -1063,7 +1498,7 @@ def factory_procedure(text: str, figures: list | None = None) -> dict:
             ):
                 flush()
                 continue
-            if not _is_english_line(line):
+            if not _is_english_line(line) or _too_foreign(line):
                 continue
             current = f"{current} {line}".strip()
     flush()
