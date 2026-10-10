@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.23"
+MODULE_REVISION = "v4.19.24"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -585,8 +585,7 @@ def _dial_off_path() -> dict:
             ),
             (
                 "If the compressor keeps running with C and T open, the run call is "
-                "downstream of the thermostat. Escalate the inverter and the harness. "
-                "At the inverter, C and T may be reversed without affecting performance."
+                "downstream of the thermostat. Escalate the inverter and the harness."
             ),
         ],
         "check_pages": [31, 31, 43, 45],
@@ -1160,15 +1159,13 @@ def _firefly_path() -> dict:
         "sources": [
             {
                 "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
-                "page": None,
+                "page": 1,
                 "excerpt": "",
-                "title_only": True,
             },
             {
                 "title": "Lippert QR-092 Level-Up wiring",
-                "page": None,
+                "page": 1,
                 "excerpt": "",
-                "title_only": True,
             },
         ],
         "display_model": "807662",
@@ -5108,7 +5105,7 @@ def _dometic_ceiling_path(concern: str) -> dict:
             "Fan running with no cold air is the no-cool path. Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
             "If the Peacemaker bypass cools, bypass the ceiling selector. If bypassing the ceiling selector does not cool, stay on that bypass and retest.",
             _shop_body(DOMETIC_CEILING_LINE)
-            + " That is the confirmed correction per the Dometic diagnostic manual.",
+            + " That is the confirmed correction per Dometic Brisk II, page 23.",
         ],
         "do_not": [
             "Do not start on the filter check.",
@@ -5202,11 +5199,11 @@ def _fact12_e3_path() -> dict:
                 FlowNode(
                     "e_ok",
                     "end",
-                    "Sensor is seated.\nRetest the code.",
+                    "Sensor is seated and E3 remains.\nWrite the readings and stop.",
                     0.78,
                     0.70,
-                    w=190,
-                    h=64,
+                    w=220,
+                    h=72,
                 ),
             ],
             edges=[
@@ -5396,8 +5393,8 @@ def _girard_petit_path() -> dict:
                     "end",
                     "Repair the air-pressure\nswitch and retest.",
                     0.86,
-                    0.24,
-                    w=190,
+                    0.42,
+                    w=180,
                     h=64,
                 ),
                 FlowNode(
@@ -5421,10 +5418,10 @@ def _girard_petit_path() -> dict:
                 FlowNode(
                     "e_stop",
                     "end",
-                    "Suction is present.\nWrite the readings and stop.",
+                    "Gas is good and E8 remains.\nWrite the readings and stop.",
                     0.62,
                     0.86,
-                    w=220,
+                    w=230,
                     h=64,
                 ),
             ],
@@ -5433,7 +5430,7 @@ def _girard_petit_path() -> dict:
                 FlowEdge("d_in", "p_no", "NO", "bottom", "top"),
                 FlowEdge("p_no", "e_no"),
                 FlowEdge("d_in", "d_aps", "YES", "right", "left"),
-                FlowEdge("d_aps", "e_aps", "NO", "top", "bottom"),
+                FlowEdge("d_aps", "e_aps", "NO", "right", "left"),
                 FlowEdge("d_aps", "d_gas", "YES", "bottom", "top"),
                 FlowEdge("d_gas", "e_gas", "NO", "right", "left"),
                 FlowEdge("d_gas", "e_stop", "YES", "bottom", "top"),
@@ -5741,12 +5738,13 @@ def compile_bay_procedure(
     if path_kind == "fact12_freeze":
         sources = list(spec.get("sources") or [])
     if path_kind == "firefly":
+        # These Lippert sheets are cited as page 1. They are not confirmed
+        # 1-page tech infos, so the sheet does not use that label.
         sources = [
             {
                 "title": src.get("title"),
-                "page": None,
+                "page": 1,
                 "excerpt": "",
-                "title_only": True,
             }
             for src in (_firefly_path().get("sources") or [])
         ]
