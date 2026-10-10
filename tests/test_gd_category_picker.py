@@ -31,19 +31,10 @@ class TestGdCategoryPicker(unittest.TestCase):
     def test_gd_select_uses_same_list_plus_any(self):
         opts = gd_category_select_options([])
         self.assertEqual(opts[0], "(any)")
-        self.assertEqual(opts[1], "Water Heaters")
-        self.assertEqual(opts.count("Water Heaters"), 1)
+        self.assertIn("Water Heaters", opts)
         self.assertIn("Plumbing / Toilets", opts)
         self.assertIn("Range & Cooktops", opts)
-        rest = [name for name in library_category_picker_names([]) if name != "Water Heaters"]
-        self.assertEqual(opts[2:], rest)
-
-    def test_water_heaters_stays_when_the_database_omits_it(self):
-        opts = gd_category_select_options(
-            ["Furnaces", "Leveling", "Electrical", "Slideouts", "Solar"]
-        )
-        self.assertEqual(opts[1], "Water Heaters")
-        self.assertEqual(opts.count("Water Heaters"), 1)
+        self.assertEqual(opts[1:], library_category_picker_names([]))
 
     def test_picker_keeps_manager_extra_names(self):
         names = library_category_picker_names(["TSB / Recall", "Water Heaters", ""])

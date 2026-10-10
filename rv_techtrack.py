@@ -1,8 +1,7 @@
 """
-RV TechTrack v4.19.37
-- v4.19.37: Start new chat clears the Guided Diagnostics conversation, answered slots, model, and category before the next message. The FACR prove asks for refrigerant pressures on the first check so a five-turn path can authorize rooftop assembly R&R.
+RV TechTrack v4.19.38
+- v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
 - v4.19.36: Shop behavior is the v4.19.34 release again. The v4.19.35 changes are not in this deploy.
-- v4.19.35: After refrigerant pressures, Guided Diagnostics authorizes rooftop assembly R&R and does not print the internal FACR prove guard or ask for the thermostat setpoint. Dry-and-wait with frost back replaces the cooling unit. Water Heaters stays at the top of the Guided Diagnostics category picker. The Level Up hose cite is the FW Owner's Manual page 13, and page 1 cites the Towable Owner's Manual page 15 with part 177094. Thetford kit sources drop install-step quotes that are not leak sentences.
 - v4.19.34: A Thetford flush-lever leak keeps the next cited check when the draft is only a source line. An empty or source-only reply falls back to that check. A Level Up lead-jack turn answers the plumbing question once and does not wait on the model. Part 177094 cites the Level Up Towable Owner's Manual page 15 or the Level Up FW Owner's Manual page 18.
 - v4.19.33: Shop behavior is the v4.19.29 release again. The v4.19.31 and v4.19.32 changes are not in this deploy.
 - v4.19.32: Level Up front jacks that drift after a jack swap ask for the gray-wire coil, the swap plumbing, and the manual override screw before the lead-jack cartridge 177094.
@@ -210,7 +209,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.37"
+_GDC_REQUIRED_REVISION = "v4.19.38"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -3258,36 +3257,6 @@ def clear_ask_source_state():
     st.session_state.pop("ask_flow", None)
 
 
-def reset_guided_diagnostics_session():
-    """Drop the open GD case before the next message is read.
-
-    History is the slot store (lead-jack, FACR, and the rest). Clearing it
-    clears those answered slots. Model, category, and the Unity gate go back
-    to empty so the next case cannot inherit the previous one.
-    """
-    st.session_state["ask_chat"] = []
-    st.session_state["ask_chat_id"] = None
-    clear_ask_source_state()
-    st.session_state.pop("ask_story_out", None)
-    st.session_state.pop("ask_story_area", None)
-    for key in list(st.session_state.keys()):
-        if str(key).startswith("ask_story_area_"):
-            st.session_state.pop(key, None)
-    st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
-    st.session_state["ask_input"] = ""
-    st.session_state.pop("ask_pending_answer", None)
-    st.session_state.pop("ask_force_send", None)
-    st.session_state["ask_model"] = ""
-    st.session_state["gd_model_memory"] = ""
-    st.session_state["ask_cat"] = "(any)"
-    st.session_state["gd_category_memory"] = "(any)"
-    st.session_state["ask_unity_gate"] = "Not sure"
-    st.session_state["gd_unity_memory"] = "Not sure"
-    st.session_state.pop("ask_plate_cam", None)
-    st.session_state.pop("ask_plate_upload", None)
-    st.session_state.pop("ask_plate_read_btn", None)
-
-
 def render_library_page_image(src: dict, key_suffix: str):
     """R2 download → pymupdf page → st.image. No markdown image embeds."""
     title = src.get("title") or "Manual"
@@ -4542,11 +4511,7 @@ def guided_diagnostics_reply(
     reply = _gdc.guard_blank_shop_reply(
         reply, history, user_msg, category_name, model_text
     )
-    reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-    reply = _gdc.ensure_facr_early_pressure_ask(
-        reply, history, user_msg, category_name, model_text
-    )
-    return reply, None
+    return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -4576,7 +4541,7 @@ Rules:
 15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
 16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
 17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Order is the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do not authorize rooftop assembly replacement until refrigerant pressures have been reported. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
+18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Order is drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Do not authorize rooftop assembly replacement until refrigerant pressures have been reported. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. Furrion FCR08/FCR10 dial/control OFF with the compressor still running or the box overcooling (won't shut off, runs when Off, freezer frozen solid with control Off): do NOT open fuse p.19, 12V continuity p.20, or LED / inverter control voltage p.18. Leave the dial fully OFF, seat the probe and wires (p.43), open C (blue) and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → part G 2021128850 / C-FCR10DCGTA-007, p.43–45. Compressor keeps running with C/T open → inverter/harness. Cite p.31 and p.43–45 only for this prove. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
 20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
@@ -5622,10 +5587,6 @@ with tab_jobs:
 # =========================================================
 with tab_ask:
     _enter_panel(tab_ask)
-    # Apply before widgets and before history is read, so the next message
-    # cannot see the previous case.
-    if st.session_state.pop("ask_reset_session", False):
-        reset_guided_diagnostics_session()
     st.subheader("💬 Guided Diagnostics")
     st.caption(
         "Open library coach — takes the complaint and guides from this shop's Document Library. "
@@ -5788,19 +5749,6 @@ with tab_ask:
     with b3:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
 
-    if new_chat:
-        # Flag only. Widget keys are reset on the next run, before history is read.
-        st.session_state["ask_reset_session"] = True
-        st.session_state["ask_chat"] = []
-        st.session_state["ask_chat_id"] = None
-        clear_ask_source_state()
-        st.session_state.pop("ask_pending_answer", None)
-        st.session_state.pop("ask_force_send", None)
-        st.session_state["gd_model_memory"] = ""
-        st.session_state["gd_category_memory"] = "(any)"
-        st.session_state["gd_unity_memory"] = "Not sure"
-        st.rerun()
-
     if send or st.session_state.pop("ask_force_send", False):
         msg = (st.session_state.pop("ask_pending_answer", None) or st.session_state.get("ask_input") or "").strip()
         if not msg:
@@ -5871,6 +5819,20 @@ with tab_ask:
                 st.session_state.pop("ask_auto_show_failed", None)
             st.session_state["ask_reset_input"] = True
             st.rerun()
+
+    if new_chat:
+        st.session_state["ask_chat"] = []
+        st.session_state["ask_chat_id"] = None
+        clear_ask_source_state()
+        st.session_state.pop("ask_story_out", None)
+        st.session_state.pop("ask_story_area", None)
+        st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
+        st.session_state["ask_reset_input"] = True
+        st.session_state["ask_clear_model"] = True
+        st.session_state["gd_model_memory"] = ""
+        st.session_state["ask_clear_cat"] = True
+        st.session_state["gd_category_memory"] = "(any)"
+        st.rerun()
 
     if write_story:
         draft = (st.session_state.get("ask_input") or "").strip()

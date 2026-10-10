@@ -239,16 +239,6 @@ class TestLeadJackBaySheet(unittest.TestCase):
         self.assertIn("177094", source_text)
         _assert_177094_is_cited(self, source_text)
         self.assertIn("page 3", self.proc.primary_cite.lower())
-        self.assertIn("page 15", self.proc.primary_cite.lower())
-        self.assertIn("towable", self.proc.primary_cite.lower())
-        titles = [(src.get("title") or "").lower() for src in self.proc.sources]
-        self.assertFalse(any("hose diagram" in title for title in titles))
-        self.assertTrue(
-            any(
-                "fw owner" in (src.get("title") or "").lower() and src.get("page") == 13
-                for src in self.proc.sources
-            )
-        )
         order = " ".join(self.proc.bay_order).lower()
         self.assertLess(order.index("gray wire"), order.index("notched"))
         self.assertLess(order.index("notched"), order.index("override screw"))
@@ -276,15 +266,7 @@ class TestLeadJackBaySheet(unittest.TestCase):
         self.assertIn("notched", low)
         self.assertIn("override", low)
         self.assertIn("ti-005", low)
-        self.assertNotIn("hose diagram", low)
         self.assertNotIn("firefly", low)
-        import pymupdf
-
-        doc = pymupdf.open(stream=pdf, filetype="pdf")
-        page1 = doc[0].get_text()
-        self.assertIn("177094", page1)
-        self.assertRegex(page1, r"(?i)towable owner\W{0,3}s manual[\s\S]{0,80}page\s*15")
-        self.assertRegex(pdf_text, r"(?i)fw owner\W{0,3}s manual[\s\S]{0,80}page\s*13")
         self.assertNotIn("sail switch", low)
 
 

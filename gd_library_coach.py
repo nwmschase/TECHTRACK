@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.37"
+COACH_REVISION = "v4.19.38"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -55,13 +55,8 @@ def library_category_picker_names(existing_names=None):
 
 
 def gd_category_select_options(existing_names=None):
-    """Guided Diagnostics category select. Water Heaters stays visible at the top."""
-    names = library_category_picker_names(existing_names)
-    if WATER_HEATERS_CATEGORY in names:
-        names = [WATER_HEATERS_CATEGORY] + [
-            name for name in names if name != WATER_HEATERS_CATEGORY
-        ]
-    return ["(any)"] + names
+    """Same list the Guided Diagnostics category selectbox uses."""
+    return ["(any)"] + library_category_picker_names(existing_names)
 
 # Groq retired llama-4-scout on 2026-07-17 (404 / no access).
 # Current Groq vision: https://console.groq.com/docs/vision
@@ -279,7 +274,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: press tongue extend/retract and check for 12V on the tongue jack output wire at the panel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue output wire → soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
 - Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Closing step: if ice or moisture persists after drying and waiting 1 month, replace the unit. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
 - Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Order on CCD-0007990: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressures are reported and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize once pressures are reported. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Order on CCD-0007990: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressures are reported and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize once pressures are reported. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
 - Coleman-Mach 2111-0001 that ran and then went dead: when board Fan High is dead (tester dark and/or about 0 VAC on the 9-pin black/white Fan High path), a Peacemaker bypass shows the compressor runs while the fan does not rotate and stall current is about 1.9 A, and the fan run capacitor measures about its rated value, authorize R&R of the fan motor and the control board only. Do not authorize the full 2111-0001 assembly. Stop further tests. Cite the 12VDC wall-thermostat rooftop service manual, 1976-536, 1976-603, the Peacemaker manual, and the mechanical-controls manual / 1976-695. Do not invent page numbers.
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
@@ -529,7 +524,7 @@ AC_PRODUCT_LOCK = """
 AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
 - Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
 - Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When that path is reported and pressures are in, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
+- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When that path is reported and pressures are in, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
 - Coleman-Mach 2111-0001: Fan High dead (tester dark and/or about 0 VAC on 9-pin black/white) plus Peacemaker compressor running with the fan locked at about 1.9 A plus a fan run capacitor near its rated value authorizes R&R of the fan motor and the control board only. Do not authorize the full assembly. Stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers.
 - NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
 - Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
@@ -1959,7 +1954,7 @@ FACR_FREEZE_ASSEMBLY_LOCK = """
 FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
 - Named branch: Furrion FACR* / Chill rooftop freeze, ice, frost, condensate, or interior leak.
 - Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
-- Walk order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Suction line, thermostat, and nozzles/ambient stay on this prove.
+- Walk order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures, then rooftop assembly replacement. Suction line, thermostat, and nozzles/ambient stay on this prove.
 - Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. Drain clear plus fan/filter OK plus a good freeze sensor is not enough.
 - When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. The card is the authorization. Do not dump an R&R procedure. Do not return a blank card. Do not open a fuse or 12V-first tree.
 - If the tech asks to authorize rooftop assembly R&R after that prove, emit that same authorization card. NEVER say the Document Library has no R&R steps. NEVER ask the tech to paste an R&R section or a page number.
@@ -2005,7 +2000,7 @@ FACR_ASSEMBLY_RR_SHOP_LINE = (
 FACR_FREEZE_NEXT_SHOP_LINE = (
     "Stay on the CCD-0007990 condensate path. "
     "Do not stop to search manuals. "
-    "Order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor. "
+    "Order: drain and pan, then filter and fan, then the freeze sensor, then refrigerant pressures. "
     "Rooftop assembly replacement waits until those pressures are reported.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
@@ -2367,39 +2362,6 @@ def facr_terminal_path_complete(facts: dict | None) -> bool:
     return facr_sensor_proved(facts)
 
 
-def facr_pressure_authorizes_rr(facts: dict | None) -> bool:
-    """Pressures on the drain, pan, filter, fan, suction, and sensor prove authorize rooftop R&R.
-
-    The cool setpoint is not a later ask. Pressures alone do not authorize.
-    An iced suction line is not this path.
-    """
-    facts = facts or {}
-    if facts.get("facr_pressure") != "ok" or facts.get("facr_suction") == "iced":
-        return False
-    fan = facts.get("facr_fan_filter") == "ok" or (
-        facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok"
-    )
-    return bool(
-        facts.get("facr_drain") == "clear"
-        and facts.get("facr_pan_slope") == "ok"
-        and fan
-        and facts.get("facr_suction") == "clear"
-        and facr_sensor_proved(facts)
-    )
-
-
-def facr_pressure_rr_line(facts: dict | None = None) -> str:
-    """Firm rooftop R&R once pressures are in. Do not claim a setpoint that was not reported."""
-    if facr_terminal_path_complete(facts):
-        return FACR_TERMINAL_ASSEMBLY_RR_LINE
-    return (
-        "Refrigerant pressures are reported and the freeze or interior leak remains. "
-        "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
-        "Replace the rooftop assembly.\n"
-        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-    )
-
-
 def reply_names_rooftop_assembly_rr(reply: str) -> bool:
     """True when the reply finishes on rooftop assembly R&R and CCD-0007990."""
     kept = []
@@ -2471,8 +2433,8 @@ def _facr_reply_unusable(reply: str) -> bool:
 
 
 def _facr_climax_line(facts: dict | None) -> str:
-    if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
-        return facr_pressure_rr_line(facts)
+    if facr_terminal_path_complete(facts):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
     if facr_reported_path_supports_rr(facts):
         return facr_reported_assembly_rr_line(facts)
     return _facr_stay_on_prove_line(facts)
@@ -2490,10 +2452,8 @@ def reply_refuses_facr_library_rr(reply: str) -> bool:
 
 def _facr_next_prove_prompt(facts: dict | None) -> str:
     facts = facts or {}
-    pressures_in = facts.get("facr_pressure") == "ok"
     steps = (
         ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
-        ("facr_pressure", "ok", "Read the refrigerant pressures."),
         ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
         ("facr_fan_filter", "ok", "Check the filter and the fan."),
         ("facr_suction", "clear", "Say whether the suction line is iced."),
@@ -2501,84 +2461,27 @@ def _facr_next_prove_prompt(facts: dict | None) -> str:
         ("facr_thermostat", "good", "What is the cool setpoint on the thermostat?"),
         ("facr_nozzle", "open", "Are the nozzles open?"),
         ("facr_ambient", "ok", "What is the ambient temperature?"),
+        ("facr_pressure", "ok", "Read the refrigerant pressures."),
     )
     for key, val, prompt in steps:
-        if pressures_in and key == "facr_thermostat":
-            continue
         if key == "sensor":
             if not facr_sensor_proved(facts):
                 return prompt
             continue
         if facts.get(key) != val:
             return prompt
-    if pressures_in:
-        return "Report the prove that is still open."
     return "Read the refrigerant pressures."
-
-
-_FACR_INTERNAL_GUARD_RE = re.compile(
-    r"Stay on the FACR condensate and freeze prove\.?\s*"
-    r"|Do not leave this prove[^.]*\.?\s*"
-    r"|Do not ask the tech to supply a procedure excerpt\.?\s*",
-    re.I,
-)
-
-
-def _strip_facr_internal_guard(text: str) -> str:
-    """The prove-guard sentences are coach notes. They are not a shop reply."""
-    cleaned = _FACR_INTERNAL_GUARD_RE.sub("", text or "")
-    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 def _facr_stay_on_prove_line(facts: dict | None) -> str:
     prompt = _facr_next_prove_prompt(facts)
     return (
-        f"Next check on the CCD-0007990 condensate path: {prompt}\n"
+        "Stay on the FACR condensate and freeze prove. "
+        "Do not leave this prove for a no-start tree or a high-voltage bus measurement. "
+        "Do not ask the tech to supply a procedure excerpt. "
+        f"Next check: {prompt}\n"
         "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
     )
-
-
-_FACR_PRESSURE_ASK_RE = re.compile(
-    r"refrigerant pressure|read the refrigerant|connect gauges|"
-    r"suction and discharge pressure|read both gauges",
-    re.I,
-)
-
-
-def _facr_pressures_already_asked(history: list = None) -> bool:
-    """True once an earlier Guided Diagnostics turn already asked for pressures."""
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if _FACR_PRESSURE_ASK_RE.search(message.get("content") or ""):
-            return True
-    return False
-
-
-def ensure_facr_early_pressure_ask(
-    reply: str,
-    history: list = None,
-    latest_msg: str = "",
-    category_name: str = "",
-    model_text: str = "",
-) -> str:
-    """Ask for refrigerant pressures on the first FACR prove, then do not loop that ask.
-
-    Pressures alone do not authorize. Once they are reported, they are not asked again.
-    Once an assistant turn has asked, later proves (pan, fan, suction, sensor) can proceed.
-    """
-    if _job_key(history, latest_msg, category_name, model_text) != "facr":
-        return reply or ""
-    facts = facr_proves_from_chat(history, latest_msg)
-    if facts.get("facr_pressure") == "ok" or _facr_pressures_already_asked(history):
-        return reply or ""
-    text = (reply or "").strip()
-    if _FACR_PRESSURE_ASK_RE.search(text):
-        return text
-    ask = "Read the refrigerant pressures."
-    if not text:
-        return ask
-    return f"{ask} {text}"
 
 
 def _facr_terminal_reply_ok(reply: str) -> bool:
@@ -2602,7 +2505,7 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
-    if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
+    if facr_terminal_path_complete(facts):
         if _facr_terminal_reply_ok(reply):
             return reply
         return _facr_climax_line(facts)
@@ -4545,11 +4448,6 @@ def _line_fits_job(text: str, job: str) -> bool:
     # The reading filler is already rejected above, including this empty-job path.
     if not job:
         return True
-    # A cleared chat is a new case. Coleman-Mach text cannot ride into it.
-    if job not in ("coleman", "dometic") and re.search(
-        r"\b(?:coleman(?:-mach)?|peacemaker|2111)\b", low
-    ):
-        return False
     for phrase, owner in _OWNED_PHRASES:
         if phrase in low and job != owner:
             return False
@@ -4737,10 +4635,8 @@ def _proved_shop_reply(
         return LEVELUP_FIREFLY_FIRM_LINE
     if job == "leadjack" and _leadjack_stage(history, latest_msg) == "cartridge":
         return LEADJACK_CARTRIDGE_LINE
-    if job == "facr":
-        facr_facts = facr_proves_from_chat(history, latest_msg)
-        if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
-            return facr_pressure_rr_line(facr_facts)
+    if job == "facr" and facr_terminal_path_complete(facr_proves_from_chat(history, latest_msg)):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
     if job == "ice" and _ice_cooling_unit_ready(blob):
         return ICE_COOLING_UNIT_LINE
     if job == "girard" and _girard_seating_confirmed(blob):
@@ -4832,8 +4728,8 @@ def _conditional_lines(
         ]
     if job == "facr":
         facr_facts = facr_proves_from_chat(history, latest_msg)
-        if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
-            return [facr_pressure_rr_line(facr_facts)]
+        if facr_terminal_path_complete(facr_facts):
+            return [FACR_TERMINAL_ASSEMBLY_RR_LINE]
         if facr_facts.get("facr_pressure") == "ok":
             return [_facr_stay_on_prove_line(facr_facts)]
         return [
@@ -4877,8 +4773,6 @@ def _conditional_lines(
             "If the override roll pin is broken or seized, replace the complete front stabilizer jack assembly and retest the manual crank.",
         ]
     if job == "ice":
-        if _ice_cooling_unit_ready(user):
-            return [ICE_COOLING_UNIT_LINE]
         if re.search(r"gasket", user) and re.search(r"seal", user):
             return [
                 "Leave the cabinet dry after the overnight wait. If heavy frost returns, replace the cooling unit.",
@@ -4960,7 +4854,7 @@ LEADJACK_PLUMB_LINE = (
     "📖 Source: Lippert QR-109, page 3\n"
     "📖 Source: Lippert TI-143, page 2\n"
     "📖 Source: Lippert TI-324, page 2\n"
-    "📖 Source: Lippert Level Up FW Owner's Manual, page 13"
+    "📖 Source: Lippert Level Up owner's manual, hose diagram"
 )
 LEADJACK_OVERRIDE_LINE = (
     "Confirm the manual override screw is backed out and report what you find.\n"
@@ -5285,7 +5179,7 @@ def _prove_lines(
         ]
     if job == "facr":
         return [
-            "Check the condensation drain openings and the base pan, and report whether the drain is clear. Read the refrigerant pressures.",
+            "Check the condensation drain openings and the base pan, and report whether the drain is clear.",
         ]
     if job == "fact12":
         return [
@@ -5956,36 +5850,15 @@ def polish_shop_reply(
     text = ensure_thetford_flush_reply(
         text, history, latest_msg, category_name, model_text, original=reply or ""
     )
-    text = _strip_facr_internal_guard(text)
     text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
-    return without_reading_filler(
-        _strip_facr_internal_guard(text), history, latest_msg, category_name, model_text
-    )
+    return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 
 def _ice_cooling_unit_ready(blob: str) -> bool:
-    """Dry-and-wait plus frost back is the cooling-unit repair."""
+    """Overnight dry-and-wait plus frost back is the cooling-unit repair."""
     raw = blob or ""
-    overnight = bool(
-        re.search(
-            r"\bovernight\b"
-            r"|\bdry-and-wait\b"
-            r"|\bdry and wait\b"
-            r"|\b(?:dried|drying|dry)\b.{0,48}\bwait(?:ed|ing|s)?\b"
-            r"|\bwait(?:ed|ing)?\b.{0,48}\b(?:dry|dried|drying|overnight|month)\b"
-            r"|\b(?:1|one)\s+month\b",
-            raw,
-            re.I,
-        )
-    )
-    dried = bool(
-        re.search(
-            r"\b(?:dried|drying|towel)\b|\bdry-and-wait\b|\bdry and wait\b|\bdry\b|"
-            r"\bovernight\b|\b(?:1|one)\s+month\b",
-            raw,
-            re.I,
-        )
-    )
+    overnight = bool(re.search(r"\bovernight\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    dried = bool(re.search(r"\b(?:dried|towel)\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
     back = bool(
         re.search(
             r"\b(?:frost|ice|icing)\b.{0,40}\b(?:return(?:ed|s)?|came back|persists?)\b|"
@@ -6036,8 +5909,8 @@ def _live_close_reply(
     blob = _user_blob(history, latest_msg)
     if job == "facr":
         facts = facr_proves_from_chat(history, latest_msg)
-        if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
-            return facr_pressure_rr_line(facts)
+        if facr_terminal_path_complete(facts):
+            return FACR_TERMINAL_ASSEMBLY_RR_LINE
         if facts.get("facr_pressure") == "ok":
             return _facr_stay_on_prove_line(facts)
         return ""
@@ -6072,7 +5945,6 @@ def avoid_duplicate_reply(
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
     def _out(text: str) -> str:
-        text = _strip_facr_internal_guard(text)
         return guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
 
     text = _strip_stop_no_further_tests((reply or "").strip())
