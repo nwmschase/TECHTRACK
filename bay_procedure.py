@@ -118,7 +118,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.40"
+MODULE_REVISION = "v4.19.41"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -5732,7 +5732,7 @@ def _thetford_troubleshooting_cite(ranked) -> str:
 
 
 def _thetford_leak_flowchart() -> Flowchart:
-    """Supply connection, then the pedal valve, then the vacuum breaker, then the flange."""
+    """Supply, then the vacuum breaker, then the valve body, then the flange."""
     return Flowchart(
         readable=True,
         nodes=[
@@ -5766,37 +5766,37 @@ def _thetford_leak_flowchart() -> Flowchart:
             FlowNode(
                 "r2",
                 "end",
-                "Replace the water valve.",
+                "Replace the vacuum breaker.",
                 0.22,
                 0.36,
-                w=210,
+                w=220,
                 h=52,
             ),
             FlowNode(
                 "d2",
                 "decision",
-                "Water valve weeping\nat the pedal?",
+                "Vacuum breaker leaking\nonly while flushing?",
                 0.78,
                 0.36,
-                w=220,
+                w=230,
                 h=76,
             ),
             FlowNode(
                 "r3",
                 "end",
-                "Replace the vacuum breaker.",
+                "Replace the water valve.",
                 0.22,
                 0.54,
-                w=220,
+                w=210,
                 h=52,
             ),
             FlowNode(
                 "d3",
                 "decision",
-                "Vacuum breaker leaking\nduring flush?",
+                "Water valve weeping\nat the pedal?",
                 0.78,
                 0.54,
-                w=230,
+                w=220,
                 h=76,
             ),
             FlowNode(
@@ -5996,28 +5996,46 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
     return {
         "primary_cite": _thetford_troubleshooting_cite(ranked),
         "pattern_means": (
-            "A leak under the flush lever is the supply connection, the water valve at the pedal, "
-            "the vacuum breaker during a flush, or the floor flange. "
-            "Stop at the check that is leaking."
+            "A leak under the flush lever is checked in this order: the supply connection, "
+            "the vacuum breaker while flushing, the water valve at the pedal, then the floor flange. "
+            "Stop at the check that is leaking. "
+            "Style II uses a foot pedal. Confirming that the word lever means that pedal is UNCONFIRMED."
         ),
         "flowchart": _thetford_leak_flowchart(),
         "bay_order": [
             (
                 "Back of the toilet: check the water supply line connection at the water valve. "
-                "Secure or tighten it as necessary."
+                "Secure or tighten it as necessary. "
+                "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED."
             ),
-            "If the water valve weeps at the pedal, replace the water valve.",
             (
                 "If the vacuum breaker leaks while flushing, replace the vacuum breaker "
-                "or the water module, depending on model."
+                "or the water module, depending on model. "
+                "Leaks only while flushing. That limit is UNCONFIRMED. "
+                "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377."
+            ),
+            (
+                "Pull the pedal off and look for a weep at the cartridge, the drive arm, "
+                "or a cracked housing. UNCONFIRMED. "
+                "If the water valve weeps at the pedal, replace the water valve. "
+                "Kit 42049 includes drive-arm seal 42006."
             ),
             (
                 "Between the closet flange and the toilet, check the flange nuts. "
-                "If the leak continues, check the flange height and replace the flange seal."
+                "If the leak continues, check the flange height. "
+                "It is 7/16 inch above the floor. Replace the flange seal. "
+                "Closet flange seal 02125 is on the kits. "
+                "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED."
             ),
         ],
         "do_not": [
-            "Do not replace the vacuum breaker or the flange seal before the supply connection and the water valve are checked.",
+            "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
+            "Do not repair a failed vacuum breaker. UNCONFIRMED.",
+            "Do not use scouring powders, acids, or concentrated cleaners.",
+            "Never use automotive antifreeze. Use RV potable antifreeze only.",
+            "If ice is in the toilet, do not flush until the ice thaws.",
+            "When using air pressure to blow water from the lines, the toilet valve must be open.",
+            "Do not order a part number that is not on the sheet. UNCONFIRMED.",
         ],
         "sources": [],
         "flow_tall": True,

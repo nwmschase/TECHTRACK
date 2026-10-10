@@ -30,7 +30,7 @@ class TestThetfordBlankReply(unittest.TestCase):
         self.assertGreater(len(reply.splitlines()), 1)
         self.assertNotIn("rooftop assembly", low)
 
-    def test_supply_tight_asks_the_valve_and_keeps_a_cite(self):
+    def test_supply_tight_asks_the_vacuum_breaker_and_keeps_a_cite(self):
         history = [
             {"role": "user", "content": CONCERN},
             {
@@ -44,8 +44,9 @@ class TestThetfordBlankReply(unittest.TestCase):
         ]
         reply = _turn(SOURCE, "Supply connection is tight. No leak there.", history)
         low = reply.lower()
-        self.assertIn("water valve", low)
-        self.assertIn("weep", low)
+        self.assertIn("vacuum breaker", low)
+        self.assertNotIn("weep", low)
+        self.assertNotIn("42049", reply)
         self.assertIn("📖", reply)
         self.assertNotEqual(reply.strip(), SOURCE)
         self.assertNotIn("rooftop", low)
@@ -95,12 +96,13 @@ class TestThetfordBlankReply(unittest.TestCase):
             self.assertTrue(reply_is_source_only_or_empty(draft), draft)
             guarded = guard_blank_shop_reply(draft, history, latest, CATEGORY, MODEL)
             self.assertFalse(reply_is_source_only_or_empty(guarded), guarded)
-            self.assertIn("weep", guarded.lower())
+            self.assertIn("vacuum breaker", guarded.lower())
+            self.assertNotIn("weep", guarded.lower())
             self.assertIn("📖", guarded)
             reply = _turn(draft, latest, history)
             self.assertFalse(reply_is_source_only_or_empty(reply), reply)
-            self.assertIn("water valve", reply.lower())
-            self.assertIn("weep", reply.lower())
+            self.assertIn("vacuum breaker", reply.lower())
+            self.assertNotIn("weep", reply.lower())
             self.assertIn("📖", reply)
             self.assertNotEqual((reply or "").strip(), (draft or "").strip())
 
@@ -109,8 +111,8 @@ class TestThetfordBlankReply(unittest.TestCase):
         history = []
         steps = (
             (CONCERN, "supply", ()),
-            ("Not checked yet", "weep", ("supply line connection",)),
-            ("Not checked yet", "vacuum breaker", ("supply line connection", "weep")),
+            ("Not checked yet", "vacuum breaker", ("supply line connection",)),
+            ("Not checked yet", "weep", ("supply line connection", "vacuum breaker")),
             ("Not checked yet", "flange", ("supply line connection", "weep", "vacuum breaker")),
             ("Not checked yet", "flange", ("supply line connection", "weep", "vacuum breaker")),
         )

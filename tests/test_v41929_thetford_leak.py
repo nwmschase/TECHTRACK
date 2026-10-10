@@ -103,6 +103,19 @@ class TestThetfordFlushLeakSheet(unittest.TestCase):
         self.assertIn("weeps at the pedal", text)
         self.assertIn("vacuum breaker leaks while flushing", text)
         self.assertIn("flange", text)
+        self.assertIn("7/16", text)
+        self.assertIn("42006", text)
+        self.assertIn("42067", text)
+        self.assertIn("33239", text)
+        self.assertIn("unconfirmed", text)
+        self.assertIn("do not flush until the ice thaws", text)
+        self.assertIn("automotive antifreeze", text)
+        order = " ".join(self.proc.bay_order).lower()
+        self.assertLess(order.find("water supply line connection"), order.find("vacuum breaker"))
+        self.assertLess(order.find("vacuum breaker"), order.find("weeps at the pedal"))
+        self.assertLess(order.find("weeps at the pedal"), order.find("flange nuts"))
+        self.assertIn("7/16 inch above the floor", order)
+        self.assertNotIn("7/16 inch above the floor. unconfirmed", order)
         for junk in JUNK:
             self.assertNotIn(junk, text, junk)
         self.assertEqual(sheet_standard_violations(procedure_body_text(self.proc)), [])
@@ -111,9 +124,9 @@ class TestThetfordFlushLeakSheet(unittest.TestCase):
         decisions = [node.text.lower() for node in self.proc.flowchart.nodes if node.kind == "decision"]
         self.assertEqual(len(decisions), 4)
         joined = " | ".join(decisions)
-        self.assertLess(joined.find("supply connection"), joined.find("weeping"))
-        self.assertLess(joined.find("weeping"), joined.find("vacuum breaker"))
-        self.assertLess(joined.find("vacuum breaker"), joined.find("flange"))
+        self.assertLess(joined.find("supply connection"), joined.find("vacuum breaker"))
+        self.assertLess(joined.find("vacuum breaker"), joined.find("weeping"))
+        self.assertLess(joined.find("weeping"), joined.find("flange"))
         labels = {}
         for edge in self.proc.flowchart.edges:
             if edge.label:
