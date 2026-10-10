@@ -18,7 +18,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.14"
+MODULE_REVISION = "v4.19.15"
 
 PROVIDER_XAI = "xai"
 PROVIDER_GROQ = "groq"

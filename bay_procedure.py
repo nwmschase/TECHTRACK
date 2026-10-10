@@ -39,7 +39,6 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from pathlib import Path
-import gzip
 import math
 import re
 import textwrap
@@ -115,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.14"
+MODULE_REVISION = "v4.19.15"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -1707,9 +1706,15 @@ _DICT_WORDS: set[str] | None = None
 def _dictionary_words() -> set[str]:
     global _DICT_WORDS
     if _DICT_WORDS is None:
-        path = Path(__file__).with_name("bay_words.txt.gz")
-        with gzip.open(path, "rt", encoding="utf-8") as handle:
-            words = {line.strip().lower() for line in handle if line.strip()}
+        # Plain text in the repo root. Community Cloud's push sync reads root
+        # files as UTF-8 and skips the redeploy when a binary (the old .gz)
+        # fails that read. A dashboard reboot clones with git and hides the bug.
+        path = Path(__file__).with_name("bay_words.txt")
+        words = {
+            line.strip().lower()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
         words.update(_SHOP_WORDS)
         _DICT_WORDS = words
     return _DICT_WORDS
