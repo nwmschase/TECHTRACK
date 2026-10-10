@@ -5993,6 +5993,8 @@ def _lead_jack_drift_path() -> dict:
 
 
 def _thetford_leak_path(concern: str, ranked) -> dict:
+    import manual_figures as mf
+
     return {
         "primary_cite": _thetford_troubleshooting_cite(ranked),
         "pattern_means": (
@@ -6003,30 +6005,10 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
         ),
         "flowchart": _thetford_leak_flowchart(),
         "bay_order": [
-            (
-                "Back of the toilet: check the water supply line connection at the water valve. "
-                "Secure or tighten it as necessary. "
-                "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED."
-            ),
-            (
-                "If the vacuum breaker leaks while flushing, replace the vacuum breaker "
-                "or the water module, depending on model. "
-                "Leaks only while flushing. That limit is UNCONFIRMED. "
-                "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377."
-            ),
-            (
-                "Pull the pedal off and look for a weep at the cartridge, the drive arm, "
-                "or a cracked housing. UNCONFIRMED. "
-                "If the water valve weeps at the pedal, replace the water valve. "
-                "Kit 42049 includes drive-arm seal 42006."
-            ),
-            (
-                "Between the closet flange and the toilet, check the flange nuts. "
-                "If the leak continues, check the flange height. "
-                "It is 7/16 inch above the floor. Replace the flange seal. "
-                "Closet flange seal 02125 is on the kits. "
-                "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED."
-            ),
+            mf.thetford_proving_body("supply"),
+            mf.thetford_proving_body("vacuum"),
+            mf.thetford_proving_body("valve"),
+            mf.thetford_proving_body("flange"),
         ],
         "do_not": [
             "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
@@ -8355,7 +8337,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         has = bool(png) and not mf.png_is_blank(png)
         text_w = _CONTENT_W - 20.0 - (fig_w + 14.0 if has else 0)
         sentences = mf.step_sentences(step)
-        block = measure_text(f"{index}. " + " ".join(sentences), text_w, 8, leading=10.2)
+        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
         fig_h = 0.0
         if has:
             width, height = _png_pixel_size(png)
