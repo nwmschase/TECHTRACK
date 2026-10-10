@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.28
+RV TechTrack v4.19.29
+- v4.19.29: A Thetford flush-lever leak sheet keeps the English leak checks only: supply connection, water valve weeping at the pedal, vacuum breaker leaking during flush, then the floor flange. Multilingual lines, poor flush, flow rate, blade seal, frozen lines, and the riser stay off. Sources are the 42088 troubleshooting page, water valve kit 42109 page 1, and vacuum breaker kit 34122/34123.
 - v4.19.28: A typed unit with no matching shop manual does not borrow another brand. Thetford with no Thetford document says so. The reading filler cannot ship on any path, including a job with no lock. Plumbing / Toilets is a library category.
 - v4.19.27: A firm repair stays the repair. An answered check, including sail-switch continuity OK, is not asked again. The reading filler cannot ship. The Girard chart runs blower suction YES to the air-pressure switch, then that switch's own YES to the gas supply. The FACT12 E2 do-not says reseated.
 - v4.19.26: A repair already proved is stated as the repair, and an answered check is not asked again or restated as the repair. The next turn is not a copy of the last one. Ground Control keeps FRONT five times, REAR five times, then ENTER. The Girard chart lines do not cross, and the FACT12 E2 chart says Reseat.
@@ -202,7 +203,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.28"
+_GDC_REQUIRED_REVISION = "v4.19.29"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 

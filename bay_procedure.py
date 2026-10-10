@@ -116,7 +116,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.28"
+MODULE_REVISION = "v4.19.29"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -2070,6 +2070,7 @@ _PATH_FAMILY = {
     "girard_e8": ("petit", "girard", "gswh", "e8", "burner"),
     "stabilizer": ("stabilizer", "psx1", "jack", "override", "coupler"),
     "cooktop_tip": ("thermocouple", "tip", "cooktop", "burner", "pan", "flame"),
+    "thetford_leak": ("toilet", "valve", "vacuum", "flange", "supply", "flush"),
 }
 _PATH_CLIMAX = {
     "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel", "both directions"),
@@ -2086,6 +2087,7 @@ _PATH_CLIMAX = {
     "girard_e8": ("petit tube",),
     "stabilizer": ("front stabilizer", "psx1", "jack assembly"),
     "cooktop_tip": ("thermocouple", "reposition"),
+    "thetford_leak": ("water valve", "vacuum breaker", "flange", "water supply", "supply connection"),
 }
 _PATH_OFF = {
     "bal_tongue": (
@@ -2250,6 +2252,21 @@ _PATH_OFF = {
         r"\bignitor\b",
         r"\bTum\b",
         r"/\*",
+    ),
+    "thetford_leak": (
+        r"poor\s+flush",
+        r"flow\s+rate",
+        r"gallons per minute",
+        r"blade\s*/?\s*ball",
+        r"\bfrozen\b",
+        r"winteriz",
+        r"antifreeze",
+        r"\briser\b",
+        r"difficult pedal",
+        r"scarico",
+        r"opzioni",
+        r"preparazione",
+        r"\binverno\b",
     ),
 }
 
@@ -2744,9 +2761,43 @@ def _has_cut_token(sentence: str) -> bool:
     return False
 
 
+_MULTILINGUAL_OCR_RE = re.compile(
+    r"\b(?:scarico|opzioni|preparazione|inverno|insufficiente|funzionamento|"
+    r"domande|installazione|risoluzione|risoluzion|valvola|toilette|antigelo|"
+    r"rompivuoto|flangia|guarnizione|sciacquare|flacone|tubature|serrare|"
+    r"sostituire|cingolo|lamella|della|delle|degli|nella)\b"
+    r"|\ben/it/kr\b"
+    r"|\bref\.?\s*g\b"
+    r"|\b\d{1,2}-\d{2}-\d{4}\b",
+    re.I,
+)
+_NON_ENGLISH_LETTER_RE = re.compile(
+    "[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u3040-\u30ff\u4e00-\u9fff"
+    "\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9\u00e1\u00ed\u00f3\u00fa"
+    "\u00c0\u00c8\u00c9\u00cc\u00d2\u00d9\u00c1\u00cd\u00d3\u00da]"
+)
+
+
+def _is_multilingual_ocr_line(text: str) -> bool:
+    """A '?' run, a foreign column, or a manual footer is not an English step."""
+    raw = text or ""
+    if raw.count("?") >= 2:
+        return True
+    if _NON_ENGLISH_LETTER_RE.search(raw) or _MULTILINGUAL_OCR_RE.search(raw):
+        return True
+    # A footer names the book. A real step does not.
+    if re.search(r"owners['’]?\s+manual", raw, re.I) and re.search(
+        r"\b(?:ref\.?|permanent rv toilet|\d{4,})\b", raw, re.I
+    ):
+        return True
+    return False
+
+
 def source_sentence_is_printable(sentence: str) -> bool:
     """A Sources quote is one grammatical sentence. Anything else is omitted."""
     text = re.sub(r"\s+", " ", (sentence or "").strip())
+    if _is_multilingual_ocr_line(text):
+        return False
     if len(text) < 12:
         return False
     letters = re.sub(r"[^A-Za-z]", "", text)
@@ -2837,6 +2888,7 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
             or _sentence_is_cut(sentence)
             or _is_flowchart_ocr(sentence)
             or _is_ocr_garbage(sentence)
+            or _is_multilingual_ocr_line(sentence)
             or _is_boilerplate(sentence)
             or _is_new_passage(sentence)
             or _is_parts_list_dump(sentence)
@@ -3348,6 +3400,7 @@ def _keep_primary_excerpt(raw: str) -> str:
             and not _is_verbless_fragment(sentence)
             and not _is_scanned_fragment(sentence)
             and not sheet_has_internal_note(sentence)
+            and not _is_multilingual_ocr_line(sentence)
         ):
             sentences.append(sentence)
     sentences = _trim_trailing_verbless(sentences)
@@ -3382,6 +3435,8 @@ def _is_raw_ocr_step(text: str) -> bool:
     if t.startswith("?"):
         return True
     if "?" in t[:-1]:
+        return True
+    if _is_multilingual_ocr_line(t):
         return True
     if _NO_LIBRARY_STEP_RE.search(t):
         return True
@@ -3439,6 +3494,45 @@ def _is_furnace_bay(category: str = "", model_text: str = "", concern: str = "")
         return False
     blob = f"{category or ''} {model_text or ''} {concern or ''}".lower()
     return "furnace" in blob
+
+
+def is_thetford_flush_leak_context(
+    category: str = "", model_text: str = "", concern: str = ""
+) -> bool:
+    """A Thetford toilet that leaks under the flush lever. Not a poor-flush job."""
+    unit = f"{category or ''} {model_text or ''}"
+    thetford = bool(re.search(r"\bthetford\b|\b42070\b|style\s*ii", unit, re.I))
+    plumbing = bool(
+        re.search(r"plumb", category or "", re.I) and re.search(r"toilet", category or "", re.I)
+    )
+    if not thetford and not (plumbing and is_toilet_job(category, model_text, concern)):
+        return False
+    return bool(re.search(r"\bleaks?\b|\bleaking\b|\bweep", concern or "", re.I))
+
+
+def _thetford_leak_rank_score(page: dict) -> int:
+    """Leak rows and the two kits outrank poor flush, winterizing, and the riser."""
+    blob = f"{page.get('title') or ''} {page.get('excerpt') or ''}".lower()
+    score = 0
+    if "water supply line connection" in blob or "leak persists from water valve" in blob:
+        score += 80
+    if "vacuum breaker leaks while flushing" in blob:
+        score += 40
+    if re.search(r"\b42109\b", blob):
+        score += 60
+    if re.search(r"\b34122\b|\b34123\b", blob):
+        score += 60
+    if re.search(
+        r"poor flush|flow rate|blade/ball|\bfrozen\b|winteriz|toilet riser|\briser\b|scarico|opzioni",
+        blob,
+    ):
+        score -= 50
+    return score
+
+
+def _rank_thetford_leak_pages(pages, limit: int) -> list:
+    ordered = sorted(pages or [], key=_thetford_leak_rank_score, reverse=True)
+    return ordered[:limit]
 
 
 def _fitted_cite(ranked, needles, fallback: str, path_kind: str = "") -> str:
@@ -4071,6 +4165,8 @@ def rank_bay_chunks(
         return rank_chunks_for_bal_tongue(pages, query, limit=limit)
     if is_stabilizer_override_pin_context(category_name, model_text, concern):
         return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
+    if is_thetford_flush_leak_context(category_name, model_text, concern):
+        return _rank_thetford_leak_pages(pages, limit)
     return pages[:limit]
 
 
@@ -5554,6 +5650,206 @@ def _cooktop_tip_path() -> dict:
     }
 
 
+def _thetford_troubleshooting_cite(ranked) -> str:
+    """The owner-manual page that carries the leak rows, not winterizing or poor flush."""
+    for row in ranked or []:
+        blob = f"{row.get('title') or ''} {row.get('excerpt') or ''}".lower()
+        if not (
+            "water supply line connection" in blob
+            or "leak persists from water valve" in blob
+            or "vacuum breaker leaks while flushing" in blob
+        ):
+            continue
+        title = human_source_title(row.get("title") or "", row.get("file_path") or "")
+        page = _page_int(row.get("page"))
+        page_bit = f" page {page}" if page else ""
+        return _as_sentence(f"{title}{page_bit}")
+    return "Thetford Style II OM Permanent RV Toilet 42088 troubleshooting page."
+
+
+def _thetford_leak_flowchart() -> Flowchart:
+    """Supply connection, then the pedal valve, then the vacuum breaker, then the flange."""
+    return Flowchart(
+        readable=True,
+        nodes=[
+            FlowNode(
+                "s",
+                "start",
+                "Toilet leaks under\nthe flush lever.",
+                0.78,
+                0.04,
+                w=280,
+                h=56,
+            ),
+            FlowNode(
+                "r1",
+                "end",
+                "Secure or tighten\nthe supply connection.",
+                0.22,
+                0.18,
+                w=230,
+                h=60,
+            ),
+            FlowNode(
+                "d1",
+                "decision",
+                "Supply connection\nleaking at the water valve?",
+                0.78,
+                0.18,
+                w=230,
+                h=84,
+            ),
+            FlowNode(
+                "r2",
+                "end",
+                "Replace the water valve.",
+                0.22,
+                0.36,
+                w=210,
+                h=52,
+            ),
+            FlowNode(
+                "d2",
+                "decision",
+                "Water valve weeping\nat the pedal?",
+                0.78,
+                0.36,
+                w=220,
+                h=76,
+            ),
+            FlowNode(
+                "r3",
+                "end",
+                "Replace the vacuum breaker.",
+                0.22,
+                0.54,
+                w=220,
+                h=52,
+            ),
+            FlowNode(
+                "d3",
+                "decision",
+                "Vacuum breaker leaking\nduring flush?",
+                0.78,
+                0.54,
+                w=230,
+                h=76,
+            ),
+            FlowNode(
+                "r4",
+                "end",
+                "Tighten the flange nuts\nand replace the flange seal.",
+                0.22,
+                0.72,
+                w=240,
+                h=60,
+            ),
+            FlowNode(
+                "d4",
+                "decision",
+                "Leak at the\nfloor flange?",
+                0.78,
+                0.72,
+                w=200,
+                h=72,
+            ),
+            FlowNode(
+                "e",
+                "end",
+                "Write the readings\nand stop.",
+                0.78,
+                0.90,
+                w=200,
+                h=52,
+            ),
+        ],
+        edges=[
+            FlowEdge("s", "d1"),
+            FlowEdge("d1", "r1", "YES", "left", "right"),
+            FlowEdge("d1", "d2", "NO", "bottom", "top"),
+            FlowEdge("d2", "r2", "YES", "left", "right"),
+            FlowEdge("d2", "d3", "NO", "bottom", "top"),
+            FlowEdge("d3", "r3", "YES", "left", "right"),
+            FlowEdge("d3", "d4", "NO", "bottom", "top"),
+            FlowEdge("d4", "r4", "YES", "left", "right"),
+            FlowEdge("d4", "e", "NO", "bottom", "top"),
+        ],
+    )
+
+
+def _thetford_leak_path(concern: str, ranked) -> dict:
+    return {
+        "primary_cite": _thetford_troubleshooting_cite(ranked),
+        "pattern_means": (
+            "A leak under the flush lever is the supply connection, the water valve at the pedal, "
+            "the vacuum breaker during a flush, or the floor flange. "
+            "Stop at the check that is leaking."
+        ),
+        "flowchart": _thetford_leak_flowchart(),
+        "bay_order": [
+            (
+                "Back of the toilet: check the water supply line connection at the water valve. "
+                "Secure or tighten it as necessary."
+            ),
+            "If the water valve weeps at the pedal, replace the water valve.",
+            (
+                "If the vacuum breaker leaks while flushing, replace the vacuum breaker "
+                "or the water module, depending on model."
+            ),
+            (
+                "Between the closet flange and the toilet, check the flange nuts. "
+                "If the leak continues, check the flange height and replace the flange seal."
+            ),
+        ],
+        "do_not": [
+            "Do not replace the vacuum breaker or the flange seal before the supply connection and the water valve are checked.",
+        ],
+        "sources": [],
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+_THETFORD_OM_LEAK_RE = re.compile(
+    r"leak persists from water valve"
+    r"|water supply line connection at water valve"
+    r"|vacuum breaker leaks while flushing"
+    r"|flange nuts for tightness"
+    r"|between closet flange and toilet",
+    re.I,
+)
+
+
+def _thetford_leak_sources(sources: list[dict]) -> list[dict]:
+    """OM troubleshooting page, water valve kit 42109 page 1, vacuum breaker kit."""
+    kept = []
+    for src in sources or []:
+        title = src.get("title") or ""
+        page = src.get("page")
+        excerpt = src.get("excerpt") or ""
+        if _is_multilingual_ocr_line(excerpt):
+            excerpt = ""
+        row = dict(src)
+        row["excerpt"] = excerpt
+        valve_kit = bool(re.search(r"\b42109\b", title)) and page == 1
+        breaker_kit = bool(re.search(r"\b34122\b|\b34123\b", title))
+        om = bool(re.search(r"\b42088\b|permanent rv toilet", title, re.I)) and bool(
+            _THETFORD_OM_LEAK_RE.search(excerpt)
+        )
+        if valve_kit or breaker_kit or om:
+            kept.append(row)
+
+    def _order(src: dict) -> tuple:
+        title = src.get("title") or ""
+        if re.search(r"\b42088\b|permanent rv toilet", title, re.I):
+            return (0, src.get("page") or 0)
+        if re.search(r"\b42109\b", title):
+            return (1, src.get("page") or 0)
+        return (2, src.get("page") or 0)
+
+    return sorted(kept, key=_order)
+
+
 def bind_primary_sources(proc: "BayProcedure") -> "BayProcedure":
     """A page named in PRIMARY stays in Sources, with no quote unless one was kept.
 
@@ -5677,6 +5973,9 @@ def compile_bay_procedure(
     elif cooktop_tip:
         spec = _cooktop_tip_path()
         path_kind = "cooktop_tip"
+    elif is_thetford_flush_leak_context(category, model_text, concern) and ranked:
+        spec = _thetford_leak_path(concern, ranked)
+        path_kind = "thetford_leak"
     else:
         long_path = is_long_appliance_path(category, concern)
         step_pages = [] if fact12_mislabeled_only else list(ranked)
@@ -5731,6 +6030,8 @@ def compile_bay_procedure(
                 "title_only": True,
             }
         ]
+    if path_kind == "thetford_leak":
+        sources = _thetford_leak_sources(sources)
     if path_kind == "stabilizer":
         sources = _prefer_front_jack_sources(sources)
     if path_kind == "e2":
@@ -5845,6 +6146,8 @@ def compile_bay_procedure(
         )
     elif path_kind == "brand_miss":
         figs = [_brand_miss_figure(brand, model, concern)]
+    elif path_kind == "thetford_leak":
+        figs = []
     elif path_kind:
         figs = resolve_path_figures(path_kind, ranked, figures)
     else:
