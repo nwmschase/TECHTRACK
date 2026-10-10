@@ -59,6 +59,78 @@ def chunk_page_text(page_num: int, text: str, chunk_size: int = CHUNK_SIZE, over
     return chunks
 
 
+def format_elapsed(seconds: float) -> str:
+    """Clock time for an import run: ``45s``, ``2m 5s``, or ``1h 1m 1s``."""
+    total = max(0, int(seconds))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes}m {secs}s"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def files_per_minute(files_done: int, elapsed_seconds: float):
+    """Files finished divided by minutes. None until the clock has moved."""
+    if elapsed_seconds <= 0:
+        return None
+    return float(files_done) / (float(elapsed_seconds) / 60.0)
+
+
+def format_import_pace(files_done: int, elapsed_seconds: float) -> str:
+    rate = files_per_minute(files_done, elapsed_seconds)
+    rate_txt = "—" if rate is None else f"{rate:.1f}"
+    return f"Elapsed {format_elapsed(elapsed_seconds)} · {rate_txt} files/minute"
+
+
+def arm_import_pace(state: dict, done_files: int, now: float, *, reset: bool) -> None:
+    """Start the pace clock, or keep the one already running for this ZIP."""
+    if reset or not state.get("bulk_pace_started_at") or state.get("bulk_pace_frozen_at"):
+        state["bulk_pace_started_at"] = float(now)
+        state["bulk_pace_base_done"] = int(done_files)
+        state["bulk_pace_frozen_at"] = None
+
+
+def freeze_import_pace(state: dict, now: float) -> None:
+    """Stop the clock when the manager hits Stop or the ZIP finishes."""
+    if state.get("bulk_pace_started_at") and not state.get("bulk_pace_frozen_at"):
+        state["bulk_pace_frozen_at"] = float(now)
+
+
+def import_pace_line(state: dict, done_files: int, now: float) -> str:
+    started = state.get("bulk_pace_started_at")
+    if not started:
+        return ""
+    frozen = state.get("bulk_pace_frozen_at")
+    end = float(frozen) if frozen else float(now)
+    elapsed = max(0.0, end - float(started))
+    base = int(state.get("bulk_pace_base_done") or 0)
+    finished = max(0, int(done_files) - base)
+    return format_import_pace(finished, elapsed)
+
+
+def auto_continue_should_rerun(
+    *,
+    auto: bool,
+    stopped: bool,
+    pending: int,
+    processed: int,
+    status: str,
+    error: str = "",
+) -> bool:
+    """True when Auto-continue should load the next batch.
+
+    Stop, an error, or a finished ZIP ends the chain. A batch that processed
+    nothing does not reload, so a stuck ZIP cannot spin.
+    """
+    if stopped or not auto:
+        return False
+    if error or status in ("complete", "abandoned", "missing"):
+        return False
+    return int(pending or 0) > 0 and int(processed or 0) > 0
+
+
 def format_bytes(num) -> str:
     n = float(num or 0)
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -1456,9 +1528,12 @@ def render_manager_bulk_panel(
         )
     )
     auto = st.checkbox(
-        "Continue while this page stays open",
+        "Auto-continue",
         key="bulk_auto_continue",
-        help="Imports the next batch and reloads until this ZIP is done or you pause.",
+        help=(
+            "After each batch, start the next one until this ZIP is done. "
+            "Each batch still cloud-saves the database. Stop finishes the current batch, then waits."
+        ),
     )
     if not auto:
         st.session_state["bulk_run_chain"] = False
@@ -1476,25 +1551,29 @@ def render_manager_bulk_panel(
             f"duplicates {counts['duplicate']} · failed {counts['failed']} · "
             f"remaining {counts['pending']}"
         )
+        pace = import_pace_line(st.session_state, counts["done_files"], time.time())
+        if pace:
+            st.write(pace)
         for item in recent_items(session, int(job["id"])):
             note = item.get("error") or item.get("index_note") or ""
             st.write(
                 f"{_status_label(item.get('status') or '')}: {item.get('filename')} "
                 f"(tier {item.get('tier')}) {note}".rstrip()
             )
-        pause = st.button("Pause", key="bulk_pause")
+        stop = st.button("Stop", key="bulk_stop")
         go = st.button("Import next batch", type="primary", key="bulk_go")
         abandon = st.button("Abandon this import", key="bulk_abandon")
-        if pause:
+        if stop:
             st.session_state["bulk_run_chain"] = False
+            freeze_import_pace(st.session_state, time.time())
         if abandon:
             st.session_state["bulk_run_chain"] = False
             abandon_job(session, int(job["id"]))
             st.rerun()
         if go:
-            st.session_state["bulk_run_chain"] = True
+            st.session_state["bulk_run_chain"] = bool(auto)
         should_run = bool(go) or bool(st.session_state.get("bulk_run_chain"))
-        if pause:
+        if stop:
             should_run = False
         if should_run and r2_ready:
             _run_batch(
@@ -1506,6 +1585,8 @@ def render_manager_bulk_panel(
                 backup_db=backup_db,
                 batch_size=batch_size,
                 auto=auto,
+                stopped=False,
+                reset_pace=bool(go),
             )
         elif should_run and not r2_ready:
             st.session_state["bulk_run_chain"] = False
@@ -1544,10 +1625,26 @@ def render_manager_bulk_panel(
                     backup_db=backup_db,
                     batch_size=batch_size,
                     auto=auto,
+                    stopped=False,
+                    reset_pace=True,
                 )
 
 
-def _run_batch(st, session, *, job_id, upload_bytes, download_bytes, backup_db, batch_size, auto) -> None:
+def _run_batch(
+    st,
+    session,
+    *,
+    job_id,
+    upload_bytes,
+    download_bytes,
+    backup_db,
+    batch_size,
+    auto,
+    stopped=False,
+    reset_pace=False,
+) -> None:
+    before = job_progress(session, job_id)
+    arm_import_pace(st.session_state, before["done_files"], time.time(), reset=reset_pace)
     holder = {"bar": None}
 
     def _tick(index, total, filename):
@@ -1587,6 +1684,21 @@ def _run_batch(st, session, *, job_id, upload_bytes, download_bytes, backup_db, 
             st.success(note or "Database saved to cloud storage.")
         elif note:
             st.warning(note)
+    now = time.time()
+    carry_on = auto_continue_should_rerun(
+        auto=bool(auto) and bool(st.session_state.get("bulk_run_chain")),
+        stopped=stopped,
+        pending=int(result.get("pending") or 0),
+        processed=int(result.get("processed") or 0),
+        status=result.get("status") or "",
+        error=result.get("error") or "",
+    )
+    if not carry_on:
+        freeze_import_pace(st.session_state, now)
+    counts = job_progress(session, job_id)
+    pace = import_pace_line(st.session_state, counts["done_files"], now)
+    if pace:
+        st.write(pace)
     if result.get("status") == "complete" and not result.get("error"):
         st.success(
             f"Import finished. {result['total']} file(s) recorded. "
@@ -1594,13 +1706,7 @@ def _run_batch(st, session, *, job_id, upload_bytes, download_bytes, backup_db, 
         )
         st.session_state["bulk_run_chain"] = False
         return
-    if (
-        auto
-        and st.session_state.get("bulk_run_chain")
-        and result.get("pending")
-        and result.get("processed")
-        and not result.get("error")
-    ):
+    if carry_on:
         st.rerun()
     else:
         st.session_state["bulk_run_chain"] = False

@@ -131,6 +131,55 @@ class BulkCase(unittest.TestCase):
         ]
 
 
+class TestAutoContinue(unittest.TestCase):
+    def test_stop_ends_the_chain_and_freezes_the_clock(self):
+        self.assertTrue(
+            bulk.auto_continue_should_rerun(
+                auto=True,
+                stopped=False,
+                pending=40,
+                processed=8,
+                status="paused",
+            )
+        )
+        self.assertFalse(
+            bulk.auto_continue_should_rerun(
+                auto=True,
+                stopped=True,
+                pending=40,
+                processed=8,
+                status="paused",
+            )
+        )
+        self.assertFalse(
+            bulk.auto_continue_should_rerun(
+                auto=False,
+                stopped=False,
+                pending=40,
+                processed=8,
+                status="paused",
+            )
+        )
+        self.assertFalse(
+            bulk.auto_continue_should_rerun(
+                auto=True,
+                stopped=False,
+                pending=0,
+                processed=8,
+                status="complete",
+            )
+        )
+        state = {}
+        bulk.arm_import_pace(state, 0, now=1000.0, reset=True)
+        running = bulk.import_pace_line(state, 16, now=1120.0)
+        self.assertEqual(running, "Elapsed 2m 0s · 8.0 files/minute")
+        bulk.freeze_import_pace(state, 1120.0)
+        self.assertEqual(bulk.import_pace_line(state, 16, now=5000.0), running)
+        panel = (ROOT / "library_bulk_import.py").read_text(encoding="utf-8")
+        self.assertIn('st.checkbox(\n        "Auto-continue"', panel)
+        self.assertIn('st.button("Stop", key="bulk_stop")', panel)
+
+
 class TestChunkWindows(unittest.TestCase):
     def test_overlap_is_120_inside_900_character_windows(self):
         self.assertEqual(bulk.CHUNK_SIZE, 900)
