@@ -1,6 +1,6 @@
 """
-RV TechTrack v4.19.24
-- v4.19.24: A Guided Diagnostics repair is chosen from the category and model, not from loose words in an earlier chat. Placeholders and broken If-sentences cannot ship, and a firm repair stays the repair. Bay sheets drop the reversed C/T note, cite Level Up page 1, name Brisk II page 23, and finish the FACT12 and Girard charts.
+RV TechTrack v4.19.25-revert
+- v4.19.25-revert: Contingency. Guided Diagnostics shop replies are the v4.19.21 reply layer again. Bay PDF fixes and the Start-new-chat category and model resets stay.
 - v4.19.23: After the proving check, a reported result, "Not checked yet", or "What is the repair?" gets the next step and a conditional repair. A reply cannot be blank or a repeated sentence. Bay sheets close Fig. 36, drop the rear-stabilizer cite on a front jack, list Level Up documents only, and add the missing dial-off, FACT12, Girard, and Dometic lines.
 - v4.19.22: Ask for the proving check before any repair. A later turn answers the new fact. Heard, Noted, repair-stands, and unchanged fillers stay off the reply. Girard E8 is the air-pressure switch at the blower. FACT12 E3 shows the 12 V and data-line path.
 - v4.19.20: Start new chat clears Category. A named model beats a leftover category. A shop reply keeps a short traceable fact or none, and it always has a next step. A Bay sheet that names a page in PRIMARY keeps that page in Sources.
@@ -118,7 +118,7 @@ def product_version_from_doc(doc):
     The header line (``RV TechTrack v4.19.19``) is canonical. Later changelog
     bullets must not override it.
     """
-    match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
+    match = re.search(r"\bv\d+\.\d+\.\d+(?:-[\w]+)?", doc or "")
     return match.group(0) if match else "unknown"
 
 
@@ -198,7 +198,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.24"
+_GDC_REQUIRED_REVISION = "v4.19.25-revert"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -4470,9 +4470,7 @@ def guided_diagnostics_reply(
         reply = _gdc.ensure_dometic_ceiling_thermostat(
             reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
-    reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text
-    )
+    reply = _gdc.avoid_duplicate_reply(reply, history, user_msg)
     return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
 
 
@@ -5048,9 +5046,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     )
     if facr_freeze_job:
         reply = ensure_facr_freeze_assembly_rr(reply, facts)
-    reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text
-    )
+    reply = _gdc.avoid_duplicate_reply(reply, history, user_msg)
     record_cited_pages(reply)
     if wants_library_page_shown(user_msg):
         reply += (
