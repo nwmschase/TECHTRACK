@@ -51,27 +51,48 @@ class TestBundledThetfordFigures(unittest.TestCase):
         other = mf.bundled_thetford_offers("Read the freeze sensor.", "show me", "Air Conditioning", "FACR08")
         self.assertEqual(other, [])
 
-    def test_empty_library_still_offers_the_bundled_page(self):
-        offers = mf.bundled_thetford_offers(
+    def test_empty_library_labels_the_bundled_page_as_a_last_resort(self):
+        import library_figure_backfill as fb
+
+        offers = fb.offers_for_turn(
+            [],
             "Pull the pedal off.\n📖 Source: Thetford Water Valve Kit 42109, page 1",
             "show me the figure",
             CAT,
             MODEL,
         )
         self.assertTrue(offers)
+        self.assertTrue(offers[0]["bundled"])
         self.assertTrue(offers[0]["png"])
         self.assertFalse(mf.png_is_blank(offers[0]["png"]))
+        self.assertTrue(offers[0]["caption"].startswith("Bundled kit sheet, not from the shop library."))
         note = figure_render_honesty_note("Thetford Water Valve Kit 42109", True)
         self.assertIn("could not load", note.lower())
         self.assertNotIn("could not load", offers[0]["caption"].lower())
-        source = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text(encoding="utf-8")
-        self.assertIn("bundled_thetford_offers", source)
+        miss = fb.offers_for_turn(
+            [],
+            "No document in the shop library for this unit.",
+            "show me",
+            CAT,
+            MODEL,
+        )
+        self.assertEqual(miss, [])
+        other = fb.offers_for_turn([], "Read the freeze sensor.", "show me", "Air Conditioning", "FACR08")
+        self.assertEqual(other, [])
+        root = Path(__file__).resolve().parents[1]
+        source = root.joinpath("rv_techtrack.py").read_text(encoding="utf-8")
+        backfill = root.joinpath("library_figure_backfill.py").read_text(encoding="utf-8")
+        self.assertIn("offers_for_turn", source)
+        self.assertIn("Backfill page images and figures", source)
+        self.assertNotIn('st.button("Backfill page images")', source)
         self.assertIn("st.file_uploader(", source)
         self.assertIn("Photo (optional)", source)
+        self.assertIn("bundled_thetford_offers", backfill)
+        self.assertIn("Bundled kit sheet, not from the shop library.", backfill)
 
 
 class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
-    def test_text_only_chunks_still_print_the_kit_procedure(self):
+    def test_text_only_chunks_do_not_paste_the_bundled_kit(self):
         proc = compile_bay_procedure(
             concern="Thetford 42070 leaks under the flush lever",
             brand="Thetford",
@@ -82,24 +103,13 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
                 {"title": "Thetford Water Valve Service Kit 42109", "page": 1, "excerpt": "Disconnect RV water supply from toilet."},
             ],
         )
-        self.assertGreaterEqual(len(proc.procedures), 2)
-        self.assertTrue(proc.procedures[0]["title"].lower().startswith("water"))
-        steps = [step for procedure in proc.procedures for step in procedure["steps"]]
-        self.assertLess(len(steps), 30)
-        self.assertGreater(len(steps), 8)
+        self.assertEqual(proc.procedures, [])
+        blob = " ".join(proc.bay_order).lower()
+        self.assertIn("supply", blob)
+        self.assertIn("vacuum", blob)
         pages = compose_sheet(proc)
-        self.assertEqual(pages[0].images, [])
         images = [image for page in pages for image in page.images]
-        pictured = [
-            step
-            for procedure in proc.procedures
-            for step in procedure["steps"]
-            if step.get("figure") and step["figure"].get("png")
-        ]
-        self.assertEqual(len(images), len(pictured))
-        self.assertGreater(len(images), 4)
-        for image in images:
-            self.assertGreaterEqual(image.w, 120.0)
+        self.assertEqual(images, [])
         trace = []
         pdf = render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])
@@ -108,9 +118,6 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
         doc = pymupdf.open(stream=pdf, filetype="pdf")
         text = "\n".join(page.get_text() for page in doc).lower()
         doc.close()
-        self.assertIn("removal", text)
-        self.assertIn("installation", text)
-        self.assertIn("yes, go to the next step", text)
         self.assertNotIn("disconnect rv water supply", text)
         self.assertNotIn("connect rv water supply line to toilet", text)
 

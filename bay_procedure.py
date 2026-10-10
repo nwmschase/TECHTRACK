@@ -6125,33 +6125,55 @@ def bind_primary_sources(proc: "BayProcedure") -> "BayProcedure":
     return proc
 
 
+_SLOT_STOP = {
+    "this", "that", "with", "from", "have", "been", "will", "your", "into",
+    "onto", "before", "after", "when", "then", "than", "them", "they",
+    "page", "manual", "item", "part", "list", "calls", "good", "does",
+    "replace", "confirm", "check", "test", "step", "figure",
+}
+
+
+def _content_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(word) > 3 and word not in _SLOT_STOP
+    }
+
+
 def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
-    """Which bay step a kit sheet illustrates. Supply and flange stay unpictured."""
-    blob = f"{title} {excerpt[:240]}".lower()
-    if re.search(r"34122|34123|vacuum breaker", blob):
+    """Which bay step this figure illustrates. Any brand, by the words on the step.
+
+    The vacuum-breaker and water-valve sheets keep their shop slots. Supply
+    and flange stay unpictured unless the figure's own words land there.
+    """
+    blob = f"{title} {excerpt[:800]}"
+    low = blob.lower()
+    if re.search(r"34122|34123|vacuum breaker", low):
         for index, step in enumerate(steps):
             if "vacuum" in step.lower():
                 return index
-    if re.search(r"42109|water valve", blob):
+    if re.search(r"42109|water valve", low):
         for index, step in enumerate(steps):
-            low = step.lower()
-            if "weep" in low or "replace the water valve" in low:
+            step_low = step.lower()
+            if "weep" in step_low or "replace the water valve" in step_low:
                 return index
         for index, step in enumerate(steps):
             if "water valve" in step.lower():
                 return index
+    words = _content_words(blob)
+    nums = set(re.findall(r"\b\d{4,}\b", blob))
+    best_index = None
+    best_score = 0
+    for index, step in enumerate(steps):
+        score = len(words & _content_words(step))
+        score += 5 * len(nums & set(re.findall(r"\b\d{4,}\b", step)))
+        if score > best_score:
+            best_score = score
+            best_index = index
+    if best_score >= 2:
+        return best_index
     return None
-
-
-def _proc_is_thetford_leak(proc: BayProcedure) -> bool:
-    """The real Thetford leak sheet. A library miss stays a miss, with no kit pasted on."""
-    cite = (proc.primary_cite or "").lower()
-    if "document in the shop library for this unit" in cite:
-        return False
-    blob = " ".join(
-        part for part in (proc.brand, proc.model, proc.concern, proc.category) if part
-    )
-    return bool(re.search(r"thetford|42070|flush\s+lever|flush\s+pedal", blob, re.I))
 
 
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
@@ -6178,11 +6200,6 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         if figures:
             packets.append({**data, "figures": figures})
     if not packets:
-        if _proc_is_thetford_leak(proc):
-            job = " ".join(
-                part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
-            )
-            proc.procedures = _plain_kit_procedures(mf.thetford_demo_packets(), job)
         return proc
     job = " ".join(
         part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
@@ -6194,7 +6211,13 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         if mf.brands_conflict(job, title):
             continue
         page = packet.get("page")
-        slot = _step_slot_for_figure(proc.bay_order, title, packet.get("excerpt") or "")
+        labels = " ".join(
+            f"{figure.get('label') or ''} {figure.get('caption') or ''}"
+            for figure in packet["figures"]
+        )
+        slot = _step_slot_for_figure(
+            proc.bay_order, f"{title} {labels}", packet.get("excerpt") or ""
+        )
         if slot is None:
             continue
         detail = mf.procedure_detail(packet.get("excerpt") or "", title, page)
@@ -6236,8 +6259,6 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     proc.bay_order = order
     proc.step_figures = groups
     proc.procedures = _plain_kit_procedures(packets, job)
-    if not proc.procedures and _proc_is_thetford_leak(proc):
-        proc.procedures = _plain_kit_procedures(mf.thetford_demo_packets(), job)
     owned = set()
     for procedure in proc.procedures:
         for step in procedure.get("steps") or []:

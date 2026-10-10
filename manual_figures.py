@@ -70,9 +70,38 @@ CREATE TABLE IF NOT EXISTS doc_assets (
     image_path VARCHAR(400) DEFAULT '',
     width INTEGER DEFAULT 0,
     height INTEGER DEFAULT 0,
-    png_blob BLOB
+    png_blob BLOB,
+    caption TEXT DEFAULT '',
+    bbox VARCHAR(80) DEFAULT '',
+    chunk_id INTEGER
 )
 """
+
+
+def format_bbox(bbox) -> str:
+    """Store a figure box as x0,y0,x1,y1 in PDF points."""
+    if bbox is None or bbox == "":
+        return ""
+    if isinstance(bbox, str):
+        return bbox[:80]
+    try:
+        return ",".join(f"{float(part):.2f}" for part in bbox)[:80]
+    except (TypeError, ValueError):
+        return ""
+
+
+def ensure_asset_columns(conn) -> None:
+    """Add caption, bbox, and chunk_id on a library database that predates them."""
+    conn.execute(ASSET_DDL)
+    have = {row[1] for row in conn.execute("PRAGMA table_info(doc_assets)").fetchall()}
+    alters = (
+        ("caption", "ALTER TABLE doc_assets ADD COLUMN caption TEXT DEFAULT ''"),
+        ("bbox", "ALTER TABLE doc_assets ADD COLUMN bbox VARCHAR(80) DEFAULT ''"),
+        ("chunk_id", "ALTER TABLE doc_assets ADD COLUMN chunk_id INTEGER"),
+    )
+    for name, ddl in alters:
+        if name not in have:
+            conn.execute(ddl)
 
 
 def _fitz():
@@ -508,14 +537,15 @@ def save_assets_sqlite(db_path: str, document_id: int, assets: list[dict]) -> in
     """Persist crops in the same sqlite file the library backup uploads."""
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute(ASSET_DDL)
+        ensure_asset_columns(conn)
         conn.execute("DELETE FROM doc_assets WHERE document_id = ?", (int(document_id),))
         for asset in assets:
             conn.execute(
                 """
                 INSERT INTO doc_assets
-                    (document_id, page, kind, label, image_path, width, height, png_blob)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (document_id, page, kind, label, image_path, width, height, png_blob,
+                     caption, bbox, chunk_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     int(document_id),
@@ -526,6 +556,9 @@ def save_assets_sqlite(db_path: str, document_id: int, assets: list[dict]) -> in
                     int(asset.get("width") or 0),
                     int(asset.get("height") or 0),
                     asset.get("png") or b"",
+                    asset.get("caption") or "",
+                    format_bbox(asset.get("bbox")),
+                    asset.get("chunk_id"),
                 ),
             )
         conn.commit()
@@ -551,6 +584,8 @@ def assets_from_index(indexed: dict, document_id: int) -> list[dict]:
                 "width": page["width"],
                 "height": page["height"],
                 "image_path": asset_path(document_id, page["page"], "page", "page"),
+                "caption": "",
+                "bbox": "",
             }
         )
     for figure in indexed.get("figures") or []:
@@ -563,6 +598,8 @@ def assets_from_index(indexed: dict, document_id: int) -> list[dict]:
                 "png": figure["png"],
                 "width": figure["width"],
                 "height": figure["height"],
+                "caption": figure.get("label") or "",
+                "bbox": format_bbox(figure.get("bbox")),
                 "image_path": asset_path(
                     document_id, figure["page"], "figure", figure.get("label") or "fig"
                 ),
