@@ -149,6 +149,10 @@ class TestThetfordFlushLeakSheet(unittest.TestCase):
         )
         pages = {src.get("page") for src in self.proc.sources if "42088" in (src.get("title") or "")}
         self.assertEqual(pages, {3})
+        for src in self.proc.sources:
+            excerpt = src.get("excerpt") or ""
+            self.assertNotRegex(excerpt, r"disconnect rv water supply", excerpt)
+            self.assertNotRegex(excerpt, r"connect rv water supply line to toilet", excerpt)
 
     def test_pdf_drops_the_junk_and_keeps_the_checks(self):
         trace = []
@@ -167,6 +171,8 @@ class TestThetfordFlushLeakSheet(unittest.TestCase):
         self.assertIn("42088", low)
         for junk in ("scarico", "opzioni", "preparazione", "????", "poor flush", "did the first"):
             self.assertNotIn(junk, low, junk)
+        self.assertNotIn("disconnect rv water supply", low)
+        self.assertNotIn("connect rv water supply line to toilet", low)
 
 
 if __name__ == "__main__":
