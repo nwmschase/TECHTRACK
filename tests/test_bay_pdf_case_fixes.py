@@ -10,6 +10,7 @@ from bay_procedure import (
     compile_bay_procedure,
     compose_sheet,
     layout_problems,
+    lowercase_dictionary_glues,
     polish_bay_sources,
     render_bay_procedure_pdf,
 )
@@ -150,9 +151,14 @@ class TestBayCaseFixes(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertGreater(image.size[1], 70)
-        self.assertLess(image.size[1], 120)
+        self.assertGreater(image.size[1], 140)
+        self.assertLess(image.size[1], 210)
         self.assertGreater(image.size[0], 1000)
+        from bay_procedure import _OEM_FIGURE_CROP
+
+        crop = _OEM_FIGURE_CROP["ccd7990-p7.png"]
+        self.assertLessEqual(crop[1], 690)
+        self.assertGreaterEqual(crop[3], 860)
         pages = compose_sheet(proc)
         self.assertTrue(
             any("drainage openings" in (t.text or "").lower() for page in pages for t in page.texts)
@@ -1029,7 +1035,9 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         step2 = proc.bay_order[1].lower()
         step3 = proc.bay_order[2].lower()
         self.assertIn("out of the flame", step2)
-        self.assertLess(step2.find("out of the flame"), step2.find("already in the burner flame"))
+        self.assertIn("align the petit tube", step2)
+        self.assertNotIn("already in the burner flame", step2)
+        self.assertIn("already in the burner flame", step3)
         self.assertNotIn("out of the flame", step3)
         self.assertNotIn("? before", text.lower())
         self.assertEqual(len(proc.bay_order), 6)
@@ -1114,3 +1122,164 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertEqual(len(bare), 1)
         self.assertIn("suburban", bare[0]["title"].lower())
         self.assertEqual(bare[0]["excerpt"], "")
+
+    def test_dashes_become_spaces_and_lowercase_joins_split(self):
+        text = clean_ocr_prose(
+            "One is the rubber-boot terminator \u2014 leave that one plugged in. "
+            "Firefly / OneControl \u2014 unplug that one only. "
+            "The module board willgo into lockout mode."
+        )
+        low = text.lower()
+        self.assertNotIn("terminatorleave", low)
+        self.assertNotIn("onecontrolunplug", low)
+        self.assertNotIn("willgo", low)
+        self.assertIn("terminator leave", low)
+        self.assertIn("onecontrol unplug", low)
+        self.assertIn("will go", low)
+        self.assertEqual(lowercase_dictionary_glues(text), [])
+        joined = clean_ocr_prose(
+            "The air con- ditioner lost refriger - ant. This will pre - vent heat. "
+            "Check the FUR - NACE next."
+        )
+        self.assertIn("conditioner", joined.lower())
+        self.assertIn("prevent", joined.lower())
+        self.assertIn("furnace", joined.lower())
+
+    def test_s01_drops_generic_safety_and_keeps_the_drainage_row(self):
+        proc, text = _sheet(
+            "FACR08 freeze up interior leak condensate",
+            "Furrion",
+            "FACR08",
+            "Air Conditioning",
+            chunks=[
+                {
+                    "title": "Furrion rooftop CCD-0007990",
+                    "page": 3,
+                    "excerpt": "Inadequate repairs may cause serious hazards. Electrical devices are not toys.",
+                }
+            ],
+        )
+        low = text.lower()
+        self.assertNotIn("not toys", low)
+        self.assertNotIn("inadequate repairs", low)
+        self.assertNotIn("serious hazards", low)
+        from PIL import Image
+
+        image = Image.open(BytesIO(proc.figures[0].image_png))
+        self.assertGreater(image.size[1], 140)
+        self.assertLess(image.size[1], 210)
+
+    def test_s02_drops_a_snippet_that_ends_on_a_list_number(self):
+        proc, text = _sheet(
+            "Coleman-Mach 2111-0001 fan high is dead",
+            "Coleman-Mach",
+            "2111-0001",
+            "Air Conditioning",
+            chunks=[
+                {
+                    "title": "Coleman-Mach 12VDC wall-thermostat rooftop service manual",
+                    "page": 8,
+                    "excerpt": "The fan circuit is checked in the following manner: 9.",
+                }
+            ],
+        )
+        blob = " ".join(src.get("excerpt") or "" for src in proc.sources).lower()
+        self.assertNotIn("following manner", blob)
+        self.assertNotRegex(text, r"manner:\s*9")
+
+    def test_s06_shop_writeup_does_not_glue_the_dash(self):
+        _proc, text = _sheet(
+            "Manual Mode dump works. Auto works. Touch pad flashes then returns to the home screen.",
+            "",
+            "Level Up Advantage 807662",
+            "Leveling",
+        )
+        low = text.lower()
+        self.assertNotIn("terminatorleave", low)
+        self.assertNotIn("onecontrolunplug", low)
+        self.assertIn("leave that one plugged in", low)
+        self.assertIn("unplug that one only", low)
+        self.assertEqual(lowercase_dictionary_glues(text), [])
+
+    def test_s08_splits_willgo_and_drops_the_repeated_page(self):
+        shared = "The module board checks that the gas valve relay contacts are open."
+        proc, text = _sheet(
+            "Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
+            "Suburban",
+            "NT-20SEQT",
+            "Furnaces",
+            chunks=[
+                {
+                    "title": "Suburban furnace service manual",
+                    "page": 26,
+                    "excerpt": "For 30 seconds after the blower motor starts, the module board willgo into lockout mode. " + shared,
+                },
+                {
+                    "title": "Suburban furnace service manual",
+                    "page": 27,
+                    "excerpt": shared,
+                },
+            ],
+        )
+        pages = [src.get("page") for src in proc.sources]
+        self.assertNotIn(26, pages)
+        self.assertIn(27, pages)
+        low = text.lower()
+        self.assertNotIn("willgo", low)
+        self.assertEqual(lowercase_dictionary_glues(text), [])
+
+    def test_s14_keeps_only_roll_pin_or_jack_assembly_snippets(self):
+        proc, text = _sheet(
+            "Front stabilizer jack. Power extend works. Manual override will not engage. The roll pin is broken.",
+            "",
+            "",
+            "Leveling",
+            chunks=[
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 4,
+                    "excerpt": "This framework describes how the chapters are grouped.",
+                },
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 6,
+                    "excerpt": "Extend warning. Do not run the motor past its mechanical stop.",
+                },
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 8,
+                    "excerpt": "Leg-sync keeps the jacks moving together. Synchronize the legs before travel.",
+                },
+            ],
+        )
+        blob = " ".join(src.get("excerpt") or "" for src in proc.sources).lower()
+        self.assertNotIn("framework", blob)
+        self.assertNotIn("extend warning", blob)
+        self.assertNotIn("leg-sync", blob)
+        self.assertNotIn("synchronize", blob)
+        self.assertIn("roll pin", blob)
+        self.assertIn("jack assembly", blob)
+        self.assertNotIn("framework", text.lower())
+        self.assertNotIn("leg-sync", text.lower())
+
+    def test_s15_drops_the_wood_screw_install_line(self):
+        _proc, text = _sheet(
+            "Suburban SDN2U cooktop. Burner goes out with a pan on. The thermocouple tip sits low and gets pushed.",
+            "Suburban",
+            "SDN2U",
+            "Cooktops",
+            chunks=[
+                {
+                    "title": "Suburban range service manual",
+                    "page": 2,
+                    "excerpt": (
+                        "The thermocouple sits in the burner flame. "
+                        "Fasten unit in place with wood screws through the counter."
+                    ),
+                }
+            ],
+        )
+        low = text.lower()
+        self.assertIn("thermocouple", low)
+        self.assertNotIn("wood screw", low)
+        self.assertNotIn("fasten unit", low)
