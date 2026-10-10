@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.7
+RV TechTrack v4.19.8
+- v4.19.8: A redeploy reloads every Bay PDF and content module whose revision is not this app version, so a cached import cannot keep the previous sheet. The bay sheet DATE is the Pacific calendar day.
 - v4.19.7: Bay snippets are whole sentences (flowchart OCR, fig-ref scraps, part-number runs, and cut endings drop). Flowcharts follow the bay steps. Figures are full regions, not thin cut strips or a blank page. FACR08 CCD-0008666 is labeled as FACR08, and a front jack cites the front/PSX1 book
 - v4.19.6: Bay sheets use the same correction as Guided Diagnostics (1-month cooling-unit close, ceiling thermostat 3311071, Ground Control zero-point, FACT12 freeze-sensor resecure, petit tube before the control board, full jack R&R, thermocouple tip). Captions match the figure, generated sketches are not OEM pages, and snippets are not cut mid-word
 - v4.19.5: The Send path rewrites a B57915 turns-on / will-not-blow-cold reply after the model returns, from the raw complaint. A cached coach that still requires the word fan is reloaded.
@@ -99,7 +100,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.7``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.8``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -178,54 +179,87 @@ _GDC_STALE_GUARD_ATTRS = (
     "gd_category_select_options",
     "library_category_picker_names",
 )
-# Must match gd_library_coach.COACH_REVISION. A cached coach with an older
-# revision is dropped even when every older attribute name is still present.
-_GDC_REQUIRED_REVISION = "v4.19.5"
+# Must match the docstring header (APP_VERSION) and each sibling MODULE_REVISION.
+# A cached module is dropped when the stamp is missing or not this revision,
+# even if every older function name is still present. Equality, not sort order:
+# "v4.19.10" is not older than "v4.19.9" as text.
+_GDC_REQUIRED_REVISION = "v4.19.8"
+# Coach first: bay_procedure imports gd_library_coach while it loads.
+_APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
 
-def _load_gd_library_coach():
+def _cached_module_is_current(mod, required_revision, required_attrs=()):
+    """True only when a cached module's stamp equals this app revision."""
+    if mod is None:
+        return False
+    module_rev = getattr(mod, "MODULE_REVISION", None)
+    coach_rev = getattr(mod, "COACH_REVISION", None)
+    if module_rev in (None, "") and coach_rev in (None, ""):
+        return False
+    if module_rev not in (None, "") and str(module_rev) != required_revision:
+        return False
+    if coach_rev not in (None, "") and str(coach_rev) != required_revision:
+        return False
+    if required_attrs and not all(hasattr(mod, name) for name in required_attrs):
+        return False
+    return True
+
+
+def _reload_app_module(name, required_revision, required_attrs=()):
     """
-    Load the sibling coach module by file path.
+    Load one sibling module from this file's folder.
 
-    Streamlit Cloud often runs with cwd / sys.path that is not the repo root,
-    or keeps a stale gd_library_coach in sys.modules from before v4.13.3.
-    After v4.13.7 the same cache can still lack category constants, which
-    raises AttributeError at AIR_CONDITIONING_CATEGORY = _gdc.AIR_CONDITIONING_CATEGORY.
-    Either case raises ImportError at `from gd_library_coach import ...`.
+    Streamlit re-executes rv_techtrack.py on redeploy and leaves sys.modules
+    in place. A plain import then binds the previous function objects. Drop
+    that cache when MODULE_REVISION / COACH_REVISION is missing or is not
+    this app version, then execute the file that shipped with this deploy.
+    A matching revision is returned as-is so a later rerun does not reload.
     """
     import importlib.util
     import sys
 
-    path = Path(__file__).resolve().parent / "gd_library_coach.py"
+    path = Path(__file__).resolve().parent / f"{name}.py"
     if not path.is_file():
         raise ImportError(
-            "gd_library_coach.py is missing next to rv_techtrack.py "
-            f"({path}). Deploy the full GitHub repo, not only the main file."
+            f"{name}.py is missing next to rv_techtrack.py ({path}). "
+            "Deploy the full GitHub repo, not only the main file."
         )
     root = str(path.parent)
     if root not in sys.path:
         sys.path.insert(0, root)
-    cached = sys.modules.get("gd_library_coach")
-    revision = getattr(cached, "COACH_REVISION", "") if cached is not None else ""
-    if cached is not None and (
-        revision != _GDC_REQUIRED_REVISION
-        or not all(hasattr(cached, name) for name in _GDC_STALE_GUARD_ATTRS)
-    ):
-        sys.modules.pop("gd_library_coach", None)
-        cached = None
-    if cached is not None:
+    cached = sys.modules.get(name)
+    if _cached_module_is_current(cached, required_revision, required_attrs):
         return cached
-    spec = importlib.util.spec_from_file_location("gd_library_coach", str(path))
+    sys.modules.pop(name, None)
+    spec = importlib.util.spec_from_file_location(name, str(path))
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load gd_library_coach from {path}")
+        raise ImportError(f"Cannot load {name} from {path}")
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["gd_library_coach"] = mod
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
+def _load_gd_library_coach():
+    """Load gd_library_coach.py from this file's folder. See _reload_app_module."""
+    return _reload_app_module(
+        "gd_library_coach",
+        _GDC_REQUIRED_REVISION,
+        required_attrs=_GDC_STALE_GUARD_ATTRS,
+    )
+
+
+def _reload_stale_app_modules(required_revision):
+    """Reload coach, gd_llm, and bay_procedure when their stamp is not current."""
+    for name in _APP_MODULES:
+        attrs = _GDC_STALE_GUARD_ATTRS if name == "gd_library_coach" else ()
+        _reload_app_module(name, required_revision, required_attrs=attrs)
+
+
 _gdc = _load_gd_library_coach()
-# Import after the coach loader puts this file's folder on sys.path.
+# After the loader slice tests exec. APP_VERSION is this deploy's header.
+_reload_stale_app_modules(APP_VERSION)
+# Import after the reload so this script binds the new function objects.
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES

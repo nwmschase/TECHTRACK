@@ -15,9 +15,10 @@ import re
 
 # Product path: hard tree is never exclusive GD chat.
 HARD_TREE_EXCLUSIVE_CHAT = False
-# Bump when coach behavior changes without a new public name. rv_techtrack
-# reloads a cached module whose revision does not match.
-COACH_REVISION = "v4.19.5"
+# Bump with the app version. rv_techtrack reloads a cached module whose
+# revision is missing or is not this stamp, even when every old name exists.
+COACH_REVISION = "v4.19.8"
+MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
 # Match live library labels — do not invent OEM manuals here.
