@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.19"
+COACH_REVISION = "v4.19.20"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -1154,6 +1154,55 @@ def tech_asks_unity_for_ac_controls(
     return bool(AC_UNITY_ASK_RE.search(blob))
 
 
+def named_appliance_family(model_text: str = "", symptom: str = "") -> str:
+    """The appliance the model or complaint names. The category dropdown does not count."""
+    blob = _blob(model_text, symptom)
+    if not blob:
+        return ""
+    if any(m in blob for m in AC_MODELS) or re.search(r"\bfact\d", blob) or FACR_MODEL_RE.search(blob):
+        return "ac"
+    if "brisk" in blob or "b57915" in blob:
+        return "ac"
+    if any(m in blob for m in WATER_HEATER_MODELS) or "gswh" in blob or re.search(r"\bgirard\b", blob):
+        return "water_heater"
+    if "water heater" in blob or "water-heater" in blob:
+        return "water_heater"
+    if re.search(r"\bnt[\s-]*\d", blob) or ("furnace" in blob and "suburban" in blob):
+        return "furnace"
+    if "sdn2u" in blob or "cooktop" in blob or "gas range" in blob:
+        return "cooktop"
+    if re.search(r"\bfcr\s*1?0\b", blob) or "refrigerator" in blob:
+        return "fridge"
+    if any(k in blob for k in ("343633", "ground control", "soft-touch", "stabilizer", "psx1")):
+        return "leveling"
+    return ""
+
+
+def category_conflicts_with_model(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """True when the dropdown names a different appliance than the model."""
+    family = named_appliance_family(model_text, symptom)
+    cat = _norm(category_name)
+    if not family or not cat or cat in ("(any)", "any"):
+        return False
+    if family == "ac":
+        return "air condition" not in cat and cat not in ("a/c", "ac", "hvac")
+    if family == "water_heater":
+        return "water" not in cat
+    if family == "furnace":
+        return "furnace" not in cat
+    if family == "cooktop":
+        return "cook" not in cat and "range" not in cat
+    if family == "fridge":
+        return "fridge" not in cat and "refriger" not in cat
+    if family == "leveling":
+        return "level" not in cat and "stabil" not in cat and "jack" not in cat
+    return False
+
+
 def is_air_conditioning_context(
     category_name: str = "",
     model_text: str = "",
@@ -1162,7 +1211,10 @@ def is_air_conditioning_context(
     """
     Rooftop Air Conditioning: category, Furrion FACT*, Furrion FACR* / Chill,
     Dometic B57915/Brisk, ADB, E2/E3 AC codes, no-cool AC. Fridge 'not cooling' is not AC.
+    A named water heater, furnace, cooktop, fridge, or jack beats the category dropdown.
     """
+    if named_appliance_family(model_text, symptom) not in ("", "ac"):
+        return False
     cat = _norm(category_name)
     if "air condition" in cat or cat in ("a/c", "ac", "hvac"):
         return True
@@ -3391,16 +3443,31 @@ def _reply_asks_check(text: str, pattern: re.Pattern) -> bool:
     return False
 
 
-def _ack_latest(latest_msg: str, forward: str) -> str:
-    """Note a fact the tech actually sent. A fallback question is not a fact."""
-    if _is_fallback_question(latest_msg):
-        return re.sub(r"\s+", " ", (forward or "").strip())
-    fact = re.sub(r"\s+", " ", (latest_msg or "").strip())[:180]
-    if not fact:
-        return re.sub(r"\s+", " ", (forward or "").strip())
+def _short_paraphrase(latest_msg: str) -> str:
+    """At most a few words of a real fact. A question or a long restatement is not one."""
+    fact = re.sub(r"\s+", " ", (latest_msg or "").strip())
+    if not fact or _is_fallback_question(fact) or "?" in fact:
+        return ""
+    if len(fact.split()) > 6:
+        reading = re.search(
+            r"\b\d+(?:\.\d+)?\s*(?:vdc|vac|volts?|v|amps?|ohms?|psi)\b(?:\s+\w+){0,3}",
+            fact,
+            re.I,
+        )
+        if not reading:
+            return ""
+        fact = " ".join(reading.group(0).split()[:6])
     if fact[-1:] not in ".!?":
         fact += "."
+    return fact
+
+
+def _ack_latest(latest_msg: str, forward: str) -> str:
+    """Note a short fact the tech actually sent. A fallback question is not a fact."""
     step = re.sub(r"\s+", " ", (forward or "").strip())
+    fact = _short_paraphrase(latest_msg)
+    if not fact or _norm(fact).rstrip(".") in _norm(step):
+        return step
     if not step:
         return f"Noted: {fact}"
     return f"Noted: {fact} {step}"
@@ -3420,8 +3487,17 @@ _LEAKED_GUARD_RE = re.compile(
 )
 _META_QUESTION_RE = re.compile(
     r"[^.?!]*(?:does the coach have any other symptoms|pivot to a different check|"
-    r"any other symptoms)[^.?!]*[.?!]?",
+    r"any other symptoms|does the unit have a thermocouple or flame sensor)[^.?!]*[.?!]?",
     re.I,
+)
+_COOKTOP_GUARD_RE = re.compile(
+    r"^(?:before condemning the thermocouple\b|"
+    r"\d+\.\s*(?:confirm the flame is present|remove the pan|check the thermocouple position)\b)",
+    re.I,
+)
+_CLAIM_STOP = frozenset(
+    "the a an and or of to for with on in is are was were that this it its then so if when "
+    "your you we but not".split()
 )
 _FALLBACK_ACK_RE = re.compile(
     r"^(?:noted|heard)\s*:\s*"
@@ -3433,7 +3509,18 @@ _FALLBACK_ACK_RE = re.compile(
 
 
 def _split_reply_sentences(text: str) -> list[str]:
-    return [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", text or "") if part.strip()]
+    protected = re.sub(
+        r"\b(Figs?|Fig)\.(?=\s*\d)",
+        lambda match: match.group(1) + "\x00",
+        text or "",
+    )
+    protected = re.sub(
+        r"(^|\s)(\d{1,2})\.\s+(?=[A-Za-z])",
+        lambda match: f"{match.group(1)}{match.group(2)}\x00 ",
+        protected,
+    )
+    parts = re.split(r"(?<=[.!?])\s+|\n+", protected)
+    return [part.replace("\x00", ".").strip() for part in parts if part.strip()]
 
 
 def _sentence_key(sentence: str) -> str:
@@ -3488,6 +3575,23 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
         "turn the dial" in prior or "dial down" in prior
     ):
         options.append("Dry the cabinet, clear the rear drain, and check the door gasket.")
+    if re.search(r"\b(?:rear|back)\s*wall\b", blob) and re.search(r"\bice\b", blob):
+        if not re.search(r"\b4\s*(?:-|to)\s*5\b", prior):
+            options.append("Turn the thermostat dial to 4-5 and recheck the rear wall for ice.")
+        options.append(ICE_MONTH_CLOSE)
+    if re.search(r"\bfact\s*12\b", blob) and re.search(r"\be\s*[23]\b", blob):
+        options.append("Reseat the freeze sensor on the evaporator coil. That is the repair.")
+        options.append(
+            "Confirm the freeze sensor is fastened on the evaporator coil and write what you find."
+        )
+    if re.search(r"\b(?:manual crank|stabilizer|psx1)\b", blob):
+        options.append(
+            "Replace the complete front stabilizer jack assembly and retest power and the manual crank."
+        )
+    if re.search(r"\b(?:bypass operates|thermostat bypassed|jumped)\b", blob) and re.search(
+        r"\bfurnace\b", blob
+    ):
+        options.append("Prove the sail switch with the blower running before the module board.")
     if "wall thermostat" in prior:
         options.extend(
             [
@@ -3604,6 +3708,107 @@ def _scrub_unreported_sentence(sentence: str, user_blob: str) -> str:
     return sentence
 
 
+def _claim_words(text: str) -> list[str]:
+    return [
+        word
+        for word in re.findall(r"[a-z0-9]+", _norm(text))
+        if word not in _CLAIM_STOP and (len(word) > 2 or word.isdigit())
+    ]
+
+
+def _claim_unsupported(sentence: str, user_blob: str) -> bool:
+    """A Noted, Heard, or reported claim has to be in the tech's own words."""
+    text = (sentence or "").strip()
+    if not text:
+        return False
+    lead = re.match(r"^(?:noted|heard|reported|you said|you reported)\b", text, re.I)
+    has_action = re.search(
+        r"\b(?:align|replace|prove|check|bypass|reseat|re-?secure|confirm|remove|inspect|"
+        r"measure|wait|reposition|verify|turn|set|dry|write|put|seat)\b",
+        text,
+        re.I,
+    )
+    state = re.search(
+        r"\b(?:is|are|was|were)\s+(?:good|clear|broken|seized|failed|passed|aligned)\b",
+        text,
+        re.I,
+    )
+    reported = re.search(r"\breported\b", text, re.I)
+    flame = re.search(r"\b(?:goes out|lights but)\b", text, re.I) and not re.search(
+        r"\b(?:goes out|lights|lit)\b", user_blob or ""
+    )
+    if has_action and not lead:
+        return False
+    if not lead and not state and not reported and not flame:
+        return False
+    body = text
+    if lead:
+        body = re.sub(
+            r"^(?:noted|heard|reported|you said|you reported)\s*:?\s*",
+            "",
+            text,
+            flags=re.I,
+        )
+        if len(body.split()) > 8:
+            return True
+    words = _claim_words(body)
+    if len(words) < 2:
+        return False
+    hits = sum(1 for word in words if word in (user_blob or ""))
+    return hits / len(words) < 0.55
+
+
+def _prior_assistant_text(history: list = None) -> str:
+    return " ".join(
+        message.get("content") or ""
+        for message in history or []
+        if (message.get("role") or "") == "assistant"
+    )
+
+
+def _overlaps_prior(sentence: str, history: list = None) -> bool:
+    """True when this sentence repeats a step the coach already gave."""
+    prior = _prior_assistant_text(history)
+    if not prior or not sentence:
+        return False
+    if re.search(r"\b4\s*(?:-|to)\s*5\b", sentence, re.I) and re.search(
+        r"\b4\s*(?:-|to)\s*5\b", prior, re.I
+    ):
+        return True
+    return False
+
+
+def _has_shop_step(text: str) -> bool:
+    body = "\n".join(
+        line for line in (text or "").splitlines() if not line.strip().startswith("📖")
+    )
+    body = re.sub(r"\bthat is the repair\.?", "", body, flags=re.I)
+    if len(body.strip()) < 20:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:replace|align|reseat|re-?secure|check|prove|bypass|jumper|confirm|"
+            r"measure|inspect|remove|wait|reposition|verify|install|turn|set|dry|write|"
+            r"fasten|put|seat)\b",
+            body,
+            re.I,
+        )
+    )
+
+
+def _next_unused_step(history: list = None, latest_msg: str = "", original: str = "") -> str:
+    candidates = []
+    repair = _repair_from_chat(history, latest_msg, original)
+    if repair:
+        candidates.append(repair)
+    candidates.extend(_alternate_lines(original))
+    candidates.append("Write the reading on the sheet and ask a manager before a part swap.")
+    for line in candidates:
+        if line and not _overlaps_prior(line, history):
+            return line
+    return candidates[-1]
+
+
 def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
     """Shop text only: no model instructions, no invented facts, no repeated block."""
     text = (reply or "").strip()
@@ -3611,6 +3816,12 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
         text = _repair_from_chat(history, latest_msg, "")
     text = _LEAKED_GUARD_RE.sub("", text)
     text = _META_QUESTION_RE.sub("", text)
+    text = re.sub(
+        r"before condemning the thermocouple\b[^.?!]*[.?!]?",
+        "",
+        text,
+        flags=re.I,
+    )
     text = _FALLBACK_ACK_RE.sub("", text).strip()
     user_blob = _user_blob(history, latest_msg)
     prior = _prior_sentence_keys(history)
@@ -3634,7 +3845,15 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
             if cleaned != sentence:
                 changed = True
             sentence = cleaned
-            if not sentence or _LEAKED_GUARD_RE.search(sentence) or _META_QUESTION_RE.search(sentence):
+            if (
+                not sentence
+                or _LEAKED_GUARD_RE.search(sentence)
+                or _META_QUESTION_RE.search(sentence)
+                or _COOKTOP_GUARD_RE.search(sentence)
+                or re.fullmatch(r"figs?\.?", sentence.strip(), re.I)
+                or _claim_unsupported(sentence, user_blob)
+                or _overlaps_prior(sentence, history)
+            ):
                 changed = True
                 continue
             if _is_fallback_question(sentence) and len(_sentence_key(sentence)) < 80:
@@ -3663,19 +3882,25 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
     text = "\n".join(lines_out).strip()
     if not changed:
         text = (reply or "").strip()
-    if not text:
-        text = _alternate_repair(reply or "", history, latest_msg) or _repair_from_chat(
-            history, latest_msg, reply or ""
-        )
+    if not _has_shop_step(text):
+        step = _next_unused_step(history, latest_msg, reply or "")
+        sources = [
+            line for line in (text or "").splitlines() if line.strip().startswith("📖")
+        ]
+        text = step
+        if sources:
+            text = step + "\n" + "\n".join(sources)
+        changed = True
     follow_up = any((message.get("role") or "") == "assistant" for message in history or [])
     if (
         follow_up
         and latest_msg
-        and not _is_fallback_question(latest_msg)
-        and not re.match(r"^(?:noted|heard)\s*:", text or "", re.I)
-        and _norm(latest_msg) not in _norm(text)
+        and _short_paraphrase(latest_msg)
+        and _norm(_short_paraphrase(latest_msg)).rstrip(".") not in _norm(text)
     ):
         text = _ack_latest(latest_msg, text)
+    if not changed and not text.startswith("Noted:"):
+        return (reply or "").strip()
     return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
 
 

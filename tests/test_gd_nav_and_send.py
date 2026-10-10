@@ -107,7 +107,8 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         self.assertFalse(list(at.exception))
         self.assertEqual(at.text_input(key="ask_model").value, "")
         self.assertEqual(at.session_state["gd_model_memory"], "")
-        self.assertEqual(at.selectbox(key="ask_cat").value, "Refrigerators")
+        self.assertEqual(at.selectbox(key="ask_cat").value, "(any)")
+        self.assertEqual(at.session_state["gd_category_memory"], "(any)")
 
 
 if __name__ == "__main__":
