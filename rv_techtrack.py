@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.31
+RV TechTrack v4.19.32
+- v4.19.32: Level Up front jacks that drift after a jack swap ask for the gray-wire coil, the swap plumbing, and the manual override screw before the lead-jack cartridge 177094.
 - v4.19.31: The FACR retest NO goes out to the clear-drain end, and the drain NO sits off the line junction. After refrigerant pressures, Guided Diagnostics authorizes rooftop assembly R&R on CCD-0007990 and does not ask for pressures again. Overnight dry-and-wait with frost back replaces the cooling unit. Confirmed Girard seating is the repair. The cooktop repair repositions the thermocouple tip in the flame, and a run-on tip sentence does not ship. The Coleman authorization drops the extra stop line. Ask turns use a smaller library context and a low reasoning cap.
 - v4.19.29: A Thetford flush-lever leak sheet keeps the English leak checks only: supply connection, water valve weeping at the pedal, vacuum breaker leaking during flush, then the floor flange. Multilingual lines, poor flush, flow rate, blade seal, frozen lines, and the riser stay off. Sources are the 42088 troubleshooting page, water valve kit 42109 page 1, and vacuum breaker kit 34122/34123.
 - v4.19.28: A typed unit with no matching shop manual does not borrow another brand. Thetford with no Thetford document says so. The reading filler cannot ship on any path, including a job with no lock. Plumbing / Toilets is a library category.
@@ -204,7 +205,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.31"
+_GDC_REQUIRED_REVISION = "v4.19.32"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
