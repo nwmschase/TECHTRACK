@@ -21,6 +21,7 @@ from gd_library_coach import (
     ensure_furnace_wall_thermostat,
     ensure_girard_petit_align,
     facr_proves_from_chat,
+    facr_reported_assembly_rr_line,
     facr_reported_path_supports_rr,
     facts_from_chat,
     furnace_rw_jumper_ran,
@@ -198,7 +199,8 @@ class TestFacrReportedPath(unittest.TestCase):
             "unit is running and icing."
         )
         card = ensure_facr_freeze_assembly_rr(pressure, facts)
-        self.assertEqual(card, FACR_REPORTED_ASSEMBLY_RR_LINE)
+        self.assertIn("nozzles", card.lower())
+        self.assertEqual(card, facr_reported_assembly_rr_line(facts))
         self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
         self.assertIn("replace the rooftop assembly", card.lower())
         self.assertIn("CCD-0007990", card)
