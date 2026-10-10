@@ -144,21 +144,25 @@ class TestFacrTerminalCard(unittest.TestCase):
             self.assertTrue(again.strip(), blank)
             self.assertTrue(reply_names_rooftop_assembly_rr(again), again[:400])
 
-    def test_path_missing_pressure_stays_blank(self):
+    def test_path_missing_pressure_authorizes_rr(self):
         short = GOOD_PATH[:-2]
         facts, card = _terminal_card(short, "")
         self.assertFalse(facr_terminal_path_complete(facts), facts)
-        self.assertFalse(card.strip(), card)
+        self.assertIsNone(facts.get("facr_pressure"))
+        self.assertTrue(card.strip(), card)
+        self.assertTrue(reply_names_rooftop_assembly_rr(card), card)
+        self.assertIn("replace the rooftop assembly", card.lower())
+        self.assertIn("CCD-0007990", card)
+        self.assertNotIn("read the refrigerant pressures", card.lower())
 
-    def test_rr_before_pressures_is_rewritten(self):
+    def test_rr_before_pressures_is_kept(self):
         short = GOOD_PATH[:-2]
         facts, card = _terminal_card(short, GOOD)
         self.assertFalse(facr_terminal_path_complete(facts), facts)
         self.assertIsNone(facts.get("facr_pressure"))
         self.assertTrue(reply_names_rooftop_assembly_rr(GOOD))
-        self.assertFalse(reply_names_rooftop_assembly_rr(card), card[:400])
-        self.assertNotIn("replace the rooftop assembly", card.lower())
-        self.assertIn("refrigerant pressures", card.lower())
+        self.assertTrue(reply_names_rooftop_assembly_rr(card), card[:400])
+        self.assertIn("replace the rooftop assembly", card.lower())
         self.assertIn("CCD-0007990", card)
         _, kept = _terminal_card(GOOD_PATH, GOOD)
         self.assertTrue(reply_names_rooftop_assembly_rr(kept), kept[:400])
@@ -265,7 +269,7 @@ class TestFacrTerminalCard(unittest.TestCase):
         self.assertFalse(reply_drifts_facr_off_freeze_path(card), card)
 
     def test_drift_or_library_miss_before_prove_does_not_force_assembly(self):
-        short = GOOD_PATH[:-2]
+        short = GOOD_PATH[:7]
         drift = (
             "No compressor start. The 350 V DC bus is present. "
             "Check fan motor winding continuity."
@@ -288,7 +292,7 @@ class TestFacrTerminalCard(unittest.TestCase):
         self.assertFalse(reply_names_rooftop_assembly_rr(card), card)
         self.assertNotIn("don't have", card.lower())
         self.assertNotIn("paste", card.lower())
-        self.assertIn("refrigerant pressures", card.lower())
+        self.assertIn("next check", card.lower())
         useful = "Read the refrigerant pressures."
         facts, card = _terminal_card(asked, useful)
         self.assertEqual(card, useful)

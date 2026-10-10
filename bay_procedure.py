@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.16"
+MODULE_REVISION = "v4.19.17"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -213,8 +213,8 @@ GENERIC_LONG_SCAFFOLD = (
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
 FIREFLY_CAN_PORT_PROVE = (
     "The Level Up controller has two ports labeled CAN. "
-    "One is the rubber-boot terminator — leave that one plugged in. "
-    "The other is the CAN cable to Firefly / OneControl — unplug that one only. "
+    "One is the rubber-boot terminator - leave that one plugged in. "
+    "The other is the CAN cable to Firefly / OneControl - unplug that one only. "
     "Then try Manual Mode again."
 )
 FIREFLY_HOLDS_BRANCH = (
@@ -325,6 +325,7 @@ def scrub_sheet_text(text: str) -> str:
         parts = re.split(r"(?<=[.!?])\s+", out)
         out = " ".join(p for p in parts if p and not body_uses_coach_donots(p))
     out = BODY_MANUAL_CODE_RE.sub("", out)
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
     out = re.sub(r"\s{2,}", " ", out)
     return out.strip()
 
@@ -590,7 +591,7 @@ def _dial_off_path() -> dict:
         "check_pages": [31, 31, 43, 45],
         "do_not": [
             "Do not jumper C and T on this prove.",
-            "Do not open the fuse or a 12V continuity check while the dial is OFF and the compressor is still running.",
+            "Do not open the fuse, and do not run a 12V continuity check, while the dial is OFF and the compressor is still running.",
             "Do not replace the cooling unit while the dial is OFF and the compressor is still running.",
         ],
         "sources": [
@@ -790,7 +791,7 @@ def _ice_path() -> dict:
                 "title": FURRION_8122_TITLE,
                 "page": 51,
                 "excerpt": (
-                    "Door gasket. Dollar-bill test around the full perimeter. "
+                    "Check the door gasket with a dollar-bill test around the full perimeter. "
                     "Check hinges, latch, and door alignment."
                 ),
             },
@@ -936,16 +937,12 @@ def _facr_path() -> dict:
             {
                 "title": FACR_7990_TITLE,
                 "page": None,
-                "excerpt": (
-                    "Rooftop assembly, condensate drain, base pan, and freeze path."
-                ),
+                "excerpt": "Clean the drainage openings so condensate can leave the rooftop pan.",
             },
             {
                 "title": FACR_8666_TITLE,
                 "page": 10,
-                "excerpt": (
-                    "Furrion Chill drain, base-pan, and freeze-sensor layout."
-                ),
+                "excerpt": "The freeze sensor sits on the evaporator beside the drain in the Chill layout.",
             },
         ],
         "display_model": "Furrion Chill rooftop unit",
@@ -1692,7 +1689,8 @@ _RUNON_NEXT = {
     "loosen", "tighten", "replace", "check", "inspect", "remove", "install",
     "disconnect", "connect", "open", "close", "clean", "measure", "verify",
     "confirm", "press", "turn", "set", "align", "reposition", "resecure",
-    "the", "if", "when", "after", "before", "refer",
+    "the", "if", "when", "after", "before", "refer", "ensure", "cycle",
+    "attach", "finally", "rotate",
 }
 # "and Replace" is one phrase. "knob Loosen" is two sentences.
 _NO_SPLIT_LEFT = frozenset({
@@ -1936,6 +1934,8 @@ def _normalize_ocr_chars(text: str) -> str:
     'terminatorleave'. Turning it into a bare space reads as 'terminator leave'.
     """
     out = text or ""
+    # "4 -5" is a scanned range, not a clause dash.
+    out = re.sub(r"(\d)\s*-\s*(\d)", r"\1-\2", out)
     out = re.sub(rf"(\d)\s*[{_DASH_CHARS}]\s*(\d)", r"\1-\2", out)
     # A terminal label is one capital and a hyphen: F-, T-, C-.
     out = re.sub(rf"(?<![A-Za-z])([A-Z])\s*[{_DASH_CHARS}]\s*", r"\1- ", out)
@@ -2136,6 +2136,10 @@ _PATH_OFF = {
         r"\blockout\b",
         r"knob removal",
         r"remove the knob",
+        r"\bknob\b",
+        r"for \d+ minutes",
+        r"gets to temperature",
+        r"ensure the refrigerator",
     ),
     "facr": (
         r"\bcoleman\b",
@@ -2157,8 +2161,23 @@ _PATH_OFF = {
         r"ccd-0001749",
         r"fifth[-\s]?wheel",
         r"5th[-\s]?wheel",
+        r"retract light",
+        r"parking br",
+        r"\bsolenoid\b",
+        r"corrective action",
+        r"end user",
     ),
-    "furnace": (r"flat[-\s]?rate", r"rear leveling", r"\bcoleman\b"),
+    "furnace": (
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"\bcoleman\b",
+        r"gas valve",
+        r"electrode",
+        r"pre-?purge",
+        r"ignition",
+        r"spark",
+        r"\blockout\b",
+    ),
     "e2": (
         r"flat[-\s]?rate",
         r"rear leveling",
@@ -2170,6 +2189,9 @@ _PATH_OFF = {
         r"led blink",
         r"\bblinking\b",
         r"thermal fault",
+        r"ambient",
+        r"attach the refrigerator",
+        r"quick connection",
     ),
     "coleman": (
         r"\bfurrion\b",
@@ -2186,6 +2208,11 @@ _PATH_OFF = {
         r"\bcoupler\b",
         r"comm(?:unication)?[-\s]?fail",
         r"jack faults",
+        r"\bsolar\b",
+        r"cross(?:ed)? harness",
+        r"harness.{0,24}cross",
+        r"sensor port",
+        r"voltage at the sensor",
     ),
     "dometic_ceiling": (
         r"\bfurrion\b",
@@ -2197,6 +2224,9 @@ _PATH_OFF = {
         r"\blcd\b",
         r"heat pump",
         r"yellow wire",
+        r"comfort control",
+        r"air box",
+        r"defrost",
     ),
     "fact12_freeze": (r"\bboltx\b", r"parts list"),
     "girard_e8": (
@@ -2205,8 +2235,15 @@ _PATH_OFF = {
         r"\bblower\b",
         r"water[-\s]?flow",
         r"general troubleshooting",
+        r"\bcn1\b",
+        r"outlet probe",
+        r"\bpwm\b",
+        r"repair the unit yourself",
+        r"number of reasons",
+        r"\be0\b",
     ),
     "stabilizer": (
+        r"rear stab",
         r"rear stabilizer",
         r"\bframework\b",
         r"extend warning",
@@ -2379,12 +2416,14 @@ _VERB_RE = re.compile(
     r"locate|locates|clear|clears|clean|cleans|test|tests|"
     r"align|aligns|reposition|repositions|resecure|reseats|reseat|"
     r"enter|enters|leave|leaves|pull|pulls|start|starts|stop|stops|"
-    r"show|shows|mean|means|need|needs|use|uses|turn|turns|run|runs|"
+    r"show|shows|mean|means|need|needs|use|uses|turn|turns|run|runs|read|reads|"
     r"open|opens|close|closes|hold|holds|sit|sits|go|goes|come|comes|"
     r"remain|remains|return|returns|light|lights|watch|watches|"
     r"confirm|confirms|repair|repairs|set|sets|keep|keeps|"
-    r"make|makes|allow|allows|cause|causes|reach|reaches|"
-    r"stand|stands|call|calls|flow|flows)\b",
+    r"make|makes|allow|allows|cause|causes|reach|reaches|control|controls|"
+    r"stand|stands|call|calls|flow|flows|"
+    r"bypass|bypasses|rotate|rotates|ensure|ensures|cycle|cycles|"
+    r"press|presses|seat|seats|straighten|straightens|escalate|escalates)\b",
     re.I,
 )
 
@@ -2614,6 +2653,174 @@ def _is_diagnostic_manual(title: str = "", excerpt: str = "") -> bool:
     return bool(re.search(r"troubleshoot|service manual|\bdiagnostic\b", blob))
 
 
+_BARE_NOUN_VERBS = {
+    "test", "check", "set", "light", "open", "close", "turn", "run", "hold",
+    "watch", "record", "start", "stop", "leave", "clear", "clean",
+    "drain", "flow", "call", "stand", "reach", "cause", "need", "use",
+    "mean", "go", "come", "sit", "keep", "make", "pull", "enter", "press",
+}
+_IMPERATIVE = _BARE_NOUN_VERBS | {
+    "replace", "measure", "verify", "reset", "connect", "disconnect", "locate",
+    "inspect", "confirm", "repair", "align", "reposition", "resecure", "reseat",
+    "bypass", "rotate", "ensure", "cycle", "seat", "straighten", "escalate",
+    "prove", "retest", "remove", "install", "loosen", "tighten", "note",
+    "photograph", "dry", "power", "jumper", "read",
+}
+_AUX_RE = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|am|has|have|had|do|does|did|"
+    r"can|could|may|might|will|shall|must|should)\b",
+    re.I,
+)
+_PROPER_CAP = {
+    "Furrion", "Coleman", "Lippert", "Dometic", "Girard", "Suburban", "Firefly",
+    "OneControl", "Bal", "Brisk", "Peacemaker", "Mach", "Spark", "Free",
+    "Thermostat", "Figure", "Fig", "Page", "Level", "Ground", "Control",
+    "Chill", "Soft", "Touch", "Range", "Manual", "Mode", "High", "Front",
+    "Rear", "Enter", "Red", "Green", "Yellow", "Black", "Blue", "White",
+    "SkillAbove", "Fact", "Facr",
+}
+_SHORT_TOKEN_OK = {
+    "a", "i", "an", "of", "to", "in", "on", "or", "at", "is", "be", "do",
+    "if", "no", "ok", "ac", "dc", "id", "pn", "by", "we", "it", "as", "up",
+    "so", "us", "my", "he", "me", "go", "am", "oh", "vs", "tv",
+}
+_DROPPED_NOUN_RE = re.compile(
+    r"\b(?:the|a|an)\s+(?:proper|correct|appropriate|specific|following)\s+(?:for|of|to|on|in)\b",
+    re.I,
+)
+_CATALOG_RE = re.compile(r"^\s*title\s*:|\bcategory\s*:|\bdocument type\b", re.I)
+_PAGE_SCAN_RE = re.compile(
+    r"\bpage\s*-\s*\d+\s*-|\bpage\s+-\d+-|\bfigure\s+\d+\s+the following\b",
+    re.I,
+)
+def _has_doubled_word(sentence: str) -> bool:
+    """OCR copied a word or a short phrase twice. Ordinary 'the … the' stays."""
+    text = sentence or ""
+    if re.search(r"\b([A-Za-z]{3,})\s+\1\b", text, re.I):
+        return True
+    return bool(
+        re.search(
+            r"\b([A-Za-z]{4,}\s+[A-Za-z]{3,})\b(?:\s+\w+){0,6}\s+\1\b",
+            text,
+            re.I,
+        )
+    )
+_QUOTE_GENERIC = _TOPIC_STOP | {
+    "dial", "temperature", "power", "check", "replace", "unit", "page", "manual",
+    "system", "control", "wire", "wires", "minutes", "model", "still", "running",
+    "open", "leave", "down", "between", "turn", "test", "full", "around", "part",
+    "show", "shows", "figure", "this", "that", "with", "from", "into", "when",
+    "then", "your", "about", "after", "before", "only", "also", "just", "make",
+    "sure", "good", "next", "first", "same", "both", "into", "over", "under",
+}
+
+
+def _has_real_verb(sentence: str) -> bool:
+    """A quote needs a verb. 'Dollar-bill test around…' is a label, not a sentence."""
+    words = re.findall(r"[A-Za-z']+", sentence or "")
+    if not words:
+        return False
+    if words[0].lower() in _IMPERATIVE:
+        return True
+    if _AUX_RE.search(sentence or ""):
+        return True
+    for match in _VERB_RE.finditer(sentence or ""):
+        word = match.group(0).lower()
+        if word in _BARE_NOUN_VERBS:
+            continue
+        if word.endswith(("ed", "ing")) or (word.endswith("s") and len(word) > 3):
+            return True
+        if word not in _BARE_NOUN_VERBS:
+            return True
+    return False
+
+
+def _is_table_glue(sentence: str) -> bool:
+    """Column headers run together ('Abnormal shutdown Freeze sensor…')."""
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", sentence or "")
+    interior = [
+        word
+        for word in words[1:]
+        if len(word) >= 3 and word[0].isupper() and not word.isupper() and word not in _PROPER_CAP
+    ]
+    return len(interior) >= 2
+
+
+def _has_cut_token(sentence: str) -> bool:
+    """'at a ti' is a word the scan cut off."""
+    for token in re.findall(r"[A-Za-z]+", sentence or ""):
+        if token[0].isupper() and len(token) <= 2:
+            continue
+        if len(token) <= 2 and token.lower() not in _SHORT_TOKEN_OK:
+            return True
+    return False
+
+
+def source_sentence_is_printable(sentence: str) -> bool:
+    """A Sources quote is one grammatical sentence. Anything else is omitted."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    if len(text) < 12:
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", text)
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.62 and len(letters) > 18:
+        return False
+    if re.search(r"\b20\d{8}\b", text) and not (
+        _is_scanned_fragment(text) or _has_cut_token(text) or sheet_has_internal_note(text)
+    ):
+        return True
+    if (
+        _CATALOG_RE.search(text)
+        or _PAGE_SCAN_RE.search(text)
+        or _DROPPED_NOUN_RE.search(text)
+        or _has_doubled_word(text)
+        or _is_scanned_fragment(text)
+        or sheet_has_internal_note(text)
+        or _is_table_glue(text)
+        or _has_cut_token(text)
+        or excerpt_starts_mid_word(text)
+        or _is_verbless_fragment(text)
+        or not _has_real_verb(text)
+    ):
+        return False
+    if re.search(r"\bfor a number of reasons\b|\brepair the unit yourself\b", text, re.I):
+        return False
+    return True
+
+
+def _procedure_words(topic_text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9.+-]{3,}", (topic_text or "").lower())
+    return {word for word in words if word not in _QUOTE_GENERIC}
+
+
+def sentence_is_on_procedure(sentence: str, topic_text: str, path_kind: str) -> bool:
+    """The sentence has to be about this sheet's steps. A shared manual is not enough."""
+    low = (sentence or "").lower()
+    if any(re.search(pattern, low) for pattern in _PATH_OFF.get(path_kind or "", ())):
+        return False
+    if any(_has_source_needle(low, needle) for needle in _PATH_CLIMAX.get(path_kind, ())):
+        return True
+    if path_kind == "ground_control" and re.search(r"\d-\d+v\b", low):
+        return True
+    overlap = _procedure_words(low) & _procedure_words(topic_text)
+    return len(overlap) >= 2
+
+
+def _measurement_sentence(sentence: str) -> str:
+    """Turn a voltage label into a sentence so the range is not dropped."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    match = re.search(
+        r"^(?P<label>[A-Za-z][A-Za-z0-9 /-]{1,40}?)\s*\((?:typical|approx(?:imate)?)\s+"
+        r"(?P<range>\d\s*-\s*\d+\s*V)\)\.?$",
+        text,
+        re.I,
+    )
+    if not match:
+        return ""
+    label = match.group("label").strip()
+    span = re.sub(r"\s+", "", match.group("range"))
+    return f"{label} reads a typical {span}."
+
+
 def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
     """SOURCES snippet: whole sentences only, never a mid-word OCR scrap."""
     if _is_parts_list_dump(text or ""):
@@ -2680,6 +2887,11 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
             continue
         if OPEN_THE_MANUAL_RE.search(sentence) or POWER_LOOKS_SANE_RE.search(sentence):
             continue
+        if not source_sentence_is_printable(sentence):
+            repaired = _measurement_sentence(sentence)
+            if not repaired or not source_sentence_is_printable(repaired):
+                continue
+            sentence = repaired
         kept.append(_capitalize_sentence(sentence))
         limit = 4 if locked else 2
         if len(kept) >= limit:
@@ -2719,23 +2931,30 @@ def _topic_tokens(text: str) -> set[str]:
 
 
 def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind: str) -> bool:
-    """Keep a cite that belongs to this procedure. Drop a different assembly or a labor-guide line."""
+    """Keep a cite that belongs to this procedure. A shared book title is not enough."""
     blob = f"{title or ''} {excerpt or ''}".lower()
     if not path_kind:
         if re.search(r"flat[-\s]?rate|rear leveling jack|\b20300000\b", blob):
             return False
-        return len(_topic_tokens(blob) & _topic_tokens(topic_text)) >= 2
-    has_climax = any(_has_source_needle(blob, needle) for needle in _PATH_CLIMAX.get(path_kind, ()))
-    has_family = any(_has_source_needle(blob, needle) for needle in _PATH_FAMILY.get(path_kind, ()))
-    has_off = any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ()))
-    if path_kind == "cooktop_tip":
-        on_topic = bool(re.search(r"thermocouple|\bflame\b", blob))
-        return on_topic and not has_off
-    if has_off and not has_climax:
+        return len(_procedure_words(blob) & _procedure_words(topic_text)) >= 2
+    if any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ())):
         return False
-    if has_climax or has_family:
+    if path_kind == "cooktop_tip":
+        if re.search(r"thermocouple|\bflame\b", blob):
+            return True
+        return bool(
+            not (excerpt or "").strip()
+            and re.search(r"range|cooktop", title or "", re.I)
+        )
+    if path_kind == "bal_tongue" and re.search(r"\bbal\b", blob) and re.search(
+        r"jack|tongue|stabil", blob
+    ):
         return True
-    return len(_topic_tokens(blob) & _topic_tokens(topic_text)) >= 3
+    if excerpt and sentence_is_on_procedure(excerpt, topic_text, path_kind):
+        return True
+    if any(_has_source_needle(blob, needle) for needle in _PATH_CLIMAX.get(path_kind, ())):
+        return True
+    return len(_procedure_words(blob) & _procedure_words(topic_text)) >= 2
 
 
 def _procedure_topic(spec: dict) -> str:
@@ -2853,6 +3072,40 @@ def _cooktop_title_only(sources: list[dict], default: str = "Suburban Range/Cook
     return [{"title": title, "page": page, "excerpt": ""}]
 
 
+def _doc_ids(title: str) -> set[str]:
+    return {match.group(0).lower() for match in re.finditer(r"ccd-0*\d{4,}|\b\d{4}-\d{3}\b", title or "", re.I)}
+
+
+def _dedupe_cited_pages(sources: list[dict]) -> list[dict]:
+    """One line per manual page. A second title for the same page does not print."""
+    kept: list[dict] = []
+    for src in sources:
+        page = src.get("page")
+        if not page:
+            kept.append(src)
+            continue
+        ids = _doc_ids(src.get("title") or "")
+        title = (src.get("title") or "").strip().lower()
+        duplicate = None
+        for prev in kept:
+            if prev.get("page") != page:
+                continue
+            prev_ids = _doc_ids(prev.get("title") or "")
+            same_doc = bool(ids and prev_ids and (ids & prev_ids))
+            same_title = title and title == (prev.get("title") or "").strip().lower()
+            if not same_doc and not same_title:
+                continue
+            duplicate = prev
+            break
+        if duplicate is None:
+            kept.append(src)
+            continue
+        if len(src.get("excerpt") or "") > len(duplicate.get("excerpt") or ""):
+            duplicate.clear()
+            duplicate.update(src)
+    return kept
+
+
 def polish_bay_sources(
     sources: list[dict],
     locked_count: int,
@@ -2891,13 +3144,33 @@ def polish_bay_sources(
         excerpt = _drop_sheet_contradictions(excerpt, topic_text)
         if path_kind == "cooktop_tip":
             excerpt = _cooktop_excerpt(excerpt)
-        if path_kind == "stabilizer" and not cited and not _STABILIZER_KEEP_RE.search(excerpt or ""):
-            continue
-        if not (excerpt or "").strip() and cited:
-            excerpt = _keep_primary_excerpt(raw_excerpt)
-        if not (excerpt or "").strip():
-            continue
-        if not locked and not cited and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
+        kept_sentences = [
+            sentence
+            for sentence in _split_sentences(excerpt)
+            if source_sentence_is_printable(sentence)
+            and (locked or sentence_is_on_procedure(sentence, topic_text, path_kind))
+        ]
+        excerpt = " ".join(kept_sentences)
+        raw_off = any(re.search(pattern, raw_excerpt or "", re.I) for pattern in _PATH_OFF.get(path_kind or "", ()))
+        if path_kind == "stabilizer" and not cited and not locked:
+            if not _STABILIZER_KEEP_RE.search(excerpt or "") and not _STABILIZER_KEEP_RE.search(raw_excerpt or ""):
+                continue
+            if re.search(r"rear stab", f"{title} {raw_excerpt}", re.I):
+                continue
+        if not excerpt:
+            # A page we mean to cite keeps its title. A junk page does not.
+            # An off-topic excerpt never keeps the page, even when PRIMARY named it.
+            # Cooktop grease is the exception: the range manual stays, with no quote.
+            title_ok = source_is_on_procedure(title, "", topic_text, path_kind)
+            cooktop_manual = path_kind == "cooktop_tip" and title_ok
+            # The C-Jack checklist is the tongue manual. Keep the title when
+            # its sentences are about a different prove.
+            bal_manual = path_kind == "bal_tongue" and title_ok
+            if raw_off and not locked and not cooktop_manual:
+                continue
+            if not (locked or cited or cooktop_manual or bal_manual):
+                continue
+        elif not locked and not cited and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
             continue
         excerpt_key = re.sub(r"\s+", " ", excerpt.lower()).strip()
         key = (title.lower(), page)
@@ -2919,6 +3192,13 @@ def polish_bay_sources(
     for src in out:
         src.pop("_install", None)
     out = _drop_near_duplicate_sources(out, protect)
+    out = _dedupe_cited_pages(out)
+    filled = {src.get("page") for src in out if (src.get("excerpt") or "").strip() and src.get("page")}
+    out = [
+        src
+        for src in out
+        if (src.get("excerpt") or "").strip() or src.get("page") not in filled
+    ]
     if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
         return _cooktop_title_only(sources)
     if path_kind == "stabilizer" and not any((src.get("excerpt") or "").strip() for src in out):
@@ -3075,12 +3355,19 @@ def _is_furnace_bay(category: str = "", model_text: str = "", concern: str = "")
     return "furnace" in blob
 
 
-def _fitted_cite(ranked, needles, fallback: str) -> str:
-    """Primary line stays inside the header. Prefer the prove page, then the latest page."""
+def _fitted_cite(ranked, needles, fallback: str, path_kind: str = "") -> str:
+    """Primary line stays inside the header. Prefer the prove page, then the latest page.
+
+    A page about a different job (gas valve, ignition, paper-suction) is not the cite.
+    """
+    off = _PATH_OFF.get(path_kind or "", ())
     hits = []
     for d in ranked or []:
         title = (d.get("title") or "").strip()
-        blob = f"{title} {d.get('excerpt') or ''}".lower()
+        excerpt = d.get("excerpt") or ""
+        if off and any(re.search(pattern, excerpt, re.I) for pattern in off):
+            continue
+        blob = f"{title} {excerpt}".lower()
         if needles and not any(n in blob for n in needles):
             continue
         if title:
@@ -3130,6 +3417,7 @@ def _furnace_path(ranked) -> dict:
             ranked,
             ("furnace", "thermostat", "sail"),
             "Suburban furnace service manual, thermostat bypass",
+            "furnace",
         ),
         "pattern_means": (
             "The fan turns on and then shuts off, and the furnace will not blow warm. "
@@ -3187,8 +3475,8 @@ def _furnace_path(ranked) -> dict:
                 ),
                 FlowNode(
                     "y2",
-                    "process",
-                    "Check the limit switch,\nthen the module board.",
+                    "end",
+                    "Limit switch and module board checked.\nEnd of this prove.",
                     0.32,
                     0.91,
                     w=280,
@@ -3251,6 +3539,7 @@ def _e2_fan_path(ranked) -> dict:
             ranked,
             ("fan fault", "inverter", "f+", "f-"),
             "Furrion fridge service manual, Fan Fault Diagnostics, page 27",
+            "e2",
         ),
         "pattern_means": (
             "An E2 or fan-fault code on this fridge is the fan-fault diagnostics path. "
@@ -3827,7 +4116,24 @@ def _cropped_oem_png(name: str) -> bytes:
     from PIL import Image
 
     image = Image.open(BytesIO(raw)).convert("RGB")
-    return _png_bytes(image.crop(box))
+    cropped = image.crop(box)
+    if name == "ccd7990-p7.png":
+        # The next row's vertical rules start just under this row's rule. Blank them.
+        gray = cropped.convert("L")
+        width, height = gray.size
+        px = gray.load()
+        rule = None
+        for y in range(height - 1, -1, -1):
+            dark = sum(1 for x in range(0, width, 2) if px[x, y] < 80)
+            if dark > width / 4:
+                rule = y
+                break
+        if rule is not None and rule < height - 1:
+            draw = cropped.load()
+            for y in range(rule + 1, height):
+                for x in range(width):
+                    draw[x, y] = (255, 255, 255)
+    return _png_bytes(cropped)
 
 
 def crop_page_png_to_figure(png: bytes) -> bytes:
@@ -4409,6 +4715,7 @@ def _shop_body(line: str) -> str:
         part = part.strip()
         if not part or part.startswith("📖"):
             continue
+        part = re.sub(r"^\d+\.\s*", "", part)
         kept.append(part)
     return " ".join(kept)
 
@@ -4634,17 +4941,85 @@ def _dometic_ceiling_path(concern: str) -> dict:
 
 def _fact12_freeze_path() -> dict:
     return {
-        "primary_cite": "Resecure the FACT12 freeze sensor.",
+        "primary_cite": (
+            "The FACT12 manual is not in the library. "
+            "The closest reference is the FACR08 book CCD-0008666. "
+            "Resecure the FACT12 freeze sensor."
+        ),
         "pattern_means": (
             "A FACT12 E2 or E3 is a freeze-sensor seating fault. "
-            "Resecure the freeze sensor on the evaporator coil before any board swap."
+            "The FACT12 manual is not in the library. "
+            "The FACR08 book CCD-0008666 is the closest reference. "
+            "Resecure the freeze sensor on the evaporator coil before any board swap. "
+            "If the code is still present after that, replace the freeze sensor."
         ),
-        "flowchart": _named_fix_chart(
-            "FACT12 shows E2 or E3.",
-            "Is the freeze sensor\nloose or off the coil?",
-            "The code cleared.\nThat is the correction.",
-            "Replace the freeze sensor\nand retest.",
-            "Resecure the freeze sensor\non the evaporator coil.",
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode("s", "start", "FACT12 shows E2 or E3.", 0.50, 0.08, w=420, h=56),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Is the freeze sensor\nloose or off the coil?",
+                    0.32,
+                    0.28,
+                    w=230,
+                    h=90,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Replace the freeze sensor\nand retest.",
+                    0.78,
+                    0.28,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "p1",
+                    "process",
+                    "Resecure the freeze sensor\non the evaporator coil.",
+                    0.32,
+                    0.50,
+                    w=260,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Is the code still\npresent?",
+                    0.32,
+                    0.72,
+                    w=220,
+                    h=84,
+                ),
+                FlowNode(
+                    "e_clear",
+                    "end",
+                    "The code cleared.\nThat is the correction.",
+                    0.32,
+                    0.92,
+                    w=250,
+                    h=64,
+                ),
+                FlowNode(
+                    "e_stay",
+                    "end",
+                    "Replace the freeze sensor\nand retest.",
+                    0.78,
+                    0.72,
+                    w=200,
+                    h=72,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p1", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p1", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "e_clear", "NO", "bottom", "top"),
+                FlowEdge("d2", "e_stay", "YES", "right", "left"),
+            ],
         ),
         "bay_order": [
             "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, do the seating correction next. If it is already seated, go to the replace step.",
@@ -4657,7 +5032,7 @@ def _fact12_freeze_path() -> dict:
         ],
         "sources": [
             {
-                "title": "Furrion FACT rooftop freeze-sensor check",
+                "title": "Furrion Chill FACR08 8K manual CCD-0008666",
                 "page": None,
                 "excerpt": "Resecure the freeze sensor on the evaporator coil for E2 or E3.",
             }
@@ -4756,7 +5131,12 @@ def _girard_petit_path() -> dict:
 def _stabilizer_rr_path() -> dict:
     return {
         "primary_cite": "Lippert PSX1 front stabilizer, complete jack assembly",
-        "pattern_means": _shop_body(PSX1_ASSEMBLY_RR_SHOP_LINE),
+        "pattern_means": (
+            "When the manual-override roll pin or coupler is broken or seized and not "
+            "serviceable in the field, replace the complete front stabilizer jack assembly. "
+            "Reconnect the mount and the electrical connector, then retest power and the "
+            "manual crank. Do not replace the coupler only."
+        ),
         "flowchart": _named_fix_chart(
             "Power works. The manual override will not engage.",
             "Is the roll pin\nor coupler broken?",
@@ -4781,14 +5161,6 @@ def _stabilizer_rr_path() -> dict:
                     "Replace the complete front stabilizer jack assembly when that roll pin is broken."
                 ),
             },
-            {
-                "title": "Lippert rear stab",
-                "page": 11,
-                "excerpt": (
-                    "The jack assembly mount and the electrical connector are on the Lippert drawing. "
-                    "Reconnect both after the jack is replaced."
-                ),
-            },
         ],
         "flow_tall": True,
         "full_story": True,
@@ -4798,7 +5170,7 @@ def _stabilizer_rr_path() -> dict:
 def _cooktop_tip_path() -> dict:
     body = _shop_body(COOKTOP_TIP_LOW_REPAIR)
     return {
-        "primary_cite": "Suburban Range/Cooktops service manual",
+        "primary_cite": "Suburban Range/Cooktops service manual, page 4, Figs. 3-4.",
         "pattern_means": body,
         "flowchart": _named_fix_chart(
             "The burner goes out when a pan is set on it.",
@@ -4821,8 +5193,11 @@ def _cooktop_tip_path() -> dict:
         "sources": [
             {
                 "title": "Suburban Range/Cooktops service manual",
-                "page": None,
-                "excerpt": "Reposition the thermocouple tip in the burner flame with the pan on.",
+                "page": 4,
+                "excerpt": (
+                    "Reposition the thermocouple tip in the burner flame with the pan on. "
+                    "Figs. 3-4 show that tip height."
+                ),
             }
         ],
         "flow_tall": True,
@@ -5063,8 +5438,12 @@ def compile_bay_procedure(
     display_model = spec.get("display_model") or ""
     if firefly:
         display_model = "Level Up Advantage controller (Brinkley / Firefly)"
-    elif facr and not display_model:
-        display_model = "Furrion Chill rooftop unit"
+    elif facr:
+        named = re.search(r"\b(FACR\d+[A-Z0-9]*(?:-[A-Z0-9]+)+)\b", f"{concern} {model}", re.I)
+        if named:
+            display_model = named.group(1).upper()
+        elif not display_model:
+            display_model = "Furrion Chill rooftop unit"
     elif dial_off and not display_model:
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
     elif bal_tongue and not (brand or model):
@@ -6037,6 +6416,31 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             if not clears_heads(box):
                 continue
             return x, baseline, block, box
+    # A short vertical arrow has no room on the shaft. Park the label beside the node.
+    owners = [
+        obs
+        for obs in obstacles
+        if obs[0] - 1 <= px <= obs[2] + 1 and obs[1] - 1 <= py <= obs[3] + 1
+    ]
+    block = measure_text(text, 80.0, sizes[-1] if sizes else size, bold=True, leading=(sizes[-1] if sizes else size) + 1.0)
+    beside = []
+    if owners:
+        node = owners[0]
+        mid = (node[1] + node[3]) / 2.0
+        baseline = mid - block.height / 2.0 + (block.height - block.ascent)
+        beside.append((node[2] + 6.0, baseline))
+        beside.append((node[0] - 6.0 - block.width, baseline))
+    beside.append((px + 6.0, py - block.ascent - 1.0))
+    beside.append((px - block.width - 6.0, py - block.ascent - 1.0))
+    for x, baseline in beside:
+        box = _label_box(x, baseline, block)
+        if box[0] < fx0 + 1.5 or box[2] > fx1 - 1.5 or box[1] < fy0 + 1.5 or box[3] > fy1 - 1.5:
+            continue
+        if any(_rects_hit(box, obs, 0.6) for obs in obstacles):
+            continue
+        if not clears_heads(box):
+            continue
+        return x, baseline, block, box
     return None
 
 

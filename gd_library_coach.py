@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.16"
+COACH_REVISION = "v4.19.17"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -215,25 +215,46 @@ _LEAKED_PROMPT_START = re.compile(
     r")",
     re.I,
 )
+# Instruction blocks the coach prepends in front of a real answer.
+# A reply that is only this block stays; the echo in front of the answer does not.
+_GUARD_ECHO_RE = re.compile(
+    r"("
+    r"is not a fuse or 12v-continuity tree"
+    r"|skip ccd-0008122 fuse \(p\.19\)"
+    r"|do not open the 15a fuse / 12v inverter path"
+    r"|not a no-power fuse / 12v inverter tree"
+    r"|ccd-0008122 ice and moisture\s*(?:→|->)"
+    r"|dial/control off with the compressor still running"
+    r")",
+    re.I,
+)
+
+
+def _paragraph_is_prompt_echo(head: str) -> bool:
+    first = head.splitlines()[0].strip() if head else ""
+    return bool(first and _LEAKED_PROMPT_START.match(first))
+
+
+def _paragraph_is_guard_echo(head: str) -> bool:
+    return bool(head and _GUARD_ECHO_RE.search(head))
 
 
 def strip_leaked_prompt(text: str) -> str:
-    """Drop a system-prompt echo that landed in front of the shop reply.
+    """Drop a prompt echo or a guard paragraph that landed in front of the answer.
 
-    A tech-facing line that starts with "Do not" stays. Only a leading block
-    that reads like the coach prompt is removed.
+    A tech-facing line that is only "Do not ..." stays. A leading guard is removed
+    when a later paragraph is the real answer. The guard stays when it is the
+    whole reply.
     """
     raw = (text or "").strip()
     if not raw:
         return text or ""
-    paragraphs = re.split(r"\n\s*\n", raw)
-    while paragraphs:
-        head = paragraphs[0].strip()
-        first = head.splitlines()[0].strip() if head else ""
-        if not first or not _LEAKED_PROMPT_START.match(first):
-            break
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", raw) if part.strip()]
+    while paragraphs and _paragraph_is_prompt_echo(paragraphs[0]):
         paragraphs.pop(0)
-    cleaned = "\n\n".join(part.strip() for part in paragraphs if part.strip()).strip()
+    while len(paragraphs) > 1 and _paragraph_is_guard_echo(paragraphs[0]):
+        paragraphs.pop(0)
+    cleaned = "\n\n".join(paragraphs).strip()
     return cleaned or raw
 
 
@@ -625,13 +646,15 @@ SUBURBAN / GAS COOKTOP PAN-ON FLAME-OUT PRODUCT LOCK:
 - Only if tip geometry is correct WITH the pan on and the flame still drops out, proceed to parts / readings from the Suburban Range/Cooktops SM excerpt actually used.
 - Never invent OEM voltages or page numbers. Cite 📖 Source from an excerpt actually used.
 """
+COOKTOP_TIP_CITE = (
+    "📖 Source: Suburban SDN2U Range/Cooktops SM - page 4 (Figs. 3-4)"
+)
 COOKTOP_TIP_PAN_SHOP_LINE = (
-    "Before condemning the thermocouple, safety valve, orifice, regulator, or igniter: "
-    "verify the thermocouple / flame-sensor tip is positioned in the burner flame "
-    "WITH COOKWARE ON. Reposition the tip so the flame stays on the tip under load. "
-    "Only if tip geometry is correct and the flame still drops out, proceed to parts "
-    "R&R from the Suburban Range/Cooktops SM.\n"
-    "📖 Source: Suburban Range/Cooktops SM"
+    "Before condemning the thermocouple, safety valve, orifice, regulator, or igniter:\n"
+    "1. Verify the thermocouple / flame-sensor tip is positioned in the burner flame WITH COOKWARE ON.\n"
+    "2. Reposition the tip so the flame stays on the tip under load. Figs. 3-4 on page 4 show that tip height.\n"
+    "3. Only if tip geometry is correct and the flame still drops out, proceed to parts R&R from the Suburban Range/Cooktops SM.\n"
+    + COOKTOP_TIP_CITE
 )
 COOKTOP_PARTS_RR_RE = re.compile(
     r"(?<!before )(?<!not )(?<!don't )(?<!do not )"
@@ -1851,6 +1874,13 @@ FACR_TERMINAL_ASSEMBLY_RR_LINE = (
     "Replace the rooftop assembly.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
+FACR_REPORTED_ASSEMBLY_RR_LINE = (
+    "Drain, pan and slope, filter and fan, nozzles, and the freeze sensor are reported good. "
+    "The freeze or interior leak remains. "
+    "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
+    "Replace the rooftop assembly.\n"
+    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+)
 FACR_ASSEMBLY_RR_SHOP_LINE = (
     "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
     "Do not keep searching manuals and do not repeat a drain-only check. "
@@ -1969,6 +1999,14 @@ def facr_freeze_proves_from_text(text: str) -> dict:
         r"\b(good|ok|fine|passed|pass)\b", raw
     ):
         facts["facr_freeze_sensor"] = "good"
+    if re.search(r"\bfilters?\b", raw) and re.search(r"\b(clean|ok|good|fine|clear)\b", raw):
+        facts["facr_filter"] = "ok"
+    if re.search(r"\bfan\b", raw) and re.search(
+        r"\b(spins?|spinning|runs?|running|freely|airflow)\b", raw
+    ):
+        facts["facr_fan"] = "ok"
+    if facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok":
+        facts["facr_fan_filter"] = "ok"
     return facts
 
 
@@ -1984,8 +2022,9 @@ def _facr_extended_proves_from_text(text: str) -> dict:
     if re.search(
         r"\bpan\s*/\s*slope\b.{0,24}\b(good|ok|fine|level|correct|pass|passed)\b|"
         r"\bslope\b.{0,24}\b(good|ok|fine|correct|level|right)\b|"
-        r"\b(base pan|base-pan|evaporator pan)\b.{0,30}\b(good|ok|level|dry)\b|"
-        r"\bpan\b.{0,16}\b(level|dry)\b",
+        r"\b(base pan|base-pan|evaporator pan)\b.{0,30}\b(good|ok|level|dry|fine|clean)\b|"
+        r"\bpan\b.{0,40}\b(level|dry|clean|draining|drains|drained)\b|"
+        r"\b(clean|draining)\b.{0,24}\bpan\b",
         raw,
     ):
         facts["facr_pan_slope"] = "ok"
@@ -2101,6 +2140,8 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
         return _mark_facr_asked(asked)
     if _FACR_YES_RE.search(raw):
         if negative:
+            if "facr_suction" in asked:
+                return {"facr_suction": "iced"}
             return {}
         return _mark_facr_asked(asked)
     if _FACR_SHORT_PASS_RE.search(raw) and not re.search(
@@ -2152,6 +2193,8 @@ def facr_proves_from_chat(history: list = None, latest_msg: str = "") -> dict:
             facts["facr_auth_request"] = "yes"
         pending = []
         pending_text = ""
+    if facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok":
+        facts["facr_fan_filter"] = "ok"
     return facts
 
 
@@ -2167,6 +2210,27 @@ def facr_proves_complete(facts: dict | None) -> bool:
 def facr_sensor_proved(facts: dict | None) -> bool:
     facts = facts or {}
     return facts.get("facr_freeze_sensor") == "good" or facts.get("facr_sensor_reading") == "reported"
+
+
+def facr_reported_path_supports_rr(facts: dict | None) -> bool:
+    """
+    Drain, pan/slope, filter, fan, open nozzles, and a reported freeze sensor
+    are enough to authorize rooftop assembly R&R. An iced suction line is not.
+    Refrigerant pressures are not required once those facts are in.
+    """
+    facts = facts or {}
+    if facts.get("facr_suction") == "iced":
+        return False
+    fan = facts.get("facr_fan_filter") == "ok" or (
+        facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok"
+    )
+    return bool(
+        facts.get("facr_drain") == "clear"
+        and facts.get("facr_pan_slope") == "ok"
+        and fan
+        and facts.get("facr_nozzle") == "open"
+        and facr_sensor_proved(facts)
+    )
 
 
 def facr_terminal_path_complete(facts: dict | None) -> bool:
@@ -2263,6 +2327,8 @@ def _facr_reply_unusable(reply: str) -> bool:
 def _facr_climax_line(facts: dict | None) -> str:
     if facr_terminal_path_complete(facts):
         return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if facr_reported_path_supports_rr(facts):
+        return FACR_REPORTED_ASSEMBLY_RR_LINE
     return _facr_stay_on_prove_line(facts)
 
 
@@ -2331,11 +2397,11 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
     A searching-manuals stall is replaced even before those proves are all in.
     """
     facts = facts or {}
-    if facr_terminal_path_complete(facts):
+    if facr_terminal_path_complete(facts) or facr_reported_path_supports_rr(facts):
         if _facr_terminal_reply_ok(reply):
             return reply
-        return FACR_TERMINAL_ASSEMBLY_RR_LINE
-    # Pressures (and the rest of the prove) are still open. Never authorize R&R.
+        return _facr_climax_line(facts)
+    # The reported drain / pan / filter / fan / nozzle / sensor path is still open.
     if (
         reply_names_rooftop_assembly_rr(reply)
         or reply_drifts_facr_off_freeze_path(reply)
@@ -2723,7 +2789,11 @@ def is_fact12_freeze_code_context(
     model_text: str = "",
     symptom: str = "",
 ) -> bool:
-    """FACT12 E2 or E3. Fridge FCR E2 and FACR freeze jobs are different paths."""
+    """FACT12 E2 or E3. Fridge FCR E2 and FACR freeze jobs are different paths.
+
+    The model field counts. A complaint that says only "E2" still matches
+    when the model is FACT12SA2-PS.
+    """
     if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
         return False
     if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
@@ -2732,6 +2802,46 @@ def is_fact12_freeze_code_context(
     if not re.search(r"fact\s*12", blob):
         return False
     return bool(re.search(r"\be\s*[23]\b", blob))
+
+
+_FACT12_NO_CODE_RE = re.compile(
+    r"("
+    r"do not list or define"
+    r"|does not list or define"
+    r"|don'?t list or define"
+    r"|no e2 definition"
+    r"|not define an e\s*2"
+    r")",
+    re.I,
+)
+
+
+def reply_names_fact12_freeze_resecure(reply: str) -> bool:
+    t = _norm(reply)
+    return "resecure" in t and "freeze sensor" in t
+
+
+def ensure_fact12_freeze_resecure(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """FACT12 E2/E3 reseats the freeze sensor. A 'no E2 definition' line does not."""
+    blob = _blob(
+        category_name,
+        model_text,
+        symptom,
+        _chat_user_blob(history, latest_msg),
+    )
+    if not is_fact12_freeze_code_context(category_name, model_text, blob):
+        return reply or ""
+    text = reply or ""
+    if reply_names_fact12_freeze_resecure(text) and not _FACT12_NO_CODE_RE.search(text):
+        return text
+    return FACT12_FREEZE_RESECURE_LINE
 
 
 def page_is_ground_control_family(identity: str) -> bool:
@@ -2826,15 +2936,15 @@ DOMETIC_NOCOOL_SEARCH_BOOST = (
     "Dometic diagnostic service manual 3311071 no cool compressor ceiling thermostat selector"
 )
 GROUND_CONTROL_LEVEL_LINE = (
-    "Auto-level that lifts the driver side is a zero-point calibration on Lippert Ground Control. "
-    "Do a manual level, then set zero point. Do not swap a level sensor and do not replace a harness. "
-    "Confirm the controller, jack, and touch pad plugs are seated. "
-    "In manual mode, run the jacks until the trailer is level: put a level in the center and level front to back, then side to side. "
-    "Turn the touch pad off. "
-    "With the touch pad off, press and release FRONT five times, then press and release REAR five times. "
-    "The display reads ZERO POINT CALIBRATION, ENTER to set, Power to exit. Press ENTER. "
-    "The display reads Zero point stability check, then Zero point set successfully. "
-    "That stored position is the level state, and the touch pad turns off.\n"
+    "Auto-level that lifts the driver side is a zero-point calibration on Lippert Ground Control.\n"
+    "1. Do a manual level, then set zero point. Do not swap a level sensor and do not replace a harness.\n"
+    "2. Confirm the controller, jack, and touch pad plugs are seated.\n"
+    "3. In manual mode, run the jacks until the trailer is level. Put a level in the center and level front to back, then side to side.\n"
+    "4. Turn the touch pad off.\n"
+    "5. With the touch pad off, press and release FRONT five times, then press and release REAR five times.\n"
+    "6. The display reads ZERO POINT CALIBRATION, ENTER to set, Power to exit. Press ENTER.\n"
+    "7. The display reads Zero point stability check, then Zero point set successfully.\n"
+    "8. That stored position is the level state, and the touch pad turns off.\n"
     "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
     "(Ground Control TT/2.0/3.0)"
 )
@@ -2850,21 +2960,23 @@ DOMETIC_CEILING_LINE = (
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
 DOMETIC_NOCOOL_OPEN = (
-    "Fan running with no cold air is the no-cool path in Dometic diagnostic service manual 3311071. "
-    "Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. "
-    "Then bypass the ceiling selector. "
-    "If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector. "
-    "Do not start on the filter check.\n"
+    "Fan running with no cold air is the no-cool path in Dometic diagnostic service manual 3311071.\n"
+    "1. Peacemaker bypass at the rooftop unit.\n"
+    "2. If that bypass cools, the unit is making cold air.\n"
+    "3. Then bypass the ceiling selector.\n"
+    "4. If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector.\n"
+    "5. Do not start on the filter check.\n"
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
 DOMETIC_NOCOOL_CONFIRM_FAN = (
-    "Dometic B57915 turns on and will not blow cold. "
-    "That is the no-cool path in diagnostic service manual 3311071. "
-    "Confirm the fan runs. Then Peacemaker bypass at the rooftop unit. "
-    "If that bypass cools, the unit is making cold air. "
-    "Then bypass the ceiling selector. "
-    "If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector. "
-    "Do not start on the filter check.\n"
+    "Dometic B57915 turns on and will not blow cold.\n"
+    "1. That is the no-cool path in diagnostic service manual 3311071.\n"
+    "2. Confirm the fan runs.\n"
+    "3. Then Peacemaker bypass at the rooftop unit.\n"
+    "4. If that bypass cools, the unit is making cold air.\n"
+    "5. Then bypass the ceiling selector.\n"
+    "6. If bypassing the ceiling selector also cools, replace the ceiling thermostat/selector.\n"
+    "7. Do not start on the filter check.\n"
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
 DOMETIC_NOCOOL_STEER = DOMETIC_NOCOOL_OPEN
@@ -2875,15 +2987,17 @@ FURNACE_WALL_TSTAT_LINE = (
 COOKTOP_TIP_LOW_REPAIR = (
     "The thermocouple tip sits low and the pan pushes it out of the flame. "
     "Reposition the thermocouple tip in the burner flame with the pan on. "
-    "That is the repair.\n"
-    "📖 Source: Suburban Range/Cooktops SM"
+    "Figs. 3-4 on page 4 show that tip height. That is the repair.\n"
+    + COOKTOP_TIP_CITE
 )
 # Shared with the Bay PDF. FACT12 E2/E3 is a freeze-sensor reseat, not a board swap.
 FACT12_FREEZE_RESECURE_LINE = (
     "Resecure the freeze sensor on the evaporator coil. "
     "That is the FACT12 E2 or E3 correction. "
+    "The FACT12 manual is not in the shop library. "
+    "The closest reference is the FACR08 book CCD-0008666. "
     "Do not replace the control board first.\n"
-    "📖 Source: Furrion FACT rooftop freeze-sensor check"
+    "📖 Source: Furrion Chill FACR08 8K manual CCD-0008666"
 )
 # Shared with the Bay PDF. Align the petit tube before any control-board talk.
 GIRARD_PETIT_ALIGN_LINE = (
@@ -2898,6 +3012,7 @@ _LIBRARY_NO_STEPS_RE = re.compile(
     r"(?:does not|doesn't|do not|don't) have.{0,48}(?:steps|procedure)|"
     r"no (?:procedure|steps).{0,30}(?:library|manual)|"
     r"library (?:does not|doesn't|doesnt) cover|"
+    r"(?:library|manual|excerpt|excerpts).{0,120}(?:does not|doesn't|doesnt|do not|don't) cover|"
     r"(?:manual|excerpt|document library) (?:does not|doesn't|doesnt) cover|"
     r"not covered by (?:the |this )?(?:library|manual|excerpt)|"
     r"no diagnostic steps"
@@ -3191,20 +3306,50 @@ def _chat_user_blob(history: list = None, latest_msg: str = "") -> str:
 
 
 def furnace_rw_jumper_ran(text: str) -> bool:
+    """R/W jumper, or a thermostat bypass at the furnace, and the furnace runs."""
     t = _norm(text)
-    rw = bool(re.search(r"\br\s*/\s*w\b|\br\s+and\s+w\b", t))
-    ran = bool(re.search(r"\b(lights?|lit|runs|running|fires|fired|ignites|ignited)\b", t))
-    return bool(rw and ran)
+    jumper = bool(
+        re.search(
+            r"\br\s*/\s*w\b|\br\s+and\s+w\b|"
+            r"thermostat bypassed|bypassed at the furnace|\bjumped\b",
+            t,
+        )
+    )
+    ran = bool(
+        re.search(
+            r"\b(lights?|lit|runs|running|fires|fired|ignites|ignited|operates|operating)\b",
+            t,
+        )
+    )
+    return bool(jumper and ran)
 
 
 def asks_what_is_the_repair(text: str) -> bool:
     return bool(re.search(r"what is the repair|what'?s the repair", _norm(text)))
 
 
+def asks_what_next(text: str) -> bool:
+    return bool(
+        re.search(
+            r"what do you recommend|recommend next|what(?:'s| is) the next|what should i do next",
+            _norm(text),
+        )
+    )
+
+
 def reply_loops_furnace_12v(reply: str) -> bool:
     if "replace the wall thermostat" in _norm(reply):
         return False
     return bool(re.search(r"\b12\s*v(?:dc)?\b", reply or "", re.I))
+
+
+def _history_asked_furnace_12v(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if reply_loops_furnace_12v(message.get("content") or ""):
+            return True
+    return False
 
 
 def ensure_furnace_wall_thermostat(
@@ -3215,14 +3360,19 @@ def ensure_furnace_wall_thermostat(
     model_text: str = "",
 ) -> str:
     """
-    R/W jumper lights and runs, and the tech asks for the repair:
-    replace the wall thermostat. If voltage is missing, check the wire run.
+    A furnace that runs on a thermostat bypass gets the wall-thermostat repair
+    when the tech asks what is next or what the repair is, and a repeated
+    12 VDC ask does not stay once that bypass is already in the chat.
     """
     reply = limit_library_miss_mentions(reply or "", history)
     blob = _blob(category_name, model_text, _chat_user_blob(history, latest_msg))
     if not is_suburban_furnace_context(category_name, model_text, blob):
         return reply
-    if not furnace_rw_jumper_ran(blob) or not asks_what_is_the_repair(latest_msg or ""):
+    if not furnace_rw_jumper_ran(blob):
+        return reply
+    wants = asks_what_is_the_repair(latest_msg or "") or asks_what_next(latest_msg or "")
+    repeat = reply_loops_furnace_12v(reply) and _history_asked_furnace_12v(history)
+    if not wants and not repeat:
         return reply
     if (
         "replace the wall thermostat" in _norm(reply)
@@ -3623,6 +3773,60 @@ def is_girard_petit_tube_context(
         return False
     blob = _blob(category_name, model_text, symptom)
     return bool(re.search(r"\be\s*8\b", blob) or "petit tube" in blob or "petit-tube" in blob)
+
+
+def girard_petit_facts(history: list = None, latest_msg: str = "") -> dict:
+    """Tubing-clear and APS/harness facts from the tech's own words."""
+    blob = _norm(_chat_user_blob(history, latest_msg))
+    facts = {}
+    if re.search(
+        r"\btubing is clear\b|"
+        r"\b(tubing|petit tube|petit-tube)\b.{0,32}\b(clear|ok|good|connected)\b|"
+        r"\b(clear|connected)\b.{0,16}\b(tubing|petit tube)\b",
+        blob,
+    ):
+        facts["girard_tube"] = "clear"
+    if re.search(
+        r"\baps\b.{0,48}\b(ok|okay|good|fine)\b|"
+        r"\bharness continuity\b.{0,24}\b(ok|okay|good|fine)\b",
+        blob,
+    ):
+        facts["girard_aps"] = "ok"
+    return facts
+
+
+def ensure_girard_petit_align(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """
+    After the tube is clear, an APS/harness pass or a repair ask is the
+    alignment fix. Do not repeat the vent and petit-tube check.
+    """
+    blob = _blob(category_name, model_text, symptom, _chat_user_blob(history, latest_msg))
+    if not is_girard_petit_tube_context(category_name, model_text, blob):
+        return reply
+    facts = girard_petit_facts(history, latest_msg)
+    ready = facts.get("girard_tube") == "clear" and (
+        facts.get("girard_aps") == "ok"
+        or asks_what_is_the_repair(latest_msg or "")
+        or asks_what_next(latest_msg or "")
+    )
+    if not ready:
+        return reply
+    low = _norm(reply)
+    if (
+        "align the petit tube" in low
+        and "burner" in low
+        and "exhaust" not in low
+        and "blower wheel" not in low
+    ):
+        return reply
+    return GIRARD_PETIT_ALIGN_LINE
 
 
 def tech_asks_unity_for_water_heater(
@@ -4299,27 +4503,68 @@ def reply_has_tip_pan_before_parts(reply: str) -> bool:
     return first_check < parts_at
 
 
+_COOKTOP_OTHER_PAGES_RE = re.compile(
+    r"do you have other pages|other pages from that manual",
+    re.I,
+)
+
+
+def _strip_cooktop_contradiction(reply: str) -> str:
+    """Drop a library-coverage denial and the follow-up ask for other pages."""
+    text = strip_library_no_steps(reply or "")
+    kept = []
+    for part in _reply_sentences(text):
+        if _COOKTOP_OTHER_PAGES_RE.search(part):
+            continue
+        if claims_library_missing_steps(part):
+            continue
+        kept.append(part)
+    return " ".join(kept).strip()
+
+
+def _cooktop_cites_page4(reply: str) -> bool:
+    t = _norm(reply)
+    page = "page 4" in t or "p.4" in t or "p. 4" in t
+    figs = "fig" in t
+    return bool(page and figs)
+
+
+def _with_cooktop_page4_cite(reply: str) -> str:
+    text = _strip_cooktop_contradiction(reply or "").strip()
+    if not text:
+        return COOKTOP_TIP_PAN_SHOP_LINE
+    if _cooktop_cites_page4(text):
+        return text
+    return f"{text.rstrip()}\n{COOKTOP_TIP_CITE}"
+
+
 def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list = None) -> str:
     """
     Deterministic shop line so pan-on flame-out cannot skip tip geometry.
-    A low tip that the pan pushes gets that repair. A library-coverage sentence is said at most once.
+    A low tip that the pan pushes gets that repair and cites SDN2U page 4, Figs. 3-4.
+    A sentence that says the library does not cover tip position does not ship with the repair.
     """
-    limited = limit_library_miss_mentions(reply or "", history)
-    cleaned = strip_library_no_steps(limited)
+    cleaned = _strip_cooktop_contradiction(reply or "")
     if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}"):
         low = _norm(cleaned)
-        if "reposition" in low and "tip" in low and ("pan" in low or "cookware" in low):
-            return limited
+        if (
+            "reposition" in low
+            and "tip" in low
+            and ("pan" in low or "cookware" in low)
+            and _cooktop_cites_page4(cleaned)
+            and not claims_library_missing_steps(cleaned)
+        ):
+            return cleaned
         return COOKTOP_TIP_LOW_REPAIR
-    reply = limited
+    reply = cleaned
+    if reply and reply_names_cooktop_tip_pan_check(reply) and reply_has_tip_pan_before_parts(reply):
+        return _with_cooktop_page4_cite(reply)
     if not reply or not cooktop_reply_needs_tip_pan(reply):
-        return reply
-    if reply_has_tip_pan_before_parts(reply):
         return reply
     if "with cookware on" in _norm(reply) and "tip" in _norm(reply):
         if reply_has_tip_pan_before_parts(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}"):
-            return f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}".strip()
-    return f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}".strip()
+            return _with_cooktop_page4_cite(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}")
+    return _with_cooktop_page4_cite(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}")
 
 
 def _is_stabilizer_blob(blob: str) -> bool:
@@ -4386,12 +4631,12 @@ BAL SOFT-TOUCH SS 5.1 TONGUE JACK ONLY DEAD (INS.STA.001):
 """
 BAL_TONGUE_PROVE_SHOP_LINE = (
     "The electric tongue jack is the only jack that is dead. The other stabilizers "
-    "and the soft-touch panel lights still work. Press tongue extend/retract and check "
-    "for 12V on the tongue jack output wire at the panel. No 12V on the tongue output wire means "
-    "replace the soft-touch user panel 20300427. If that output wire has 12V, check "
-    "the local tongue pigtail and the panel-to-motor leads and repair that pigtail. "
-    "Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness. "
-    "Coupler replacement is only when the manual override will not turn, or the motor fails a direct-12V prove.\n"
+    "and the soft-touch panel lights still work.\n"
+    "1. Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel.\n"
+    "2. No 12V on the tongue output wire means replace the soft-touch user panel 20300427.\n"
+    "3. If that output wire has 12V, check the local tongue pigtail and the panel-to-motor leads and repair that pigtail.\n"
+    "4. Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness.\n"
+    "5. Coupler replacement is only when the manual override will not turn, or the motor fails a direct-12V prove.\n"
     + BAL_TONGUE_SOURCE
 )
 BAL_TONGUE_PANEL_SHOP_LINE = (

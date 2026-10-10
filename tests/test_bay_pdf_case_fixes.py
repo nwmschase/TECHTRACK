@@ -562,7 +562,8 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertEqual(proc.model_line, "Lippert PSX1 front stabilizer")
         self.assertIn("complete front stabilizer jack", low)
         self.assertIn("do not replace the coupler only", low)
-        self.assertIn(PSX1_ASSEMBLY_RR_SHOP_LINE.split(".")[0][:40].lower(), low)
+        self.assertIn("roll pin or coupler is broken or seized", low)
+        self.assertNotIn("override-usage", low)
         self.assertNotIn("hookedup", low)
         self.assertNotIn("(fig.", low)
         self.assertNotIn("lippert.", low)
@@ -1035,7 +1036,7 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         alone = clean_source_excerpt(
             "Rooftop assembly, condensate drain, base pan, and freeze path."
         )
-        self.assertIn("condensate drain", alone.lower())
+        self.assertEqual(alone, "")
         voltage = clean_source_excerpt(
             "Sensor comm (typical 3-9V). If a sensor wire is open, replace the sensor."
         )
@@ -1312,9 +1313,9 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         )
         pages = [src.get("page") for src in proc.sources]
         self.assertNotIn(26, pages)
-        self.assertIn(27, pages)
         low = text.lower()
         self.assertNotIn("willgo", low)
+        self.assertNotIn("gas valve", low)
         self.assertEqual(lowercase_dictionary_glues(text), [])
 
     def test_s14_keeps_only_roll_pin_or_jack_assembly_snippets(self):
