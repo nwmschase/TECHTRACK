@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.17"
+COACH_REVISION = "v4.19.18"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -2214,9 +2214,9 @@ def facr_sensor_proved(facts: dict | None) -> bool:
 
 def facr_reported_path_supports_rr(facts: dict | None) -> bool:
     """
-    Drain, pan/slope, filter, fan, open nozzles, and a reported freeze sensor
-    are enough to authorize rooftop assembly R&R. An iced suction line is not.
-    Refrigerant pressures are not required once those facts are in.
+    Drain, pan/slope, filter, fan, and a reported freeze sensor authorize
+    rooftop assembly R&R. Nozzles and refrigerant pressures are not required.
+    An iced suction line is not this path.
     """
     facts = facts or {}
     if facts.get("facr_suction") == "iced":
@@ -2228,7 +2228,6 @@ def facr_reported_path_supports_rr(facts: dict | None) -> bool:
         facts.get("facr_drain") == "clear"
         and facts.get("facr_pan_slope") == "ok"
         and fan
-        and facts.get("facr_nozzle") == "open"
         and facr_sensor_proved(facts)
     )
 
@@ -2459,15 +2458,23 @@ _COLEMAN_ASK_ORDER = (
     ("peacemaker", re.compile(r"\b(?:peacemaker|bypass)\b")),
     ("fan_high", re.compile(r"\b(?:fan\s*high|9[\s-]*pin|light\s*bulb|lightbulb|tester)\b")),
 )
+# A meter range such as 0.000-0.048 VAC is still a dead Fan High reading.
+_COLEMAN_NEAR_ZERO_VAC = r"0(?:\.\d+)?(?:\s*-\s*0(?:\.\d+)?)?\s*vac"
 _COLEMAN_FAN_HIGH_DEAD_RE = re.compile(
     r"("
-    r"fan\s*high.{0,60}(?:dead|dark|no\s+(?:lamp|light|illuminat\w*)|"
-    r"did\s+not\s+illuminat\w*|does\s+not\s+illuminat\w*|0(?:\.\d+)?\s*vac|no\s+voltage)"
-    r"|(?:tester|lightbulb|light\s*bulb).{0,40}(?:dark|no\s+illuminat\w*|did\s+not\s+light)"
-    r".{0,40}fan\s*high"
+    r"fan\s*high.{0,80}(?:dead|dark|no\s+(?:lamp|light|illuminat\w*)|"
+    r"did\s+not\s+illuminat\w*|does\s+not\s+illuminat\w*|"
+    + _COLEMAN_NEAR_ZERO_VAC
+    + r"|no\s+voltage)"
+    r"|(?:tester|lightbulb|light\s*bulb|board\s+output).{0,48}"
+    r"(?:dark|no\s+illuminat\w*|did\s+not\s+light).{0,40}fan\s*high"
     r"|fan\s*high.{0,40}(?:tester|light\s*bulb|lightbulb).{0,24}(?:dark|off|dead)"
-    r"|(?:black\s*/?\s*white|9[\s-]*pin).{0,48}(?:0(?:\.\d+)?\s*vac|no\s+voltage)"
-    r"|(?:0(?:\.\d+)?\s*vac).{0,48}(?:fan\s*high|black|9[\s-]*pin)"
+    r"|(?:black\s*/?\s*white|9[\s-]*pin).{0,48}(?:"
+    + _COLEMAN_NEAR_ZERO_VAC
+    + r"|no\s+voltage)"
+    r"|(?:"
+    + _COLEMAN_NEAR_ZERO_VAC
+    + r").{0,48}(?:fan\s*high|black|9[\s-]*pin)"
     r")",
     re.I,
 )
@@ -2585,9 +2592,9 @@ def symptom_for_brand_detect(symptom: str) -> str:
         FACR_FREEZE_FIGURE_SEARCH_BOOST,
         FACR_ASSEMBLY_SEARCH_BOOST,
     ):
-        if boost and boost in text:
-            text = text.replace(boost, " ")
-    return text
+        if boost:
+            text = re.sub(re.escape(boost), " ", text, flags=re.I)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def asked_brands_for_lookup(
@@ -2789,19 +2796,19 @@ def is_fact12_freeze_code_context(
     model_text: str = "",
     symptom: str = "",
 ) -> bool:
-    """FACT12 E2 or E3. Fridge FCR E2 and FACR freeze jobs are different paths.
+    """FACT12 E2 or E3. The MODEL field must be FACT12. A search boost does not count.
 
-    The model field counts. A complaint that says only "E2" still matches
-    when the model is FACT12SA2-PS.
+    E2 or E3 has to be in the complaint after boosts are removed. Coleman-Mach
+    and Dometic jobs do not match, even when the air-conditioning query mentions FACT12.
     """
     if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
         return False
     if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
         return False
-    blob = _blob(category_name, model_text, symptom)
-    if not re.search(r"fact\s*12", blob):
+    if not re.search(r"fact\s*12", _norm(model_text)):
         return False
-    return bool(re.search(r"\be\s*[23]\b", blob))
+    complaint = symptom_for_brand_detect(symptom or "")
+    return bool(re.search(r"\be\s*[23]\b", _norm(complaint)))
 
 
 _FACT12_NO_CODE_RE = re.compile(
@@ -3203,9 +3210,14 @@ def dometic_bypass_facts(history: list = None, latest_msg: str = "") -> dict:
         and re.search(r"\bcool", blob)
     ):
         facts["dometic_unit_bypass"] = "cools"
+    ceiling_named = bool(
+        re.search(r"selector|thermostat", blob)
+        or "ceiling controls" in blob
+        or "bypassing the ceiling" in blob
+    )
     if (
         "ceiling" in blob
-        and re.search(r"selector|thermostat", blob)
+        and ceiling_named
         and "bypass" in blob
         and re.search(r"\bcool", blob)
     ):
@@ -3337,6 +3349,78 @@ def asks_what_next(text: str) -> bool:
     )
 
 
+_REPEATED_CHECK_RES = (
+    ("filter", re.compile(r"\bfilters?\b", re.I)),
+    ("pressures", re.compile(r"\b(?:refrigerant\s+)?pressures?\b", re.I)),
+    ("12v", re.compile(r"\b12\s*v(?:dc)?\b", re.I)),
+    ("petit", re.compile(r"\bpetit[\s-]*tube\b|\bexhaust\s+vent\b", re.I)),
+)
+
+
+def _last_assistant_text(history: list = None) -> str:
+    for message in reversed(history or []):
+        if (message.get("role") or "") != "assistant":
+            continue
+        text = (message.get("content") or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _reply_asks_check(text: str, pattern: re.Pattern) -> bool:
+    """True when a sentence asks for this check. A 'do not' sentence does not."""
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        if re.search(r"\b(?:do not|don't|dont|never)\b", sentence, re.I):
+            continue
+        if not pattern.search(sentence):
+            continue
+        if re.search(r"\?|\b(?:check|inspect|read|measure|confirm|pull|verify|look)\b", sentence, re.I):
+            return True
+    return False
+
+
+def _ack_latest(latest_msg: str, forward: str) -> str:
+    fact = re.sub(r"\s+", " ", (latest_msg or "Noted").strip())[:180]
+    if fact[-1:] not in ".!?":
+        fact += "."
+    step = re.sub(r"\s+", " ", (forward or "").strip())
+    if not step:
+        step = "Use the facts already in the chat and move to the repair they support."
+    return f"Noted: {fact} {step}"
+
+
+def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
+    """Do not send the same reply twice in a row, and do not ask a check again.
+
+    The first time the facts support a repair, that repair stands. The next turn
+    acknowledges the latest note and moves forward instead of pasting the card again.
+    """
+    text = (reply or "").strip()
+    prev = _last_assistant_text(history)
+    if not text or not prev:
+        return text
+    already = {
+        _norm(message.get("content") or "")
+        for message in history or []
+        if (message.get("role") or "") == "assistant"
+    }
+    if _norm(text) in already:
+        first = ""
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
+            sentence = sentence.strip()
+            if sentence and not sentence.startswith("📖"):
+                first = sentence
+                break
+        return _ack_latest(latest_msg, first)
+    for _name, pattern in _REPEATED_CHECK_RES:
+        if _reply_asks_check(prev, pattern) and _reply_asks_check(text, pattern):
+            return _ack_latest(
+                latest_msg,
+                "That check was already asked. Use the facts already reported and give the next repair.",
+            )
+    return text
+
+
 def reply_loops_furnace_12v(reply: str) -> bool:
     if "replace the wall thermostat" in _norm(reply):
         return False
@@ -3412,7 +3496,7 @@ def _coleman_note_fan_high(facts: dict, text: str, asked: str = "") -> None:
     raw = _coleman_prep(text)
     if not raw:
         return
-    zero = bool(re.search(r"\b0(?:\.\d+)?\s*vac\b", raw))
+    zero = bool(re.search(rf"\b{_COLEMAN_NEAR_ZERO_VAC}\b", raw))
     if _COLEMAN_FAN_HIGH_LIVE_RE.search(raw) and not zero and not re.search(
         r"\b(?:dark|dead|no\s+lamp|no\s+light)\b", raw
     ):
@@ -4545,7 +4629,10 @@ def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list 
     A sentence that says the library does not cover tip position does not ship with the repair.
     """
     cleaned = _strip_cooktop_contradiction(reply or "")
-    if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}"):
+    repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
+        complaint or ""
+    )
+    if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
         low = _norm(cleaned)
         if (
             "reposition" in low

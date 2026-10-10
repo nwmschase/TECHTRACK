@@ -341,7 +341,6 @@ class TestPagecheckQuotes(unittest.TestCase):
                 ],
                 [
                     "override-usage",
-                    "rear stab",
                     "not the end fix for a destroyed pin",
                 ],
             ),
@@ -456,7 +455,7 @@ class TestPagecheckQuotes(unittest.TestCase):
         self.assertIn("do not run a 12V continuity check", joined)
         self.assertNotIn("fuse or a 12V continuity check", joined)
 
-    def test_s14_does_not_cite_the_rear_stab_or_override_usage(self):
+    def test_s14_cites_lippert_page_11_without_the_override_note(self):
         proc = self._sheet(
             "Front stabilizer jack. Power extend works. Manual override will not engage. The roll pin is broken.",
             "",
@@ -472,8 +471,8 @@ class TestPagecheckQuotes(unittest.TestCase):
         )
         blob = _norm(" ".join([proc.pattern_means, _excerpts(proc)] + [s.get("title") or "" for s in proc.sources]))
         self.assertNotIn("override-usage", blob)
-        self.assertNotIn("rear stab", blob)
-        self.assertNotIn("11", " ".join(str(s.get("page")) for s in proc.sources))
+        self.assertIn("11", " ".join(str(s.get("page")) for s in proc.sources))
+        self.assertIn("rear stabilizer", blob)
 
     def test_s15_cites_page_4_and_figs_3_4(self):
         proc = self._sheet(

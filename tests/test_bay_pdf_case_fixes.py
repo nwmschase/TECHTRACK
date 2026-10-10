@@ -558,7 +558,7 @@ class TestBayCaseFixes(unittest.TestCase):
                 },
             ],
         )
-        low = text.lower()
+        low = re.sub(r"\s+", " ", text.lower())
         self.assertEqual(proc.model_line, "Lippert PSX1 front stabilizer")
         self.assertIn("complete front stabilizer jack", low)
         self.assertIn("do not replace the coupler only", low)
@@ -569,7 +569,8 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("lippert.", low)
         self.assertNotIn("4a)", low)
         self.assertNotIn("5012486", text)
-        self.assertNotIn("rear stabilizer", low)
+        self.assertTrue(any(src.get("page") == 11 for src in proc.sources))
+        self.assertIn("rear stabilizer", low)
         _no_generic_chart(text)
         pages = compose_sheet(proc)
         header = [t.text.strip() for t in pages[0].texts if t.role == "header"]
@@ -882,7 +883,8 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("extension cord", blob)
         self.assertNotIn("subject to change", blob)
         self.assertEqual(stab.model_line, "Lippert PSX1 front stabilizer")
-        self.assertTrue(all((src.get("excerpt") or "").strip() for src in stab.sources))
+        self.assertTrue(all(src.get("page") for src in stab.sources))
+        self.assertTrue(any(src.get("page") == 11 and not (src.get("excerpt") or "").strip() for src in stab.sources))
         _proc, cook = _sheet(
             "Suburban SDN2U cooktop. Burner goes out with a pan on. The thermocouple tip sits low and gets pushed.",
             "Suburban",
@@ -939,10 +941,15 @@ class TestSnippetScrubRegressions(unittest.TestCase):
             ],
         )
         pages = [src.get("page") for src in proc.sources]
-        self.assertNotIn(7, pages)
+        drainage = next(src for src in proc.sources if src.get("page") == 7)
+        self.assertEqual(
+            drainage.get("excerpt"),
+            "Clean the drainage openings for condensation water.",
+        )
         self.assertIn(19, pages)
         low = text.lower()
         self.assertNotIn("handling the device", low)
+        self.assertNotIn("abnormal shutdown", low)
         self.assertNotIn("?", " ".join(src.get("excerpt") or "" for src in proc.sources))
         self.assertEqual(_glued_tokens(text), [])
 
@@ -997,8 +1004,8 @@ class TestSnippetScrubRegressions(unittest.TestCase):
             "At the F+ and F- terminals on the inverter PCB."
         )
         self.assertNotIn("21)", excerpt)
-        self.assertIn("F+", excerpt)
-        self.assertIn("F-", excerpt)
+        self.assertIn("Locate the inverter PCB and measure the fan.", excerpt)
+        self.assertNotIn("F+", excerpt)
         self.assertNotIn("At the F+", excerpt)
         proc, text = _sheet(
             "FCR10 E2 fan fault current on the freezer evaporator fan",
@@ -1032,7 +1039,7 @@ class TestSnippetScrubRegressions(unittest.TestCase):
             "Reseat the probe and reconnect the wires."
         )
         self.assertIn("2021128850", part)
-        self.assertIn("Reseat", part)
+        self.assertNotIn("Reseat", part)
         alone = clean_source_excerpt(
             "Rooftop assembly, condensate drain, base pan, and freeze path."
         )
@@ -1056,7 +1063,9 @@ class TestSnippetScrubRegressions(unittest.TestCase):
                 }
             ],
         )
-        self.assertIn("3-9v", text.lower())
+        # The page only has a voltage label, and the next sentence contradicts the sheet.
+        self.assertNotIn("3-9v", text.lower())
+        self.assertNotIn("replace the sensor", text.lower())
         self.assertNotIn("3- .", text.lower())
         self.assertNotIn("3–", text)
         trace = []
@@ -1348,7 +1357,7 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("leg-sync", blob)
         self.assertNotIn("synchronize", blob)
         self.assertIn("roll pin", blob)
-        self.assertIn("jack assembly", blob)
+        self.assertIn("complete front stabilizer jack", re.sub(r"\s+", " ", text.lower()))
         self.assertNotIn("framework", text.lower())
         self.assertNotIn("leg-sync", text.lower())
 
