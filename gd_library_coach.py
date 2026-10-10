@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.20"
+COACH_REVISION = "v4.19.21"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -3443,36 +3443,6 @@ def _reply_asks_check(text: str, pattern: re.Pattern) -> bool:
     return False
 
 
-def _short_paraphrase(latest_msg: str) -> str:
-    """At most a few words of a real fact. A question or a long restatement is not one."""
-    fact = re.sub(r"\s+", " ", (latest_msg or "").strip())
-    if not fact or _is_fallback_question(fact) or "?" in fact:
-        return ""
-    if len(fact.split()) > 6:
-        reading = re.search(
-            r"\b\d+(?:\.\d+)?\s*(?:vdc|vac|volts?|v|amps?|ohms?|psi)\b(?:\s+\w+){0,3}",
-            fact,
-            re.I,
-        )
-        if not reading:
-            return ""
-        fact = " ".join(reading.group(0).split()[:6])
-    if fact[-1:] not in ".!?":
-        fact += "."
-    return fact
-
-
-def _ack_latest(latest_msg: str, forward: str) -> str:
-    """Note a short fact the tech actually sent. A fallback question is not a fact."""
-    step = re.sub(r"\s+", " ", (forward or "").strip())
-    fact = _short_paraphrase(latest_msg)
-    if not fact or _norm(fact).rstrip(".") in _norm(step):
-        return step
-    if not step:
-        return f"Noted: {fact}"
-    return f"Noted: {fact} {step}"
-
-
 def _is_fallback_question(text: str) -> bool:
     blob = text or ""
     if asks_what_is_the_repair(blob) or asks_what_next(blob):
@@ -3716,46 +3686,146 @@ def _claim_words(text: str) -> list[str]:
     ]
 
 
-def _claim_unsupported(sentence: str, user_blob: str) -> bool:
-    """A Noted, Heard, or reported claim has to be in the tech's own words."""
+_ACK_SENTENCE_RE = re.compile(
+    r"^(?:noted|heard|you said|you reported|you measured)\b",
+    re.I,
+)
+_STATUS_ASSERTION_RE = re.compile(
+    r"\b(?:is|are|was|were|reads?|seems?|looks?)\s+(?:near\s+)?"
+    r"(?:good|reported|checked|nominal|ok|okay|passed|failed|clear|aligned|broken|seized)\b"
+    r"|\bnear\s+nominal\b"
+    r"|\b(?:was|were|been)\s+reported\b"
+    r"|\breported\s+(?:good|bad|clear|broken|checked)\b"
+    r"|\b(?:after|was|were|been)\s+(?:the\s+)?(?:\w+\s+){0,2}(?:adjustment|adjusted|checked)\b"
+    r"|\b(?:goes out|lights but)\b",
+    re.I,
+)
+_DO_NOT_RE = re.compile(r"\b(?:do not|don't|dont|never)\b", re.I)
+_REPAIR_VERB_RE = re.compile(
+    r"\b(?:replace|align|reseat|re-?secures?|reposition|authorize)\b",
+    re.I,
+)
+_BARE_REPAIR_LABEL_RE = re.compile(r"^that is the repair\.?$", re.I)
+
+
+def _flat_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _norm(text))
+
+
+def _is_acknowledgement(sentence: str) -> bool:
+    """Noted, Heard, and 'you measured' openers are not part of the reply."""
+    return bool(_ACK_SENTENCE_RE.match((sentence or "").strip()))
+
+
+def _is_shop_advice(sentence: str) -> bool:
+    return bool(_DO_NOT_RE.search(sentence or ""))
+
+
+def _assertion_supported(clause: str, user_blob: str) -> bool:
+    """True when this status claim is a substring of the tech's messages."""
+    claim = _flat_text(clause)
+    user = _flat_text(user_blob)
+    return bool(claim) and claim in user
+
+
+def _strip_unreported_assertion(sentence: str, user_blob: str) -> str:
+    """Drop a status claim the tech did not say. Shop 'Do not' advice stays."""
     text = (sentence or "").strip()
-    if not text:
+    if not text or _is_shop_advice(text) or not _STATUS_ASSERTION_RE.search(text):
+        return text
+    kept = []
+    for clause in re.split(r"\s+\bso\b\s+|;\s+", text):
+        clause = clause.strip(" ,")
+        if not clause:
+            continue
+        if _STATUS_ASSERTION_RE.search(clause) and not _assertion_supported(clause, user_blob):
+            if re.search(
+                r"\b(?:replace|align|reseat|re-?secure|check|prove|wait|dry|turn|reposition|bypass)\b",
+                clause,
+                re.I,
+            ):
+                trimmed = _STATUS_ASSERTION_RE.sub("", clause)
+                trimmed = re.sub(r"\s{2,}", " ", trimmed).strip(" ,;.")
+                if trimmed:
+                    kept.append(trimmed)
+            continue
+        kept.append(clause)
+    return " ".join(kept).strip(" ,;.")
+
+
+def _is_repair_sentence(sentence: str) -> bool:
+    text = sentence or ""
+    if _is_shop_advice(text) or re.search(r"\bmeans\b", text, re.I):
         return False
-    lead = re.match(r"^(?:noted|heard|reported|you said|you reported)\b", text, re.I)
-    has_action = re.search(
-        r"\b(?:align|replace|prove|check|bypass|reseat|re-?secure|confirm|remove|inspect|"
-        r"measure|wait|reposition|verify|turn|set|dry|write|put|seat)\b",
-        text,
-        re.I,
-    )
-    state = re.search(
-        r"\b(?:is|are|was|were)\s+(?:good|clear|broken|seized|failed|passed|aligned)\b",
-        text,
-        re.I,
-    )
-    reported = re.search(r"\breported\b", text, re.I)
-    flame = re.search(r"\b(?:goes out|lights but)\b", text, re.I) and not re.search(
-        r"\b(?:goes out|lights|lit)\b", user_blob or ""
-    )
-    if has_action and not lead:
+    return bool(_REPAIR_VERB_RE.search(text))
+
+
+def _repair_words(sentence: str) -> set[str]:
+    text = _norm(sentence)
+    text = re.sub(r"re-?secures?", "seat", text)
+    text = re.sub(r"\breseats?\b", "seat", text)
+    text = re.sub(r"\bthat is the repair\b", "", text)
+    text = re.sub(r"^repair stands\b", "", text)
+    return set(_claim_words(text))
+
+
+def _same_repair(left: str, right: str) -> bool:
+    words_l = _repair_words(left)
+    words_r = _repair_words(right)
+    if len(words_l) < 3 or len(words_r) < 3:
         return False
-    if not lead and not state and not reported and not flame:
+    shorter, longer = (words_l, words_r) if len(words_l) <= len(words_r) else (words_r, words_l)
+    return len(shorter & longer) / len(shorter) >= 0.6
+
+
+def _prior_repair_sentences(history: list = None) -> list[str]:
+    found = []
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        for sentence in _split_reply_sentences(message.get("content") or ""):
+            if _is_repair_sentence(sentence) or sentence.lower().startswith("repair stands"):
+                found.append(sentence)
+    return found
+
+
+def _repair_stands_said(history: list = None) -> bool:
+    return "repair stands" in _prior_assistant_text(history).lower()
+
+
+def _repair_stands_line(history: list = None, sentence: str = "") -> str:
+    """One line. Said on a later turn, not as a bare 'That is the repair.'"""
+    chosen = ""
+    for candidate in _prior_repair_sentences(history) + [sentence]:
+        line = re.sub(r"\bthat is the repair\.?", "", candidate or "", flags=re.I)
+        line = re.sub(r"^repair stands:\s*", "", line, flags=re.I).strip(" .")
+        if line and (not chosen or len(line) < len(chosen)):
+            chosen = line
+    if not chosen:
+        return ""
+    return f"Repair stands: {chosen}."
+
+
+def _loose_sentence_key(sentence: str) -> str:
+    text = re.sub(r"\bpart\b", " ", _sentence_key(sentence))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _same_as_last_turn(sentence: str, history: list = None) -> bool:
+    """No identical sentence on two turns in a row."""
+    key = _loose_sentence_key(sentence)
+    if not key:
         return False
-    body = text
-    if lead:
-        body = re.sub(
-            r"^(?:noted|heard|reported|you said|you reported)\s*:?\s*",
-            "",
-            text,
-            flags=re.I,
-        )
-        if len(body.split()) > 8:
+    for previous in _split_reply_sentences(_last_assistant_text(history)):
+        if _loose_sentence_key(previous) == key:
             return True
-    words = _claim_words(body)
-    if len(words) < 2:
-        return False
-    hits = sum(1 for word in words if word in (user_blob or ""))
-    return hits / len(words) < 0.55
+    return False
+
+
+def _reply_has_body(text: str) -> bool:
+    if _has_shop_step(text):
+        return True
+    return bool(re.search(r"\brepair stands\b|\brepair is unchanged\b", text or "", re.I))
 
 
 def _prior_assistant_text(history: list = None) -> str:
@@ -3827,6 +3897,7 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
     prior = _prior_sentence_keys(history)
     seen = set()
     seen_checks = set()
+    stands_said = _repair_stands_said(history)
     lines_out = []
     changed = text != (reply or "").strip()
     for line in text.splitlines():
@@ -3841,7 +3912,11 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
                 seen.add(key)
                 kept.append(sentence)
                 continue
+            if _is_acknowledgement(sentence):
+                changed = True
+                continue
             cleaned = _scrub_unreported_sentence(sentence, user_blob)
+            cleaned = _strip_unreported_assertion(cleaned, user_blob)
             if cleaned != sentence:
                 changed = True
             sentence = cleaned
@@ -3851,16 +3926,26 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
                 or _META_QUESTION_RE.search(sentence)
                 or _COOKTOP_GUARD_RE.search(sentence)
                 or re.fullmatch(r"figs?\.?", sentence.strip(), re.I)
-                or _claim_unsupported(sentence, user_blob)
+                or _BARE_REPAIR_LABEL_RE.match(sentence.strip())
                 or _overlaps_prior(sentence, history)
+                or _same_as_last_turn(sentence, history)
             ):
                 changed = True
                 continue
+            if _is_repair_sentence(sentence) and any(
+                _same_repair(sentence, earlier) for earlier in _prior_repair_sentences(history)
+            ):
+                if stands_said:
+                    changed = True
+                    continue
+                sentence = _repair_stands_line(history, sentence)
+                stands_said = True
+                changed = True
             if _is_fallback_question(sentence) and len(_sentence_key(sentence)) < 80:
                 changed = True
                 continue
-            key = _sentence_key(sentence)
-            if not key or key in seen or (len(key) >= 30 and key in prior):
+            key = _loose_sentence_key(sentence)
+            if not key or key in seen or (len(key) >= 30 and _sentence_key(sentence) in prior):
                 changed = True
                 continue
             check = ""
@@ -3882,24 +3967,37 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
     text = "\n".join(lines_out).strip()
     if not changed:
         text = (reply or "").strip()
-    if not _has_shop_step(text):
-        step = _next_unused_step(history, latest_msg, reply or "")
+    if not _reply_has_body(text):
+        step = ""
+        if _prior_repair_sentences(history) and not _repair_stands_said(history):
+            step = _repair_stands_line(history, reply or "")
+            if step and _same_as_last_turn(step, history):
+                step = ""
+        if not step and _prior_repair_sentences(history):
+            unchanged = "The repair is unchanged."
+            if not _same_as_last_turn(unchanged, history):
+                step = unchanged
+        if not step:
+            step = _next_unused_step(history, latest_msg, reply or "")
+            step = re.sub(r"\bthat is the repair\.?", "", step or "", flags=re.I).strip(" .")
+            if step:
+                step += "."
+            if not step or _same_as_last_turn(step, history):
+                step = "Write the reading on the sheet and ask a manager before a part swap."
         sources = [
             line for line in (text or "").splitlines() if line.strip().startswith("📖")
         ]
-        text = step
+        prose = "\n".join(
+            line for line in (text or "").splitlines() if line.strip() and not line.strip().startswith("📖")
+        ).strip()
+        if prose:
+            text = f"{prose} {step}".strip()
+        else:
+            text = step
         if sources:
-            text = step + "\n" + "\n".join(sources)
+            text = text + "\n" + "\n".join(sources)
         changed = True
-    follow_up = any((message.get("role") or "") == "assistant" for message in history or [])
-    if (
-        follow_up
-        and latest_msg
-        and _short_paraphrase(latest_msg)
-        and _norm(_short_paraphrase(latest_msg)).rstrip(".") not in _norm(text)
-    ):
-        text = _ack_latest(latest_msg, text)
-    if not changed and not text.startswith("Noted:"):
+    if not changed:
         return (reply or "").strip()
     return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
 
