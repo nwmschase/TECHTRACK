@@ -144,7 +144,9 @@ class TestLaterTurnAnswersTheFact(unittest.TestCase):
         )
         self.assertNotIn("unchanged", volts.lower())
         self.assertNotIn("repair stands", volts.lower())
-        self.assertIn("data line", volts.lower())
+        self.assertNotIn("measure 12 v", volts.lower())
+        self.assertNotIn("data line", volts.lower())
+        self.assertIn("freeze sensor", volts.lower())
         seated = ensure_fact12_freeze_resecure(
             "Check the nozzles.",
             history,
