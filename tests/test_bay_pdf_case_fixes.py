@@ -36,6 +36,28 @@ def _pdf_text(pdf: bytes) -> str:
     return "\n".join(page.get_text() for page in doc)
 
 
+def _drainage_text_and_rule(path):
+    """Last ink of 'vehicle' in the left cell, and the full-width rule under it."""
+    from PIL import Image
+
+    image = Image.open(path).convert("L")
+    px = image.load()
+    width, _height = image.size
+    last_text = 0
+    for y in range(760, 860):
+        ink = sum(1 for x in range(50, 230, 2) if px[x, y] < 140)
+        if ink >= 4:
+            last_text = y
+    rule = 0
+    for y in range(last_text, last_text + 80):
+        ink = sum(1 for x in range(40, min(width, 1060), 2) if px[x, y] < 80)
+        samples = len(range(40, min(width, 1060), 2))
+        if samples and ink / samples > 0.9:
+            rule = y
+            break
+    return last_text, rule
+
+
 def _sheet(concern, brand="", model="", category="", chunks=None):
     proc = compile_bay_procedure(
         concern=concern,
@@ -151,20 +173,22 @@ class TestBayCaseFixes(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertGreater(image.size[1], 70)
-        self.assertLess(image.size[1], 110)
+        self.assertGreater(image.size[1], 120)
+        self.assertLess(image.size[1], 180)
         self.assertGreater(image.size[0], 1000)
-        from bay_procedure import _OEM_FIGURE_CROP
+        from bay_procedure import OEM_FIGURE_DIR, _OEM_FIGURE_CROP
 
         crop = _OEM_FIGURE_CROP["ccd7990-p7.png"]
         self.assertGreaterEqual(crop[1], 728)
         self.assertLessEqual(crop[1], 734)
-        self.assertGreaterEqual(crop[3], 816)
-        self.assertLessEqual(crop[3], 822)
+        last_text, rule = _drainage_text_and_rule(OEM_FIGURE_DIR / "ccd7990-p7.png")
+        self.assertGreaterEqual(crop[3], last_text)
+        self.assertGreaterEqual(crop[3], rule)
         gray = image.convert("L")
         width, height = gray.size
         top = sum(1 for x in range(0, width, 2) if gray.getpixel((x, 1)) < 80) / (width / 2)
-        bottom = sum(1 for x in range(0, width, 2) if gray.getpixel((x, height - 3)) < 80) / (width / 2)
+        rule_row = rule - crop[1]
+        bottom = sum(1 for x in range(0, width, 2) if gray.getpixel((x, rule_row)) < 80) / (width / 2)
         self.assertGreater(top, 0.7)
         self.assertGreater(bottom, 0.7)
         pages = compose_sheet(proc)
@@ -961,10 +985,14 @@ class TestSnippetScrubRegressions(unittest.TestCase):
 
     def test_s07_strips_a_leading_figure_number(self):
         excerpt = clean_source_excerpt(
-            "locate the inverter PCB. 21) at the F+ and F- terminals on the inverter PCB."
+            "Locate the inverter PCB and measure the fan. "
+            "21) Measure voltage at the F+ and F- terminals on the inverter PCB. "
+            "At the F+ and F- terminals on the inverter PCB."
         )
         self.assertNotIn("21)", excerpt)
         self.assertIn("F+", excerpt)
+        self.assertIn("F-", excerpt)
+        self.assertNotIn("At the F+", excerpt)
         proc, text = _sheet(
             "FCR10 E2 fan fault current on the freezer evaporator fan",
             "Furrion",
@@ -974,7 +1002,10 @@ class TestSnippetScrubRegressions(unittest.TestCase):
                 {
                     "title": "Furrion FCR08/FCR10 SM CCD-0008122",
                     "page": 27,
-                    "excerpt": "Locate the inverter PCB. 21) at the F+ and F- terminals on the inverter PCB.",
+                    "excerpt": (
+                        "Locate the inverter PCB and measure the fan. "
+                        "21) Measure voltage at the F+ and F- terminals on the inverter PCB."
+                    ),
                 }
             ],
         )
@@ -1150,6 +1181,22 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         petit = clean_ocr_prose("Align the petit tube in the burner flame first and retest.")
         self.assertIn("petit", petit.lower())
         self.assertNotIn("pe tit", petit.lower())
+        terminals = clean_source_excerpt(
+            "Connect power and measure voltage at the F+ and F\u2212 terminals on the inverter PCB. "
+            "At the F+ and F\u2212 terminals on the inverter PCB before any other part."
+        )
+        self.assertIn("F-", terminals)
+        self.assertIn("measure voltage", terminals.lower())
+        self.assertIn("inverter PCB", terminals)
+        self.assertNotIn("At the F+", terminals)
+        self.assertNotIn("F terminals", terminals)
+        self.assertNotIn("before any other part", terminals)
+        labels = clean_ocr_prose("Check T\u2212 and C\u2013 on the board before the swap.")
+        self.assertIn("T-", labels)
+        self.assertIn("C-", labels)
+        spaced = clean_ocr_prose("Measure at the F - terminals on the inverter PCB.")
+        self.assertIn("F-", spaced)
+        self.assertNotIn("F terminals", spaced)
         joined = clean_ocr_prose(
             "The air con- ditioner lost refriger - ant. This will pre - vent heat. "
             "Check the FUR - NACE next."
@@ -1179,8 +1226,8 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertGreater(image.size[1], 70)
-        self.assertLess(image.size[1], 110)
+        self.assertGreater(image.size[1], 120)
+        self.assertLess(image.size[1], 180)
 
     def test_s02_drops_a_snippet_that_ends_on_a_list_number(self):
         proc, text = _sheet(

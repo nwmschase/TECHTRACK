@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.12
+RV TechTrack v4.19.13
+- v4.19.13: The drainage figure includes the full row through its bottom rule, so "vehicle" is not cut. A hyphen after a single capital (F-, T-) stays, and a prepositional source fragment with no verb is dropped.
 - v4.19.12: A page named in PRIMARY stays in Sources. A dictionary split runs only when both halves are words and the joined form is not, so ducted and petit stay whole. The drainage figure is one bordered table row. A cooktop sheet keeps thermocouple and flame lines only.
 - v4.19.11: An em dash or en dash becomes a space, never a deleted character, so shop lines do not glue. All-lowercase joins such as willgo split when both parts are dictionary words. The drainage figure keeps the full row. Clean bay sheets are locked by text snapshots.
 - v4.19.10: Bay sheets drop near-duplicate pages, stray question bullets, cut color endings, and leading figure numbers. Voltage ranges stay 3-9V or the clause is dropped. YES and NO sit on their arrows. The ice sheet has a unit ID line. A cooktop sheet cites the burner or the thermocouple, or the manual title alone.
@@ -104,7 +105,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.12``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.13``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -187,7 +188,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.12"
+_GDC_REQUIRED_REVISION = "v4.19.13"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
