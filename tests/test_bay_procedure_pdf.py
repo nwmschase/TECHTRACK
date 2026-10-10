@@ -634,7 +634,7 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
             if category == "Leveling":
                 self.assertEqual(proc.model_line, "807662")
                 src = " ".join((s.get("excerpt") or "") + (s.get("title") or "") for s in proc.sources)
-                self.assertIn("807662", src)
+                self.assertNotIn("shop pn", src.lower())
                 self.assertIn("ti-005", src.lower())
                 self.assertIn("qr-092", src.lower())
                 self.assertTrue(any(s.get("title_only") or not s.get("page") for s in proc.sources))

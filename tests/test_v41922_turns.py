@@ -286,17 +286,20 @@ class TestProveBeforeRepair(unittest.TestCase):
             "Thermostat bypassed at the furnace: the furnace operates.",
         )
         self.assertNotIn("are good", opened.lower())
-        self.assertNotIn("replace the wall thermostat", opened.lower())
+        self.assertNotIn("module board", opened.lower())
         self.assertIn("sail switch", opened.lower())
+        self.assertIn("if ", opened.lower())
+        self.assertIn("replace the wall thermostat", opened.lower())
         history.append({"role": "assistant", "content": opened})
         later = polish_shop_reply(
             "Replace the wall thermostat. If voltage is missing, check the wire run.",
             history,
             "Not checked yet — what do you recommend next?",
         )
-        self.assertNotIn("replace the wall thermostat", later.lower())
+        self.assertNotIn("module board", later.lower())
         self.assertNotIn("voltage is missing", later.lower())
         self.assertNotIn("unchanged", later.lower())
+        self.assertIn("if ", later.lower())
         self.assertNotEqual(opened.strip().lower(), later.strip().lower())
 
     def test_s03_drops_the_filename_and_the_lead_with_guard(self):

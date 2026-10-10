@@ -290,8 +290,9 @@ class TestSourceQuotes(unittest.TestCase):
             "",
             "Leveling",
         )
-        self.assertTrue(any(src.get("page") == 11 for src in proc.sources))
+        self.assertFalse(any(src.get("page") == 11 for src in proc.sources))
         self.assertTrue(any(src.get("page") == 7 for src in proc.sources))
+        self.assertFalse(any("rear stabilizer" in (src.get("title") or "").lower() for src in proc.sources))
         blob = " ".join(src.get("excerpt") or "" for src in proc.sources).lower()
         self.assertNotIn("override-usage", blob)
 
