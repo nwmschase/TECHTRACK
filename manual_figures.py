@@ -624,6 +624,173 @@ YES_LINE = "Yes, go to the next step."
 PHOTO_STEP = "Take a photo of this step and send it."
 PHOTO_WAIT = "Send the photo before the next step."
 
+# One shop step. Every Thetford check and every repair step uses these labels.
+STEP_FIELDS = (
+    "WHERE",
+    "SAFETY",
+    "TOOLS / METER SETTING",
+    "HOW",
+    "GOOD vs BAD",
+    "NEXT",
+    "FIGURE",
+    "PHOTO",
+)
+
+# A place named in the step's own words. The first match that fits is enough.
+_WHERE_RULES = (
+    (r"\bbehind (?:the )?toilet\b", "Behind the toilet, under the water hose."),
+    (r"\bback of (?:the )?toilet\b", "Back of the toilet."),
+    (r"\bwater inlet opening\b", "In the water inlet hole."),
+    (r"\bpocket\s+a\b", "Pocket A on the pedal."),
+    (r"\bpocket\s+b\b", "Pocket B on the pedal."),
+    (r"\bpedal pivot\b", "On the pedal pivot."),
+    (r"\binlet tube\b", "On the inlet tube."),
+    (r"\bflush hose\b", "On the flush hose."),
+    (r"\bvacuum breaker\b", "At the vacuum breaker."),
+    (r"\bcloset flange\b", "At the closet flange, under the toilet."),
+    (r"\bholding tank opening\b", "Over the tank hole in the floor."),
+    (r"\bon its side\b", "On the floor, with the pedal facing up."),
+    (r"\bfrom (?:the )?floor\b", "The toilet sits on the floor."),
+    (r"\bnozzle\b", "On the nozzle."),
+    (r"\bpedal\b", "At the pedal."),
+    (r"\bwater valve\b", "At the water valve."),
+    (r"\bretainer\b", "At the retainer."),
+    (r"\blever\b", "At the lever."),
+    (r"\block\b", "At the lock."),
+)
+
+
+def format_step_fields(fields: dict) -> str:
+    """The fixed shop template. A blank value is UNCONFIRMED."""
+    lines = []
+    for name in STEP_FIELDS:
+        value = re.sub(r"\s+", " ", str((fields or {}).get(name) or "")).strip()
+        lines.append(f"{name}: {value or 'UNCONFIRMED'}")
+    return "\n".join(lines)
+
+
+def _where_field(source: str) -> str:
+    """Where the part is, using only a place this step's words already name."""
+    found = []
+    for pattern, phrase in _WHERE_RULES:
+        if phrase in found:
+            continue
+        if re.search(pattern, source or "", re.I):
+            found.append(phrase)
+        if len(found) == 2:
+            break
+    return " ".join(found) if found else "UNCONFIRMED"
+
+
+def _safety_field(sheet: str) -> str:
+    """Water, power, and propane. Only a shutoff the sheet states is filled in."""
+    text = sheet or ""
+    bits = []
+    if re.search(r"turn off rv water supply|turn off (?:the )?(?:rv )?water\b", text, re.I):
+        bits.append("Turn the RV water off before this work.")
+    else:
+        bits.append("Water off: UNCONFIRMED.")
+    if re.search(r"turn off (?:the )?power\b", text, re.I):
+        bits.append("Turn the power off before this work.")
+    else:
+        bits.append("Power off: UNCONFIRMED.")
+    if re.search(r"\bpropane\b|\blp gas\b", text, re.I):
+        bits.append("The sheet names propane.")
+    else:
+        bits.append("Propane off: UNCONFIRMED.")
+    if re.search(r"\bgloves\b", text, re.I):
+        bits.append("Put on gloves and glasses.")
+    return " ".join(bits)
+
+
+def _tools_field(sheet: str, source: str) -> str:
+    """Tools the sheet lists, and the meter setting if the sheet gives one."""
+    tools = _needed_tools(sheet)
+    for hit in _TOOL_WORD_RE.findall(source or ""):
+        word = re.sub(r"\s+", " ", hit).strip()
+        if word.lower() not in {item.lower() for item in tools}:
+            tools.append(word)
+    tool_bit = ", ".join(tools) if tools else "UNCONFIRMED"
+    meter = ""
+    for blob in (source or "", sheet or ""):
+        hit = _METER_RE.search(blob)
+        if hit:
+            meter = hit.group(0)
+            break
+    return f"Tools: {tool_bit}. Meter setting: {meter or 'UNCONFIRMED'}."
+
+
+def _result_clause(text: str) -> str:
+    match = re.search(r"\buntil ([^.]+)", text or "", re.I)
+    if not match:
+        return ""
+    clause = re.sub(r"\s+", " ", match.group(1)).strip(" .")
+    if not clause:
+        return ""
+    return clause[0].upper() + clause[1:]
+
+
+def _good_bad_field(source: str, action: str) -> str:
+    """What the sheet says the result looks like. Anything else stays UNCONFIRMED."""
+    blob = f"{source or ''}\n{action or ''}"
+    good = _result_clause(action) or _result_clause(source)
+    bad = ""
+    if re.search(r"snaps in place", blob, re.I):
+        good = good or "The pedal snaps in place"
+    if re.search(r"opens and closes completely", blob, re.I):
+        good = good or "The waste ball opens and closes completely"
+    if re.search(r"checking for leaks at all connections", blob, re.I):
+        bad = "Leaks at all connections"
+    if re.search(r"if leak persists", blob, re.I):
+        bad = "The leak persists from the water valve"
+    return f"Good: {good or 'UNCONFIRMED'}. Bad: {bad or 'UNCONFIRMED'}."
+
+
+def _next_field(next_how: str) -> str:
+    """The next sheet step is the good path. A bad path the sheet omits stays UNCONFIRMED."""
+    good = (next_how or "").strip() or "UNCONFIRMED"
+    return f"On good: {good} On bad: UNCONFIRMED."
+
+
+def _figure_field(step: dict, doc: str) -> str:
+    figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+    if not figure:
+        return "UNCONFIRMED"
+    label = (figure.get("label") or "").strip()
+    title = (figure.get("title") or doc or "").strip()
+    page = figure.get("page")
+    bits = [bit for bit in (label, title) if bit]
+    if page:
+        bits.append(f"page {page}")
+    return ", ".join(bits) if bits else "UNCONFIRMED"
+
+
+def _photo_field(how: str) -> str:
+    import gd_step_photo as photos
+
+    return " ".join(photos.photo_ask_lines(how))
+
+
+def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> dict:
+    """Fill the template from this sheet. Do not invent a missing value."""
+    source = step.get("source") or ""
+    how = (step.get("text") or "").strip() or "UNCONFIRMED"
+    return {
+        "WHERE": _where_field(source),
+        "SAFETY": _safety_field(sheet),
+        "TOOLS / METER SETTING": _tools_field(sheet, source),
+        "HOW": how,
+        "GOOD vs BAD": _good_bad_field(source, how),
+        "NEXT": _next_field(next_how),
+        "FIGURE": _figure_field(step, doc),
+        "PHOTO": _photo_field(how),
+    }
+
+
+def step_field_lines(step: dict) -> list[str]:
+    fields = step.get("fields") or {}
+    return [f"{name}: {(fields.get(name) or '').strip() or 'UNCONFIRMED'}" for name in STEP_FIELDS]
+
 _ACTION_VERB = (
     r"turn|pull|put|lift|flush|take|set|push|hit|press|tighten|connect|disconnect|"
     r"lay|wash|rinse|throw|slide|cover|point|stand|read|move"
@@ -639,58 +806,34 @@ def _word_count(sentence: str) -> int:
 
 
 def step_sentences(step: dict) -> list[str]:
-    """Every sentence a tech reads for one step, each meant to stand alone."""
-    lines = [step.get("text") or ""]
-    if step.get("explain"):
-        lines.append(step["explain"])
-    lines.append(f"You should see: {step.get('see') or ''}".strip())
-    lines.append(YES_LINE)
-    lines.append(f"No, {step.get('no') or ''}".strip())
-    if step.get("caution"):
-        lines.append(step["caution"])
-    return [line.strip() for line in lines if line.strip()]
+    """The eight shop fields a tech reads for one step."""
+    return step_field_lines(step)
 
 
 def readability_problems(step: dict) -> list[str]:
-    """Grade-4 bar: short sentences, one action, and a yes/no check."""
+    """HOW stays one short action. Every template field is filled."""
     problems = []
-    blob = " ".join(step_sentences(step))
-    if _AND_THEN_RE.search(blob):
+    how = step.get("text") or ""
+    if _AND_THEN_RE.search(how):
         problems.append("two actions joined by and then")
-    if not (step.get("see") or "").strip() or not (step.get("no") or "").strip():
-        problems.append("missing yes/no check")
-    for sentence in step_sentences(step):
-        count = _word_count(sentence)
-        if count > 15:
-            problems.append(f"{count} words: {sentence}")
+    if _word_count(how) > 15:
+        problems.append(f"{_word_count(how)} words: {how}")
+    fields = step.get("fields") or {}
+    for name in STEP_FIELDS:
+        if not (fields.get(name) or "").strip():
+            problems.append(f"missing {name}")
     return problems
 
 
 def format_one_step(step: dict, number: int, total: int) -> str:
-    """One GD turn: the action, the check, and a photo ask."""
+    """One GD turn: the eight shop fields, then a caution when the sheet has one."""
     lines = [
         "Here is the repair procedure.",
         f"Step {number} of {total}.",
-        step.get("text") or "",
+        *step_field_lines(step),
     ]
-    if step.get("explain"):
-        lines.append(step["explain"])
-    lines.append(f"You should see: {step.get('see') or ''}".strip())
-    lines.append(YES_LINE)
-    lines.append(f"No, {step.get('no') or ''}".strip())
     if step.get("caution"):
         lines.append(f"Caution: {step['caution']}")
-    import gd_step_photo as _photos
-
-    lines.extend(_photos.photo_ask_lines(step.get("text") or ""))
-    figure = step.get("figure")
-    label = ""
-    if isinstance(figure, dict):
-        label = figure.get("label") or ""
-    elif figure is not None:
-        label = getattr(figure, "caption", "") or ""
-    if label:
-        lines.append(label)
     return "\n".join(line for line in lines if line).strip()
 
 
@@ -1192,6 +1335,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
                 step = {
                     "section": section,
                     "text": short,
+                    "source": piece,
                     "see": see,
                     "no": no,
                     "fig": fig_num,
@@ -1199,11 +1343,23 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
                     "caution": caution,
                     "figure": attached,
                 }
-                if readability_problems(step):
-                    continue
                 steps.append(step)
     if not steps:
         return {}
+    doc = title or "the manual"
+    kept = []
+    for index, step in enumerate(steps):
+        nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
+        step["fields"] = fill_step_fields(step, text or "", doc, nxt)
+        if readability_problems(step):
+            continue
+        kept.append(step)
+    steps = kept
+    if not steps:
+        return {}
+    for index, step in enumerate(steps):
+        nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
+        step["fields"]["NEXT"] = _next_field(nxt)
     removal = [step for step in steps if step["section"] == "removal"]
     installation = [step for step in steps if step["section"] == "installation"]
     spec = "Torque is not stated in this sheet."
@@ -1245,6 +1401,136 @@ def thetford_kit_layout(kind: str, figures: list | None = None) -> dict:
     return procedure_from_sheet(text, figures, doc)
 
 
+_PROVING_PHOTO_CONNECTOR = (
+    "Take a photo of the connector. A photo is optional. You can type what you see."
+)
+_PROVING_PHOTO_LEAK = (
+    "Take a photo of the leak. A photo is optional. You can type what you see."
+)
+_PROVING_SAFETY = (
+    "Water off: UNCONFIRMED. Power off: UNCONFIRMED. Propane off: UNCONFIRMED."
+)
+_PROVING_TOOLS = "Tools: UNCONFIRMED. Meter setting: UNCONFIRMED."
+_OM_FIGURE = "UNCONFIRMED. Thetford Style II OM Permanent RV Toilet 42088, page 3."
+_THETFORD_PROVING = {
+    "supply": {
+        "WHERE": "Back of the toilet.",
+        "SAFETY": _PROVING_SAFETY,
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": (
+            "Check the water supply line connection at the water valve. "
+            "Secure or tighten it as necessary."
+        ),
+        "GOOD vs BAD": (
+            "Good: UNCONFIRMED. Bad: the leak persists from the water valve. "
+            "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED."
+        ),
+        "NEXT": (
+            "On good: go to the next check. "
+            "On bad: if the leak persists from the water valve, replace the water valve."
+        ),
+        "FIGURE": _OM_FIGURE,
+        "PHOTO": _PROVING_PHOTO_CONNECTOR,
+    },
+    "vacuum": {
+        "WHERE": "At the vacuum breaker on the flush hose.",
+        "SAFETY": _PROVING_SAFETY,
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": "Check whether the vacuum breaker leaks while flushing.",
+        "GOOD vs BAD": (
+            "Good: UNCONFIRMED. Bad: it leaks while flushing. "
+            "Leaks only while flushing. That limit is UNCONFIRMED."
+        ),
+        "NEXT": (
+            "On good: go to the next check. "
+            "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
+            "depending on model. "
+            "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377."
+        ),
+        "FIGURE": "Fig. 1, Thetford Vacuum Breaker Kit 34123/34122, page 1.",
+        "PHOTO": _PROVING_PHOTO_LEAK,
+    },
+    "vacuum_replace": {
+        "WHERE": "At the vacuum breaker on the flush hose.",
+        "SAFETY": "Turn the RV water off before this work. Power off: UNCONFIRMED. Propane off: UNCONFIRMED.",
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": "Replace the vacuum breaker or the water module, depending on model.",
+        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: it leaks while flushing.",
+        "NEXT": "On good: UNCONFIRMED. On bad: UNCONFIRMED.",
+        "FIGURE": "Fig. 1, Thetford Vacuum Breaker Kit 34123/34122, page 1.",
+        "PHOTO": _PROVING_PHOTO_LEAK,
+    },
+    "valve": {
+        "WHERE": "At the pedal.",
+        "SAFETY": _PROVING_SAFETY,
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": (
+            "Pull the pedal off. "
+            "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109."
+        ),
+        "GOOD vs BAD": (
+            "Good: UNCONFIRMED. "
+            "Bad: a weep at the cartridge, the drive arm, or a cracked housing. UNCONFIRMED."
+        ),
+        "NEXT": (
+            "On good: go to the next check. "
+            "On bad: if it weeps at the pedal, replace it with kit 42109. "
+            "Kit 42049 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
+            "spring 42010, and retainer 42099."
+        ),
+        "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",
+        "PHOTO": _PROVING_PHOTO_LEAK,
+    },
+    "valve_replace": {
+        "WHERE": "At the pedal.",
+        "SAFETY": "Turn the RV water off before this work. Power off: UNCONFIRMED. Propane off: UNCONFIRMED.",
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.",
+        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: it weeps at the pedal. UNCONFIRMED.",
+        "NEXT": "On good: UNCONFIRMED. On bad: UNCONFIRMED.",
+        "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",
+        "PHOTO": _PROVING_PHOTO_LEAK,
+    },
+    "flange": {
+        "WHERE": "Between the closet flange and the toilet.",
+        "SAFETY": _PROVING_SAFETY,
+        "TOOLS / METER SETTING": _PROVING_TOOLS,
+        "HOW": (
+            "Between the closet flange and the toilet, check the flange nuts. "
+            "If the leak continues, check the flange height. "
+            "It is 7/16 inch above the floor. Replace the flange seal."
+        ),
+        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: the leak continues.",
+        "NEXT": (
+            "On good: the leak checks are done. "
+            "On bad: if the leak continues, replace the flange seal. "
+            "Closet flange seal 02125 is on the kits. "
+            "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED."
+        ),
+        "FIGURE": _OM_FIGURE,
+        "PHOTO": _PROVING_PHOTO_LEAK,
+    },
+}
+_THETFORD_PROVING_CITE = {
+    "supply": "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
+    "vacuum": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2",
+    "vacuum_replace": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2",
+    "valve": "📖 Source: Thetford Water Valve Service Kit 42109, page 1",
+    "valve_replace": "📖 Source: Thetford Water Valve Service Kit 42109, page 1",
+    "flange": "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
+}
+
+
+def thetford_proving_body(key: str) -> str:
+    """The eight shop fields for one Thetford leak check. No source line."""
+    return format_step_fields(_THETFORD_PROVING[key])
+
+
+def thetford_proving_line(key: str) -> str:
+    """The same check, plus the document cite Guided Diagnostics keeps."""
+    return f"{thetford_proving_body(key)}\n{_THETFORD_PROVING_CITE[key]}"
+
+
 def procedure_handoff(layout: dict) -> str:
     """Full procedure text. GD sends one step at a time from format_one_step."""
     steps = list(layout.get("steps") or [])
@@ -1261,9 +1547,8 @@ def procedure_handoff(layout: dict) -> str:
         if step.get("section") and step["section"] != section:
             section = step["section"]
             lines.append("REMOVAL" if section == "removal" else "INSTALLATION")
-        lines.append(f"{index}. {step.get('text') or ''}")
-        for sentence in step_sentences(step)[1:]:
-            lines.append(sentence)
+        lines.append(f"{index}.")
+        lines.extend(step_sentences(step))
     if layout.get("spec"):
         lines.append(layout["spec"])
     return "\n".join(lines).strip()

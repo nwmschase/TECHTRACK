@@ -5340,57 +5340,15 @@ def ensure_level_up_lead_jack_reply(
     return _leadjack_shop_line(history, latest_msg)
 
 
+import manual_figures as _manual_figures
+
 THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
-THETFORD_SUPPLY_LINE = (
-    "Back of the toilet: check the water supply line connection at the water valve. "
-    "Secure or tighten it as necessary. "
-    "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED.\n"
-    "Take a photo of the connector.\n"
-    "A photo is optional.\n"
-    "You can type what you see.\n"
-    + THETFORD_CITE_42088
-)
-THETFORD_VACUUM_LINE = (
-    "Check whether the vacuum breaker leaks while flushing. "
-    "If it leaks, replace the vacuum breaker or the water module, depending on model. "
-    "Leaks only while flushing. That limit is UNCONFIRMED. "
-    "Kit 34122 includes subassembly 34313, clamps 19541, and hose 34377.\n"
-    "Take a photo of the leak.\n"
-    "A photo is optional.\n"
-    "You can type what you see.\n"
-    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
-)
-THETFORD_VACUUM_REPLACE_LINE = (
-    "The vacuum breaker leaks while flushing. "
-    "Replace the vacuum breaker or the water module, depending on model.\n"
-    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
-)
-THETFORD_VALVE_LINE = (
-    "Pull the pedal off. "
-    "Look for a weep at the cartridge, the drive arm, or a cracked housing. UNCONFIRMED. "
-    "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109. "
-    "Kit 42049 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
-    "spring 42010, and retainer 42099.\n"
-    "Take a photo of the leak.\n"
-    "A photo is optional.\n"
-    "You can type what you see.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
-)
-THETFORD_VALVE_REPLACE_LINE = (
-    "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
-)
-THETFORD_FLANGE_LINE = (
-    "Between the closet flange and the toilet, check the flange nuts. "
-    "If the leak continues, check the flange height. "
-    "It is 7/16 inch above the floor. Replace the flange seal. "
-    "Closet flange seal 02125 is on the kits. "
-    "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED.\n"
-    "Take a photo of the leak.\n"
-    "A photo is optional.\n"
-    "You can type what you see.\n"
-    + THETFORD_CITE_42088
-)
+THETFORD_SUPPLY_LINE = _manual_figures.thetford_proving_line("supply")
+THETFORD_VACUUM_LINE = _manual_figures.thetford_proving_line("vacuum")
+THETFORD_VACUUM_REPLACE_LINE = _manual_figures.thetford_proving_line("vacuum_replace")
+THETFORD_VALVE_LINE = _manual_figures.thetford_proving_line("valve")
+THETFORD_VALVE_REPLACE_LINE = _manual_figures.thetford_proving_line("valve_replace")
+THETFORD_FLANGE_LINE = _manual_figures.thetford_proving_line("flange")
 
 
 def _thetford_supply_ok(blob: str) -> bool:

@@ -37,19 +37,21 @@ class TestReadability(unittest.TestCase):
                 problems = mf.readability_problems(step)
                 self.assertEqual(problems, [], (kind, step["text"], problems))
                 joined = " ".join(mf.step_sentences(step))
-                self.assertIn("You should see:", joined)
-                self.assertIn("Yes, go to the next step.", joined)
-                self.assertIn("No, ", joined)
-                self.assertNotRegex(joined, r"\band then\b")
-                for sentence in mf.step_sentences(step):
-                    self.assertLessEqual(mf._word_count(sentence), 15, sentence)
+                for label in mf.STEP_FIELDS:
+                    self.assertIn(f"{label}:", joined)
+                self.assertIn("On good:", step["fields"]["NEXT"])
+                self.assertIn("On bad:", step["fields"]["NEXT"])
+                self.assertNotRegex(step["text"], r"\band then\b")
+                self.assertLessEqual(mf._word_count(step["text"]), 15, step["text"])
+                self.assertNotIn("It looks right", joined)
                 if step.get("fig"):
                     self.assertIsNotNone(step.get("figure"), step["text"])
                     label = step["figure"]["label"]
                     number = re.search(r"(\d+)", label).group(1)
-                    self.assertIn(number, step["text"] + " " + step.get("explain", ""))
+                    self.assertIn(number, step["fields"]["FIGURE"])
                 else:
                     self.assertIsNone(step.get("figure"))
+                    self.assertEqual(step["fields"]["FIGURE"], "UNCONFIRMED")
             blob = " ".join(step["text"].lower() for step in layout["steps"])
             source = " ".join(page["text"].lower() for page in mf.index_pdf_bytes(
                 (VALVE_PDF if kind == "valve" else BREAKER_PDF).read_bytes()
@@ -127,7 +129,9 @@ class TestReadability(unittest.TestCase):
         self.assertIn("before you start", text)
         self.assertIn("removal", text)
         self.assertIn("installation", text)
-        self.assertIn("you should see", text)
+        self.assertIn("where:", text)
+        self.assertIn("good vs bad:", text)
+        self.assertIn("tools / meter setting:", text)
         self.assertIn("do not make the nuts too tight", text)
         self.assertLess(text.find("removal"), text.find("installation"))
         # A step with no figure is text only. The first water-off step has no picture.
@@ -164,11 +168,16 @@ class TestProcedureHandoff(unittest.TestCase):
         self.assertIn("Here is the repair procedure.", first)
         self.assertIn("Step 1 of", first)
         self.assertIn("Take a photo of this step and send it.", first)
-        self.assertIn("You should see:", first)
+        for label in mf.STEP_FIELDS:
+            self.assertIn(f"{label}:", first)
         self.assertNotIn("Step 2 of", first)
         self.assertIn("42109", first)
+        self.assertNotIn("It looks right", first)
         for sentence in re.split(r"\n+", first):
             if sentence.startswith("📖"):
+                continue
+            name = sentence.split(":", 1)[0]
+            if name in mf.STEP_FIELDS and name != "HOW":
                 continue
             self.assertLessEqual(mf._word_count(sentence), 15, sentence)
         history = history + [
