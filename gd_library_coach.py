@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.33"
+COACH_REVISION = "v4.19.34"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -649,7 +649,7 @@ COOKTOP_PRODUCT_LOCK = """
 SUBURBAN / GAS COOKTOP PAN-ON FLAME-OUT PRODUCT LOCK:
 - Burner lights, then goes out when a pan/cookware is placed (either burner) is a cooktop flame-sensor / thermocouple-tip geometry complaint. It is NOT a furnace sail-switch / draft / igniter-first path.
 - Search and cite Suburban Range/Cooktops SM FIRST.
-- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load.
+- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load. End that sentence. Do not glue the next instruction onto "under load".
 - Do this BEFORE condemning or R&R of the thermocouple, safety valve, orifice, regulator, or igniter.
 - Only if tip geometry is correct WITH the pan on and the flame still drops out, proceed to parts / readings from the Suburban Range/Cooktops SM excerpt actually used.
 - Never invent OEM voltages or page numbers. Cite 📖 Source from an excerpt actually used.
@@ -738,6 +738,10 @@ ICE_MONTH_CLOSE = (
 ICE_MOISTURE_SHOP_LINE = (
     "Rear-wall ice is the Ice and Moisture check. "
     "Check whether the temperature dial is at maximum. Report the setting.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36)"
+)
+ICE_COOLING_UNIT_LINE = (
+    "Replace the cooling unit.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36)"
 )
 FRIDGE_NO_POWER_RE = re.compile(
@@ -887,6 +891,42 @@ def is_level_up_library_title(title: str) -> bool:
     return False
 
 
+_LEAD_JACK_DRIFT_RE = re.compile(
+    r"\bdrift(?:s|ing)?\b|move on (?:their|its) own|pressuriz|"
+    r"front[-\s]*left jack|lead[-\s]*jack|cartridge valve|\b177094\b",
+    re.I,
+)
+
+
+def is_level_up_lead_jack_drift_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Front jacks drift after a jack swap when another circuit pressurizes.
+
+    This is the lead-jack cartridge. It is not Manual Mode flash-home and not
+    Ground Control or a stabilizer jack.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob or not _LEAD_JACK_DRIFT_RE.search(blob):
+        return False
+    if _has_manual_mode_dump_marker(blob):
+        return False
+    if is_ground_control_manual(blob) and not re.search(r"level[\s-]*up", blob):
+        return False
+    if re.search(r"\bstabilizer\b|\bpsx1\b|\broll pin\b", blob) and not re.search(
+        r"level[\s-]*up|lead[-\s]*jack|cartridge", blob
+    ):
+        return False
+    level_up = bool(re.search(r"level[\s-]*up|levelup|\boctp\b", blob))
+    hydraulic = "hydraulic" in blob and "level" in blob
+    leveling = "leveling" in _norm(category_name) and (
+        "lippert" in blob or "jack" in blob or level_up
+    )
+    return bool(level_up or hydraulic or leveling)
+
+
 def is_level_up_advantage_context(
     category_name: str = "",
     model_text: str = "",
@@ -895,7 +935,10 @@ def is_level_up_advantage_context(
     """
     Hydraulic Level Up Advantage / 807662 / OCTP / leveling Manual Mode.
     Ground Control electric alone is a different product.
+    A drifting lead jack is a cartridge job, not this Manual Mode path.
     """
+    if is_level_up_lead_jack_drift_context(category_name, model_text, symptom):
+        return False
     blob = _blob(category_name, model_text, symptom)
     if not blob:
         return False
@@ -2508,8 +2551,7 @@ COLEMAN_MOTOR_BOARD_AUTH_LINE = (
     "AUTHORIZATION: R&R the rooftop fan motor and the control board only on the Coleman-Mach 2111-0001. "
     "Fan High at the control board is dead (tester dark and about 0 VAC on the 9-pin black-to-white Fan High path). "
     "Peacemaker bypass: the compressor runs, the fan does not rotate on high or low, and shaft-locked current is about 1.9 A. "
-    "The fan run capacitor measures about its rated value and is not the failed part. "
-    "Stop. No further tests.\n"
+    "The fan run capacitor measures about its rated value and is not the failed part.\n"
     "📖 Source: Coleman-Mach 12VDC Wall Thermostat rooftop service manual "
     "(printed circuit board; 115 VAC missing at the 9-pin means the board); "
     "1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common); "
@@ -3166,7 +3208,7 @@ FURNACE_WALL_TSTAT_LINE = (
     "📖 Source: Suburban Furnace Service and Training Manual"
 )
 COOKTOP_TIP_LOW_REPAIR = (
-    "Reposition the thermocouple tip in the burner flame with the pan on. "
+    "Reposition the thermocouple tip in the flame with the pan on. "
     "Figs. 3-4 on page 4 show that tip height.\n"
     + COOKTOP_TIP_CITE
 )
@@ -3202,6 +3244,10 @@ GIRARD_PETIT_ALIGN_LINE = (
 GIRARD_BLOWER_SUCTION_LINE = (
     "The sensing tube is at the blower for the air pressure switch. "
     "With the blower running, confirm suction at that tube and report the result.\n"
+    "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
+)
+GIRARD_SEATING_REPAIR_LINE = (
+    "That seating is the repair.\n"
     "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
 )
 _LIBRARY_NO_STEPS_RE = re.compile(
@@ -3686,7 +3732,7 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
         r"\b(?:shut off|shuts off|goes out|flameout|flame out)\b", blob
     ):
         options.append(
-            "Reposition the thermocouple tip in the burner flame with the pan on. That is the repair."
+            "Reposition the thermocouple tip in the flame with the pan on. That is the repair."
         )
     if re.search(r"\b(?:rear|back)\s*wall\b", blob) and re.search(r"\bice\b", blob):
         if re.search(r"\b(?:frost|ice|icing)\s+return", blob):
@@ -3758,7 +3804,7 @@ def _alternate_lines(text: str) -> list[str]:
         ("freeze sensor", "Check whether the freeze sensor is fastened on the evaporator coil and report what you find."),
         ("20300427", "Replace the soft-touch user panel, part 20300427."),
         ("20300427", "The soft-touch user panel is the repair. Part 20300427."),
-        ("thermocouple", "Reposition the thermocouple tip in the burner flame with the pan on."),
+        ("thermocouple", "Reposition the thermocouple tip in the flame with the pan on."),
         ("thermocouple", "Put the thermocouple tip back in the flame with the pan on."),
         ("inverter pcb", "Replace the inverter PCB and the freezer evaporator fan."),
         ("inverter pcb", "The inverter PCB and the freezer evaporator fan are the repair."),
@@ -4133,6 +4179,8 @@ def _job_key(
     ident = _norm(f"{cat} {model}")
     cat_n = _norm(cat)
     # The dropdown names the unit. Earlier chats in the same session do not.
+    if _THETFORD_UNIT_RE.search(ident):
+        return "thetford"
     if re.search(r"b57915|3311071", ident):
         return "dometic"
     if re.search(r"fact\s*12", ident):
@@ -4144,6 +4192,8 @@ def _job_key(
     if "343633" in ident or "ground control" in ident:
         return "ground"
     if re.search(r"807662|level[\s-]*up", ident):
+        if is_level_up_lead_jack_drift_context(cat, model, symptom):
+            return "leadjack"
         return "levelup"
     if re.search(r"\bbal\b|soft[\s-]*touch", ident):
         return "bal"
@@ -4155,6 +4205,8 @@ def _job_key(
         return "furnace"
     # No dropdown. The tech's own words name the job. Coach lines do not.
     user = symptom
+    if _THETFORD_UNIT_RE.search(user) or re.search(r"flush\s+lever", user or "", re.I):
+        return "thetford"
     if re.search(r"2111|coleman", user):
         return "coleman"
     if re.search(r"\bbal\b|soft[\s-]*touch|20300427", user) or (
@@ -4177,6 +4229,8 @@ def _job_key(
     if re.search(r"ground control|343633|zero[\s-]*point|auto-level", user):
         return "ground"
     if re.search(r"807662|level[\s-]*up|firefly", user):
+        if is_level_up_lead_jack_drift_context(cat, model, user):
+            return "leadjack"
         return "levelup"
     if re.search(r"\be\s*2\b|fan fault|2[\s-]*flash", user) and re.search(r"inverter|f\+|fcr", user):
         return "e2"
@@ -4214,6 +4268,8 @@ def _job_key(
         return "stab"
     if is_ground_control_context(cat, model, symptom):
         return "ground"
+    if is_level_up_lead_jack_drift_context(cat, model, symptom):
+        return "leadjack"
     if (
         is_firefly_can_path_context(cat, model, symptom)
         or is_level_up_manual_dump_context(cat, model, symptom)
@@ -4250,11 +4306,13 @@ _JOB_CITE = {
         "(Ground Control TT/2.0/3.0)"
     ),
     "levelup": "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 1",
+    "leadjack": "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3",
     "dometic": "📖 Source: Dometic Brisk II, page 23",
     "furnace": "📖 Source: Suburban Furnace Service and Training Manual",
     "girard": "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23",
     "fact12": "📖 Source: Furrion Chill FACR08 8K manual CCD-0008666, page 5",
     "bal": "📖 Source: BAL SS 5.1 Stabilizing System INS.STA.001",
+    "thetford": "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
 }
 
 # A phrase may appear only on its own job. Assistant text from another case does not unlock it.
@@ -4270,6 +4328,9 @@ _OWNED_PHRASES = (
     ("zero point", "ground"),
     ("firefly cable", "levelup"),
     ("rubber-boot", "levelup"),
+    ("177094", "leadjack"),
+    ("cartridge valve", "leadjack"),
+    ("gray wire", "leadjack"),
     ("inverter pcb", "e2"),
     ("freezer evaporator fan", "e2"),
     ("spark-free thermostat", "dial"),
@@ -4323,7 +4384,8 @@ def _unmatched_unit_line(
     model_text: str = "",
 ) -> str:
     """Miss line for a typed unit that has no job lock and no same-brand cite yet."""
-    if _job_key(history, latest_msg, category_name, model_text):
+    job = _job_key(history, latest_msg, category_name, model_text)
+    if job and job != "thetford":
         return ""
     symptom = _user_blob(history, latest_msg)
     brand = library_miss_brand_label(category_name, model_text, symptom)
@@ -4349,7 +4411,8 @@ def library_miss_reply_for_turn(
     A known job (furnace, fridge, leveling, and the rest) still uses its own
     prove. An empty job does not borrow another brand's excerpts.
     """
-    if _job_key(history, latest_msg, category_name, model_text):
+    job = _job_key(history, latest_msg, category_name, model_text)
+    if job and job != "thetford":
         return ""
     symptom = symptom or _user_blob(history, latest_msg)
     brand = library_miss_brand_label(category_name, model_text, symptom)
@@ -4399,7 +4462,7 @@ def _with_cite(text: str, job: str) -> str:
     body = (text or "").strip()
     if not body:
         return ""
-    if "📖" in body:
+    if "📖" in body or _is_library_miss_line(body):
         return body
     cite = _JOB_CITE.get(job or "")
     if not cite:
@@ -4436,6 +4499,12 @@ def _answered_checks(blob: str) -> set[str]:
     found = set()
     if re.search(r"filter is clean|filters are clean", low):
         found.add("filter")
+    if re.search(
+        r"\b\d{2,3}\s*/\s*\d{2,3}\b|"
+        r"\bpressures?\b.{0,24}\b(?:good|ok|normal|in range|reported)\b",
+        low,
+    ):
+        found.add("pressure")
     if re.search(r"dial (?:is )?at max", low):
         found.add("dial")
     if _sail_answered(low):
@@ -4480,6 +4549,11 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "can" in answered and re.search(r"unplug", low) and "firefly" in low and re.search(
         r"report|try manual|whether it holds", low
+    ):
+        return True
+    if "pressure" in answered and re.search(
+        r"read the refrigerant|connect gauges|check refrigerant pressures|read both gauges",
+        low,
     ):
         return True
     return False
@@ -4559,6 +4633,16 @@ def _proved_shop_reply(
             return DOMETIC_CEILING_LINE
     if job == "levelup" and _levelup_firefly_confirmed(blob):
         return LEVELUP_FIREFLY_FIRM_LINE
+    if job == "leadjack" and _leadjack_stage(history, latest_msg) == "cartridge":
+        return LEADJACK_CARTRIDGE_LINE
+    if job == "facr" and facr_terminal_path_complete(facr_proves_from_chat(history, latest_msg)):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if job == "ice" and _ice_cooling_unit_ready(blob):
+        return ICE_COOLING_UNIT_LINE
+    if job == "girard" and _girard_seating_confirmed(blob):
+        return GIRARD_SEATING_REPAIR_LINE
+    if job == "cooktop" and _cooktop_repair_ready(blob, latest_msg):
+        return COOKTOP_TIP_LOW_REPAIR
     return ""
 
 
@@ -4643,6 +4727,11 @@ def _conditional_lines(
             "If the fan motor stays locked after the capacitor measures near rated, replace the fan motor and the control board only.",
         ]
     if job == "facr":
+        facr_facts = facr_proves_from_chat(history, latest_msg)
+        if facr_terminal_path_complete(facr_facts):
+            return [FACR_TERMINAL_ASSEMBLY_RR_LINE]
+        if facr_facts.get("facr_pressure") == "ok":
+            return [_facr_stay_on_prove_line(facr_facts)]
         return [
             "Connect gauges and read the suction and discharge pressures. If those pressures are in range and the interior leak remains, replace the rooftop assembly.",
             "If the suction and discharge pressures are in range and water still leaks inside, replace the rooftop assembly.",
@@ -4700,8 +4789,8 @@ def _conditional_lines(
         ]
     if job == "cooktop":
         return [
-            "Set a pan on a lit burner and look at the thermocouple tip. If the tip sits low in the flame, reposition the thermocouple tip.",
-            "If the thermocouple tip sits low once a pan is on the burner, reposition that tip in the flame.",
+            "Set a pan on a lit burner and look at the thermocouple tip. If the tip sits low in the flame, reposition the thermocouple tip in the flame.",
+            "If the thermocouple tip sits low once a pan is on the burner, reposition the thermocouple tip in the flame.",
         ]
     if job == "dial":
         return [
@@ -4728,6 +4817,10 @@ def _conditional_lines(
             "Leave the rubber-boot terminator in. Unplug only the Firefly cable, try Manual Mode again, and report whether it holds. If Manual Mode holds, call Firefly at 574-825-4600 and update the firmware with a USB stick of 4 GB or smaller.",
             "If Manual Mode still dumps home with the Firefly cable unplugged, stay on the Level Up sensor and harness path.",
         ]
+    if job == "leadjack":
+        return [_leadjack_shop_line(history, latest_msg)]
+    if job == "thetford":
+        return [_thetford_shop_line(history, latest_msg)]
     return []
 
 
@@ -4748,6 +4841,263 @@ def _pick_fresh_line(lines: list[str], history: list = None) -> str:
             continue
         return line
     return ""
+
+
+LEADJACK_COIL_LINE = (
+    "Test the lead-jack valve coil on the gray wire and report whether it tests good.\n"
+    "📖 Source: Lippert CCD-0001750, page 8"
+)
+LEADJACK_PLUMB_LINE = (
+    "Confirm the swap plumbing. The manifold hose goes in the notched port, "
+    "the follow-leg hose goes in the non-notched port, and unused ports stay plugged. "
+    "Orange extend and black retract hoses must not be reversed. Report what you find.\n"
+    "📖 Source: Lippert QR-109, page 3\n"
+    "📖 Source: Lippert TI-143, page 2\n"
+    "📖 Source: Lippert TI-324, page 2\n"
+    "📖 Source: Lippert Level Up owner's manual, hose diagram"
+)
+LEADJACK_OVERRIDE_LINE = (
+    "Confirm the manual override screw is backed out and report what you find.\n"
+    "📖 Source: Lippert TI-170, page 1"
+)
+LEADJACK_CARTRIDGE_LINE = (
+    "Replace the front lead-jack cartridge valve, part 177094.\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+
+
+def _leadjack_coil_good(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"(?:coil|gray wire).{0,48}\b(?:good|ok|okay)\b", low)
+        or re.search(r"\b(?:good|ok|okay)\b.{0,32}(?:coil|gray wire)", low)
+    )
+
+
+def _leadjack_plumbing_ok(blob: str, history: list = None, latest_msg: str = "") -> bool:
+    low = _norm(blob)
+    if re.search(r"plumbing (?:is |checks? )?(?:correct|good|ok)", low):
+        return True
+    ports = "notched" in low and (
+        "non-notched" in low or "non notched" in low or "follow-leg" in low or "follow leg" in low
+    )
+    closed = "plugged" in low or "not reversed" in low or ("orange" in low and "black" in low)
+    if ports and closed:
+        return True
+    if re.search(r"plumb\w*.{0,32}\b(?:correct|good|ok|okay|fine|right|confirmed)\b", low):
+        if not re.search(
+            r"plumb\w*.{0,24}\bnot\b.{0,12}\b(?:correct|good|ok|okay|fine|right|confirmed)\b",
+            low,
+        ):
+            return True
+    if re.search(r"\b(?:correct|good|ok|okay|fine|right|confirmed)\b.{0,32}plumb", low):
+        return True
+    prev = _norm(_last_assistant_text(history))
+    latest = _norm(latest_msg or "")
+    if "notched" in prev and "plumb" in prev and re.search(
+        r"\b(?:yes|correct|confirmed|good|ok|okay|fine|right)\b|\bchecks out\b",
+        latest,
+    ):
+        if not re.search(r"\b(?:wrong|isn'?t|is not|not good|not correct|not ok|not okay)\b", latest):
+            return True
+    return False
+
+
+def _leadjack_override_out(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"override screw.{0,40}backed out", low)
+        or re.search(r"backed out.{0,40}override", low)
+    )
+
+
+def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
+    """coil, then plumbing, then the override screw, then the cartridge."""
+    blob = _user_blob(history, latest_msg)
+    if not _leadjack_coil_good(blob):
+        return "coil"
+    if not _leadjack_plumbing_ok(blob, history, latest_msg):
+        return "plumb"
+    if not _leadjack_override_out(blob):
+        return "override"
+    return "cartridge"
+
+
+def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
+    stage = _leadjack_stage(history, latest_msg)
+    if stage == "plumb":
+        return LEADJACK_PLUMB_LINE
+    if stage == "override":
+        return LEADJACK_OVERRIDE_LINE
+    if stage == "cartridge":
+        return LEADJACK_CARTRIDGE_LINE
+    return LEADJACK_COIL_LINE
+
+
+def ensure_level_up_lead_jack_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Coil, plumbing, and the override screw come before the cartridge."""
+    if _job_key(history, latest_msg, category_name, model_text) != "leadjack":
+        return reply
+    return _leadjack_shop_line(history, latest_msg)
+
+
+THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+THETFORD_SUPPLY_LINE = (
+    "Back of the toilet: check the water supply line connection at the water valve. "
+    "Secure or tighten it as necessary.\n"
+    + THETFORD_CITE_42088
+)
+THETFORD_VALVE_LINE = (
+    "Check whether the water valve weeps at the pedal. "
+    "If it weeps, replace the water valve.\n"
+    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
+)
+THETFORD_VALVE_REPLACE_LINE = (
+    "The water valve weeps at the pedal. Replace the water valve.\n"
+    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
+)
+THETFORD_VACUUM_LINE = (
+    "Check whether the vacuum breaker leaks while flushing. "
+    "If it leaks, replace the vacuum breaker or the water module, depending on model.\n"
+    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+)
+THETFORD_VACUUM_REPLACE_LINE = (
+    "The vacuum breaker leaks while flushing. "
+    "Replace the vacuum breaker or the water module, depending on model.\n"
+    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+)
+THETFORD_FLANGE_LINE = (
+    "Between the closet flange and the toilet, check the flange nuts. "
+    "If the leak continues, check the flange height and replace the flange seal.\n"
+    + THETFORD_CITE_42088
+)
+
+
+def _thetford_supply_ok(blob: str) -> bool:
+    low = _norm(blob)
+    if re.search(r"supply.{0,40}\b(?:tight|secure|secured|dry|good|ok|okay)\b", low):
+        return True
+    if re.search(r"\b(?:tightened|no leak)\b.{0,40}\b(?:supply|connection)\b", low):
+        return True
+    if re.search(r"\b(?:supply|connection)\b.{0,48}\b(?:tightened|no leak)\b", low):
+        return True
+    return bool(re.search(r"no leak (?:there|at the connection|at the supply)", low))
+
+
+def _thetford_valve_ok(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"does not weep|doesn't weep|do not weep|no weep|not weep", low)
+        or re.search(r"valve (?:is |was )?(?:dry|good|ok|okay)", low)
+    )
+
+
+def _thetford_valve_bad(blob: str) -> bool:
+    if _thetford_valve_ok(blob):
+        return False
+    return "weep" in _norm(blob)
+
+
+def _thetford_vacuum_ok(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"vacuum breaker.{0,40}\b(?:dry|good|ok|okay)\b", low)
+        or re.search(r"vacuum breaker.{0,40}(?:no leak|does not leak|doesn't leak)", low)
+        or re.search(r"(?:no leak|does not leak).{0,40}vacuum breaker", low)
+    )
+
+
+def _thetford_vacuum_bad(blob: str) -> bool:
+    if _thetford_vacuum_ok(blob):
+        return False
+    low = _norm(blob)
+    return bool(
+        re.search(r"vacuum breaker.{0,40}\b(?:leak|leaks|leaking)\b", low)
+        or re.search(r"\b(?:leak|leaks|leaking)\b.{0,40}vacuum breaker", low)
+    )
+
+
+def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
+    """Supply, then the pedal valve, then the vacuum breaker, then the flange."""
+    blob = _user_blob(history, latest_msg)
+    if not _thetford_supply_ok(blob):
+        return "supply"
+    if _thetford_valve_bad(blob):
+        return "valve_replace"
+    if not _thetford_valve_ok(blob):
+        return "valve"
+    if _thetford_vacuum_bad(blob):
+        return "vacuum_replace"
+    if not _thetford_vacuum_ok(blob):
+        return "vacuum"
+    return "flange"
+
+
+def _thetford_shop_line(history: list = None, latest_msg: str = "") -> str:
+    stage = _thetford_stage(history, latest_msg)
+    if stage == "valve":
+        return THETFORD_VALVE_LINE
+    if stage == "valve_replace":
+        return THETFORD_VALVE_REPLACE_LINE
+    if stage == "vacuum":
+        return THETFORD_VACUUM_LINE
+    if stage == "vacuum_replace":
+        return THETFORD_VACUUM_REPLACE_LINE
+    if stage == "flange":
+        return THETFORD_FLANGE_LINE
+    return THETFORD_SUPPLY_LINE
+
+
+def _thetford_source_only(text: str) -> bool:
+    """A Thetford cite with no shop step. That is the blank turn."""
+    raw = text or ""
+    if "📖" not in raw or _reply_has_body(raw):
+        return False
+    return bool(re.search(r"thetford|42088|42070|42109|34122|34123", raw, re.I))
+
+
+def _is_thetford_miss_line(text: str) -> bool:
+    raw = text or ""
+    return bool(_is_library_miss_line(raw) or "no thetford document" in _norm(raw))
+
+
+def _thetford_cite_ok(line: str) -> bool:
+    if not (line or "").strip().startswith("📖"):
+        return True
+    return bool(re.search(r"thetford|42088|42070|42109|34122|34123", line, re.I))
+
+
+def _thetford_keep(text: str) -> str:
+    """A flush-lever reply does not keep another unit's source line."""
+    kept = [line for line in (text or "").splitlines() if _thetford_cite_ok(line)]
+    return "\n".join(kept).strip()
+
+
+def ensure_thetford_flush_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    original: str = "",
+) -> str:
+    """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
+    if _job_key(history, latest_msg, category_name, model_text) != "thetford":
+        return reply
+    if _thetford_source_only(original) or _thetford_source_only(reply):
+        return _thetford_shop_line(history, latest_msg)
+    if _is_thetford_miss_line(reply) or _is_thetford_miss_line(original):
+        kept = reply if _is_thetford_miss_line(reply) else original
+        return _thetford_keep(kept)
+    if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
+        return _thetford_keep(reply)
+    return _thetford_shop_line(history, latest_msg)
 
 
 def _prove_lines(
@@ -4814,6 +5164,10 @@ def _prove_lines(
         return [
             "Confirm Auto Level still works. Leave the rubber-boot terminator in, unplug only the Firefly cable, and report whether Manual Mode holds.",
         ]
+    if job == "leadjack":
+        return [_leadjack_shop_line(history, latest_msg)]
+    if job == "thetford":
+        return [_thetford_shop_line(history, latest_msg)]
     return []
 
 
@@ -5009,6 +5363,8 @@ def _answer_latest(
             return "The rooftop bypass cools. Bypass the ceiling selector and report whether that also cools."
         return ""
     if _open("ice") and re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
+        if _ice_cooling_unit_ready(blob):
+            return "Replace the cooling unit."
         if re.search(r"\b(?:frost|ice|icing)\s+returns?\b", low):
             return "Heavy frost returned. Replace the cooling unit."
         if re.search(r"still cooling|still cools", low):
@@ -5042,7 +5398,7 @@ def _answer_latest(
         return ""
     if _open("cooktop") and re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
         if asks_what_is_the_repair(latest_msg) or cooktop_tip_sits_low(blob):
-            return "Reposition the thermocouple tip in the burner flame with the pan on."
+            return "Reposition the thermocouple tip in the flame with the pan on."
         if _is_fallback_question(latest_msg):
             return "Set a pan on a lit burner and report whether the thermocouple tip stays in the flame."
         return ""
@@ -5234,6 +5590,7 @@ def polish_shop_reply(
     if re.search(r"(?:^|\s)2\.", text or "") and not re.search(r"(?:^|\s)1\.", text or ""):
         text = re.sub(r"(?:^|\s)\d{1,2}\.\s+", " ", text or "")
     text = _FILENAME_RE.sub("", text)
+    text = _strip_stop_no_further_tests(text)
     text = _LEAKED_GUARD_RE.sub("", text)
     text = _META_QUESTION_RE.sub("", text)
     text = re.sub(
@@ -5382,7 +5739,91 @@ def polish_shop_reply(
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
     text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    text = ensure_level_up_lead_jack_reply(
+        text, history, latest_msg, category_name, model_text
+    )
+    text = ensure_thetford_flush_reply(
+        text, history, latest_msg, category_name, model_text, original=reply or ""
+    )
     return without_reading_filler(text, history, latest_msg, category_name, model_text)
+
+
+def _ice_cooling_unit_ready(blob: str) -> bool:
+    """Overnight dry-and-wait plus frost back is the cooling-unit repair."""
+    raw = blob or ""
+    overnight = bool(re.search(r"\bovernight\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    dried = bool(re.search(r"\b(?:dried|towel)\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    back = bool(
+        re.search(
+            r"\b(?:frost|ice|icing)\b.{0,40}\b(?:return(?:ed|s)?|came back|persists?)\b|"
+            r"\bheavy frost\b|"
+            r"\b(?:frost|ice|icing)\b.{0,24}\bstill\b|"
+            r"\bstill (?:icing|iced|there)\b",
+            raw,
+            re.I,
+        )
+    )
+    return bool(overnight and dried and back)
+
+
+def _girard_seating_confirmed(blob: str) -> bool:
+    """Seating is a reported fact. A clear tube is not seating."""
+    raw = blob or ""
+    if re.search(r"\b(?:not|isn't|is not)\s+seated\b|\bunseated\b", raw, re.I):
+        return False
+    return bool(
+        re.search(
+            r"\bseating(?:\s+is)?\s+confirmed\b|"
+            r"\bseated the (?:sensing )?tube\b|"
+            r"\b(?:sensing )?tube(?:\s+is|\s+was)?\s+seated\b|"
+            r"\bi seated (?:it|the tube|the sensing tube)\b",
+            raw,
+            re.I,
+        )
+    )
+
+
+def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
+    """The tip repair waits until the tip is low or the tech asks for the repair."""
+    if cooktop_tip_sits_low(blob or ""):
+        return True
+    if not asks_what_is_the_repair(latest_msg or ""):
+        return False
+    return _has_pan_on_flameout_marker(blob or "")
+
+
+def _live_close_reply(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Terminal card for a proved job. Other jobs stay on their own prove."""
+    job = _job_key(history, latest_msg, category_name, model_text)
+    blob = _user_blob(history, latest_msg)
+    if job == "facr":
+        facts = facr_proves_from_chat(history, latest_msg)
+        if facr_terminal_path_complete(facts):
+            return FACR_TERMINAL_ASSEMBLY_RR_LINE
+        if facts.get("facr_pressure") == "ok":
+            return _facr_stay_on_prove_line(facts)
+        return ""
+    if job == "ice" and _ice_cooling_unit_ready(blob):
+        return ICE_COOLING_UNIT_LINE
+    if job == "girard" and _girard_seating_confirmed(blob):
+        return GIRARD_SEATING_REPAIR_LINE
+    if job == "cooktop" and _cooktop_repair_ready(blob, latest_msg):
+        return COOKTOP_TIP_LOW_REPAIR
+    return ""
+
+
+_STOP_NO_FURTHER_RE = re.compile(r"\bStop\.\s*No further tests\.?\s*", re.I)
+_COOKTOP_RUNON_RE = re.compile(r"under load\s+[A-Z]")
+
+
+def _strip_stop_no_further_tests(text: str) -> str:
+    cleaned = _STOP_NO_FURTHER_RE.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 def avoid_duplicate_reply(
@@ -5397,9 +5838,12 @@ def avoid_duplicate_reply(
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
-    text = (reply or "").strip()
+    text = _strip_stop_no_further_tests((reply or "").strip())
     if _is_offline_notice(text):
         return text
+    closed = _live_close_reply(history, latest_msg, category_name, model_text)
+    if closed:
+        return closed
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         if "📖" not in locked:
@@ -5926,6 +6370,8 @@ def ensure_girard_petit_align(
     )
     if "burner flame" in _norm(reply):
         reply = ""
+    if _girard_seating_confirmed(_chat_user_blob(history, latest_msg)):
+        return GIRARD_SEATING_REPAIR_LINE
     if facts.get("girard_tube") == "clear":
         return GIRARD_BLOWER_SUCTION_LINE
     if not ready:
@@ -6660,6 +7106,10 @@ def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list 
     repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
         complaint or ""
     )
+    if _COOKTOP_RUNON_RE.search(cleaned):
+        if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
+            return COOKTOP_TIP_LOW_REPAIR
+        return COOKTOP_TIP_PAN_SHOP_LINE
     if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
         low = _norm(cleaned)
         if (
@@ -9062,10 +9512,10 @@ def strip_path_complete_trap(text: str) -> str:
 # assistant reply. Groq/xAI answer that with HTTP 413 "request too large".
 # Trim history and compact citations on every GD turn, then retry a 413 with
 # a smaller payload so the session can still reach a part climax.
-COACH_HISTORY_MAX_MESSAGES = 8
-COACH_HISTORY_ASSISTANT_CAP = 900
-COACH_EXCERPT_CHAR_CAP = 1400
-COACH_CONTEXT_CHAR_CAP = 9000
+COACH_HISTORY_MAX_MESSAGES = 6
+COACH_HISTORY_ASSISTANT_CAP = 480
+COACH_EXCERPT_CHAR_CAP = 700
+COACH_CONTEXT_CHAR_CAP = 4200
 COACH_SYSTEM_CHAR_CAP = 16000
 _PAYLOAD_TOO_LARGE_RE = re.compile(
     r"("
