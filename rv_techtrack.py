@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.6
+RV TechTrack v4.19.7
+- v4.19.7: Bay snippets are whole sentences (flowchart OCR, fig-ref scraps, part-number runs, and cut endings drop). Flowcharts follow the bay steps. Figures are full regions, not thin cut strips or a blank page. FACR08 CCD-0008666 is labeled as FACR08, and a front jack cites the front/PSX1 book
 - v4.19.6: Bay sheets use the same correction as Guided Diagnostics (1-month cooling-unit close, ceiling thermostat 3311071, Ground Control zero-point, FACT12 freeze-sensor resecure, petit tube before the control board, full jack R&R, thermocouple tip). Captions match the figure, generated sketches are not OEM pages, and snippets are not cut mid-word
 - v4.19.5: The Send path rewrites a B57915 turns-on / will-not-blow-cold reply after the model returns, from the raw complaint. A cached coach that still requires the word fan is reloaded.
 - v4.19.4: Dometic B57915 that turns on and will not blow cold opens turn 1 on diagnostic manual 3311071: confirm the fan runs, then the Peacemaker bypass. A stated running fan still starts at the Peacemaker bypass.
@@ -98,7 +99,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.6``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.7``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")

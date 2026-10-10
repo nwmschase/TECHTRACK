@@ -52,6 +52,54 @@ def _no_generic_chart(text: str):
 
 
 class TestSnippetCleanupPatterns(unittest.TestCase):
+    def test_hyphen_splits_runons_and_flowchart_scraps_drop(self):
+        joined = clean_ocr_prose(
+            "The air con- ditioner lost refriger - ant. This will pre - vent heat. "
+            "Check the FUR - NACE next."
+        )
+        low = joined.lower()
+        self.assertIn("conditioner", low)
+        self.assertIn("refrigerant", low)
+        self.assertIn("prevent", low)
+        self.assertIn("furnace", low)
+        self.assertNotIn("con- ditioner", low)
+        self.assertNotIn("refriger - ant", low)
+        run_on = clean_ocr_prose("There is damage to the knob Loosen the lock nut.")
+        self.assertIn("knob.", run_on)
+        self.assertIn("Loosen", run_on)
+        self.assertNotIn("knob Loosen", run_on)
+        self.assertEqual(
+            clean_source_excerpt(
+                "Yes No Proceed to the Voltage Drop-out Troubleshooting section."
+            ),
+            "",
+        )
+        self.assertEqual(
+            clean_source_excerpt("Yes No Replace the inverter PCB and fan."),
+            "",
+        )
+        ice = clean_source_excerpt(
+            "Open the refrigerator and note any ice 36B) build-up in the cavity."
+        )
+        self.assertNotIn("36B)", ice)
+        self.assertIn("build-up", ice.lower())
+        self.assertEqual(clean_source_excerpt("4A) engaged the coupler and stopped."), "")
+        self.assertEqual(
+            clean_source_excerpt("Parts 5012486 and 2025012487 are listed here."),
+            "",
+        )
+        self.assertEqual(
+            clean_source_excerpt("Pin 5 is Green High Fan relay Gray (."),
+            "",
+        )
+        self.assertEqual(clean_source_excerpt("Handling the Device ?."), "")
+        self.assertEqual(clean_source_excerpt("1 ? CSA Z240 and a caution note."), "")
+        self.assertNotIn(
+            "grease",
+            clean_source_excerpt("A grease fire can start if the pan is left.").lower(),
+        )
+        self.assertNotIn("piezo", clean_source_excerpt('Use the piezo lighting open "flame').lower())
+
     def test_ocr_joins_and_cut_snippets_are_repaired(self):
         joined = clean_ocr_prose(
             "Open Cand Topen with no jumper. The fan sits in the cavityso. "
@@ -100,8 +148,20 @@ class TestBayCaseFixes(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertLess(image.size[1], 200)
-        self.assertGreater(image.size[0], 800)
+        self.assertGreater(image.size[1], 70)
+        self.assertLess(image.size[1], 120)
+        self.assertGreater(image.size[0], 1000)
+        pages = compose_sheet(proc)
+        self.assertTrue(
+            any("drainage openings" in (t.text or "").lower() for page in pages for t in page.texts)
+        )
+        for page in pages:
+            if not page.images:
+                continue
+            has_body = any((t.text or "").strip() and t.role != "header" for t in page.texts if len(t.text or "") > 24)
+            for image_box in page.images:
+                if image_box.h < 240:
+                    self.assertTrue(has_body)
         trace = []
         render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])
@@ -111,7 +171,7 @@ class TestBayCaseFixes(unittest.TestCase):
                 continue
             for x, y in mark.points:
                 self.assertGreater(x, frame.x0 + 2.0, mark.points)
-                self.assertLess(x, frame.x1 - 2.0, mark.points)
+                self.assertLess(x, frame.x1 - 28.0, mark.points)
                 self.assertGreater(y, frame.y0 + 2.0)
                 self.assertLess(y, frame.y1 - 2.0)
 
@@ -137,6 +197,47 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("(fig.", low)
         _no_generic_chart(text)
         self.assertLessEqual(len(compose_sheet(proc)), 3)
+
+    def test_s02_figure_is_the_fan_or_board_not_the_plenum(self):
+        from PIL import Image
+
+        def _png(label):
+            image = Image.new("RGB", (640, 480), (255, 255, 255))
+            image.putpixel((10, 10), (0, 0, 0))
+            buf = BytesIO()
+            image.save(buf, format="PNG")
+            return buf.getvalue()
+
+        fan = _png("fan")
+        plenum = _png("plenum")
+        # Distinct bytes so the sheet can be checked for which art was painted.
+        plenum = plenum + b"\x00plenum"
+        proc, text = _sheet(
+            "Coleman-Mach 2111-0001 fan high is dead",
+            "Coleman-Mach",
+            "2111-0001",
+            "Air Conditioning",
+            chunks=[
+                {
+                    "title": "Coleman-Mach ceiling plenum 6799-730",
+                    "page": 2,
+                    "excerpt": "Fig. 2 6799-730 ceiling plenum.",
+                    "image_png": plenum,
+                },
+                {
+                    "title": "Coleman-Mach 12VDC wall-thermostat rooftop service manual",
+                    "page": 8,
+                    "excerpt": "Fig. 8 fan and control board at the 9-pin.",
+                    "image_png": fan,
+                },
+            ],
+        )
+        painted = [image.png for page in compose_sheet(proc) for image in page.images]
+        self.assertTrue(painted)
+        self.assertTrue(all(png == fan for png in painted))
+        self.assertNotIn("6799-730", text)
+        self.assertNotIn("plenum", text.lower())
+        _no_generic_chart(text)
 
     def test_s03_bal_stays_on_the_tongue_output_wire(self):
         _proc, text = _sheet(
@@ -167,6 +268,10 @@ class TestBayCaseFixes(unittest.TestCase):
         )
         self.assertEqual(proc.model_line, "Furrion FCR10")
         self.assertNotIn("DCGTA", proc.model_line)
+        pages = compose_sheet(proc)
+        header = " ".join(t.text for t in pages[0].texts if t.role == "header")
+        self.assertIn("Furrion FCR10", header)
+        self.assertNotIn("FCR10DCGTA", header)
         self.assertIn("FCR10", text)
         self.assertNotIn("Cand Topen", text)
         self.assertIn("c and t open", text.lower())
@@ -235,7 +340,7 @@ class TestBayCaseFixes(unittest.TestCase):
         _no_generic_chart(text)
 
     def test_s08_furnace_still_replaces_the_wall_thermostat(self):
-        _proc, text = _sheet(
+        proc, text = _sheet(
             "Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
             "Suburban",
             "NT-20SEQT",
@@ -244,6 +349,10 @@ class TestBayCaseFixes(unittest.TestCase):
         low = text.lower()
         self.assertIn("wall thermostat", low)
         self.assertIn("sail", low)
+        nodes = " ".join(node.text for node in proc.flowchart.nodes).lower()
+        self.assertIn("limit switch", nodes)
+        self.assertIn("module board", nodes)
+        self.assertNotIn("sail passed", nodes)
         _no_generic_chart(text)
 
     def test_s09_replaces_the_ceiling_thermostat(self):
@@ -267,6 +376,11 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("pushingup", low)
         self.assertNotIn("did the first", low)
         self.assertNotIn("installation", low)
+        self.assertNotIn("con- ditioner", low)
+        self.assertNotIn("refriger - ant", low)
+        bypass = next(node for node in proc.flowchart.nodes if "peacemaker" in node.text.lower())
+        decision = next(node for node in proc.flowchart.nodes if "both bypasses" in node.text.lower())
+        self.assertLess(bypass.y, decision.y)
         _no_generic_chart(text)
         self.assertLessEqual(len(compose_sheet(proc)), 3)
 
@@ -294,6 +408,16 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertIn("tires off the ground", low)
         self.assertNotIn("->", " ".join(proc.bay_order))
         self.assertIn("manual level", GROUND_CONTROL_LEVEL_LINE.lower())
+        self.assertEqual(len(proc.bay_order), len({step.strip() for step in proc.bay_order}))
+        self.assertEqual(proc.bay_order[2].lower().count("confirm the controller"), 0)
+        ordered = sorted(
+            (node.y, node.text.lower())
+            for node in proc.flowchart.nodes
+            if node.kind in ("process", "start")
+        )
+        texts = [text for _y, text in ordered]
+        self.assertLess(texts.index(next(t for t in texts if "manual level" in t)), texts.index(next(t for t in texts if "zero point" in t)))
+        self.assertLess(texts.index(next(t for t in texts if "zero point" in t)), texts.index(next(t for t in texts if "front five" in t)))
         _no_generic_chart(text)
         trace = []
         render_bay_procedure_pdf(proc, trace=trace)
@@ -321,7 +445,26 @@ class TestBayCaseFixes(unittest.TestCase):
             self.assertNotIn("boltx", low)
             self.assertNotIn("?", " ".join(proc.bay_order))
             self.assertNotIn("did the first", low)
+            nodes = " ".join(node.text for node in proc.flowchart.nodes).lower()
+            self.assertNotIn("reseat", nodes)
+            self.assertIn("resecure", nodes)
             _no_generic_chart(text)
+        titled = {
+            "title": "Furrion FACT12SA2-PS 8K Electronic Control IM CCD-0008666",
+            "page": 3,
+            "excerpt": "Check the evaporator coil and the sensor clip.",
+        }
+        proc, text = _sheet(
+            "Furrion FACT12SA2 rooftop shows E3",
+            "Furrion",
+            "FACT12SA2",
+            "Air Conditioning",
+            chunks=[titled],
+        )
+        low = text.lower()
+        self.assertNotIn("fact12sa2-ps", low)
+        self.assertIn("facr08", low)
+        self.assertIn("ccd-0008666", low)
 
     def test_s13_aligns_the_petit_tube_before_the_control_board(self):
         proc, text = _sheet(
@@ -342,6 +485,12 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertIn(GIRARD_PETIT_ALIGN_LINE.split(".")[0].lower(), order)
         self.assertLess(order.index("petit tube"), order.index("control board"))
         self.assertFalse(any(step.lower().startswith("replace the control board") for step in proc.bay_order))
+        self.assertEqual(len(proc.bay_order), len({step.strip() for step in proc.bay_order}))
+        yes = next(node.text.lower() for node in proc.flowchart.nodes if "already in the flame" in node.text.lower())
+        no = next(node.text.lower() for node in proc.flowchart.nodes if node.text.lower().startswith("align the petit"))
+        self.assertNotEqual(yes, no)
+        self.assertNotIn("align", yes)
+        self.assertIn("align", no)
         low = text.lower()
         self.assertNotIn("(fig.", low)
         self.assertNotIn("efault", low)
@@ -359,7 +508,12 @@ class TestBayCaseFixes(unittest.TestCase):
                     "title": "Lippert PSX1 CCD-0007345",
                     "page": 7,
                     "excerpt": "Notes Fig. 5 Troubleshooting What's Happening? The lead is hookedup to lippert.",
-                }
+                },
+                {
+                    "title": "Electric Rear Stabilizer",
+                    "page": 1,
+                    "excerpt": "4A) engaged the rear stabilizer. Parts 5012486 and 2025012487.",
+                },
             ],
         )
         low = text.lower()
@@ -370,6 +524,9 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("hookedup", low)
         self.assertNotIn("(fig.", low)
         self.assertNotIn("lippert.", low)
+        self.assertNotIn("4a)", low)
+        self.assertNotIn("5012486", text)
+        self.assertNotIn("rear stabilizer", low)
         _no_generic_chart(text)
         pages = compose_sheet(proc)
         header = [t.text.strip() for t in pages[0].texts if t.role == "header"]
@@ -386,7 +543,7 @@ class TestBayCaseFixes(unittest.TestCase):
                 {
                     "title": "Suburban range (OCR)",
                     "page": 1,
-                    "excerpt": "",
+                    "excerpt": 'A grease fire can start. Use the piezo lighting. open "flame and damage,personal injury.',
                 }
             ],
         )
@@ -395,6 +552,10 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertIn(COOKTOP_TIP_LOW_REPAIR.split(".")[1].strip().lower()[:40], low)
         self.assertNotIn("no matching library excerpt", low)
         self.assertNotIn("(ocr)", low)
+        self.assertNotIn("reseat", low)
+        self.assertNotIn("grease", low)
+        self.assertNotIn("piezo", low)
+        self.assertEqual(len(proc.bay_order), len({step.strip() for step in proc.bay_order}))
         _no_generic_chart(text)
         self.assertGreaterEqual(len(proc.bay_order), 6)
         self.assertLessEqual(len(compose_sheet(proc)), 3)
