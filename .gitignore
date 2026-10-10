@@ -10,6 +10,7 @@ documents/
 safety/
 training_materials/
 bulk_imports/
+library_pages/
 
 # Python
 __pycache__/
