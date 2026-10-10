@@ -117,7 +117,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.36"
+MODULE_REVISION = "v4.19.37"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -5878,7 +5878,9 @@ def _lead_jack_drift_flowchart() -> Flowchart:
 
 def _lead_jack_drift_path() -> dict:
     return {
-        "primary_cite": "Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3.",
+        "primary_cite": (
+            "Lippert TI-005 page 3. Level Up Towable Owner's Manual page 15."
+        ),
         "pattern_means": (
             "Front jacks that move when another circuit pressurizes, including the slides, "
             "are a front lead-jack cartridge that leaks internally. Part 177094 is the "
@@ -5916,16 +5918,15 @@ def _lead_jack_drift_path() -> dict:
                 "page": 18,
                 "excerpt": "Cartridge Valve, item F, part 177094.",
             },
+            {
+                "title": "Lippert Level Up FW Owner's Manual",
+                "page": 13,
+                "excerpt": "",
+            },
             {"title": "Lippert CCD-0001750", "page": 8, "excerpt": ""},
             {"title": "Lippert QR-109", "page": 3, "excerpt": ""},
             {"title": "Lippert TI-143", "page": 2, "excerpt": ""},
             {"title": "Lippert TI-324", "page": 2, "excerpt": ""},
-            {
-                "title": "Lippert Level Up owner's manual, hose diagram",
-                "page": None,
-                "excerpt": "",
-                "title_only": True,
-            },
             {"title": "Lippert TI-170", "page": 1, "excerpt": ""},
             {
                 "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
@@ -5979,6 +5980,30 @@ _THETFORD_OM_LEAK_RE = re.compile(
 )
 
 
+_THETFORD_INSTALL_STEP_RE = re.compile(
+    r"\b(?:disconnect|connect)\b.{0,60}\bwater supply\b",
+    re.I,
+)
+
+
+def _thetford_leak_quote(excerpt: str) -> str:
+    """A kit quote has to be a leak sentence. An install step is dropped."""
+    text = re.sub(r"\s+", " ", (excerpt or "").strip())
+    if not text:
+        return ""
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    if not sentences:
+        sentences = [text]
+    for sentence in sentences:
+        if _THETFORD_INSTALL_STEP_RE.search(sentence) and not _THETFORD_OM_LEAK_RE.search(sentence):
+            continue
+        if _THETFORD_OM_LEAK_RE.search(sentence) or re.search(
+            r"\b(?:leak(?:s|ing|ed)?|weep(?:s|ing)?)\b", sentence, re.I
+        ):
+            return sentence
+    return ""
+
+
 def _thetford_leak_sources(sources: list[dict]) -> list[dict]:
     """OM troubleshooting page, water valve kit 42109 page 1, vacuum breaker kit."""
     kept = []
@@ -5995,7 +6020,10 @@ def _thetford_leak_sources(sources: list[dict]) -> list[dict]:
         om = bool(re.search(r"\b42088\b|permanent rv toilet", title, re.I)) and bool(
             _THETFORD_OM_LEAK_RE.search(excerpt)
         )
-        if valve_kit or breaker_kit or om:
+        if valve_kit or breaker_kit:
+            row["excerpt"] = _thetford_leak_quote(excerpt)
+            kept.append(row)
+        elif om:
             kept.append(row)
 
     def _order(src: dict) -> tuple:
