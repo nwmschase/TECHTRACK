@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.23"
+COACH_REVISION = "v4.19.24"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -3591,7 +3591,9 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
             options.append(
                 "Check whether the freeze sensor is fastened on the evaporator coil and report what you find."
             )
-    if re.search(r"\b(?:manual crank|stabilizer|psx1)\b", blob):
+    if re.search(r"\b(?:manual crank|psx1|roll pin|stabilizer jack)\b", blob) and not re.search(
+        r"\bbal\b|soft[\s-]*touch|tongue", blob
+    ):
         if re.search(r"\b(?:broken|seized)\b", blob):
             options.append(
                 "Replace the complete front stabilizer jack assembly and retest power and the manual crank."
@@ -3607,8 +3609,8 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
             "With the blower running, measure power in and power out at the sail switch. "
             "If power is present in and out, replace the wall thermostat."
         )
-    furnace_job = bool(re.search(r"\bfurnace\b|suburban", blob)) and not re.search(
-        r"2111|coleman", blob
+    furnace_job = bool(re.search(r"\bfurnace\b|thermostat bypass|sail switch", blob)) and not re.search(
+        r"2111|coleman|b57915|cooktop|\bpan\b", blob
     )
     if furnace_job and "wall thermostat" in prior:
         options.append(
@@ -3623,7 +3625,10 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
         options.append("Replace the soft-touch user panel, part 20300427.")
     if "inverter pcb" in prior:
         options.append("Replace the inverter PCB and the freezer evaporator fan.")
+    job = _job_key(history, latest_msg)
     for line in options:
+        if not _line_fits_job(line, job):
+            continue
         fresh = _fresh_line(line, history)
         if fresh:
             return fresh
@@ -3982,50 +3987,266 @@ def _give_repair_now(latest_msg: str = "", history: list = None) -> bool:
     return bool(asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg))
 
 
-def _job_key(history: list = None, latest_msg: str = "") -> str:
-    user = _user_blob(history, latest_msg)
-    ctx = _context_blob(history, latest_msg)
-    # A short fallback has no new job words, so the earlier turns still name the job.
-    blob = (
-        f"{user} {ctx}"
-        if asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)
-        else (user or ctx)
-    )
-    if re.search(r"2111|coleman", blob) and not re.search(r"\bfurnace\b|suburban|nt-20", user):
+def _job_key(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """The open job from category, model, and the tech's words.
+
+    Coach sentences are not part of the complaint. A later case in the same
+    process cannot inherit a furnace or jack repair from an earlier chat.
+    """
+    symptom = _user_blob(history, latest_msg)
+    cat = category_name or ""
+    model = model_text or ""
+    ident = _norm(f"{cat} {model}")
+    cat_n = _norm(cat)
+    # The dropdown names the unit. Earlier chats in the same session do not.
+    if re.search(r"b57915|3311071", ident):
+        return "dometic"
+    if re.search(r"fact\s*12", ident):
+        return "fact12"
+    if re.search(r"2111|coleman", ident):
         return "coleman"
-    if re.search(r"fact\s*12", blob) or (
-        re.search(r"freeze sensor", blob) and re.search(r"\be\s*[23]\b", user)
+    if re.search(r"facr", ident):
+        return "facr"
+    if "343633" in ident or "ground control" in ident:
+        return "ground"
+    if re.search(r"807662|level[\s-]*up", ident):
+        return "levelup"
+    if re.search(r"\bbal\b|soft[\s-]*touch", ident):
+        return "bal"
+    if re.search(r"gswh|girard", ident):
+        return "girard"
+    if "cooktop" in cat_n or re.search(r"\brange", cat_n) or re.search(r"\bsdn\s*2", ident):
+        return "cooktop"
+    if "furnace" in cat_n or re.search(r"\bnt[\s-]*20", ident):
+        return "furnace"
+    # No dropdown. The tech's own words name the job. Coach lines do not.
+    user = symptom
+    if re.search(r"2111|coleman", user):
+        return "coleman"
+    if re.search(r"\bbal\b|soft[\s-]*touch|20300427", user) or (
+        "tongue" in user and re.search(r"\b0\s*v\b|\bdead\b|panel", user)
+    ):
+        return "bal"
+    if re.search(r"fact\s*12", user) or (
+        "freeze sensor" in user and re.search(r"\be\s*[23]\b", user)
     ):
         if not re.search(r"interior leak|water leaking|condensate", user):
             return "fact12"
     if re.search(r"facr\d|interior leak|water leaking|condensate", user):
         return "facr"
-    if re.search(r"\be\s*8\b", blob) and re.search(r"girard|gswh|petit", blob):
+    if re.search(r"\be\s*8\b", user) and re.search(r"girard|gswh|petit|water heater", user):
         return "girard"
-    if re.search(r"\bfurnace\b|suburban|sail switch|thermostat bypass", blob) and not re.search(
+    if re.search(r"\bpan\b", user) and re.search(r"shut off|shuts off|goes out", user):
+        return "cooktop"
+    if re.search(r"b57915|3311071|will not blow cold|ceiling thermostat", user):
+        return "dometic"
+    if re.search(r"ground control|343633|zero[\s-]*point|auto-level", user):
+        return "ground"
+    if re.search(r"807662|level[\s-]*up|firefly", user):
+        return "levelup"
+    if re.search(r"\be\s*2\b|fan fault|2[\s-]*flash", user) and re.search(r"inverter|f\+|fcr", user):
+        return "e2"
+    if re.search(r"\b(?:rear|back)[\s-]*wall\b", user) and re.search(r"\b(?:ice|icing|frost)\b", user):
+        return "ice"
+    if re.search(r"\bdial\b", user) and re.search(r"\bcompressor\b", user) and re.search(r"\boff\b", user):
+        return "dial"
+    if re.search(r"\bfurnace\b|sail switch|thermostat bypass", user) and not re.search(
         r"2111|coleman", user
     ):
         return "furnace"
-    if re.search(r"ground control|343633|zero[\s-]*point|auto-level", blob):
-        return "ground"
-    if re.search(r"stabilizer|psx1|roll pin|manual crank", blob):
+    if re.search(r"stabilizer jack|psx1|roll pin|manual crank", user) and not re.search(
+        r"\bbal\b|soft[\s-]*touch|tongue", user
+    ):
         return "stab"
-    if re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
-        return "ice"
-    if re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
-        return "cooktop"
-    if re.search(r"\bdial\b", blob) and re.search(r"\bcompressor\b", blob):
+    if re.search(r"drain is clear", user):
+        return "facr"
+    if is_bal_soft_touch_tongue_only_context(cat, model, symptom):
+        return "bal"
+    if is_facr_rooftop_freeze_context(cat, model, symptom):
+        return "facr"
+    if is_coleman_2111_context(cat, model, symptom):
+        return "coleman"
+    if is_fcr_dial_off_compressor_run_context(cat, model, symptom):
         return "dial"
-    if re.search(r"b57915|3311071|will not blow cold|ceiling", blob):
+    if is_fcr_e2_fan_fault_context(cat, model, symptom):
+        return "e2"
+    if is_fridge_ice_moisture_context(cat, model, symptom):
+        return "ice"
+    if is_cooktop_pan_on_flameout_context(cat, model, symptom) or is_cooktop_tip_sheet_context(
+        cat, model, symptom
+    ):
+        return "cooktop"
+    if is_stabilizer_override_pin_context(cat, model, symptom):
+        return "stab"
+    if is_ground_control_context(cat, model, symptom):
+        return "ground"
+    if (
+        is_firefly_can_path_context(cat, model, symptom)
+        or is_level_up_manual_dump_context(cat, model, symptom)
+        or is_level_up_advantage_context(cat, model, symptom)
+    ):
+        return "levelup"
+    if is_dometic_b57915_nocoool_context(cat, model, symptom) or is_dometic_ceiling_sheet_context(
+        cat, model, symptom
+    ):
         return "dometic"
+    if is_suburban_furnace_context(cat, model, symptom):
+        return "furnace"
+    if is_girard_petit_tube_context(cat, model, symptom):
+        return "girard"
+    fact_model = model if re.search(r"fact\s*12", _norm(model)) else symptom
+    if is_fact12_freeze_code_context(cat, fact_model, symptom):
+        return "fact12"
     return ""
 
 
-def _conditional_lines(history: list = None, latest_msg: str = "") -> list[str]:
+_JOB_CITE = {
+    "facr": "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990",
+    "coleman": (
+        "📖 Source: Coleman-Mach rooftop service manual; "
+        "1976-536 and 1976-603; SkillAbove Peacemaker; 1976-695"
+    ),
+    "dial": "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31",
+    "e2": "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 27",
+    "ice": "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36",
+    "cooktop": "📖 Source: Suburban Range/Cooktops service manual - page 4",
+    "stab": "📖 Source: Lippert PSX1 CCD-0007345, page 7",
+    "ground": (
+        "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
+        "(Ground Control TT/2.0/3.0)"
+    ),
+    "levelup": "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 1",
+    "dometic": "📖 Source: Dometic Brisk II, page 23",
+    "furnace": "📖 Source: Suburban Furnace Service and Training Manual",
+    "girard": "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23",
+    "fact12": "📖 Source: Furrion Chill FACR08 8K manual CCD-0008666, page 5",
+    "bal": "📖 Source: BAL SS 5.1 Stabilizing System INS.STA.001",
+}
+
+# A phrase may appear only on its own job. Assistant text from another case does not unlock it.
+_OWNED_PHRASES = (
+    ("sail switch", "furnace"),
+    ("replace the wall thermostat", "furnace"),
+    ("front stabilizer jack", "stab"),
+    ("20300427", "bal"),
+    ("soft-touch user panel", "bal"),
+    ("ceiling thermostat", "dometic"),
+    ("thermocouple tip", "cooktop"),
+    ("zero-point", "ground"),
+    ("zero point", "ground"),
+    ("firefly cable", "levelup"),
+    ("rubber-boot", "levelup"),
+    ("inverter pcb", "e2"),
+    ("freezer evaporator fan", "e2"),
+    ("spark-free thermostat", "dial"),
+    ("replace the cooling unit", "ice"),
+    ("rooftop assembly", "facr"),
+    ("sensing tube", "girard"),
+    ("air pressure switch", "girard"),
+    ("air-pressure switch", "girard"),
+)
+
+_PLACEHOLDER_RE = re.compile(
+    r"take the next check on this job|"
+    r"check the first step on this job|"
+    r"measure the open check|"
+    r"write the open reading|"
+    r"write reading \d+|"
+    r"replace the part that check names|"
+    r"replace the failed part",
+    re.I,
+)
+_BROKEN_SENTENCE_RE = re.compile(
+    r"\d+\.\s+\d+\.|"
+    r"\b(?:pin|coupler)\s+or\s+seized\b|"
+    r"\band the code\s*,|"
+    r"\band e\s*2\s*,|"
+    r"interior leak\s*,",
+    re.I,
+)
+
+
+def _line_fits_job(text: str, job: str) -> bool:
+    low = _norm(text)
+    if not low or _PLACEHOLDER_RE.search(low) or _BROKEN_SENTENCE_RE.search(text or ""):
+        return False
+    # An unnamed job keeps the draft. It does not borrow another case's repair.
+    if not job:
+        return True
+    for phrase, owner in _OWNED_PHRASES:
+        if phrase in low and job != owner:
+            return False
+    if "freeze sensor" in low and job not in ("fact12", "facr"):
+        return False
+    if job == "facr" and re.search(r"replace the freeze sensor", low):
+        return False
+    return True
+
+
+def _with_cite(text: str, job: str) -> str:
+    body = (text or "").strip()
+    if not body:
+        return ""
+    if "📖" in body:
+        return body
+    cite = _JOB_CITE.get(job or "")
+    if not cite:
+        return body
+    return body + "\n" + cite
+
+
+def _firm_repair_reply(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """A replace/reseat already given on THIS job stays the repair."""
+    if not (asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)):
+        return ""
+    job = _job_key(history, latest_msg, category_name, model_text)
+    chosen = ""
+    sources: list[str] = []
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        cites = [line.strip() for line in content.splitlines() if line.strip().startswith("📖")]
+        for sentence in _split_reply_sentences(content):
+            if sentence.startswith("📖") or "?" in sentence:
+                continue
+            if re.match(r"(?i)^if\b", sentence.strip()):
+                continue
+            if _is_repair_sentence(sentence) and _line_fits_job(sentence, job):
+                chosen = sentence.strip()
+                sources = cites
+    if not chosen:
+        return ""
+    if not re.match(r"(?i)^the repair\b", chosen):
+        body = chosen[0].lower() + chosen[1:]
+        chosen = "The repair is " + body
+    if not chosen.endswith("."):
+        chosen += "."
+    if sources:
+        chosen += "\n" + "\n".join(sources)
+    return chosen
+
+
+def _conditional_lines(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> list[str]:
     """Next step plus an If-then repair. Two wordings so a repeat can move on."""
     user = _user_blob(history, latest_msg)
     prior = _norm(_prior_assistant_text(history))
-    job = _job_key(history, latest_msg)
+    job = _job_key(history, latest_msg, category_name, model_text)
     if job == "coleman":
         return [
             "Do the Peacemaker bypass at the rooftop unit. If the compressor runs and the fan does not rotate, measure the fan-motor stall current. If that current is about 1.9 A and the run capacitor is near its rated value, replace the fan motor and the control board only.",
@@ -4105,6 +4326,21 @@ def _conditional_lines(history: list = None, latest_msg: str = "") -> list[str]:
             "Bypass the ceiling selector and report whether it cools. If both bypasses cool, replace the ceiling thermostat/selector.",
             "If both bypasses cool, replace the ceiling thermostat/selector.",
         ]
+    if job == "bal":
+        return [
+            "Press tongue extend and measure the tongue jack output wire at the panel. If that wire has no 12V and the other stabilizers and panel lights work, replace the soft-touch user panel 20300427.",
+            "If 12V is present on the tongue jack output wire, repair the tongue pigtail.",
+        ]
+    if job == "e2":
+        return [
+            "Check voltage at the F+ and F- terminals on the inverter PCB and report the reading. If the fan voltage is present and E2 or the 2-flash returns, replace the inverter PCB and the freezer evaporator fan.",
+            "If the fan voltage cycles and the fault remains, replace the inverter PCB and the freezer evaporator fan.",
+        ]
+    if job == "levelup":
+        return [
+            "Leave the rubber-boot terminator in. Unplug only the Firefly cable, try Manual Mode again, and report whether it holds. If Manual Mode holds, call Firefly at 574-825-4600 and update the firmware with a USB stick of 4 GB or smaller.",
+            "If Manual Mode still dumps home with the Firefly cable unplugged, stay on the Level Up sensor and harness path.",
+        ]
     return []
 
 
@@ -4127,9 +4363,14 @@ def _pick_fresh_line(lines: list[str], history: list = None) -> str:
     return ""
 
 
-def _prove_lines(history: list = None, latest_msg: str = "") -> list[str]:
+def _prove_lines(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> list[str]:
     """The first ask. The repair waits until the tech answers or asks for it."""
-    job = _job_key(history, latest_msg)
+    job = _job_key(history, latest_msg, category_name, model_text)
     if job == "coleman":
         return [
             "Do the Peacemaker bypass at the rooftop unit and report whether the compressor runs while the fan stays still.",
@@ -4174,35 +4415,43 @@ def _prove_lines(history: list = None, latest_msg: str = "") -> list[str]:
         return [
             "Confirm the fan runs, then do the Peacemaker bypass and report whether it cools.",
         ]
-    return [
-        "Check the first step on this job and report what you find.",
-    ]
+    if job == "bal":
+        return [
+            "Press tongue extend and check for 12V on the tongue jack output wire at the panel. Report that voltage.",
+        ]
+    if job == "e2":
+        return [
+            "Check voltage at the F+ and F- terminals on the inverter PCB with power applied and report the reading.",
+        ]
+    if job == "levelup":
+        return [
+            "Confirm Auto Level still works. Leave the rubber-boot terminator in, unplug only the Firefly cable, and report whether Manual Mode holds.",
+        ]
+    return []
 
 
-def _final_shop_line(history: list = None, latest_msg: str = "") -> str:
-    """A non-empty line that is not a verbatim repeat. A blank reply cannot ship."""
+def _final_shop_line(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """A job-specific line. Never a cross-case repair and never a placeholder."""
+    locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
+    if locked:
+        return locked
+    job = _job_key(history, latest_msg, category_name, model_text)
     later = bool(_last_assistant_text(history))
     lines = (
-        _conditional_lines(history, latest_msg)
+        _conditional_lines(history, latest_msg, category_name, model_text)
         if later or _give_repair_now(latest_msg, history)
-        else _prove_lines(history, latest_msg)
+        else _prove_lines(history, latest_msg, category_name, model_text)
     )
-    chosen = _pick_fresh_line(lines, history)
-    if chosen:
-        return chosen
-    fillers = (
-        "Take the next check on this job and write the reading down. If that check fails, replace the part that check names.",
-        "Measure the open check and write the number. If the reading is out of range, replace the failed part and retest.",
-        "Write the open reading on the work order. If that reading fails the check, replace the failed part and retest.",
-    )
-    chosen = _pick_fresh_line(list(fillers), history)
-    if chosen:
-        return chosen
-    turn = sum(1 for message in history or [] if (message.get("role") or "") == "assistant") + 1
-    return (
-        f"Write reading {turn} on the work order and retest. "
-        "If that reading fails the check, replace the failed part."
-    )
+    lines = [line for line in lines if _line_fits_job(line, job)]
+    chosen = _pick_fresh_line(lines, history) or (lines[0] if lines else "")
+    if not chosen:
+        return "Check the reading on this unit and write it down."
+    return _with_cite(chosen, job)
 
 
 def _strip_source_header(text: str) -> str:
@@ -4217,23 +4466,40 @@ def _strip_source_header(text: str) -> str:
     return "\n".join(kept).strip()
 
 
-def _answer_latest(history: list = None, latest_msg: str = "", current: str = "") -> str:
+def _answer_latest(
+    history: list = None,
+    latest_msg: str = "",
+    current: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
     """The next shop step for this turn. Empty when the draft can stand."""
+    job = _job_key(history, latest_msg, category_name, model_text)
+    locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
+    if locked:
+        return locked
     if _give_repair_now(latest_msg, history):
-        fresh = _pick_fresh_line(_conditional_lines(history, latest_msg), history)
-        if fresh:
-            return fresh
+        fresh = _pick_fresh_line(
+            _conditional_lines(history, latest_msg, category_name, model_text), history
+        )
+        if fresh and _line_fits_job(fresh, job):
+            return _with_cite(fresh, job)
     blob = _user_blob(history, latest_msg)
     ctx = _context_blob(history, latest_msg)
     joined = _norm(ctx + " " + (current or ""))
     low = _norm(latest_msg)
-    if re.search(r"\bthaw\b", low) and not re.search(r"\d+(?:\.\d+)?\s*v\b", low):
+
+    def _open(name: str) -> bool:
+        """A named job stays on its own branch. An unnamed chat may use the symptom."""
+        return not job or job == name
+
+    if _open("facr") and re.search(r"\bthaw\b", low) and not re.search(r"\d+(?:\.\d+)?\s*v\b", low):
         return (
             "The code returned after the thaw. "
             "Read the refrigerant pressures before any rooftop replacement."
         )
     prior = _norm(_prior_assistant_text(history))
-    if re.search(r"\be\s*[23]\b", joined) and re.search(
+    if _open("fact12") and re.search(r"\be\s*[23]\b", joined) and re.search(
         r"fact\s*12|freeze sensor|ccd-0008666", joined
     ):
         if _SENSOR_LOOSE_RE.search(blob) and not _is_fallback_question(latest_msg):
@@ -4266,7 +4532,7 @@ def _answer_latest(history: list = None, latest_msg: str = "", current: str = ""
             "Check whether the freeze sensor is fastened on the evaporator coil. "
             "Report what you find before any repair."
         )
-    if re.search(r"\be\s*8\b", ctx) and re.search(r"girard|gswh|petit|blower", ctx):
+    if _open("girard") and re.search(r"\be\s*8\b", ctx) and re.search(r"girard|gswh|petit|blower", ctx):
         if re.search(r"tubing is clear|tube is clear", low):
             return (
                 "The sensing tube is at the blower for the air pressure switch. "
@@ -4278,9 +4544,12 @@ def _answer_latest(history: list = None, latest_msg: str = "", current: str = ""
                 "report whether the sensing tube at the blower has suction."
             )
         return ""
-    if re.search(r"b57915|3311071", blob) or (
-        re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
-        and re.search(r"dometic|b57915|air conditioning", blob)
+    if _open("dometic") and (
+        re.search(r"b57915|3311071", blob)
+        or (
+            re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
+            and re.search(r"dometic|b57915|air conditioning", blob)
+        )
     ):
         ceiling = bool(re.search(r"ceiling", blob) and re.search(r"cool", blob) and "bypass" in blob)
         unit = bool("peacemaker" in blob and re.search(r"cool", blob))
@@ -4289,7 +4558,7 @@ def _answer_latest(history: list = None, latest_msg: str = "", current: str = ""
         if unit and re.search(r"cool", low) and "ceiling" not in low:
             return "The rooftop bypass cools. Bypass the ceiling selector and report whether that also cools."
         return ""
-    if re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
+    if _open("ice") and re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
         if re.search(r"\b(?:frost|ice|icing)\s+returns?\b", low):
             return "Heavy frost returned. Replace the cooling unit."
         if re.search(r"still cooling|still cools", low):
@@ -4309,45 +4578,50 @@ def _answer_latest(history: list = None, latest_msg: str = "", current: str = ""
         if re.search(r"dial (?:is )?at max", low):
             return "Check the door gasket and report whether it seals."
         return ""
-    if re.search(r"\bdial\b", blob) and re.search(r"\bcompressor\b", blob) and re.search(r"\boff\b", blob):
+    if _open("dial") and re.search(r"\bdial\b", blob) and re.search(r"\bcompressor\b", blob) and re.search(r"\boff\b", blob):
         if re.search(r"compressor stopped|compressor stops", low):
             return (
                 "Replace the Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007)."
             )
         return ""
-    if re.search(r"\be\s*2\b|2[\s-]*flash|fan fault", blob) and re.search(r"f\+|inverter|fcr", blob):
+    if _open("e2") and re.search(r"\be\s*2\b|2[\s-]*flash|fan fault", blob) and re.search(r"f\+|inverter|fcr", blob):
         if re.search(r"\d+(?:\.\d+)?\s*v\b", low) and not re.search(r"still active|around nominal|cycling around", _norm(current)):
             return ""
         if re.search(r"\d+(?:\.\d+)?\s*v\b", low):
             return "Replace the inverter PCB and the freezer evaporator fan."
         return ""
-    if re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
+    if _open("cooktop") and re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
         if asks_what_is_the_repair(latest_msg) or cooktop_tip_sits_low(blob):
             return "Reposition the thermocouple tip in the burner flame with the pan on."
         if _is_fallback_question(latest_msg):
             return "Set a pan on a lit burner and report whether the thermocouple tip stays in the flame."
         return ""
-    if re.search(r"\bfurnace\b", blob) or re.search(r"\bfurnace\b", ctx):
+    if job == "furnace" or (
+        not job and re.search(r"\bfurnace\b|thermostat bypass|sail switch", blob)
+    ):
         user_said_sail = bool(re.search(r"\bsail\b", blob))
         if re.search(r"jumper|thermostat bypass|bypassed|jumped red|r\s*/\s*w", blob + " " + ctx):
             if user_said_sail and not _is_fallback_question(latest_msg):
                 return ""
-            fresh = _pick_fresh_line(_conditional_lines(history, latest_msg), history)
+            fresh = _pick_fresh_line(
+                _conditional_lines(history, latest_msg, category_name, model_text), history
+            )
             if fresh:
-                return fresh
-            return (
+                return _with_cite(fresh, job)
+            return _with_cite(
                 "Prove the sail switch with the blower running. "
-                "Report power in and power out before any thermostat replacement."
+                "Report power in and power out before any thermostat replacement.",
+                job,
             )
         return ""
-    if re.search(r"stabilizer|psx1|roll pin|manual crank", blob):
+    if _open("stab") and job != "bal" and re.search(r"stabilizer jack|psx1|roll pin|manual crank", blob):
         user_bits = _user_blob(history, latest_msg)
         if re.search(r"\b(?:broken|seized)\b", user_bits) and not _is_fallback_question(latest_msg):
             return "Replace the complete front stabilizer jack assembly and retest power and the manual crank."
         if re.search(r"\bbroken or seized\b", _norm(current)) or _is_fallback_question(latest_msg) or not prior:
             return "Does the manual crank turn, and what does the override roll pin or coupler look like? Report what you see."
         return ""
-    if re.search(r"807662|level[\s-]*up|manual mode", blob) and re.search(r"firefly|manual mode", blob):
+    if _open("levelup") and re.search(r"807662|level[\s-]*up|manual mode", blob) and re.search(r"firefly|manual mode", blob):
         if re.search(r"write the reading|ask a manager", _norm(current)):
             return (
                 "Confirm power is solid and Auto Level still works. "
@@ -4367,8 +4641,19 @@ def _is_offline_notice(text: str) -> bool:
     return "ai is offline" in low or low.startswith("error contacting ai")
 
 
-def _draft_is_bad(text: str, history: list = None, latest_msg: str = "", *, similar: bool = True) -> bool:
+def _draft_is_bad(
+    text: str,
+    history: list = None,
+    latest_msg: str = "",
+    *,
+    similar: bool = True,
+    category_name: str = "",
+    model_text: str = "",
+) -> bool:
     low = _norm(text)
+    job = _job_key(history, latest_msg, category_name, model_text)
+    if not _line_fits_job(text, job):
+        return True
     if not low or not _reply_has_body(text):
         return True
     if _INTERNAL_LEAK_RE.search(text or ""):
@@ -4431,26 +4716,51 @@ def _draft_is_bad(text: str, history: list = None, latest_msg: str = "", *, simi
     return False
 
 
-def _next_unused_step(history: list = None, latest_msg: str = "", original: str = "") -> str:
+def _next_unused_step(
+    history: list = None,
+    latest_msg: str = "",
+    original: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    job = _job_key(history, latest_msg, category_name, model_text)
     candidates = []
     repair = _repair_from_chat(history, latest_msg, original)
-    if repair:
+    if repair and _line_fits_job(repair, job):
         candidates.append(repair)
-    candidates.extend(_alternate_lines(original))
+    for line in _alternate_lines(original):
+        if _line_fits_job(line, job):
+            candidates.append(line)
     if _last_assistant_text(history) or _give_repair_now(latest_msg, history):
-        candidates.extend(_conditional_lines(history, latest_msg))
+        candidates.extend(_conditional_lines(history, latest_msg, category_name, model_text))
     else:
-        candidates.extend(_prove_lines(history, latest_msg))
+        candidates.extend(_prove_lines(history, latest_msg, category_name, model_text))
     fresh = [
         line
         for line in candidates
-        if line and not _draft_is_bad(line, history, latest_msg, similar=False)
+        if line
+        and _line_fits_job(line, job)
+        and not _draft_is_bad(
+            line, history, latest_msg, similar=False, category_name=category_name, model_text=model_text
+        )
     ]
-    return _pick_fresh_line(fresh, history) or _final_shop_line(history, latest_msg)
+    chosen = _pick_fresh_line(fresh, history) or _final_shop_line(
+        history, latest_msg, category_name, model_text
+    )
+    return _with_cite(chosen, job) if chosen and "📖" not in chosen else chosen
 
 
-def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
+def polish_shop_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
     """Shop text only: no model instructions, no invented facts, no repeated block."""
+    locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
+    if locked:
+        return locked
     text = _strip_source_header((reply or "").strip())
     if _is_offline_notice(text):
         return text
@@ -4491,8 +4801,14 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
             if _is_acknowledgement(sentence):
                 changed = True
                 continue
+            if _BROKEN_SENTENCE_RE.search(sentence):
+                changed = True
+                continue
             cleaned = _scrub_unreported_sentence(sentence, user_blob)
-            cleaned = _strip_unreported_assertion(cleaned, user_blob)
+            # An If-sentence is the instruction. Stripping "remains" or "is broken"
+            # out of it leaves "interior leak , replace".
+            if not re.match(r"(?i)^if\b", (cleaned or "").strip()):
+                cleaned = _strip_unreported_assertion(cleaned, user_blob)
             if cleaned != sentence:
                 changed = True
             sentence = cleaned
@@ -4549,22 +4865,27 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
     text = "\n".join(lines_out).strip()
     if not changed:
         text = (reply or "").strip()
-    if not _reply_has_body(text) or _draft_is_bad(text, history, latest_msg):
-        step = _answer_latest(history, latest_msg, text or reply or "")
+    job = _job_key(history, latest_msg, category_name, model_text)
+    if not _reply_has_body(text) or _draft_is_bad(
+        text, history, latest_msg, category_name=category_name, model_text=model_text
+    ):
+        step = _answer_latest(history, latest_msg, text or reply or "", category_name, model_text)
         if not step:
-            step = _next_unused_step(history, latest_msg, reply or "")
+            step = _next_unused_step(history, latest_msg, reply or "", category_name, model_text)
             step = re.sub(r"\bthat is the repair\.?", "", step or "", flags=re.I).strip(" .")
-            if step:
+            if step and "📖" not in step:
                 step += "."
         if not step or _same_as_last_turn(step, history) or _INTERNAL_LEAK_RE.search(step or ""):
-            step = _answer_latest(history, latest_msg, "")
-        if step and not _same_as_last_turn(step, history):
+            step = _answer_latest(history, latest_msg, "", category_name, model_text)
+        if step and not _same_as_last_turn(step, history) and _line_fits_job(step, job):
             sources = [
                 line for line in (text or "").splitlines()
-                if line.strip().startswith("📖") and not _INTERNAL_LEAK_RE.search(line)
+                if line.strip().startswith("📖")
+                and not _INTERNAL_LEAK_RE.search(line)
+                and _line_fits_job(line, job)
             ]
-            text = step
-            if sources:
+            text = step if "📖" in step else _with_cite(step, job)
+            if sources and "📖" not in text:
                 text = text + "\n" + "\n".join(sources)
             changed = True
     text = _strip_heard_clauses(text)
@@ -4575,29 +4896,42 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
     if (
         not text
         or not _reply_has_body(text)
-        or _draft_is_bad(text, history, latest_msg, similar=False)
+        or _draft_is_bad(
+            text, history, latest_msg, similar=False, category_name=category_name, model_text=model_text
+        )
         or re.search(r"report the result of that check", text or "", re.I)
         or asked
     ):
-        nxt = _final_shop_line(history, latest_msg)
-        if nxt and not _draft_is_bad(nxt, history, latest_msg, similar=False):
+        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        if nxt and _line_fits_job(nxt, job):
             text = nxt
-    if not (text or "").strip():
-        text = _final_shop_line(history, latest_msg)
+    if not (text or "").strip() or not _line_fits_job(text, job):
+        text = _final_shop_line(history, latest_msg, category_name, model_text)
+    if text and "📖" not in text:
+        text = _with_cite(text, job)
     return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
 
 
-def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
+def avoid_duplicate_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
     """Do not send the same reply twice, and do not ask a check that was already asked.
 
-    A repeated card becomes the next repair. The leaked 'already asked' instruction
-    never reaches the tech.
+    A repeated card becomes the next repair for THIS job. Another case's repair
+    cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
     text = (reply or "").strip()
     if _is_offline_notice(text):
         return text
+    locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
+    if locked:
+        return locked
     if not text:
-        return polish_shop_reply("", history, latest_msg)
+        return polish_shop_reply("", history, latest_msg, category_name, model_text)
     prev = _last_assistant_text(history)
     already = {
         _norm(message.get("content") or "")
@@ -4607,29 +4941,37 @@ def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = ""
     if prev and _norm(text) in already:
         chosen = ""
         for line in _alternate_lines(text):
-            candidate = polish_shop_reply(line, history, latest_msg)
+            if not _line_fits_job(line, _job_key(history, latest_msg, category_name, model_text)):
+                continue
+            candidate = polish_shop_reply(line, history, latest_msg, category_name, model_text)
             if candidate and _norm(candidate) not in already:
                 chosen = candidate
                 break
         if not chosen:
             chosen = polish_shop_reply(
-                _repair_from_chat(history, latest_msg, text), history, latest_msg
+                _repair_from_chat(history, latest_msg, text),
+                history,
+                latest_msg,
+                category_name,
+                model_text,
             )
         chosen = chosen if chosen and _norm(chosen) not in already else polish_shop_reply(
-            "", history, latest_msg
+            "", history, latest_msg, category_name, model_text
         )
-        return chosen or _final_shop_line(history, latest_msg)
+        return chosen or _final_shop_line(history, latest_msg, category_name, model_text)
     if prev:
         text = _drop_repeated_checks(text, prev, history, latest_msg)
-    polished = polish_shop_reply(text, history, latest_msg)
+    polished = polish_shop_reply(text, history, latest_msg, category_name, model_text)
     if prev and _norm(polished) in already:
         for line in _alternate_lines(text):
-            candidate = polish_shop_reply(line, history, latest_msg)
+            if not _line_fits_job(line, _job_key(history, latest_msg, category_name, model_text)):
+                continue
+            candidate = polish_shop_reply(line, history, latest_msg, category_name, model_text)
             if candidate and _norm(candidate) not in already:
                 return candidate
         polished = ""
     if not (polished or "").strip() or (prev and _norm(polished) in already):
-        polished = _final_shop_line(history, latest_msg)
+        polished = _final_shop_line(history, latest_msg, category_name, model_text)
     return polished
 
 

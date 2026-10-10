@@ -331,7 +331,8 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         self.assertIn("qr-092", blob)
         self.assertIn("807662", blob)
         self.assertTrue(proc.sources)
-        self.assertTrue(any(src.get("title_only") or not src.get("page") for src in proc.sources))
+        self.assertTrue(all(src.get("page") == 1 for src in proc.sources))
+        self.assertNotIn("1-page tech info", blob)
 
     def test_expected_pages_are_on_the_sheet(self):
         facr = compile_bay_procedure(
