@@ -10,6 +10,7 @@ from bay_procedure import (
     compile_bay_procedure,
     compose_sheet,
     layout_problems,
+    polish_bay_sources,
     render_bay_procedure_pdf,
 )
 from gd_library_coach import (
@@ -867,3 +868,249 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("/*", low)
         self.assertNotIn("mounting screw", low)
         self.assertEqual(_glued_tokens(cook), [])
+
+    def test_s01_drops_the_near_duplicate_page_and_question_bullets(self):
+        proc, text = _sheet(
+            "FACR08 freeze up interior leak condensate",
+            "Furrion",
+            "FACR08",
+            "Air Conditioning",
+            chunks=[
+                {
+                    "title": "Furrion rooftop CCD-0007990",
+                    "page": 3,
+                    "excerpt": "Handling the Device ? . Keep the unit clear.",
+                },
+                {
+                    "title": "Furrion rooftop CCD-0007990",
+                    "page": 7,
+                    "excerpt": "Abnormal shutdown. The freeze sensor has tripped.",
+                },
+                {
+                    "title": "Furrion rooftop CCD-0007990",
+                    "page": 19,
+                    "excerpt": "Abnormal shutdown. Freeze sensor has tripped and cooling stopped.",
+                },
+            ],
+        )
+        pages = [src.get("page") for src in proc.sources]
+        self.assertNotIn(7, pages)
+        self.assertIn(19, pages)
+        low = text.lower()
+        self.assertNotIn("handling the device", low)
+        self.assertNotIn("?", " ".join(src.get("excerpt") or "" for src in proc.sources))
+        self.assertEqual(_glued_tokens(text), [])
+
+    def test_s02_drops_a_color_ending_without_a_period(self):
+        proc, text = _sheet(
+            "Coleman-Mach 2111-0001 fan high is dead",
+            "Coleman-Mach",
+            "2111-0001",
+            "Air Conditioning",
+            chunks=[
+                {
+                    "title": "Coleman-Mach 12VDC wall-thermostat rooftop service manual",
+                    "page": 8,
+                    "excerpt": "Join the white wire nut then the black",
+                }
+            ],
+        )
+        blob = " ".join(src.get("excerpt") or "" for src in proc.sources).lower()
+        self.assertNotIn("the black", blob)
+        self.assertNotIn("the black", text.lower())
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [])
+        cap = next(mark for mark in trace if mark.kind == "text" and "fan locked" in (mark.text or "").lower())
+        labels = [mark for mark in trace if mark.role == "label" and (mark.text or "").strip() == "NO"]
+        attached = [
+            label
+            for label in labels
+            if label.x0 >= cap.x1 - 8 and abs(((label.y0 + label.y1) / 2) - ((cap.y0 + cap.y1) / 2)) < 28
+        ]
+        self.assertTrue(attached, [(label.x0, label.y0, label.x1, label.y1) for label in labels])
+
+    def test_s05_prints_a_blank_serial_unit_id_table(self):
+        proc, text = _sheet(
+            "icing up on rear wall — only about half from the top down",
+            "Furrion",
+            "FCR10",
+            "Refrigerators",
+        )
+        self.assertTrue(proc.unit_id)
+        self.assertIn("Brand: Furrion", text)
+        self.assertIn("Model: FCR10", text)
+        self.assertIn("Serial:", text)
+        self.assertNotRegex(text, r"Serial:\s*[A-Za-z0-9]")
+        self.assertLessEqual(len(compose_sheet(proc)), 3)
+        _no_generic_chart(text)
+
+    def test_s07_strips_a_leading_figure_number(self):
+        excerpt = clean_source_excerpt(
+            "locate the inverter PCB. 21) at the F+ and F- terminals on the inverter PCB."
+        )
+        self.assertNotIn("21)", excerpt)
+        self.assertIn("F+", excerpt)
+        proc, text = _sheet(
+            "FCR10 E2 fan fault current on the freezer evaporator fan",
+            "Furrion",
+            "FCR10",
+            "Refrigerators",
+            chunks=[
+                {
+                    "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                    "page": 27,
+                    "excerpt": "Locate the inverter PCB. 21) at the F+ and F- terminals on the inverter PCB.",
+                }
+            ],
+        )
+        self.assertNotIn("21)", text)
+        self.assertIn("F+", text)
+
+    def test_s10_yes_label_sits_on_the_repeat_branch_and_the_range_survives(self):
+        proc, text = _sheet(
+            GROUNDED,
+            "Lippert",
+            "Ground Control 343633",
+            "Leveling",
+            chunks=[
+                {
+                    "title": "Lippert Ground Control service manual",
+                    "page": 4,
+                    "excerpt": "Sensor comm (typical 3\u20139V). If a sensor wire is open, replace the sensor.",
+                }
+            ],
+        )
+        self.assertIn("3-9v", text.lower())
+        self.assertNotIn("3- .", text.lower())
+        self.assertNotIn("3–", text)
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [])
+        yes = [mark for mark in trace if mark.role == "label" and (mark.text or "").strip() == "YES"]
+        repeat = next(mark for mark in trace if "repeat the button" in (mark.text or "").lower())
+        self.assertTrue(yes)
+        near_repeat = any(
+            label.x1 <= repeat.x0 + 4 and label.x0 >= repeat.x0 - 160 and abs(label.y0 - repeat.y0) < 40
+            for label in yes
+        )
+        self.assertTrue(near_repeat, [(label.x0, label.y0, label.text) for label in yes])
+
+    def test_s11_steps_and_flowchart_name_the_sensor_once(self):
+        proc, _text = _sheet(
+            "Furrion FACT12SA2 rooftop shows E3",
+            "Furrion",
+            "FACT12SA2",
+            "Air Conditioning",
+        )
+        self.assertNotIn("resecure", proc.bay_order[0].lower())
+        self.assertIn("resecure the freeze sensor", proc.bay_order[1].lower())
+        self.assertIn("replace the freeze sensor", proc.bay_order[2].lower())
+        ends = {node.text.lower() for node in proc.flowchart.nodes if node.kind == "end"}
+        process = " ".join(node.text.lower() for node in proc.flowchart.nodes if node.kind == "process")
+        self.assertTrue(any("replace the freeze sensor" in text for text in ends))
+        self.assertIn("resecure the freeze sensor", process)
+        self.assertFalse(any("resecure the freeze sensor" in text for text in ends))
+
+    def test_s13_states_the_out_of_flame_condition_with_step_two(self):
+        proc, text = _sheet(
+            "Girard GSWH-2 E8 lockout after flame",
+            "Girard",
+            "GSWH-2",
+            "Water Heaters",
+            chunks=[
+                {
+                    "title": "Girard GSWH-2 service manual CCD-0009390",
+                    "page": 23,
+                    "excerpt": "CCD-0009390 ? Before replacing the control board, align the tube.",
+                }
+            ],
+        )
+        step2 = proc.bay_order[1].lower()
+        step3 = proc.bay_order[2].lower()
+        self.assertIn("out of the flame", step2)
+        self.assertLess(step2.find("out of the flame"), step2.find("already in the burner flame"))
+        self.assertNotIn("out of the flame", step3)
+        self.assertNotIn("? before", text.lower())
+        self.assertEqual(len(proc.bay_order), 6)
+
+    def test_s14_drops_framework_extend_and_recycle_lines(self):
+        proc, text = _sheet(
+            "Front stabilizer jack. Power extend works. Manual override will not engage. The roll pin is broken.",
+            "",
+            "",
+            "Leveling",
+            chunks=[
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 4,
+                    "excerpt": "This framework note explains how the manual is organized.",
+                },
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 6,
+                    "excerpt": "Extend warning: do not run the motor past the stop.",
+                },
+                {
+                    "title": "Lippert PSX1 CCD-0007345",
+                    "page": 8,
+                    "excerpt": "Manual information is considered factual until the next printing. Please recycle.",
+                },
+            ],
+        )
+        blob = " ".join((src.get("excerpt") or "") for src in proc.sources).lower()
+        self.assertNotIn("framework note", blob)
+        self.assertNotIn("extend warning", blob)
+        self.assertNotIn("considered factual", blob)
+        self.assertNotIn("recycle", blob)
+        self.assertNotIn("framework note", text.lower())
+        self.assertEqual(proc.model_line, "")
+
+    def test_s15_keeps_only_burner_or_thermocouple_snippets(self):
+        proc, text = _sheet(
+            "Suburban SDN2U cooktop. Burner goes out with a pan on. The thermocouple tip sits low and gets pushed.",
+            "Suburban",
+            "SDN2U",
+            "Cooktops",
+            chunks=[
+                {
+                    "title": "Suburban range service manual",
+                    "page": 4,
+                    "excerpt": "A grease fire can start if oil is left on the burner.",
+                },
+                {
+                    "title": "Suburban range service manual",
+                    "page": 2,
+                    "excerpt": "Install the screws that hold the top to the counter.",
+                },
+                {
+                    "title": "Suburban range service manual",
+                    "page": 9,
+                    "excerpt": "Light the oven pilot with a hand-held ignitor.",
+                },
+            ],
+        )
+        low = text.lower()
+        self.assertIn("thermocouple", low)
+        self.assertNotIn("grease", low)
+        self.assertNotIn("install the screws", low)
+        self.assertNotIn("ignitor", low)
+        self.assertNotIn("oven pilot", low)
+        excerpts = [src.get("excerpt") or "" for src in proc.sources]
+        self.assertTrue(excerpts)
+        self.assertTrue(all(re.search(r"thermocouple|burner", excerpt, re.I) for excerpt in excerpts))
+        bare = polish_bay_sources(
+            [
+                {
+                    "title": "Suburban Range/Cooktops service manual",
+                    "page": 4,
+                    "excerpt": "A grease fire can start if oil is left on the burner.",
+                }
+            ],
+            0,
+            "thermocouple tip burner",
+            "cooktop_tip",
+        )
+        self.assertEqual(len(bare), 1)
+        self.assertIn("suburban", bare[0]["title"].lower())
+        self.assertEqual(bare[0]["excerpt"], "")
