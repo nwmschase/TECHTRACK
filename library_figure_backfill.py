@@ -24,6 +24,10 @@ SAMPLE_CROPS = 5
 SAMPLE_NOTE = (
     "150 dpi mean from Thetford kit sheets 42109 (1 page) and 34123/34122 (2 pages)"
 )
+# Cloudflare bills decimal GB and includes 10 GB-month before $0.015/GB-month.
+DECIMAL_GB = 1_000_000_000
+R2_USD_PER_GB_MONTH = 0.015
+R2_FREE_GB = 10.0
 
 BUNDLED_NOTE = "Bundled kit sheet, not from the shop library."
 # Read-through cache. The durable copy is the R2 object. This folder is gitignored.
@@ -262,6 +266,77 @@ def _pdf_documents(session) -> list[dict]:
     return kept
 
 
+def estimated_figure_count(pages: int) -> int:
+    """Kit-sheet crop count. High for a text manual, which has fewer drawings."""
+    pages = max(0, int(pages))
+    if not pages:
+        return 0
+    return int(round(pages * SAMPLE_CROPS / SAMPLE_PAGES))
+
+
+def project_r2_storage(pdf_bytes: int, pages: int, figures: int | None = None) -> dict:
+    """R2 bytes for the PDFs plus one page PNG and the figure crops.
+
+    ``figures`` left empty uses the kit-sheet rate. The monthly price is
+    storage only, after 10 decimal GB free, at $0.015 per GB-month.
+    """
+    pages = max(0, int(pages))
+    pdf_bytes = max(0, int(pdf_bytes))
+    estimated = figures is None
+    if estimated:
+        figures = estimated_figure_count(pages)
+    else:
+        figures = max(0, int(figures))
+    page_bytes = pages * PAGE_PNG_BYTES
+    crop_bytes = figures * CROP_PNG_BYTES
+    total = pdf_bytes + page_bytes + crop_bytes
+    total_gb = total / DECIMAL_GB
+    billable_gb = max(0.0, total_gb - R2_FREE_GB)
+    return {
+        "pdf_bytes": pdf_bytes,
+        "pages": pages,
+        "figures": figures,
+        "figures_estimated": estimated,
+        "page_bytes": page_bytes,
+        "crop_bytes": crop_bytes,
+        "r2_bytes": total,
+        "pdf_gb": pdf_bytes / DECIMAL_GB,
+        "page_gb": page_bytes / DECIMAL_GB,
+        "crop_gb": crop_bytes / DECIMAL_GB,
+        "total_gb": total_gb,
+        "free_gb": R2_FREE_GB,
+        "billable_gb": billable_gb,
+        "monthly_usd": billable_gb * R2_USD_PER_GB_MONTH,
+        "price_per_gb": R2_USD_PER_GB_MONTH,
+        "crops_per_page": (figures / pages) if pages else 0.0,
+    }
+
+
+def format_r2_projection(est: dict) -> str:
+    """Plain report: PDF bytes, page images, figure crops, and the monthly bill."""
+    rate = (
+        "kit-sheet rate, high for a text manual"
+        if est.get("figures_estimated")
+        else "counted"
+    )
+    lines = [
+        f"PDFs: {est['pdf_gb']:.2f} GB ({int(est['pdf_bytes'])} bytes)",
+        f"Pages: {int(est['pages'])}",
+        f"Page images: {est['page_gb']:.2f} GB ({int(est['page_bytes'])} bytes)",
+        (
+            f"Figure crops: {est['crop_gb']:.2f} GB "
+            f"({int(est['figures'])} crops, {rate})"
+        ),
+        f"R2 total: {est['total_gb']:.2f} GB",
+        (
+            f"Monthly storage: ${est['monthly_usd']:.2f} "
+            f"({est['billable_gb']:.2f} GB above {est['free_gb']:.0f} GB free "
+            f"at ${est['price_per_gb']:.3f}/GB-month)"
+        ),
+    ]
+    return "\n".join(lines)
+
+
 def estimate_backfill(session) -> dict:
     """Bytes the backfill would write for the PDFs already in this database.
 
@@ -280,7 +355,7 @@ def estimate_backfill(session) -> dict:
         )
         count = int((row or {}).get("pages") or 0)
         pages += count if count > 0 else 1
-    figures = int(round(pages * SAMPLE_CROPS / SAMPLE_PAGES)) if pages else 0
+    figures = estimated_figure_count(pages)
     page_bytes = pages * PAGE_PNG_BYTES
     crop_bytes = figures * CROP_PNG_BYTES
     r2_bytes = page_bytes + crop_bytes

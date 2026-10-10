@@ -471,5 +471,69 @@ def _blank_pdf() -> bytes:
     return buf.getvalue()
 
 
+class TestLippertR2Projection(unittest.TestCase):
+    def test_cost_is_r2_only_above_ten_gb(self):
+        pdf_bytes = 10_240_000_000
+        pages = 1000
+        est = fb.project_r2_storage(pdf_bytes, pages)
+        figures = int(round(pages * fb.SAMPLE_CROPS / fb.SAMPLE_PAGES))
+        page_bytes = pages * fb.PAGE_PNG_BYTES
+        crop_bytes = figures * fb.CROP_PNG_BYTES
+        total = pdf_bytes + page_bytes + crop_bytes
+        self.assertEqual(est["pdf_bytes"], pdf_bytes)
+        self.assertEqual(est["page_bytes"], page_bytes)
+        self.assertEqual(est["crop_bytes"], crop_bytes)
+        self.assertEqual(est["figures"], figures)
+        self.assertTrue(est["figures_estimated"])
+        self.assertEqual(est["r2_bytes"], total)
+        self.assertEqual(est["sqlite_bytes"] if "sqlite_bytes" in est else 0, 0)
+        self.assertAlmostEqual(est["pdf_gb"], 10.24)
+        self.assertAlmostEqual(est["total_gb"], total / fb.DECIMAL_GB)
+        self.assertAlmostEqual(est["billable_gb"], est["total_gb"] - 10)
+        self.assertAlmostEqual(est["monthly_usd"], est["billable_gb"] * 0.015)
+        under = fb.project_r2_storage(9_000_000_000, 0, figures=0)
+        self.assertEqual(under["monthly_usd"], 0)
+        self.assertFalse(under["figures_estimated"])
+
+    def test_script_counts_pages_in_a_manifest(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "lippert_r2_projection",
+            ROOT / "scripts" / "lippert_r2_projection.py",
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmp.name)
+            pdf = root / "level-up.pdf"
+            from pypdf import PdfWriter
+            import io
+
+            writer = PdfWriter()
+            writer.add_blank_page(width=612, height=792)
+            writer.add_blank_page(width=612, height=792)
+            buf = io.BytesIO()
+            writer.write(buf)
+            pdf.write_bytes(buf.getvalue())
+            manifest = root / "LOAD-MANIFEST.csv"
+            manifest.write_text("filename,bytes\nlevel-up.pdf,1\n", encoding="utf-8")
+            rows = mod.read_manifest_rows(manifest)
+            tally = mod.tally_manifest(rows, root, root)
+            self.assertEqual(tally["files"], 1)
+            self.assertEqual(tally["opened"], 1)
+            self.assertEqual(tally["pages"], 2)
+            self.assertEqual(tally["pdf_bytes"], pdf.stat().st_size)
+            import contextlib
+            import io as _io
+
+            with contextlib.redirect_stderr(_io.StringIO()):
+                missing = mod.main([str(root / "missing.csv")])
+            self.assertEqual(missing, 2)
+        finally:
+            tmp.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()
