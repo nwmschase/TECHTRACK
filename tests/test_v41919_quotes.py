@@ -176,7 +176,7 @@ class TestShopReplyPolish(unittest.TestCase):
         self.assertNotIn("that check was already asked", low)
         self.assertNotIn("use the facts already reported", low)
         self.assertIn("20300427", reply)
-        self.assertIn("0 v", low)
+        self.assertNotIn("noted:", low)
 
     def test_fallback_questions_are_not_noted_as_facts(self):
         history = [
@@ -338,6 +338,181 @@ class TestShopReplyPolish(unittest.TestCase):
         self.assertNotIn("does the unit have", guard.lower())
         self.assertNotRegex(guard, r"\bFigs\.(?!\s*\d)")
         self.assertIn("reposition", guard.lower())
+
+
+def _turns(pairs):
+    """Polish each coach reply with the chat so far. Return the coach lines."""
+    history = []
+    out = []
+    for user, coach in pairs:
+        reply = polish_shop_reply(coach, history, user)
+        history.append({"role": "user", "content": user})
+        history.append({"role": "assistant", "content": reply})
+        out.append(reply)
+    return out
+
+
+class TestLiveTranscripts(unittest.TestCase):
+    def test_s02_does_not_open_with_a_truncated_noted_line(self):
+        replies = _turns([
+            (
+                "Coleman-Mach rooftop A/C model 2111-0001; ran about 2 minutes then dead / no response.",
+                "Coleman-Mach 2111-0001 ran 2 min then dead. Check 12 VDC at the low-voltage terminal strip first.",
+            ),
+            (
+                "122 VAC at the control box. Board output tester no illuminate on Fan High. "
+                "0.000-0.048 VAC on black/white at the 9-pin under Fan High.",
+                "Noted: 122 VAC at the control. Fan High dead confirmed (tester dark, ~0 VAC on 9-pin black/white). "
+                "Next: Run a Peacemaker bypass of the thermostat/control box.",
+            ),
+            (
+                "Peacemaker bypass: compressor runs, fan does not rotate on high or low. About 1.91 A at 122 V, shaft locked.",
+                "Noted: 122 V. Check the fan run capacitor value against its rating.",
+            ),
+            (
+                "Fan run capacitor 15.11 µF FAN-C, rated 15 µF ±5%.",
+                "Authorization card: Fan motor and control board only. Do not replace the full 2111-0001 assembly.",
+            ),
+        ])
+        joined = "\n".join(replies).lower()
+        self.assertNotIn("noted:", joined)
+        self.assertIn("peacemaker", replies[1].lower())
+        self.assertIn("capacitor", replies[2].lower())
+        self.assertIn("do not replace the full 2111-0001 assembly", replies[3].lower())
+
+    def test_s03_drops_the_echo_and_the_second_panel_sentence(self):
+        replies = _turns([
+            (
+                "BAL Soft-Touch SS 5.1 electric tongue jack dead only; other stabilizers and panel lights work.",
+                "Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. "
+                "No 12V on the tongue output wire means replace the soft-touch user panel 20300427. "
+                "Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness.",
+            ),
+            (
+                "I measured 0 V at the soft-touch panel tongue channel while commanding extend; "
+                "other stabilizers and panel lights still work.",
+                "Noted: 0 V at the soft. Replace the soft-touch user panel 20300427. "
+                "Do not replace the coupler or the shear pin, and do not open the 30A fuse or the remote stabilizer harness. "
+                "You measured 0 V on the tongue output wire at the panel while commanding extend. "
+                "Replace the soft-touch user panel, part 20300427.",
+            ),
+        ])
+        second = replies[1].lower()
+        self.assertNotIn("noted:", second)
+        self.assertNotIn("you measured", second)
+        self.assertEqual(second.count("20300427"), 1)
+        self.assertIn("do not replace the coupler", second)
+
+    def test_s05_does_not_invent_a_dial_adjustment(self):
+        replies = _turns([
+            (
+                "Furrion FCR10DCGTA-BL fridge; rear-wall icing about halfway from the top down.",
+                "Is the temperature dial set to maximum? If ice or moisture persists after drying and waiting 1 month, replace the unit.",
+            ),
+            (
+                "Dial is at max.",
+                "Check the door gasket seal.",
+            ),
+            (
+                "Door gasket is sealing properly.",
+                "Noted: Door gasket is sealing properly. Turn the dial down to 4-5. Wait overnight. Dry any moisture with a towel.",
+            ),
+            (
+                "Not checked yet — what do you recommend next?",
+                "Wait overnight, dry any moisture with a towel, then check if the unit is cooling properly.",
+            ),
+            (
+                "Fridge is still cooling.",
+                "Noted: fridge is still cooling after dial adjustment. Dry up any moisture and wait 1 month. If the issue persists, replace the unit.",
+            ),
+        ])
+        self.assertNotIn("noted:", "\n".join(replies).lower())
+        self.assertNotIn("dial adjustment", replies[4].lower())
+        self.assertIn("month", replies[4].lower())
+        self.assertNotEqual(_collapse(replies[2]), _collapse(replies[3]))
+
+    def test_s07_does_not_call_a_voltage_cycle_near_nominal(self):
+        reply = polish_shop_reply(
+            "The 14.28-10.37 V cycle is near nominal. Replace the inverter PCB and the freezer evaporator fan.",
+            [{"role": "user", "content": "FCR10 E2 fan fault."}],
+            "fan V 14.28-10.37 V; fan amps 0.383-0.442 A; E2 returned after thaw",
+        )
+        self.assertNotIn("near nominal", reply.lower())
+        self.assertIn("inverter pcb", reply.lower())
+
+    def test_s08_does_not_declare_untested_parts_good(self):
+        replies = _turns([
+            (
+                "Will not blow warm; fan turns on then shuts off.",
+                "Bypass the wall thermostat at the furnace first.",
+            ),
+            (
+                "Thermostat bypassed at the furnace: the furnace operates.",
+                "Bypass worked, so the furnace module, sail switch, limits, and ignition path are good. "
+                "Next: Check the wall thermostat and the wire run from thermostat to furnace.",
+            ),
+            (
+                "Not checked yet — what do you recommend next?",
+                "Replace the wall thermostat. If voltage is missing, check the wire run.",
+            ),
+        ])
+        self.assertNotIn("are good", replies[1].lower())
+        self.assertNotIn("sail switch", replies[1].lower())
+        self.assertIn("wall thermostat", replies[1].lower())
+        self.assertIn("replace the wall thermostat", replies[2].lower())
+        self.assertNotIn("that is the repair", replies[2].lower())
+
+    def test_s11_states_the_repair_once_then_does_not_repeat_the_sentence(self):
+        replies = _turns([
+            (
+                "Intermittent E3; sometimes normal.",
+                FACT12_FREEZE_RESECURE_LINE,
+            ),
+            (
+                "Not checked yet — what do you recommend next?",
+                "Reseat the freeze sensor on the coil and retest before any board swap.",
+            ),
+            (
+                "Thermostat reads 13.13 V and the control box 13.59 V; wiring is good.",
+                "Noted: 13.13 V and the control. Reseat the freeze sensor on the coil and retest before any board swap.",
+            ),
+            (
+                "Freeze sensor was found disconnected, not in the evaporator.",
+                "Seat the freeze sensor on the evaporator coil. That is the repair.",
+            ),
+        ])
+        joined = "\n".join(replies).lower()
+        self.assertNotIn("noted:", joined)
+        self.assertNotIn("that is the repair", replies[3].lower())
+        self.assertIn("repair stands:", replies[1].lower())
+        self.assertEqual(joined.count("repair stands:"), 1)
+        self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
+        self.assertNotEqual(_collapse(replies[2]), _collapse(replies[3]))
+        self.assertIn("do not replace the control board first", replies[0].lower())
+
+    def test_s13_does_not_claim_the_alignment_was_reported(self):
+        replies = _turns([
+            (
+                "Customer states water heater stopped working. Gives E8 error code.",
+                "Look through the exhaust vent and confirm the petit tube is connected.",
+            ),
+            (
+                "Tubing is clear.",
+                "Noted: Tubing is clear. Align the petit tube in the burner flame first and retest. "
+                "Do not replace the control board before the petit tube is aligned.",
+            ),
+            (
+                "Not checked yet — what do you recommend next?",
+                "Align the petit tube in the burner flame first and retest. That is the repair.",
+            ),
+        ])
+        self.assertNotIn("noted:", "\n".join(replies).lower())
+        self.assertNotIn("was reported", replies[1].lower())
+        self.assertIn("align the petit tube", replies[1].lower())
+        self.assertIn("do not replace the control board", replies[1].lower())
+        self.assertIn("repair stands:", replies[2].lower())
+        self.assertNotIn("that is the repair", replies[2].lower())
+        self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
 
 
 if __name__ == "__main__":

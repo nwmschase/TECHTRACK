@@ -1,4 +1,5 @@
 """v4.19.18: canned repairs stay on their model, and a Sources quote is the page text."""
+import re
 import unittest
 
 from bay_procedure import compile_bay_procedure
@@ -172,7 +173,8 @@ class TestNoRepeat(unittest.TestCase):
         history = [{"role": "assistant", "content": "Pull and inspect the return-air filter."}]
         moved = avoid_duplicate_reply("Check the filter again.", history, "Drain is clear.")
         self.assertNotIn("check the filter", moved.lower())
-        self.assertIn("drain is clear", moved.lower())
+        self.assertNotIn("noted:", moved.lower())
+        self.assertTrue(re.search(r"\b(?:write|dry|replace|check|repair)\b", moved, re.I))
 
     def test_cross_case_facts_do_not_take_another_cases_card(self):
         cases = [
