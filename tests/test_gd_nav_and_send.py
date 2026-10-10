@@ -93,6 +93,22 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         self.assertEqual(at.text_input(key="ask_model").value, "FCR10DCGTA")
         self.assertFalse(any("My Certificates" in (m.value or "") for m in at.markdown))
 
+    def test_start_new_chat_clears_the_model_field(self):
+        at = AppTest.from_file(str(APP), default_timeout=60)
+        at.run()
+        at.text_input[0].set_value("manager")
+        at.text_input[1].set_value("manager123")
+        at.button[0].click().run()
+        gd = "💬 Guided Diagnostics"
+        at.radio[0].set_value(gd).run()
+        at.selectbox(key="ask_cat").set_value("Refrigerators")
+        at.text_input(key="ask_model").set_value("FCR10DCGTA")
+        at.button(key="ask_new").click().run()
+        self.assertFalse(list(at.exception))
+        self.assertEqual(at.text_input(key="ask_model").value, "")
+        self.assertEqual(at.session_state["gd_model_memory"], "")
+        self.assertEqual(at.selectbox(key="ask_cat").value, "Refrigerators")
+
 
 if __name__ == "__main__":
     unittest.main()
