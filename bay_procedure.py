@@ -39,6 +39,7 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from pathlib import Path
+import gzip
 import math
 import re
 import textwrap
@@ -114,7 +115,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.10"
+MODULE_REVISION = "v4.19.11"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -1620,6 +1621,8 @@ def _rejoin_ocr_splits(text: str) -> str:
                 and ncore.lower() not in _SHORT_WORD_KEEP
                 and nxt[:1].islower()
                 and not word.endswith(".")
+                # "will go" is two words. "termina ls" is one word split by OCR.
+                and not (_is_dict_word(core) and _is_dict_word(ncore))
             ):
                 out.append(f"{lead_s}{core}{ncore}{trail_s}")
                 i += 2
@@ -1682,24 +1685,104 @@ _OCR_GARBAGE_RE = re.compile(
 _BOILERPLATE_RE = re.compile(
     r"\bwelding\b|subject to change|extension cord|"
     r"do not extend|extend warning|warning:\s*do not use an extension|"
-    r"framework note|considered factual|manual information is considered|"
+    r"framework note|\bframework\b|considered factual|manual information is considered|"
     r"\bplease recycle\b|\brecycle this\b|for recycling|"
-    r"warning\W{0,24}extend|extend\W{0,24}warning",
+    r"warning\W{0,24}extend|extend\W{0,24}warning|"
+    r"inadequate repairs|serious hazards|\bnot toys\b|electrical devices",
     re.I,
 )
 _NEW_PASSAGE_RE = re.compile(r"^refer to\b", re.I)
 
 
+# Shop compounds that are one word even when the system list does not know them.
+_SHOP_WORDS = frozenset({
+    "setpoint", "airflow", "thermocouple", "evaporator", "inverter", "condensate",
+    "basepan", "onecontrol", "techtrack", "furrion", "dometic", "lippert", "girard",
+    "peacemaker", "rooftop", "lockout", "defrost", "pigtail", "writeup",
+})
+_DICT_WORDS: set[str] | None = None
+
+
+def _dictionary_words() -> set[str]:
+    global _DICT_WORDS
+    if _DICT_WORDS is None:
+        path = Path(__file__).with_name("bay_words.txt.gz")
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            words = {line.strip().lower() for line in handle if line.strip()}
+        words.update(_SHOP_WORDS)
+        _DICT_WORDS = words
+    return _DICT_WORDS
+
+
+def _is_dict_word(word: str) -> bool:
+    token = re.sub(r"[^A-Za-z]", "", word or "").lower()
+    return bool(token) and token in _dictionary_words()
+
+
+def _split_known_join(token: str) -> str:
+    """'willgo' is will + go. A real word such as 'prevent' stays whole."""
+    if not token.isalpha() or not token.islower() or _is_dict_word(token):
+        return ""
+    best = ""
+    best_score = 0
+    for cut in range(2, len(token) - 1):
+        left, right = token[:cut], token[cut:]
+        if len(right) < 2:
+            continue
+        if _is_dict_word(left) and _is_dict_word(right):
+            score = min(len(left), len(right))
+            if score > best_score:
+                best = f"{left} {right}"
+                best_score = score
+    return best
+
+
+def lowercase_dictionary_glues(text: str) -> list[str]:
+    """All-lowercase tokens that are two dictionary words jammed together.
+
+    A model fragment such as the 'seqt' in NT-20SEQT is not a join. Shop
+    compounds in the dictionary ('writeup') are not joins either.
+    """
+    found = []
+    raw = text or ""
+    # Whole lowercase words only. The tail of "Firefly" is not a join.
+    for match in re.finditer(r"(?<![A-Za-z])[a-z]{6,}(?![A-Za-z])", raw):
+        token = match.group(0)
+        start, end = match.span()
+        prev = raw[start - 1] if start else ""
+        nxt = raw[end] if end < len(raw) else ""
+        if prev.isdigit() or nxt.isdigit() or prev in "-/" or nxt in "-/":
+            continue
+        if _split_known_join(token):
+            found.append(token)
+    return found
+
+
+def _unglue_dictionary_joins(text: str) -> str:
+    def fix(token: str) -> str:
+        split = _split_known_join(token)
+        return split or token
+
+    return " ".join(fix(token) for token in (text or "").split())
+
+
 def _rejoin_hyphen_splits(text: str) -> str:
-    """Pull a line-break hyphen together. Two whole words stay separated by a space."""
+    """Pull a line-break hyphen together only when the result is one dictionary word.
+
+    An em dash or en dash has already become a space. A spaced hyphen between two
+    real words ('terminator - leave') stays a space. It is never deleted.
+    """
 
     def repl(match):
         left, right = match.group(1), match.group(2)
+        joined = left + right
         if right[:1].isupper() and not (left.isupper() and right.isupper()):
             return f"{left} {right}"
-        if left.lower() in _WHOLE_WORDS and right.lower() in _WHOLE_WORDS:
-            return f"{left} {right}"
-        return left + right
+        if _is_dict_word(joined):
+            if left.isupper() and right.isupper():
+                return joined.upper()
+            return joined
+        return f"{left} {right}"
 
     return _HYPHEN_SPLIT_RE.sub(repl, text or "")
 
@@ -1708,7 +1791,13 @@ def _split_glued_camel(text: str) -> str:
     """'ButtonIf' and 'CodeFan' were two lines joined with no space."""
 
     def fix(token: str) -> str:
-        if any(name in token for name in _KEEP_CAMEL):
+        for name in _KEEP_CAMEL:
+            if name not in token:
+                continue
+            if token.startswith(name) and len(token) > len(name):
+                rest = token[len(name):]
+                if rest.isalpha() and _is_dict_word(rest):
+                    return f"{name} {rest}"
             return token
         return _CAMEL_GLUE_RE.sub(r"\1 \2", token)
 
@@ -1786,10 +1875,13 @@ def _strip_fig_fragments(text: str) -> str:
 
 
 def _normalize_ocr_chars(text: str) -> str:
-    """Dashes and bullets become ASCII so a range and a '?' bullet are visible to the scrub."""
+    """A dash between digits stays a hyphen. Any other em or en dash becomes a space.
+
+    Deleting the dash is what glued 'terminatorleave' and 'OneControlunplug'.
+    """
     out = text or ""
-    for dash in ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
-        out = out.replace(dash, "-")
+    out = re.sub(r"(\d)\s*[\u2010\u2011\u2012\u2013\u2014\u2212]\s*(\d)", r"\1-\2", out)
+    out = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2212]", " ", out)
     out = out.replace("\uff1f", "?").replace("\u2047", "?")
     out = re.sub(r"[\u2022\u2023\u2043\u2219\u25aa\u25cf\u25e6\u00b7\uf0b7\uf0a7]", " ? ", out)
     return out
@@ -1828,7 +1920,10 @@ def _repair_ocr_text(text: str) -> str:
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
     out = _rejoin_hyphen_splits(out)
+    # Rejoin 'termina ls' before splitting 'willgo'. Splitting first turns the
+    # fragment into 'term ina' and the short tail can no longer be pulled back.
     out = _rejoin_ocr_splits(out)
+    out = _unglue_dictionary_joins(out)
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
     out = re.sub(r"([A-Za-z]),([A-Za-z])", r"\1, \2", out)
@@ -1996,7 +2091,16 @@ _PATH_OFF = {
     "dometic_ceiling": (r"\bfurrion\b", r"installation manual", r"\binstalling the\b"),
     "fact12_freeze": (r"\bboltx\b", r"parts list"),
     "girard_e8": (r"tools required", r"\bduct size\b"),
-    "stabilizer": (r"rear stabilizer",),
+    "stabilizer": (
+        r"rear stabilizer",
+        r"\bframework\b",
+        r"extend warning",
+        r"extension cord",
+        r"do not extend",
+        r"leg[-\s]?sync",
+        r"synchroniz",
+        r"legs?\s+in\s+unison",
+    ),
     "cooktop_tip": (
         r"grease\s+fire",
         r"\bpiezo\b",
@@ -2004,6 +2108,8 @@ _PATH_OFF = {
         r"damage\s*,\s*personal",
         r"mounting screw",
         r"install(?:ation)?\s+screws?",
+        r"wood\s+screws?",
+        r"fasten unit",
         r"hand[-\s]?held\s+ignitor",
         r"oven\s+pilot",
         r"\bignitor\b",
@@ -2273,6 +2379,10 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         if _is_question_bullet(sentence) or re.fullmatch(r"\d+\s*\??", sentence or ""):
             skip_after_bullet = True
             continue
+        if re.search(r":\s*\d{1,2}\.?$", sentence) or (
+            re.search(r"\bfollowing manner\b", sentence, re.I) and re.search(r"\b\d{1,2}\.?$", sentence)
+        ):
+            continue
         if (
             not sentence
             or _is_question_bullet(sentence)
@@ -2400,8 +2510,35 @@ def _excerpt_words(text: str) -> set[str]:
     }
 
 
+def _sentence_word_sets(text: str) -> list[set[str]]:
+    found = []
+    for sentence in _split_sentences(text or ""):
+        words = {
+            word
+            for word in re.findall(r"[a-z0-9]+", sentence.lower())
+            if len(word) > 3 and word not in _TOPIC_STOP
+        }
+        if len(words) >= 5:
+            found.append(words)
+    return found
+
+
+def _shares_a_sentence(left: str, right: str) -> bool:
+    """True when one snippet repeats a sentence from the other."""
+    for words_left in _sentence_word_sets(left):
+        for words_right in _sentence_word_sets(right):
+            small, large = (
+                (words_left, words_right) if len(words_left) <= len(words_right) else (words_right, words_left)
+            )
+            if len(small & large) / len(small) >= 0.8:
+                return True
+    return False
+
+
 def _is_near_duplicate_excerpt(left: str, right: str) -> bool:
     """True when the shorter cite is the same passage with a few words changed."""
+    if _shares_a_sentence(left, right):
+        return True
     words_left, words_right = _excerpt_words(left), _excerpt_words(right)
     if min(len(words_left), len(words_right)) < 3:
         return False
@@ -2411,9 +2548,24 @@ def _is_near_duplicate_excerpt(left: str, right: str) -> bool:
     return len(small & large) / len(small) >= 0.8
 
 
-def _cooktop_title_only(sources: list[dict]) -> list[dict]:
-    """No burner or thermocouple sentence: cite the manual and print no snippet."""
-    title = "Suburban Range/Cooktops service manual"
+def _cooktop_excerpt(excerpt: str) -> str:
+    """Keep a sentence only when it is about the burner or the thermocouple."""
+    patterns = _PATH_OFF.get("cooktop_tip", ())
+    kept = []
+    for sentence in _split_sentences(excerpt or ""):
+        if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+            continue
+        if re.search(r"thermocouple|\bburner\b", sentence, re.I):
+            kept.append(sentence)
+    return " ".join(kept)
+
+
+_STABILIZER_KEEP_RE = re.compile(r"roll\s*pin|jack assembly|\bcoupler\b|\boverride\b", re.I)
+
+
+def _cooktop_title_only(sources: list[dict], default: str = "Suburban Range/Cooktops service manual") -> list[dict]:
+    """No on-topic sentence: cite the manual and print no snippet."""
+    title = default
     page = None
     for src in sources or []:
         named = human_source_title(src.get("title") or "", src.get("file_path") or "")
@@ -2450,11 +2602,9 @@ def polish_bay_sources(
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
         excerpt = _drop_path_off_sentences(excerpt, path_kind)
         if path_kind == "cooktop_tip":
-            blob = excerpt or ""
-            on_topic = bool(re.search(r"thermocouple|\bburner\b", blob, re.I))
-            off_topic = any(re.search(pattern, blob, re.I) for pattern in _PATH_OFF.get("cooktop_tip", ()))
-            if not on_topic or off_topic:
-                continue
+            excerpt = _cooktop_excerpt(excerpt)
+        if path_kind == "stabilizer" and not _STABILIZER_KEEP_RE.search(excerpt or ""):
+            continue
         if not (excerpt or "").strip():
             continue
         if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
@@ -2482,6 +2632,8 @@ def polish_bay_sources(
     out = _drop_near_duplicate_sources(out)
     if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
         return _cooktop_title_only(sources)
+    if path_kind == "stabilizer" and not any((src.get("excerpt") or "").strip() for src in out):
+        return _cooktop_title_only(sources, "Lippert PSX1 front stabilizer jack")
     return out
 
 
@@ -3311,7 +3463,10 @@ def load_oem_figure_png(name: str) -> bytes:
 _OEM_FIGURE_CROP = {
     # The whole drainage-openings row, including the diagram. Not the cut
     # neighbors ("blower is defective" above, "seals are damaged" below).
-    "ccd7990-p7.png": (30, 732, 1070, 820),
+    # Full drainage row: "Water enters the vehicle" through "openings are clogged".
+    # y=732 cut that first line. Caps start just under the rule at 676.
+    # The blower bullet is above that rule; the seals bullet starts at 872.
+    "ccd7990-p7.png": (30, 680, 1070, 868),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
@@ -3582,6 +3737,12 @@ def _png_is_text_block(png: bytes) -> bool:
             y += 1
         bands.append(y - start)
     if len(bands) < 5 or max(bands) > 26:
+        return False
+    # A paragraph's lines are about the same height. A one-row drawing mixes
+    # hairline rules with taller shapes, so it is not a text block.
+    ordered = sorted(bands)
+    median = ordered[len(ordered) // 2]
+    if max(bands) >= 12 and max(bands) > median * 3:
         return False
     return True
 
@@ -4221,9 +4382,8 @@ def _girard_petit_path() -> dict:
         ),
         "bay_order": [
             "Confirm the E8 code after the flame lights. Look at the petit tube before any other part.",
-            "Do this only when the tube is out of the flame. If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
-            _shop_body(GIRARD_PETIT_ALIGN_LINE)
-            + " That is the confirmed correction.",
+            "If the tube is out of the flame, align the petit tube in the burner flame first and retest. That is the confirmed correction.",
+            "If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
             "If E8 remains after that alignment, check the air-pressure switch. Repair it and retest if it fails.",
             "If the air-pressure switch is good, check the gas supply and retest the heater.",
             "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
