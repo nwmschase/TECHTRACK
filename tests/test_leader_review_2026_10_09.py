@@ -361,8 +361,12 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         )
         self.assertEqual(stab.model_line, "Lippert PSX1 front stabilizer")
         self.assertTrue(any(src.get("page") == 7 and "psx1" in (src.get("title") or "").lower() for src in stab.sources))
-        self.assertTrue(any(src.get("page") == 11 and "lippert" in (src.get("title") or "").lower() for src in stab.sources))
-        self.assertNotIn("rear stabilizer", _blob(stab))
+        self.assertFalse(any(src.get("page") == 11 for src in stab.sources))
+        blob = _blob(stab)
+        self.assertNotIn("rear stabilizer", blob)
+        self.assertNotIn("rear stab", blob)
+        self.assertNotIn("override-usage pages", blob)
+        self.assertNotIn("not the end fix for a destroyed pin", blob)
 
     def test_s07_no_voltage_branch_replaces_the_board_and_the_fan(self):
         proc = compile_bay_procedure(

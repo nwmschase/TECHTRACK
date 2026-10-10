@@ -457,7 +457,11 @@ class TestCooktopTipLow(unittest.TestCase):
         already = (
             "Reposition the thermocouple tip in the burner flame with the pan on."
         )
-        self.assertEqual(ensure_cooktop_tip_pan_check(already, complaint), already)
+        cited = ensure_cooktop_tip_pan_check(already, complaint)
+        self.assertIn("reposition", cited.lower())
+        self.assertIn("page 4", cited.lower())
+        self.assertIn("figs. 3-4", cited.lower())
+        self.assertNotIn("does not cover", cited.lower())
 
     def test_library_cover_line_is_said_at_most_once(self):
         complaint = (
@@ -469,14 +473,17 @@ class TestCooktopTipLow(unittest.TestCase):
             "The library does not cover this. The library does not cover this."
         )
         first = ensure_cooktop_tip_pan_check(reply, complaint)
-        self.assertEqual(first.lower().count("does not cover"), 1)
+        self.assertNotIn("does not cover", first.lower())
         self.assertIn("reposition", first.lower())
+        self.assertIn("page 4", first.lower())
+        self.assertIn("figs. 3-4", first.lower())
         second = ensure_cooktop_tip_pan_check(
             reply,
             complaint,
             history=[{"role": "assistant", "content": first}],
         )
         self.assertNotIn("does not cover", second.lower())
+        self.assertIn("page 4", second.lower())
         self.assertNotIn("library", second.lower())
         self.assertIn("reposition", second.lower())
 
