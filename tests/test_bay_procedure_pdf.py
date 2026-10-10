@@ -883,7 +883,7 @@ class TestRealOemLibraryFigures(unittest.TestCase):
         image = Image.open(BytesIO(proc.figures[0].image_png))
         self.assertLess(max(image.size), 900)
 
-    def test_facr_embeds_cropped_7990_and_8666_figures(self):
+    def test_facr_embeds_the_drainage_figure_not_the_p10_thumb(self):
         from io import BytesIO
 
         from PIL import Image
@@ -894,19 +894,16 @@ class TestRealOemLibraryFigures(unittest.TestCase):
             model="FACR08",
             category="Air Conditioning",
         )
-        self.assertEqual(len(proc.figures), 2)
-        titles = " ".join((f.title or "") for f in proc.figures).lower()
-        self.assertIn("ccd-0007990", titles)
-        self.assertIn("ccd-0008666", titles)
-        pages = {f.page for f in proc.figures}
-        self.assertIn(7, pages)
-        self.assertIn(10, pages)
-        self.assertNotIn(4, pages)
-        self.assertNotEqual(proc.figures[0].image_png, _seed_figure_png("facr"))
-        self.assertNotEqual(proc.figures[0].image_png, load_oem_figure_png("ccd7990-p7.png"))
-        for fig in proc.figures:
-            image = Image.open(BytesIO(fig.image_png))
-            self.assertLess(image.size[1], 900, fig.caption)
+        self.assertEqual(len(proc.figures), 1)
+        fig = proc.figures[0]
+        self.assertIn("ccd-0007990", (fig.title or "").lower())
+        self.assertEqual(fig.page, 7)
+        self.assertNotEqual(fig.page, 10)
+        self.assertNotEqual(fig.image_png, _seed_figure_png("facr"))
+        self.assertNotEqual(fig.image_png, load_oem_figure_png("ccd7990-p7.png"))
+        image = Image.open(BytesIO(fig.image_png))
+        self.assertLess(image.size[1], 900, fig.caption)
+        self.assertGreater(max(image.size), 300)
 
 
 class TestNewConcernsInheritStandard(unittest.TestCase):

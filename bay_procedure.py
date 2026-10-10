@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.8"
+MODULE_REVISION = "v4.19.9"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -1588,6 +1588,10 @@ def _rejoin_ocr_splits(text: str) -> str:
     i = 0
     while i < len(words):
         word = words[i]
+        if any(ch.isdigit() for ch in word):
+            out.append(word)
+            i += 1
+            continue
         if i + 1 < len(words):
             nxt = words[i + 1]
             core = re.sub(r"[^A-Za-z]", "", word)
@@ -1644,35 +1648,130 @@ def _dedupe_adjacent_sentences(text: str) -> str:
 
 
 _HYPHEN_SPLIT_RE = re.compile(r"([A-Za-z]{2,})(?:\s+-\s+|-\s+)([A-Za-z]{2,})")
+# A line-break hyphen glues a split word. A hyphen between two real words is a space.
+_WHOLE_WORDS = frozenset({
+    "and", "or", "the", "if", "to", "of", "for", "a", "an", "in", "on",
+    "water", "fan", "top", "code", "button", "error", "from", "with",
+    "when", "then", "this", "that", "not", "are", "was", "into", "onto",
+    "power", "connect", "typical", "before", "after", "replace", "check",
+})
+_KEEP_CAMEL = ("OneControl", "TechTrack")
+_CAMEL_GLUE_RE = re.compile(r"([a-z]{2,})([A-Z][a-z]+)")
 _RUNON_NEXT = {
     "loosen", "tighten", "replace", "check", "inspect", "remove", "install",
     "disconnect", "connect", "open", "close", "clean", "measure", "verify",
     "confirm", "press", "turn", "set", "align", "reposition", "resecure",
-    "the", "if", "when", "after", "before",
+    "the", "if", "when", "after", "before", "refer",
 }
-_FIG_FRAG_RE = re.compile(r"\b\d{1,3}[A-Za-z]\)")
+# "and Replace" is one phrase. "knob Loosen" is two sentences.
+_NO_SPLIT_LEFT = frozenset({
+    "and", "or", "the", "of", "to", "for", "a", "an", "in", "on", "at",
+})
+# "36B)" is a cut callout. "3-9V)" is a voltage range and must stay.
+_FIG_FRAG_RE = re.compile(r"(?<![\d\-])\b\d{1,3}[A-Za-z]\)")
+_RANGE_PAREN_RE = re.compile(r"(\d\s*-\s*\d+\s*[VvAaWw])\)")
 _FLOW_OCR_RE = re.compile(r"\byes\s+no\b", re.I)
 _OCR_GARBAGE_RE = re.compile(
-    r"grease\s+fire|\bpiezo\b|damage\s*,\s*personal|open\s+[\"“]flame",
+    r"grease\s+fire|\bpiezo\b|damage\s*,\s*personal|open\s+[\"“]flame|"
+    r"\bTum\b|/\*",
     re.I,
 )
+_BOILERPLATE_RE = re.compile(
+    r"\bwelding\b|subject to change|extension cord|"
+    r"do not extend|extend warning|warning:\s*do not use an extension",
+    re.I,
+)
+_NEW_PASSAGE_RE = re.compile(r"^refer to\b", re.I)
 
 
 def _rejoin_hyphen_splits(text: str) -> str:
-    """Pull a line-break hyphen back together: 'con- ditioner', 'refriger - ant'."""
-    return _HYPHEN_SPLIT_RE.sub(lambda m: m.group(1) + m.group(2), text or "")
+    """Pull a line-break hyphen together. Two whole words stay separated by a space."""
+
+    def repl(match):
+        left, right = match.group(1), match.group(2)
+        if right[:1].isupper() and not (left.isupper() and right.isupper()):
+            return f"{left} {right}"
+        if left.lower() in _WHOLE_WORDS and right.lower() in _WHOLE_WORDS:
+            return f"{left} {right}"
+        return left + right
+
+    return _HYPHEN_SPLIT_RE.sub(repl, text or "")
+
+
+def _split_glued_camel(text: str) -> str:
+    """'ButtonIf' and 'CodeFan' were two lines joined with no space."""
+
+    def fix(token: str) -> str:
+        if any(name in token for name in _KEEP_CAMEL):
+            return token
+        return _CAMEL_GLUE_RE.sub(r"\1 \2", token)
+
+    return " ".join(fix(token) for token in (text or "").split())
+
+
+def _unglue_whole_words(text: str) -> str:
+    """'codewater' and 'topand' are two words the line join fused."""
+
+    def fix(token: str) -> str:
+        if not token.islower() or not token.isalpha():
+            return token
+        low = token.lower()
+        for right in sorted(_WHOLE_WORDS, key=len, reverse=True):
+            if len(right) < 3 or len(low) <= len(right) + 2:
+                continue
+            if low.endswith(right) and low[: -len(right)] in _WHOLE_WORDS:
+                cut = len(token) - len(right)
+                return token[:cut] + " " + token[cut:]
+        return token
+
+    return " ".join(fix(token) for token in (text or "").split())
 
 
 def _split_runon_sentences(text: str) -> str:
     """'knob Loosen' is two sentences the OCR glued together."""
 
     def repl(match):
+        prev = match.group(1)
         nxt = match.group(2)
+        if prev.lower() in _NO_SPLIT_LEFT:
+            return match.group(0)
         if nxt.lower() in _RUNON_NEXT:
-            return match.group(1) + ". " + nxt
+            return prev + ". " + nxt
         return match.group(0)
 
-    return re.sub(r"([a-z]{3,})\s+([A-Z][a-z]+)", repl, text or "")
+    return re.sub(r"(?<![A-Za-z])([a-z]{3,})\s+([A-Z][a-z]+)", repl, text or "")
+
+
+def _drop_repeated_clauses(text: str) -> str:
+    """Drop 'Connect power to the.' when the next sentence starts with that clause."""
+    kept: list[str] = []
+    for sentence in _split_sentences(text):
+        if not kept:
+            kept.append(sentence)
+            continue
+        prev_words = re.findall(r"[A-Za-z0-9'+-]+", kept[-1].lower())
+        next_words = re.findall(r"[A-Za-z0-9'+-]+", sentence.lower())
+        overlap = 0
+        for k in range(min(len(prev_words), len(next_words)), 2, -1):
+            if prev_words[-k:] == next_words[:k]:
+                overlap = k
+                break
+        if overlap >= 3:
+            if len(prev_words) == overlap:
+                kept[-1] = sentence
+                continue
+            if len(next_words) == overlap:
+                continue
+            words = kept[-1].split()
+            if len(words) > overlap:
+                trimmed = " ".join(words[:-overlap]).rstrip(" ,;:")
+                if trimmed and trimmed[-1] not in ".!?":
+                    trimmed += "."
+                kept[-1] = trimmed
+            kept.append(sentence)
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
 
 
 def _strip_fig_fragments(text: str) -> str:
@@ -1682,9 +1781,12 @@ def _strip_fig_fragments(text: str) -> str:
 
 def _repair_ocr_text(text: str) -> str:
     """Shared OCR repair for sheet steps and source snippets."""
+    # Newlines are whitespace. Joining them with '' glues Button to If.
     out = re.sub(r"\s+", " ", text or "").strip()
     out = _TRANSCRIPTION_RE.sub(" ", out)
     out = re.sub(r"\(\s*ocr\s*\)", " ", out, flags=re.I)
+    out = _split_glued_camel(out)
+    out = _unglue_whole_words(out)
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
     out = _rejoin_hyphen_splits(out)
@@ -1693,13 +1795,14 @@ def _repair_ocr_text(text: str) -> str:
         out = pattern.sub(repl, out)
     out = re.sub(r"([A-Za-z]),([A-Za-z])", r"\1, \2", out)
     out = _split_runon_sentences(out)
+    out = _RANGE_PAREN_RE.sub(r"\1", out)
     out = _strip_fig_fragments(out)
     out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
     out = _OCR_HEADER_RE.sub(" ", out)
     out = _collapse_repeated_phrases(out)
     out = _drop_leading_ocr_stub(out)
     out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
-    return _dedupe_adjacent_sentences(out)
+    return _drop_repeated_clauses(_dedupe_adjacent_sentences(out))
 
 
 def clean_ocr_prose(text: str) -> str:
@@ -1854,7 +1957,15 @@ _PATH_OFF = {
     "fact12_freeze": (r"\bboltx\b", r"parts list"),
     "girard_e8": (r"tools required", r"\bduct size\b"),
     "stabilizer": (r"rear stabilizer",),
-    "cooktop_tip": (r"grease\s+fire", r"\bpiezo\b", r"\bfurnace\b", r"damage\s*,\s*personal"),
+    "cooktop_tip": (
+        r"grease\s+fire",
+        r"\bpiezo\b",
+        r"\bfurnace\b",
+        r"damage\s*,\s*personal",
+        r"mounting screw",
+        r"\bTum\b",
+        r"/\*",
+    ),
 }
 
 
@@ -1980,9 +2091,11 @@ def _is_tiny_heading(text: str) -> bool:
     return len((text or "").strip()) < 20
 
 
-def _is_brochure_text_companion(title: str = "", excerpt: str = "") -> bool:
-    """A 'Brochure - TEXT' OCR companion is not a procedure cite."""
-    blob = f"{title or ''} {excerpt or ''}"
+def _is_brochure_text_companion(title: str = "", excerpt: str = "", file_path: str = "") -> bool:
+    """A 'Brochure - TEXT' OCR companion is not a procedure cite or a figure."""
+    blob = f"{title or ''} {excerpt or ''} {file_path or ''}"
+    if _TRANSCRIPTION_RE.search(blob) or re.search(r"ocr companion", blob, re.I):
+        return True
     return bool(_BROCHURE_TEXT_RE.search(blob) and re.search(r"\btext\b", blob, re.I))
 
 
@@ -2043,6 +2156,16 @@ def _is_flowchart_ocr(text: str) -> bool:
 
 def _is_ocr_garbage(text: str) -> bool:
     return bool(_OCR_GARBAGE_RE.search(text or ""))
+
+
+def _is_boilerplate(text: str) -> bool:
+    """Welding notes, extension-cord warnings, and 'subject to change' are not the job."""
+    return bool(_BOILERPLATE_RE.search(text or ""))
+
+
+def _is_new_passage(text: str) -> bool:
+    """'Refer to Door Gasket Test' is a second passage spliced onto this one."""
+    return bool(_NEW_PASSAGE_RE.search((text or "").strip()))
 
 
 def _is_parts_list_dump(text: str) -> bool:
@@ -2107,6 +2230,8 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
             or _sentence_is_cut(sentence)
             or _is_flowchart_ocr(sentence)
             or _is_ocr_garbage(sentence)
+            or _is_boilerplate(sentence)
+            or _is_new_passage(sentence)
             or _is_parts_list_dump(sentence)
         ):
             continue
@@ -2230,21 +2355,24 @@ def polish_bay_sources(
         title = human_source_title(src.get("title") or "", src.get("file_path") or "")
         if source_is_discontinued(title, raw_excerpt) or source_is_discontinued(src.get("title") or "", raw_excerpt):
             continue
-        if _is_brochure_text_companion(title, raw_excerpt) or _is_brochure_text_companion(
-            src.get("title") or "", raw_excerpt
+        file_path = src.get("file_path") or ""
+        if _is_brochure_text_companion(title, raw_excerpt, file_path) or _is_brochure_text_companion(
+            src.get("title") or "", raw_excerpt, file_path
         ):
             continue
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
         excerpt = _drop_path_off_sentences(excerpt, path_kind)
-        if not locked and not excerpt:
+        if not (excerpt or "").strip():
             continue
         if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
             continue
         page = _page_int(src.get("page"))
+        excerpt_key = re.sub(r"\s+", " ", excerpt.lower()).strip()
         key = (title.lower(), page)
-        if key in seen:
+        if key in seen or excerpt_key in seen:
             continue
         seen.add(key)
+        seen.add(excerpt_key)
         locked_flags.append(locked)
         out.append({"title": title, "page": page, "excerpt": excerpt, "_install": _is_install_manual(title, raw_excerpt)})
     if prefer_diagnostic and any(_is_diagnostic_manual(s["title"], s["excerpt"]) for s in out):
@@ -2931,6 +3059,8 @@ def pick_cited_figures(chunks, limit: int = 4) -> list[BayFigure]:
         key = (title.lower(), page)
         if key in seen:
             continue
+        if _is_brochure_text_companion(title, excerpt, d.get("file_path") or ""):
+            continue
         fig_hit = FIG_RE.search(excerpt) or page_has_figure_or_terminal_layout(excerpt)
         if not fig_hit:
             continue
@@ -3192,13 +3322,6 @@ def _oem_library_figures(kind: str) -> list[BayFigure]:
                 excerpt="Water enters the vehicle. Condensation water drainage openings are clogged.",
                 image_png=_cropped_oem_png("ccd7990-p7.png"),
             ),
-            BayFigure(
-                title=FACR_8666_TITLE,
-                page=10,
-                caption="CCD-0008666 page 10. Rooftop unit base and roof opening.",
-                excerpt="Check gasket alignment at the roof opening.",
-                image_png=_cropped_oem_png("ccd8666-p10.png"),
-            ),
         ]
     return []
 
@@ -3290,6 +3413,69 @@ def _seed_path_figure(kind: str) -> BayFigure:
         excerpt="Leave the rubber-boot terminator in. Unplug the Firefly CAN cable only.",
         image_png=_seed_figure_png("firefly"),
     )
+
+
+def _png_size(png: bytes) -> tuple[int, int]:
+    if not png:
+        return (0, 0)
+    try:
+        from PIL import Image
+    except Exception:
+        return (0, 0)
+    image = Image.open(BytesIO(png))
+    return image.size
+
+
+def _png_is_thumbnail(png: bytes) -> bool:
+    """A tiny page render is not a figure a tech can read."""
+    width, height = _png_size(png)
+    if width < 1 or height < 1:
+        return True
+    return max(width, height) < 300
+
+
+def _png_is_text_block(png: bytes) -> bool:
+    """A paragraph of body text is not a diagram. A one-row drawing is not this."""
+    width, height = _png_size(png)
+    if height < 90 or height > 420 or width < 180:
+        return False
+    try:
+        from PIL import Image
+    except Exception:
+        return False
+    image = Image.open(BytesIO(png)).convert("L")
+    px = image.load()
+    row_ink = []
+    for y in range(height):
+        ink = 0
+        samples = 0
+        for x in range(0, width, 2):
+            samples += 1
+            if px[x, y] < 180:
+                ink += 1
+        row_ink.append(ink / samples if samples else 0.0)
+    bands = []
+    y = 0
+    while y < height:
+        if row_ink[y] < 0.04:
+            y += 1
+            continue
+        start = y
+        while y < height and row_ink[y] >= 0.04:
+            y += 1
+        bands.append(y - start)
+    if len(bands) < 5 or max(bands) > 26:
+        return False
+    return True
+
+
+def _figure_is_illegible(fig: BayFigure, png: bytes) -> bool:
+    """Thumbnails, text blocks, and Brochure-TEXT pages stay off the sheet."""
+    if _is_brochure_text_companion(fig.title, f"{fig.caption} {fig.excerpt}"):
+        return True
+    if _png_is_thumbnail(png) or _png_is_text_block(png):
+        return True
+    return False
 
 
 def _figure_is_plenum(fig: BayFigure) -> bool:
@@ -3679,27 +3865,27 @@ def _ground_control_path(concern: str) -> dict:
                     "decision",
                     "Does auto-level\nstill lift one side?",
                     0.32,
-                    0.86,
+                    0.72,
                     w=230,
                     h=80,
-                ),
-                FlowNode(
-                    "e_ok",
-                    "end",
-                    "That is the confirmed\ncorrection.",
-                    0.78,
-                    0.78,
-                    w=200,
-                    h=64,
                 ),
                 FlowNode(
                     "e_rep",
                     "end",
                     "Repeat the button sequence.",
-                    0.32,
-                    0.96,
-                    w=240,
+                    0.78,
+                    0.72,
+                    w=210,
                     h=56,
+                ),
+                FlowNode(
+                    "e_ok",
+                    "end",
+                    "That is the confirmed\ncorrection.",
+                    0.32,
+                    0.92,
+                    w=220,
+                    h=64,
                 ),
             ],
             edges=[
@@ -3707,8 +3893,8 @@ def _ground_control_path(concern: str) -> dict:
                 FlowEdge("p_level", "p_zero"),
                 FlowEdge("p_zero", "p_keys"),
                 FlowEdge("p_keys", "d_side"),
-                FlowEdge("d_side", "e_ok", "NO", "right", "left"),
-                FlowEdge("d_side", "e_rep", "YES", "bottom", "top"),
+                FlowEdge("d_side", "e_rep", "YES", "right", "left"),
+                FlowEdge("d_side", "e_ok", "NO", "bottom", "top"),
             ],
         ),
         "bay_order": [
@@ -3836,7 +4022,7 @@ def _fact12_freeze_path() -> dict:
             "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, resecure the freeze sensor.",
             _shop_body(FACT12_FREEZE_RESECURE_LINE)
             + " If the code clears, that resecure is the confirmed correction.",
-            "If the code returns, resecure the freeze sensor again and retest. If it is seated and the code remains, retest once more before any other part.",
+            "If the sensor is seated and the code remains, replace the freeze sensor and retest. Do not replace the control board first.",
         ],
         "do_not": [
             "Do not replace the control board before the freeze sensor is resecured.",
@@ -3919,10 +4105,11 @@ def _girard_petit_path() -> dict:
         "bay_order": [
             "Confirm the E8 code after the flame lights. Look at the petit tube before any other part.",
             "If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
-            _shop_body(GIRARD_PETIT_ALIGN_LINE) + " Do this only when the tube is out of the flame.",
+            _shop_body(GIRARD_PETIT_ALIGN_LINE)
+            + " Do this only when the tube is out of the flame. That is the confirmed correction.",
             "If E8 remains after that alignment, check the air-pressure switch. Repair it and retest if it fails.",
             "If the air-pressure switch is good, check the gas supply and retest the heater.",
-            "The confirmed correction is the petit tube in the burner flame. Do not replace the control board ahead of that alignment.",
+            "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
         ],
         "do_not": [
             "Do not replace the control board before the petit tube is aligned.",
@@ -3987,11 +4174,11 @@ def _cooktop_tip_path() -> dict:
         ),
         "bay_order": [
             "Set a pan on the lit burner. If the flame goes out, look at the thermocouple tip next.",
-            "If the thermocouple tip sits low, the pan pushes it out of the flame.",
-            body + " If the flame holds with the pan on, you are done.",
+            "If the thermocouple tip sits low, reposition the thermocouple tip in the burner flame with the pan on.",
+            "If the flame holds with the pan on, that reposition is the confirmed correction.",
             "If the flame still goes out, raise the tip so the pan cannot push it clear, then light the burner again.",
             "With the pan on the grate, watch that the tip stays in the flame for a full minute.",
-            "Write that tip position on this sheet. That reposition is the confirmed correction.",
+            "Record the tip height that held the flame. Do not condemn the thermocouple until that position has been proved.",
         ],
         "do_not": [
             "Do not condemn the thermocouple until the tip has been repositioned in the flame with the pan on.",
@@ -4144,20 +4331,21 @@ def compile_bay_procedure(
     )
     if path_kind == "stabilizer":
         sources = _prefer_front_jack_sources(sources)
+    if path_kind == "fact12_freeze" and _only_facr08_book(ranked):
+        spec["primary_cite"] = (
+            "Only the FACR08 book CCD-0008666 is in the library. "
+            "It is not the FACT12 model manual."
+        )
     if fact12_mislabeled_only and path_kind in ("", "fact12_freeze"):
         page = _page_int(ranked[0].get("page")) if ranked else None
         sources = [
             {
-                "title": "Indexed library file is FACR08 8K content, not the FACT12 model manual",
+                "title": "Only the FACR08 book CCD-0008666 is in the library, not the FACT12 model manual",
                 "page": page,
-                "excerpt": "This indexed file is the FACR08 8K book.",
+                "excerpt": "This indexed file is the FACR08 8K book CCD-0008666.",
             }
         ]
-        if path_kind == "fact12_freeze":
-            spec["primary_cite"] = (
-                "Resecure the FACT12 freeze sensor. " + FACT12_MISLABEL_CITE
-            )
-        else:
+        if path_kind != "fact12_freeze":
             spec["primary_cite"] = FACT12_MISLABEL_CITE
 
     check_pages = list(spec.get("check_pages") or [])
@@ -4276,6 +4464,19 @@ def _chunk_is_facr08_content(row: dict) -> bool:
     """CCD-0008666 titled FACT12SA2-PS is the FACR08 8K book when the body says so."""
     blob = f"{row.get('title') or ''} {row.get('excerpt') or ''}"
     return bool(re.search(r"facr0?8|hesa2", blob, re.I))
+
+
+def _only_facr08_book(ranked) -> bool:
+    """True when every retrieved page is the FACR08 / CCD-0008666 book."""
+    rows = [chunk_as_dict(item) for item in (ranked or [])]
+    if not rows:
+        return False
+
+    def _is_book(row: dict) -> bool:
+        blob = f"{row.get('title') or ''} {row.get('excerpt') or ''} {row.get('file_path') or ''}"
+        return bool(re.search(r"ccd-0*8666|facr0?8|hesa2", blob, re.I))
+
+    return all(_is_book(row) for row in rows)
 
 
 def _is_fault_complaint(concern: str) -> bool:
@@ -4843,7 +5044,7 @@ def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_
     elif from_side in ("left", "right") and to_side in ("left", "right"):
         horizontal_then_down()
     elif from_side == "right" and to_side == "top":
-        limit = (frame[2] - 30.0) if frame else (x1 + 16.0)
+        limit = (frame[2] - 52.0) if frame else (x1 + 16.0)
         out_x = min(x1 + 16.0, limit)
         if out_x < x2:
             out_x = min((x1 + x2) / 2.0, limit)
@@ -5139,12 +5340,19 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             add_top(x1 - w, y0 - 2.0)
         for x, baseline in tops:
             box = _label_box(x, baseline, block)
+            if _port_distance(box, px, py) > 28.0:
+                continue
             if accept(box):
                 return x, baseline, block, box
-    block = measure_text(text, 80.0, 6.5, bold=True, leading=7.5)
-    x = min(max(px + 4.0, fx0 + 2.0), fx1 - block.width - 2.0)
-    baseline = min(max(py + 2.0, fy0 + block.descent + 2.0), fy1 - block.ascent - 2.0)
-    return x, baseline, block, _label_box(x, baseline, block)
+    return None
+
+
+def _port_distance(box, px: float, py: float) -> float:
+    """How far a label box sits from the arrow port. A stray label is far."""
+    x0, y0, x1, y1 = box
+    dx = 0.0 if x0 <= px <= x1 else min(abs(px - x0), abs(px - x1))
+    dy = 0.0 if y0 <= py <= y1 else min(abs(py - y0), abs(py - y1))
+    return math.hypot(dx, dy)
 
 
 def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: float, frame_h: float):
@@ -5259,7 +5467,7 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
         if edge.label:
             other_strokes = [box for j, item in enumerate(routed) if j != index for box in item[3]]
             all_routes = [item[1] for item in routed]
-            lx, ly, block, box = _place_branch_label(
+            placed = _place_branch_label(
                 edge.label.upper(),
                 port,
                 edge.from_side,
@@ -5268,6 +5476,9 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
                 label_size,
                 routes=all_routes,
             )
+            if placed is None:
+                continue
+            lx, ly, block, box = placed
             color = GREEN if edge.label.upper() == "YES" else RED
             texts.append(
                 DrawnText(
@@ -5803,7 +6014,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         if not fig.image_png or figure_is_placeholder(fig) or _figure_is_plenum(fig):
             continue
         png = crop_page_png_to_figure(fig.image_png)
-        if not png:
+        if not png or _figure_is_illegible(fig, png):
             continue
         imaged.append((fig, png))
     # A short crop stays on the current page. A dedicated figure page has to
