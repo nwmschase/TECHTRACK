@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.27"
+COACH_REVISION = "v4.19.28"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -26,11 +26,13 @@ WATER_HEATERS_CATEGORY = "Water Heaters"
 RANGE_COOKTOPS_CATEGORY = "Range & Cooktops"
 AIR_CONDITIONING_CATEGORY = "Air Conditioning"
 REFRIGERATORS_CATEGORY = "Refrigerators"
+PLUMBING_TOILETS_CATEGORY = "Plumbing / Toilets"
 
 DEFAULT_LIBRARY_CATEGORIES = (
     REFRIGERATORS_CATEGORY,
     "Furnaces",
     WATER_HEATERS_CATEGORY,
+    PLUMBING_TOILETS_CATEGORY,
     RANGE_COOKTOPS_CATEGORY,
     AIR_CONDITIONING_CATEGORY,
     "Slideouts",
@@ -2618,8 +2620,44 @@ SHOP_BRAND_TOKENS = (
     "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
     "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
-    "coleman", "airxcel",
+    "coleman", "airxcel", "thetford",
 )
+_THETFORD_UNIT_RE = re.compile(r"\bthetford\b|\b42070\b|style\s*ii", re.I)
+_TOILET_JOB_RE = re.compile(
+    r"\b(?:toilet|thetford|42070)\b|style\s*ii|flush\s+lever|plumb",
+    re.I,
+)
+_BRAND_DISPLAY = {
+    "thetford": "Thetford",
+    "norcold": "Norcold",
+    "dometic": "Dometic",
+    "furrion": "Furrion",
+    "suburban": "Suburban",
+    "atwood": "Atwood",
+    "lippert": "Lippert",
+    "lci": "LCI",
+    "coleman": "Coleman",
+    "airxcel": "Coleman",
+    "girard": "Girard",
+    "bal": "BAL",
+    "wfco": "WFCO",
+    "winegard": "Winegard",
+    "generac": "Generac",
+    "onan": "Onan",
+    "on-an": "Onan",
+    "victron": "Victron",
+    "renogy": "Renogy",
+    "jayco": "Jayco",
+    "keystone": "Keystone",
+    "brinkley": "Brinkley",
+    "kz": "KZ",
+    "carefree": "Carefree",
+    "schwintek": "Schwintek",
+    "progressive dynamics": "Progressive Dynamics",
+    "power gear": "Power Gear",
+    "intelli-power": "Intelli-Power",
+    "pd": "PD",
+}
 BRAND_CANON = {
     "airxcel": "coleman",
     "coleman": "coleman",
@@ -2673,10 +2711,77 @@ def asked_brands_for_lookup(
     cleaned = symptom_for_brand_detect(symptom)
     if is_coleman_2111_context(category_name, model_text, cleaned):
         return {"coleman"}
+    # Style II / 42070 is Thetford even when the concern also says "leak".
+    if _THETFORD_UNIT_RE.search(model_text or "") or _THETFORD_UNIT_RE.search(category_name or ""):
+        return {"thetford"}
     tech = canonical_shop_brands(model_text)
     if tech:
         return tech
+    if _THETFORD_UNIT_RE.search(cleaned):
+        return {"thetford"}
     return canonical_shop_brands(cleaned)
+
+
+def display_shop_brand(token: str) -> str:
+    """Shop-facing spelling for a brand token. 'thetford' is Thetford."""
+    key = (token or "").strip().lower()
+    if not key:
+        return "this brand"
+    return _BRAND_DISPLAY.get(key, key.capitalize())
+
+
+def is_toilet_job(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
+    """A toilet / flush-lever job. It is not a refrigerator."""
+    return bool(_TOILET_JOB_RE.search(f"{category_name or ''} {model_text or ''} {symptom or ''}"))
+
+
+def typed_unit_brand(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """
+    The brand the tech typed on this unit.
+
+    Model text wins over the complaint, so the word "leak" cannot select Norcold.
+    Thetford Style II and 42070 are Thetford.
+    """
+    if _THETFORD_UNIT_RE.search(f"{category_name or ''} {model_text or ''}"):
+        return "Thetford"
+    brands = asked_brands_for_lookup(category_name, model_text, "")
+    if not brands and _THETFORD_UNIT_RE.search(symptom or ""):
+        return "Thetford"
+    if not brands:
+        brands = asked_brands_for_lookup("", "", symptom or "")
+    if not brands:
+        return ""
+    low_model = (model_text or "").lower()
+    ordered = sorted(brands, key=lambda token: low_model.find(token) if token in low_model else 999)
+    return display_shop_brand(ordered[0])
+
+
+def library_miss_brand_label(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """Name used in 'No {brand} document in the shop library for this unit.'"""
+    brand = typed_unit_brand(category_name, model_text, symptom)
+    if brand:
+        return brand
+    if is_toilet_job(category_name, model_text, symptom):
+        return "toilet"
+    return ""
+
+
+def library_miss_shop_line(brand: str) -> str:
+    """The only shop line when this unit's manual is not in the library."""
+    who = (brand or "").strip() or "this brand"
+    return (
+        f"No {who} document in the shop library for this unit. "
+        "Add the OEM manual to the shop library. "
+        "What do you observe?"
+    )
 
 
 def is_coleman_library_text(text: str) -> bool:
@@ -3775,7 +3880,11 @@ _FIRM_LEAD_RE = re.compile(
     re.I,
 )
 _FILLER_RE = re.compile(
-    r"check the reading on this unit and write it down\.?",
+    r"check the reading on this unit(?:\s+and write it down)?\.?",
+    re.I,
+)
+_LIBRARY_MISS_LINE_RE = re.compile(
+    r"no .+ document in the shop library for this unit",
     re.I,
 )
 _BARE_REPAIR_LABEL_RE = re.compile(r"^that is the repair\.?$", re.I)
@@ -3895,7 +4004,13 @@ def _same_as_last_turn(sentence: str, history: list = None) -> bool:
     return False
 
 
+def _is_library_miss_line(text: str) -> bool:
+    return bool(_LIBRARY_MISS_LINE_RE.search(text or ""))
+
+
 def _reply_has_body(text: str) -> bool:
+    if _is_library_miss_line(text):
+        return True
     if _has_shop_step(text):
         return True
     return bool(re.search(r"\brepair stands\b|\brepair is unchanged\b", text or "", re.I))
@@ -4185,11 +4300,89 @@ _BROKEN_SENTENCE_RE = re.compile(
 )
 
 
+def _chunk_fields(chunk) -> tuple:
+    if isinstance(chunk, dict):
+        return (
+            chunk.get("title") or "",
+            chunk.get("keywords") or "",
+            chunk.get("excerpt") or chunk.get("chunk_text") or "",
+            chunk.get("file_path") or "",
+        )
+    return (
+        getattr(chunk, "title", "") or "",
+        getattr(chunk, "keywords", "") or "",
+        getattr(chunk, "chunk_text", "") or "",
+        getattr(chunk, "_lookup_file_path", "") or getattr(chunk, "file_path", "") or "",
+    )
+
+
+def _unmatched_unit_line(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Miss line for a typed unit that has no job lock and no same-brand cite yet."""
+    if _job_key(history, latest_msg, category_name, model_text):
+        return ""
+    symptom = _user_blob(history, latest_msg)
+    brand = library_miss_brand_label(category_name, model_text, symptom)
+    if not brand:
+        return ""
+    prior = _prior_assistant_text(history)
+    if "📖" in prior and brand.lower() in _norm(prior):
+        return ""
+    return library_miss_shop_line(brand)
+
+
+def library_miss_reply_for_turn(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    chunks=None,
+) -> str:
+    """
+    Shop line when this turn's library pages are not the typed unit.
+
+    A known job (furnace, fridge, leveling, and the rest) still uses its own
+    prove. An empty job does not borrow another brand's excerpts.
+    """
+    if _job_key(history, latest_msg, category_name, model_text):
+        return ""
+    symptom = symptom or _user_blob(history, latest_msg)
+    brand = library_miss_brand_label(category_name, model_text, symptom)
+    if not brand:
+        return ""
+    asked = set(asked_brands_for_lookup(category_name, model_text, symptom))
+    if brand == "Thetford" or is_toilet_job(category_name, model_text, symptom):
+        if not asked or asked == {"thetford"} or "thetford" in asked:
+            asked = set(asked) | {"thetford"}
+        elif not asked:
+            asked = {"thetford"}
+    if not asked:
+        return ""
+    for chunk in chunks or []:
+        title, keywords, excerpt, file_path = _chunk_fields(chunk)
+        if chunk_matches_asked_brand(
+            title, keywords, excerpt, asked, file_path=file_path
+        ):
+            return ""
+    return library_miss_shop_line(brand)
+
+
 def _line_fits_job(text: str, job: str) -> bool:
     low = _norm(text)
-    if not low or _PLACEHOLDER_RE.search(low) or _BROKEN_SENTENCE_RE.search(text or ""):
+    if (
+        not low
+        or _PLACEHOLDER_RE.search(low)
+        or _BROKEN_SENTENCE_RE.search(text or "")
+        or _FILLER_RE.search(text or "")
+    ):
         return False
     # An unnamed job keeps the draft. It does not borrow another case's repair.
+    # The reading filler is already rejected above, including this empty-job path.
     if not job:
         return True
     for phrase, owner in _OWNED_PHRASES:
@@ -4638,6 +4831,9 @@ def _final_shop_line(
     if proved and not _repeats_last_body(proved, history):
         return proved if "📖" in proved else _with_cite(proved, job)
     job = _job_key(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss:
+        return miss
     later = bool(_last_assistant_text(history))
     lines = (
         _conditional_lines(history, latest_msg, category_name, model_text)
@@ -4678,6 +4874,29 @@ def _final_shop_line(
     return _with_cite(chosen, job)
 
 
+def without_reading_filler(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """The reading filler cannot ship, including when the job has no lock."""
+    text = _FILLER_RE.sub(" ", reply or "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r" *\n *", "\n", text).strip(" \n.")
+    if text and not _FILLER_RE.search(text):
+        return text
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss and not _FILLER_RE.search(miss):
+        return miss
+    fallback = _final_shop_line(history, latest_msg, category_name, model_text)
+    fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
+    if fallback and not _FILLER_RE.search(fallback):
+        return fallback
+    return ""
+
+
 def _strip_source_header(text: str) -> str:
     """A copied excerpt header is not a shop line."""
     kept = []
@@ -4702,6 +4921,9 @@ def _answer_latest(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss:
+        return miss
     if _give_repair_now(latest_msg, history):
         fresh = _pick_fresh_line(
             _conditional_lines(history, latest_msg, category_name, model_text), history
@@ -5159,7 +5381,8 @@ def polish_shop_reply(
         nxt = _final_shop_line(history, latest_msg, category_name, model_text)
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
-    return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 
 def avoid_duplicate_reply(

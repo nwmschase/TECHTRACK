@@ -49,12 +49,12 @@ class TestAppModuleReload(unittest.TestCase):
         stale.suggested_pdf_filename = lambda *a, **k: "old.pdf"
         sys.modules["bay_procedure"] = stale
 
-        ns["_reload_stale_app_modules"]("v4.19.27")
+        ns["_reload_stale_app_modules"]("v4.19.28")
         loaded = sys.modules["bay_procedure"]
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.19.27")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.28")
         # A second pass sees the matching stamp and keeps this module object.
-        again = ns["_reload_app_module"]("bay_procedure", "v4.19.27")
+        again = ns["_reload_app_module"]("bay_procedure", "v4.19.28")
         self.assertIs(again, loaded)
 
         proc = loaded.compile_bay_procedure(
@@ -75,18 +75,18 @@ class TestAppModuleReload(unittest.TestCase):
         stale = types.ModuleType("gd_llm")
         stale.complete_chat = lambda *a, **k: "STALE"
         sys.modules["gd_llm"] = stale
-        loaded = ns["_reload_app_module"]("gd_llm", "v4.19.27")
+        loaded = ns["_reload_app_module"]("gd_llm", "v4.19.28")
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.19.27")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.28")
 
     def test_matching_revision_is_not_replaced(self):
         ns = _loader_namespace()
         current = types.ModuleType("bay_procedure")
-        current.MODULE_REVISION = "v4.19.27"
+        current.MODULE_REVISION = "v4.19.28"
         marker = object()
         current.marker = marker
         sys.modules["bay_procedure"] = current
-        loaded = ns["_reload_app_module"]("bay_procedure", "v4.19.27")
+        loaded = ns["_reload_app_module"]("bay_procedure", "v4.19.28")
         self.assertIs(loaded, current)
         self.assertIs(loaded.marker, marker)
 
@@ -95,7 +95,7 @@ class TestAppModuleReload(unittest.TestCase):
         header = re.search(r"RV TechTrack (v\d+\.\d+\.\d+)", src).group(1)
         required = re.search(r'_GDC_REQUIRED_REVISION = "(v[\d.]+)"', src).group(1)
         self.assertEqual(required, header)
-        self.assertEqual(header, "v4.19.27")
+        self.assertEqual(header, "v4.19.28")
         for name in APP_NAMES:
             text = (ROOT / f"{name}.py").read_text(encoding="utf-8")
             self.assertIn(f'MODULE_REVISION = "{header}"' if name != "gd_library_coach" else "MODULE_REVISION = COACH_REVISION", text)

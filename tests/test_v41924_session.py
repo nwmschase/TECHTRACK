@@ -405,6 +405,34 @@ class TestOneSessionReplay(unittest.TestCase):
         self.assertNotEqual(again.strip(), s09[1]["content"].strip())
         self.assertNotIn("bypass the ceiling selector and report", again.lower())
 
+        # Live miss: Thetford Style II has no shop manual. Do not cite Norcold.
+        thetford = []
+        for latest in (
+            "leaks under the flush lever when flushing",
+            "Water drips from under the lever only while the flush pedal is held.",
+            "What is the repair?",
+        ):
+            answer, flow = reply_fn(
+                latest,
+                "",
+                "Thetford Style II 42070",
+                thetford,
+                unity_gate="Not sure",
+            )
+            self.assertIsNone(flow)
+            text = (answer or "").strip()
+            low = text.lower()
+            self.assertIn("no thetford document in the shop library for this unit", low)
+            self.assertIn("what do you observe", low)
+            self.assertIn("add the oem manual", low)
+            self.assertNotIn("check the reading on this unit", low)
+            self.assertNotIn("norcold", low)
+            self.assertNotIn("619394", low)
+            self.assertNotIn("sail switch", low)
+            self.assertNotIn("📖", text)
+            thetford.append({"role": "user", "content": latest})
+            thetford.append({"role": "assistant", "content": text})
+
 
 if __name__ == "__main__":
     unittest.main()

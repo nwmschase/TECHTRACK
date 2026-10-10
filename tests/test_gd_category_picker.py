@@ -7,6 +7,7 @@ from gd_library_coach import (
     AIR_CONDITIONING_CATEGORY,
     DEFAULT_LIBRARY_CATEGORIES,
     RANGE_COOKTOPS_CATEGORY,
+    PLUMBING_TOILETS_CATEGORY,
     REFRIGERATORS_CATEGORY,
     WATER_HEATERS_CATEGORY,
     gd_category_select_options,
@@ -24,11 +25,14 @@ class TestGdCategoryPicker(unittest.TestCase):
         self.assertIn(RANGE_COOKTOPS_CATEGORY, DEFAULT_LIBRARY_CATEGORIES)
         self.assertIn(AIR_CONDITIONING_CATEGORY, DEFAULT_LIBRARY_CATEGORIES)
         self.assertIn(REFRIGERATORS_CATEGORY, DEFAULT_LIBRARY_CATEGORIES)
+        self.assertEqual(PLUMBING_TOILETS_CATEGORY, "Plumbing / Toilets")
+        self.assertIn(PLUMBING_TOILETS_CATEGORY, DEFAULT_LIBRARY_CATEGORIES)
 
     def test_gd_select_uses_same_list_plus_any(self):
         opts = gd_category_select_options([])
         self.assertEqual(opts[0], "(any)")
         self.assertIn("Water Heaters", opts)
+        self.assertIn("Plumbing / Toilets", opts)
         self.assertIn("Range & Cooktops", opts)
         self.assertEqual(opts[1:], library_category_picker_names([]))
 

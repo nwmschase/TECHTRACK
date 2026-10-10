@@ -60,6 +60,8 @@ from gd_library_coach import (
     ac_search_symptom,
     asked_brands_for_lookup,
     canonical_shop_brands,
+    is_toilet_job,
+    library_miss_brand_label,
     chunk_matches_asked_brand,
     dometic_nocoool_search_symptom,
     filter_chunks_for_unit,
@@ -114,7 +116,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.27"
+MODULE_REVISION = "v4.19.28"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -355,7 +357,8 @@ def apply_sheet_standard(proc: "BayProcedure") -> "BayProcedure":
     for node in proc.flowchart.nodes:
         node.text = scrub_sheet_text(node.text)
     proc.flowchart.readable = True
-    if not any(n.kind == "decision" for n in proc.flowchart.nodes):
+    miss_sheet = "document in the shop library for this unit" in (proc.primary_cite or "").lower()
+    if not miss_sheet and not any(n.kind == "decision" for n in proc.flowchart.nodes):
         proc.flowchart = _generic_flowchart(proc.concern, proc.bay_order)
     return proc
 
@@ -1401,19 +1404,28 @@ def _coleman_path() -> dict:
     }
 
 
-def _no_brand_match_path(brand: str = "", model: str = "") -> dict:
-    """Known brand, no matching manual. Do not borrow another maker's book."""
-    who = " ".join(p for p in ((brand or "").strip(), (model or "").strip()) if p) or "this brand"
-    cite = f"No {who} manual in the shop library. Do not use another brand."
-    if len(cite) > 92:
-        short = (brand or "").strip() or "this brand"
-        cite = f"No {short} manual in the shop library. Do not use another brand."
+def _no_brand_match_path(brand: str = "", model: str = "", concern: str = "") -> dict:
+    """Known unit, no matching manual. Do not borrow another maker's book."""
+    model_text = model_text_from(brand, model)
+    who = library_miss_brand_label("", model_text, concern) or (brand or "").strip() or "this brand"
+    sentence = f"No {who} document in the shop library for this unit."
+    toilet = is_toilet_job("", model_text, concern)
+    if toilet:
+        safe = (
+            "General shop safety, not an OEM procedure: shut the water supply off "
+            "before working under the flush lever."
+        )
+    else:
+        safe = (
+            "General shop safety, not an OEM procedure: do not start a repair from "
+            "another maker."
+        )
+    add = f"Add the {who} OEM manual to the shop library, then run this bay sheet again."
     return {
-        "primary_cite": cite,
+        "primary_cite": sentence,
         "pattern_means": (
-            f"The brand and model are known ({who}), and this pass did not retrieve "
-            "a service manual for that maker. Do not borrow voltages, pin names, or "
-            "step order from a different brand."
+            f"{sentence} This pass did not retrieve a service manual for that unit. "
+            "The steps below are general shop safety, not an OEM procedure."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -1421,65 +1433,45 @@ def _no_brand_match_path(brand: str = "", model: str = "") -> dict:
                 FlowNode(
                     "s",
                     "start",
-                    "No same-brand manual was retrieved for this unit.",
+                    sentence,
                     0.50,
-                    0.10,
-                    w=400,
-                    h=56,
-                ),
-                FlowNode(
-                    "d_lib",
-                    "decision",
-                    "Is a same-brand\nmanual indexed?",
-                    0.32,
-                    0.38,
-                    w=230,
-                    h=88,
-                ),
-                FlowNode(
-                    "e_stop",
-                    "end",
-                    "Stop. Do not use\nanother brand.",
-                    0.82,
-                    0.38,
-                    w=200,
+                    0.12,
+                    w=460,
                     h=72,
                 ),
                 FlowNode(
-                    "e_rerun",
+                    "p_safe",
+                    "process",
+                    "General shop safety only.\nNot an OEM procedure.",
+                    0.50,
+                    0.46,
+                    w=280,
+                    h=80,
+                ),
+                FlowNode(
+                    "e_add",
                     "end",
-                    "Index that manual, then\nrun this bay sheet again.",
-                    0.32,
-                    0.72,
-                    w=250,
+                    "Add the OEM manual,\nthen run this sheet again.",
+                    0.50,
+                    0.78,
+                    w=280,
                     h=72,
                 ),
             ],
             edges=[
-                FlowEdge("s", "d_lib"),
-                FlowEdge("d_lib", "e_rerun", "YES", "bottom", "top"),
-                FlowEdge("d_lib", "e_stop", "NO", "right", "left"),
+                FlowEdge("s", "p_safe"),
+                FlowEdge("p_safe", "e_add"),
             ],
         ),
-        "bay_order": [
-            (
-                "Stop on this sheet. The shop Document Library did not return a manual "
-                f"for {who}. Ask a manager to index that service manual, then run this "
-                "bay sheet again."
-            ),
-            (
-                "Do not start a procedure from another brand. That stop is the confirmed "
-                "correction until the matching manual is indexed."
-            ),
-        ],
+        "bay_order": [safe, add],
         "do_not": [
             "Do not cite another brand's manual as the procedure for this unit.",
         ],
         "sources": [
             {
-                "title": f"No {who} document in this retrieval",
+                "title": sentence,
                 "page": None,
-                "excerpt": "Do not substitute another brand.",
+                "excerpt": "Add the OEM manual to the shop library.",
             }
         ],
         "display_model": "",
@@ -3951,11 +3943,15 @@ def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", c
     Keep library pages for the brand the tech named.
 
     Returns (pages, brand_miss). brand_miss is true when a brand is known and
-    every retrieved page is a different brand. Unbranded excerpts stay.
-    Coleman 2111 also keeps 1976-536 / Peacemaker / wall-thermostat pages.
+    no retrieved page is that brand. Another brand's pages are never kept.
+    A toilet job does not keep a refrigerator manual. Coleman 2111 also keeps
+    1976-536 / Peacemaker / wall-thermostat pages.
     """
     pages = [chunk_as_dict(ch) for ch in (chunks or [])]
-    asked = asked_brands_for_lookup(category_name, model_text, concern)
+    asked = set(asked_brands_for_lookup(category_name, model_text, concern))
+    toilet = is_toilet_job(category_name, model_text, concern)
+    if toilet and not asked:
+        asked = {"thetford"}
     coleman_job = is_coleman_2111_context(category_name, model_text, concern)
     if not asked:
         return pages, False
@@ -3977,9 +3973,35 @@ def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", c
             plain.append(d)
     if matched:
         return matched, False
+    if "thetford" in asked or toilet:
+        return [], True
     if other and not plain:
         return [], True
+    if not pages and not _bay_product_lock(category_name, model_text, concern):
+        return [], True
     return plain, False
+
+
+def _bay_product_lock(category_name: str = "", model_text: str = "", concern: str = "") -> bool:
+    """True when a code-owned sheet still applies with an empty library."""
+    return any(
+        (
+            is_fcr_dial_off_compressor_run_context(category_name, model_text, concern),
+            is_fridge_ice_moisture_context(category_name, model_text, concern),
+            is_facr_rooftop_freeze_context(category_name, model_text, concern),
+            is_firefly_can_path_context(category_name, model_text, concern),
+            is_bal_soft_touch_tongue_only_context(category_name, model_text, concern),
+            is_coleman_2111_context(category_name, model_text, concern),
+            is_fcr_e2_fan_fault_context(category_name, model_text, concern),
+            _is_furnace_bay(category_name, model_text, concern),
+            is_ground_control_context(category_name, model_text, concern),
+            is_dometic_ceiling_sheet_context(category_name, model_text, concern),
+            is_fact12_freeze_code_context(category_name, model_text, concern),
+            is_girard_petit_tube_context(category_name, model_text, concern),
+            is_stabilizer_override_pin_context(category_name, model_text, concern),
+            is_cooktop_tip_sheet_context(category_name, model_text, concern),
+        )
+    )
 
 
 def _rank_coleman_pages(pages, limit: int) -> list:
@@ -4618,12 +4640,14 @@ def _coleman_figures(ranked) -> list[BayFigure]:
     return [seed]
 
 
-def _brand_miss_figure(brand: str = "", model: str = "") -> BayFigure:
-    who = " ".join(p for p in ((brand or "").strip(), (model or "").strip()) if p) or "this brand"
+def _brand_miss_figure(brand: str = "", model: str = "", concern: str = "") -> BayFigure:
+    model_text = model_text_from(brand, model)
+    who = library_miss_brand_label("", model_text, concern) or (brand or "").strip() or "this brand"
+    sentence = f"No {who} document in the shop library for this unit."
     seed = _seed_path_figure("generic")
     seed.title = "Shop Document Library"
-    seed.caption = f"No {who} figure in this retrieval"
-    seed.excerpt = "Do not use a figure from another brand."
+    seed.caption = sentence
+    seed.excerpt = "General shop safety only. Add the OEM manual to the shop library."
     return seed
 
 
@@ -5633,7 +5657,7 @@ def compile_bay_procedure(
         spec = _furnace_path(ranked)
         path_kind = "furnace"
     elif brand_miss:
-        spec = _no_brand_match_path(brand, model)
+        spec = _no_brand_match_path(brand, model, concern)
         path_kind = "brand_miss"
     elif ground_control:
         spec = _ground_control_path(concern)
@@ -5698,6 +5722,15 @@ def compile_bay_procedure(
         prefer_diagnostic=_is_fault_complaint(concern),
         protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
+    if path_kind == "brand_miss":
+        sources = [
+            {
+                "title": spec.get("primary_cite") or "Shop Document Library",
+                "page": None,
+                "excerpt": "",
+                "title_only": True,
+            }
+        ]
     if path_kind == "stabilizer":
         sources = _prefer_front_jack_sources(sources)
     if path_kind == "e2":
@@ -5811,7 +5844,7 @@ def compile_bay_procedure(
             "Replace the inverter PCB and the fan when the error remains.",
         )
     elif path_kind == "brand_miss":
-        figs = [_brand_miss_figure(brand, model)]
+        figs = [_brand_miss_figure(brand, model, concern)]
     elif path_kind:
         figs = resolve_path_figures(path_kind, ranked, figures)
     else:

@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.27
+RV TechTrack v4.19.28
+- v4.19.28: A typed unit with no matching shop manual does not borrow another brand. Thetford with no Thetford document says so. The reading filler cannot ship on any path, including a job with no lock. Plumbing / Toilets is a library category.
 - v4.19.27: A firm repair stays the repair. An answered check, including sail-switch continuity OK, is not asked again. The reading filler cannot ship. The Girard chart runs blower suction YES to the air-pressure switch, then that switch's own YES to the gas supply. The FACT12 E2 do-not says reseated.
 - v4.19.26: A repair already proved is stated as the repair, and an answered check is not asked again or restated as the repair. The next turn is not a copy of the last one. Ground Control keeps FRONT five times, REAR five times, then ENTER. The Girard chart lines do not cross, and the FACT12 E2 chart says Reseat.
 - v4.19.24: A Guided Diagnostics repair is chosen from the category and model, not from loose words in an earlier chat. Placeholders and broken If-sentences cannot ship, and a firm repair stays the repair. Bay sheets drop the reversed C/T note, cite Level Up page 1, name Brisk II page 23, and finish the FACT12 and Girard charts.
@@ -193,6 +194,7 @@ _GDC_STALE_GUARD_ATTRS = (
     "RANGE_COOKTOPS_CATEGORY",
     "REFRIGERATORS_CATEGORY",
     "WATER_HEATERS_CATEGORY",
+    "PLUMBING_TOILETS_CATEGORY",
     "gd_category_select_options",
     "library_category_picker_names",
 )
@@ -200,7 +202,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.27"
+_GDC_REQUIRED_REVISION = "v4.19.28"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -315,6 +317,7 @@ DEFAULT_LIBRARY_CATEGORIES = _gdc.DEFAULT_LIBRARY_CATEGORIES
 RANGE_COOKTOPS_CATEGORY = _gdc.RANGE_COOKTOPS_CATEGORY
 REFRIGERATORS_CATEGORY = _gdc.REFRIGERATORS_CATEGORY
 WATER_HEATERS_CATEGORY = _gdc.WATER_HEATERS_CATEGORY
+PLUMBING_TOILETS_CATEGORY = _gdc.PLUMBING_TOILETS_CATEGORY
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
 ac_search_symptom = _gdc.ac_search_symptom
@@ -2010,6 +2013,9 @@ def search_manual_chunks(
             branded = [ch for ch in all_chunks if _brand_keep(ch)]
             if branded:
                 all_chunks = branded
+            else:
+                # A named brand with no hit does not keep another brand's pages.
+                all_chunks = []
     all_chunks = _gdc.filter_chunks_for_unit(all_chunks, "", model_text or "", symptom or "")
     if not all_chunks:
         return []
@@ -4475,6 +4481,9 @@ def guided_diagnostics_reply(
     reply = _gdc.avoid_duplicate_reply(
         reply, history, user_msg, category_name, model_text
     )
+    reply = _gdc.without_reading_filler(
+        reply, history, user_msg, category_name, model_text
+    )
     return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
 
 
@@ -4807,6 +4816,16 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         figure_query=user_msg,
     )
     store_ask_sources(chunks)
+    missed = _gdc.library_miss_reply_for_turn(
+        history,
+        user_msg,
+        category_name,
+        model_text,
+        search_symptom,
+        chunks,
+    )
+    if missed:
+        return rewrite_shop_channel_words(missed)
 
     stated = format_stated_facts_rule(facts)
     system_prompt = ASK_TECHTRACK_SYSTEM
