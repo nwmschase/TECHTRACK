@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.8
+RV TechTrack v4.19.9
+- v4.19.9: Bay snippets join lines on a space, drop repeated clauses, boilerplate, and duplicate pages, and keep numeric ranges. Figures are a legible cited drawing or none. NO labels sit on their arrows. A FACT12 sheet that only has the FACR08 book says so.
 - v4.19.8: A redeploy reloads every Bay PDF and content module whose revision is not this app version, so a cached import cannot keep the previous sheet. The bay sheet DATE is the Pacific calendar day.
 - v4.19.7: Bay snippets are whole sentences (flowchart OCR, fig-ref scraps, part-number runs, and cut endings drop). Flowcharts follow the bay steps. Figures are full regions, not thin cut strips or a blank page. FACR08 CCD-0008666 is labeled as FACR08, and a front jack cites the front/PSX1 book
 - v4.19.6: Bay sheets use the same correction as Guided Diagnostics (1-month cooling-unit close, ceiling thermostat 3311071, Ground Control zero-point, FACT12 freeze-sensor resecure, petit tube before the control board, full jack R&R, thermocouple tip). Captions match the figure, generated sketches are not OEM pages, and snippets are not cut mid-word
@@ -100,7 +101,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.8``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.9``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -183,7 +184,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.8"
+_GDC_REQUIRED_REVISION = "v4.19.9"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
