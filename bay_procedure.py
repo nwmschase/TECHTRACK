@@ -37,6 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import math
 import re
@@ -112,6 +113,15 @@ from gd_library_coach import (
 )
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
+# rv_techtrack reloads this file when the stamp is not the app version.
+MODULE_REVISION = "v4.19.8"
+PACIFIC = ZoneInfo("America/Los_Angeles")
+
+
+def sheet_local_now() -> datetime:
+    """Header DATE is the shop calendar day in America/Los_Angeles, not UTC."""
+    return datetime.now(PACIFIC)
+
 
 # Shop colors (TechTrack branding — not a Leader pixel clone).
 NAVY = (0.004, 0.078, 0.486)
@@ -458,7 +468,7 @@ class BayProcedure:
     model: str = ""
     category: str = ""
     wo_number: str = ""
-    created: datetime = field(default_factory=datetime.now)
+    created: datetime = field(default_factory=sheet_local_now)
     primary_cite: str = ""
     pattern_means: str = ""
     flowchart: Flowchart = field(default_factory=Flowchart)
@@ -4234,7 +4244,7 @@ def compile_bay_procedure(
         model=model,
         category=category,
         wo_number=(wo_number or "").strip(),
-        created=created or datetime.now(),
+        created=created or sheet_local_now(),
         primary_cite=spec["primary_cite"],
         pattern_means=spec["pattern_means"],
         flowchart=spec["flowchart"],
