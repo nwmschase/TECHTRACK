@@ -680,7 +680,9 @@ def format_one_step(step: dict, number: int, total: int) -> str:
     lines.append(f"No, {step.get('no') or ''}".strip())
     if step.get("caution"):
         lines.append(f"Caution: {step['caution']}")
-    lines.append(PHOTO_STEP)
+    import gd_step_photo as _photos
+
+    lines.extend(_photos.photo_ask_lines(step.get("text") or ""))
     figure = step.get("figure")
     label = ""
     if isinstance(figure, dict):

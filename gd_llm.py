@@ -340,6 +340,7 @@ def complete_chat(
     models: dict | None = None,
     empty_is_failure: bool = False,
     reasoning_effort: str | None = None,
+    providers: list | None = None,
 ) -> str:
     """Chat completion. Try the primary provider, then the other one once.
 
@@ -347,13 +348,15 @@ def complete_chat(
     reads pass xAI grok-4.6 first, then the current Groq vision ids). A 404
     tries the next model on that provider. Rate limit, auth, 5xx, timeout, and
     transport skip the rest of that provider and retry the same messages on
-    the fallback. Each attempt is bounded by ``REQUEST_TIMEOUT_SEC`` with SDK
+    the fallback. ``providers`` limits the attempt list. Step photos pass
+    ``["xai"]`` so Groq, including the retired llama-4-scout id, is not called.
+    Each attempt is bounded by ``REQUEST_TIMEOUT_SEC`` with SDK
     retries off, so a stuck call falls through or raises instead of hanging
     the Streamlit run. The bay sees an error only when both providers fail.
     """
     global _last_provider
 
-    order = provider_order(secret_fn)
+    order = list(providers) if providers else provider_order(secret_fn)
     redact = [
         _lookup("XAI_API_KEY", secret_fn),
         _lookup("GROQ_API_KEY", secret_fn),
