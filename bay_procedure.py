@@ -1633,15 +1633,57 @@ def _dedupe_adjacent_sentences(text: str) -> str:
     return " ".join(kept)
 
 
+_HYPHEN_SPLIT_RE = re.compile(r"([A-Za-z]{2,})(?:\s+-\s+|-\s+)([A-Za-z]{2,})")
+_RUNON_NEXT = {
+    "loosen", "tighten", "replace", "check", "inspect", "remove", "install",
+    "disconnect", "connect", "open", "close", "clean", "measure", "verify",
+    "confirm", "press", "turn", "set", "align", "reposition", "resecure",
+    "the", "if", "when", "after", "before",
+}
+_FIG_FRAG_RE = re.compile(r"\b\d{1,3}[A-Za-z]\)")
+_FLOW_OCR_RE = re.compile(r"\byes\s+no\b", re.I)
+_OCR_GARBAGE_RE = re.compile(
+    r"grease\s+fire|\bpiezo\b|damage\s*,\s*personal|open\s+[\"“]flame",
+    re.I,
+)
+
+
+def _rejoin_hyphen_splits(text: str) -> str:
+    """Pull a line-break hyphen back together: 'con- ditioner', 'refriger - ant'."""
+    return _HYPHEN_SPLIT_RE.sub(lambda m: m.group(1) + m.group(2), text or "")
+
+
+def _split_runon_sentences(text: str) -> str:
+    """'knob Loosen' is two sentences the OCR glued together."""
+
+    def repl(match):
+        nxt = match.group(2)
+        if nxt.lower() in _RUNON_NEXT:
+            return match.group(1) + ". " + nxt
+        return match.group(0)
+
+    return re.sub(r"([a-z]{3,})\s+([A-Z][a-z]+)", repl, text or "")
+
+
+def _strip_fig_fragments(text: str) -> str:
+    """Drop a cut figure callout such as '36B)' or '4A)'."""
+    return re.sub(r"\s{2,}", " ", _FIG_FRAG_RE.sub(" ", text or "")).strip()
+
+
 def _repair_ocr_text(text: str) -> str:
     """Shared OCR repair for sheet steps and source snippets."""
     out = re.sub(r"\s+", " ", text or "").strip()
     out = _TRANSCRIPTION_RE.sub(" ", out)
+    out = re.sub(r"\(\s*ocr\s*\)", " ", out, flags=re.I)
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
+    out = _rejoin_hyphen_splits(out)
     out = _rejoin_ocr_splits(out)
     for pattern, repl in _FUSED_OCR:
         out = pattern.sub(repl, out)
+    out = re.sub(r"([A-Za-z]),([A-Za-z])", r"\1, \2", out)
+    out = _split_runon_sentences(out)
+    out = _strip_fig_fragments(out)
     out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
     out = _OCR_HEADER_RE.sub(" ", out)
     out = _collapse_repeated_phrases(out)
@@ -1727,11 +1769,18 @@ _PATH_FAMILY = {
         "firefly", "terminator", "manual mode", "807662", "level up",
         "power connector", "onecontrol", "can",
     ),
-    "furnace": ("furnace", "thermostat", "sail", "jumper", "limit"),
+    "furnace": ("furnace", "thermostat", "sail", "jumper", "limit", "module"),
     "e2": ("inverter", "fan", "e2", "pcb", "ccd-0008122", "12v"),
     "coleman": (
         "coleman", "peacemaker", "1976", "fan high", "9-pin", "capacitor", "airxcel",
+        "control board", "fan motor",
     ),
+    "ground_control": ("manual level", "zero-point", "zero point", "ground control", "343633"),
+    "dometic_ceiling": ("3311071", "ceiling", "peacemaker", "thermostat", "selector"),
+    "fact12_freeze": ("freeze sensor", "evaporator", "fact12", "e2", "e3"),
+    "girard_e8": ("petit", "girard", "gswh", "e8", "burner"),
+    "stabilizer": ("stabilizer", "psx1", "jack", "override", "coupler"),
+    "cooktop_tip": ("thermocouple", "tip", "cooktop", "burner", "pan", "flame"),
 }
 _PATH_CLIMAX = {
     "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel"),
@@ -1739,9 +1788,15 @@ _PATH_CLIMAX = {
     "dial_off": ("2021128850", "spark-free", "no jumper", "c (blue)", "t (black)"),
     "facr": ("ccd-0007990", "condensate", "base pan", "base-pan", "suction"),
     "firefly": ("807662", "terminator", "firefly", "power connector"),
-    "furnace": ("sail", "jumper", "r/w", "wall thermostat"),
+    "furnace": ("sail", "jumper", "r/w", "wall thermostat", "limit switch", "module board"),
     "e2": ("inverter pcb", "f+", "f-", "fan fault"),
     "coleman": ("peacemaker", "1976-536", "fan high", "control board"),
+    "ground_control": ("zero-point", "zero point", "manual level", "enter"),
+    "dometic_ceiling": ("ceiling thermostat", "3311071", "peacemaker"),
+    "fact12_freeze": ("freeze sensor", "resecure"),
+    "girard_e8": ("petit tube",),
+    "stabilizer": ("front stabilizer", "psx1", "jack assembly"),
+    "cooktop_tip": ("thermocouple", "reposition"),
 }
 _PATH_OFF = {
     "bal_tongue": (
@@ -1783,7 +1838,13 @@ _PATH_OFF = {
     ),
     "furnace": (r"flat[-\s]?rate", r"rear leveling", r"\bcoleman\b"),
     "e2": (r"flat[-\s]?rate", r"rear leveling", r"ice and moisture", r"\bfuse location\b"),
-    "coleman": (r"\bfurrion\b", r"ccd-0008666", r"ccd-0007990", r"flat[-\s]?rate"),
+    "coleman": (r"\bfurrion\b", r"ccd-0008666", r"ccd-0007990", r"flat[-\s]?rate", r"6799-730", r"\bplenum\b"),
+    "ground_control": (r"flat[-\s]?rate", r"\bcoupler\b"),
+    "dometic_ceiling": (r"\bfurrion\b", r"installation manual", r"\binstalling the\b"),
+    "fact12_freeze": (r"\bboltx\b", r"parts list"),
+    "girard_e8": (r"tools required", r"\bduct size\b"),
+    "stabilizer": (r"rear stabilizer",),
+    "cooktop_tip": (r"grease\s+fire", r"\bpiezo\b", r"\bfurnace\b", r"damage\s*,\s*personal"),
 }
 
 
@@ -1848,6 +1909,16 @@ def _strip_file_tokens(text: str) -> str:
     return re.sub(r"\s{2,}", " ", out).strip()
 
 
+def _accurate_library_title(title: str) -> str:
+    """CCD-0008666 is the FACR08 book. Do not print it under a FACT12 name."""
+    text = re.sub(r"\(\s*ocr\s*\)", " ", title or "", flags=re.I)
+    text = re.sub(r"\bocr companion\b", " ", text, flags=re.I)
+    text = re.sub(r"\s{2,}", " ", text).strip(" -")
+    if re.search(r"ccd-0*8666", text, re.I) and re.search(r"fact\s*12", text, re.I):
+        return "Furrion Chill FACR08 8K manual CCD-0008666"
+    return text
+
+
 def human_source_title(title: str = "", file_path: str = "") -> str:
     """Use library metadata when it is already a title. Otherwise derive one from the filename."""
     raw = re.sub(r"\s+", " ", (title or "").strip())
@@ -1859,7 +1930,7 @@ def human_source_title(title: str = "", file_path: str = "") -> str:
     if raw:
         raw = _strip_file_tokens(raw)
         raw = re.sub(r"\.(docx?|txt)$", "", raw, flags=re.I).strip()
-        return raw or "Shop library"
+        return _accurate_library_title(raw) or "Shop library"
     if path:
         return _title_from_filename(path)
     return "Shop library"
@@ -1919,6 +1990,14 @@ def _sentence_is_cut(text: str) -> bool:
         return True
     if re.search(r"\(\s*i\.\s*$", sentence, re.I):
         return True
+    if re.search(r"\(\s*\.\s*$", sentence) or sentence.endswith("(."):
+        return True
+    if sentence.endswith(")") and sentence.count("(") != sentence.count(")"):
+        return True
+    if sentence.count('"') % 2 == 1 or sentence.count("“") != sentence.count("”"):
+        return True
+    if _FIG_FRAG_RE.search(sentence):
+        return True
     if re.search(r"(?:->|→)\s*$", sentence):
         return True
     if re.search(r"\blippert\.$", sentence, re.I):
@@ -1940,17 +2019,28 @@ def _is_question_bullet(text: str) -> bool:
     sentence = (text or "").strip()
     if "?" not in sentence:
         return False
-    if sentence.startswith("?"):
+    if sentence.startswith("?") or re.search(r"\s\?\s*", sentence):
         return True
-    if re.search(r"\bif\b", sentence, re.I) and sentence.count("?") < 2:
+    if re.search(r"\bif\b", sentence, re.I) and sentence.count("?") == 1 and sentence.endswith("?"):
         return False
     return True
+
+
+def _is_flowchart_ocr(text: str) -> bool:
+    """A column read of a yes/no diamond is not a sentence."""
+    return bool(_FLOW_OCR_RE.search(text or ""))
+
+
+def _is_ocr_garbage(text: str) -> bool:
+    return bool(_OCR_GARBAGE_RE.search(text or ""))
 
 
 def _is_parts_list_dump(text: str) -> bool:
     """A replaceable-parts or tool table, not a single cited part number."""
     raw = text or ""
     if _PARTS_LIST_RE.search(raw):
+        return True
+    if len(re.findall(r"\b\d{6,}\b", raw)) >= 2:
         return True
     if len(re.findall(r"\b\d{5,}\b", raw)) >= 4:
         return True
@@ -1992,9 +2082,23 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
     out = clean_ocr_prose(text)
     out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
     kept = []
+    skip_after_bullet = False
     for sentence in _split_sentences(out):
         sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence))
-        if not sentence or _is_question_bullet(sentence) or _sentence_is_cut(sentence):
+        if skip_after_bullet:
+            skip_after_bullet = False
+            continue
+        if _is_question_bullet(sentence) or re.fullmatch(r"\d+\s*\??", sentence or ""):
+            skip_after_bullet = True
+            continue
+        if (
+            not sentence
+            or _is_question_bullet(sentence)
+            or _sentence_is_cut(sentence)
+            or _is_flowchart_ocr(sentence)
+            or _is_ocr_garbage(sentence)
+            or _is_parts_list_dump(sentence)
+        ):
             continue
         if _NO_LIBRARY_STEP_RE.search(sentence):
             continue
@@ -2070,6 +2174,34 @@ def _procedure_topic(spec: dict) -> str:
     return " ".join(parts)
 
 
+def _drop_path_off_sentences(excerpt: str, path_kind: str) -> str:
+    """A kept cite still loses a sentence about a different job."""
+    patterns = _PATH_OFF.get(path_kind or "", ())
+    if not patterns or not excerpt:
+        return excerpt
+    kept = []
+    for sentence in _split_sentences(excerpt):
+        if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _prefer_front_jack_sources(sources: list[dict]) -> list[dict]:
+    """A front-jack sheet does not cite the rear stabilizer book when PSX1 is present."""
+
+    def _blob(src: dict) -> str:
+        return f"{src.get('title') or ''} {src.get('excerpt') or ''}".lower()
+
+    has_front = any(
+        "psx1" in _blob(src) or "front stabilizer" in _blob(src) or "front jack" in _blob(src)
+        for src in sources
+    )
+    if not has_front:
+        return sources
+    return [src for src in sources if "rear stabilizer" not in _blob(src)]
+
+
 def polish_bay_sources(
     sources: list[dict],
     locked_count: int,
@@ -2093,6 +2225,7 @@ def polish_bay_sources(
         ):
             continue
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
+        excerpt = _drop_path_off_sentences(excerpt, path_kind)
         if not locked and not excerpt:
             continue
         if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
@@ -2302,8 +2435,8 @@ def _furnace_path(ranked) -> dict:
                 ),
                 FlowNode(
                     "y2",
-                    "end",
-                    "Sail passed. That is the\nconfirmed correction.",
+                    "process",
+                    "Check the limit switch,\nthen the module board.",
                     0.32,
                     0.91,
                     w=280,
@@ -2919,8 +3052,9 @@ def load_oem_figure_png(name: str) -> bytes:
 
 # Full manual pages are not figures. These boxes are the cited drawing on that page.
 _OEM_FIGURE_CROP = {
-    # The drainage-openings row. The lower crop was the model spec table.
-    "ccd7990-p7.png": (36, 708, 1066, 848),
+    # The whole drainage-openings row, including the diagram. Not the cut
+    # neighbors ("blower is defective" above, "seals are damaged" below).
+    "ccd7990-p7.png": (30, 732, 1070, 820),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
@@ -2960,8 +3094,27 @@ def crop_page_png_to_figure(png: bytes) -> bytes:
     return _png_bytes(image.crop((x0, y0, x1, y1)))
 
 
+def _content_spans(row: list[float], *, gap_ink: float = 0.012, min_gap: int = 12) -> list[list[int]]:
+    """Ink bands split only on a real whitespace gap, so a crop never cuts a row."""
+    spans = []
+    y = 0
+    height = len(row)
+    while y < height:
+        if row[y] < gap_ink:
+            y += 1
+            continue
+        start = y
+        while y < height and row[y] >= gap_ink:
+            y += 1
+        if spans and start - spans[-1][1] < min_gap:
+            spans[-1][1] = y
+        else:
+            spans.append([start, y])
+    return spans
+
+
 def _figure_band_box(image) -> tuple[int, int, int, int] | None:
-    """A whitespace-separated band that is a figure, not the whole manual page."""
+    """A full figure region. Thin strips and mid-row cuts stay off the sheet."""
     gray = image.convert("L")
     width, height = gray.size
     px = gray.load()
@@ -2974,34 +3127,39 @@ def _figure_band_box(image) -> tuple[int, int, int, int] | None:
             if px[x, y] < 170:
                 ink += 1
         row.append(ink / total if total else 0)
-    spans = []
-    y = 0
-    while y < height:
-        if row[y] < 0.02:
-            y += 1
-            continue
-        start = y
-        while y < height and row[y] >= 0.02:
-            y += 1
-        if spans and start - spans[-1][1] < 18:
-            spans[-1][1] = y
-        else:
-            spans.append([start, y])
-    best = None
-    best_score = 0.0
+    spans = _content_spans(row)
+    if not spans:
+        return None
+    scored = []
     for start, end in spans:
         band_h = end - start
-        if band_h < height * 0.12 or band_h > height * 0.62:
+        if band_h < 24:
             continue
         seg = row[start:end]
         avg = sum(seg) / len(seg)
         var = sum((v - avg) ** 2 for v in seg) / len(seg)
-        score = var * 8.0 + min(band_h / height, 0.4)
-        if score > best_score:
-            best_score = score
-            pad = 12
-            best = (8, max(0, start - pad), width - 8, min(height, end + pad))
-    return best
+        scored.append((var * 8.0 + min(band_h / height, 0.45), start, end))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    _score, start, end = scored[0]
+    # A short band is part of the figure above or below it. Grow to the next gap.
+    thin = (end - start) < max(width * 0.22, height * 0.18)
+    if thin:
+        for _score, other_s, other_e in scored[1:]:
+            gap = min(abs(other_s - end), abs(start - other_e))
+            if gap > 48:
+                continue
+            start = min(start, other_s)
+            end = max(end, other_e)
+            if (end - start) >= max(width * 0.22, height * 0.18):
+                break
+    if (end - start) > height * 0.70:
+        return None
+    if (end - start) < max(80, width * 0.16):
+        return None
+    pad = 8
+    return (8, max(0, start - pad), width - 8, min(height, end + pad))
 
 
 def _oem_library_figures(kind: str) -> list[BayFigure]:
@@ -3124,14 +3282,29 @@ def _seed_path_figure(kind: str) -> BayFigure:
     )
 
 
+def _figure_is_plenum(fig: BayFigure) -> bool:
+    blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+    return "6799-730" in blob or "plenum" in blob
+
+
+def _figure_is_fan_or_board(fig: BayFigure) -> bool:
+    blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+    return any(token in blob for token in ("fan", "control board", "9-pin", "9 pin", "capacitor"))
+
+
 def _coleman_figures(ranked) -> list[BayFigure]:
-    """Coleman pages only. Never a Furrion or Dometic figure on this sheet."""
+    """Coleman pages only. The sheet figure is the fan or the board, not the plenum."""
     library = []
     for fig in pick_cited_figures(ranked):
         blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
         if "furrion" in blob or "dometic" in blob or "ccd-0008666" in blob or "ccd-0007990" in blob:
             continue
+        if _figure_is_plenum(fig):
+            continue
         library.append(fig)
+    fan_board = [fig for fig in library if _figure_is_fan_or_board(fig)]
+    if fan_board:
+        library = fan_board
     if library:
         return library
     seed = _seed_path_figure("generic")
@@ -3442,7 +3615,6 @@ def _named_fix_chart(start: str, question: str, yes_text: str, no_text: str, pro
 
 
 def _ground_control_path(concern: str) -> dict:
-    body = _shop_body(GROUND_CONTROL_LEVEL_LINE)
     return {
         "primary_cite": (
             "Lippert Internal Tech Support – Electric Leveling Systems "
@@ -3453,17 +3625,86 @@ def _ground_control_path(concern: str) -> dict:
             "on Lippert Ground Control. Run manual level, then set zero point. "
             "Do not swap a level sensor and do not replace a harness."
         ),
-        "flowchart": _named_fix_chart(
-            _opening_sentence(concern or "Auto-level lifts one side of the coach."),
-            "Does auto-level\nlift one side?",
-            "Manual level, then\nzero-point calibration.",
-            "Recheck the complaint.\nDo not swap a sensor.",
-            "FRONT five times, REAR five times,\nthen press ENTER.",
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    _opening_sentence(concern or "Auto-level lifts one side of the coach."),
+                    0.50,
+                    0.08,
+                    w=430,
+                    h=64,
+                ),
+                FlowNode(
+                    "p_level",
+                    "process",
+                    "Run manual level.\nFront to back, then side to side.",
+                    0.32,
+                    0.28,
+                    w=280,
+                    h=72,
+                ),
+                FlowNode(
+                    "p_zero",
+                    "process",
+                    "Then set the zero point\nwith the touch pad off.",
+                    0.32,
+                    0.48,
+                    w=280,
+                    h=72,
+                ),
+                FlowNode(
+                    "p_keys",
+                    "process",
+                    "FRONT five times, REAR five times,\nthen press ENTER.",
+                    0.32,
+                    0.68,
+                    w=300,
+                    h=72,
+                ),
+                FlowNode(
+                    "d_side",
+                    "decision",
+                    "Does auto-level\nstill lift one side?",
+                    0.32,
+                    0.86,
+                    w=230,
+                    h=80,
+                ),
+                FlowNode(
+                    "e_ok",
+                    "end",
+                    "That is the confirmed\ncorrection.",
+                    0.78,
+                    0.78,
+                    w=200,
+                    h=64,
+                ),
+                FlowNode(
+                    "e_rep",
+                    "end",
+                    "Repeat the button sequence.",
+                    0.32,
+                    0.96,
+                    w=240,
+                    h=56,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "p_level"),
+                FlowEdge("p_level", "p_zero"),
+                FlowEdge("p_zero", "p_keys"),
+                FlowEdge("p_keys", "d_side"),
+                FlowEdge("d_side", "e_ok", "NO", "right", "left"),
+                FlowEdge("d_side", "e_rep", "YES", "bottom", "top"),
+            ],
         ),
         "bay_order": [
-            "Confirm the controller, jack, and touch pad plugs are seated. If a plug is loose, reseat it and retest auto-level. If the plugs are seated, run manual level next.",
-            "Run manual level. In manual mode, run the jacks until the trailer is level: level front to back, then side to side. If the coach is level, turn the touch pad off and set zero point.",
-            body + " If auto-level still lifts one side after that sequence, repeat the zero-point calibration. That is the confirmed correction.",
+            "Confirm the controller, jack, and touch pad plugs are seated. If a plug is loose, reseat it and retest auto-level. If the plugs are seated, go to manual level.",
+            "Run manual level. In manual mode, run the jacks until the trailer is level: level front to back, then side to side. When the coach is level, turn the touch pad off.",
+            "With the touch pad off, press and release FRONT five times, then press and release REAR five times. Press ENTER to store the zero point. If auto-level still lifts one side, repeat that button sequence. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not swap a level sensor.",
@@ -3490,12 +3731,61 @@ def _dometic_ceiling_path(concern: str) -> dict:
     return {
         "primary_cite": "Dometic diagnostic service manual 3311071",
         "pattern_means": _shop_body(opener),
-        "flowchart": _named_fix_chart(
-            "The fan runs and the rooftop unit is not cooling.",
-            "Do both bypasses\ncool?",
-            "Replace the ceiling\nthermostat/selector.",
-            "Stay on the bypasses.\nDo not start on the filter.",
-            "Peacemaker bypass, then\nbypass the ceiling selector.",
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "The fan runs and the rooftop unit is not cooling.",
+                    0.50,
+                    0.08,
+                    w=420,
+                    h=64,
+                ),
+                FlowNode(
+                    "p_by",
+                    "process",
+                    "Peacemaker bypass, then\nbypass the ceiling selector.",
+                    0.32,
+                    0.32,
+                    w=300,
+                    h=76,
+                ),
+                FlowNode(
+                    "d_cool",
+                    "decision",
+                    "Do both bypasses\ncool?",
+                    0.32,
+                    0.58,
+                    w=220,
+                    h=90,
+                ),
+                FlowNode(
+                    "e_yes",
+                    "end",
+                    "Replace the ceiling\nthermostat/selector.",
+                    0.32,
+                    0.84,
+                    w=250,
+                    h=68,
+                ),
+                FlowNode(
+                    "e_no",
+                    "end",
+                    "Stay on the bypasses.\nDo not start on the filter.",
+                    0.78,
+                    0.58,
+                    w=210,
+                    h=72,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "p_by"),
+                FlowEdge("p_by", "d_cool"),
+                FlowEdge("d_cool", "e_yes", "YES", "bottom", "top"),
+                FlowEdge("d_cool", "e_no", "NO", "right", "left"),
+            ],
         ),
         "bay_order": [
             "Fan running with no cold air is the no-cool path. Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
@@ -3529,7 +3819,7 @@ def _fact12_freeze_path() -> dict:
             "FACT12 shows E2 or E3.",
             "Is the freeze sensor\nloose or off the coil?",
             "Resecure the freeze sensor.\nThat is the correction.",
-            "Reseat the sensor and retest\nbefore any board swap.",
+            "Sensor is seated.\nRetest before a board swap.",
             "Resecure the freeze sensor\non the evaporator coil.",
         ),
         "bay_order": [
@@ -3539,7 +3829,7 @@ def _fact12_freeze_path() -> dict:
             "If the code returns, resecure the freeze sensor again and retest. If it is seated and the code remains, retest once more before any other part.",
         ],
         "do_not": [
-            "Do not replace the control board before the freeze sensor is reseated.",
+            "Do not replace the control board before the freeze sensor is resecured.",
         ],
         "sources": [
             {
@@ -3560,20 +3850,69 @@ def _girard_petit_path() -> dict:
             "Girard GSWH-2 E8 after flame starts at the petit tube. "
             "Align the petit tube in the burner flame and retest before any control board."
         ),
-        "flowchart": _named_fix_chart(
-            "Girard water heater shows E8 after flame.",
-            "Is the petit tube\nin the flame?",
-            "Petit tube aligned.\nThat is the correction.",
-            "Align the petit tube first.",
-            "Align the petit tube,\nthen retest the heater.",
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "Girard water heater shows E8 after flame.",
+                    0.50,
+                    0.10,
+                    w=420,
+                    h=64,
+                ),
+                FlowNode(
+                    "d_in",
+                    "decision",
+                    "Is the petit tube\nin the flame?",
+                    0.32,
+                    0.38,
+                    w=230,
+                    h=90,
+                ),
+                FlowNode(
+                    "e_yes",
+                    "end",
+                    "Already in the flame.\nRetest the heater.",
+                    0.78,
+                    0.38,
+                    w=210,
+                    h=72,
+                ),
+                FlowNode(
+                    "p_no",
+                    "process",
+                    "Align the petit tube first,\nthen retest.",
+                    0.32,
+                    0.66,
+                    w=280,
+                    h=72,
+                ),
+                FlowNode(
+                    "e_no",
+                    "end",
+                    "Alignment is the correction.\nDo not start on the board.",
+                    0.32,
+                    0.88,
+                    w=280,
+                    h=68,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d_in"),
+                FlowEdge("d_in", "e_yes", "YES", "right", "left"),
+                FlowEdge("d_in", "p_no", "NO", "bottom", "top"),
+                FlowEdge("p_no", "e_no"),
+            ],
         ),
         "bay_order": [
-            "Confirm the E8 code after the flame lights. If the heater locks out, look at the petit tube next.",
-            "If the petit tube is out of the burner flame, align the petit tube first. If it is already in the flame, retest the heater.",
-            _shop_body(GIRARD_PETIT_ALIGN_LINE) + " If E8 clears, that alignment is the confirmed correction.",
-            "If E8 returns with the petit tube aligned, check the air-pressure switch and the gas supply. If either fails, repair that and retest.",
-            "If the air-pressure switch and the gas are good and E8 remains, look at the petit tube again. If it has moved, align the petit tube and retest.",
-            "The confirmed correction is the petit tube aligned in the burner flame. Do not replace the control board before the petit tube is aligned.",
+            "Confirm the E8 code after the flame lights. Look at the petit tube before any other part.",
+            "If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
+            _shop_body(GIRARD_PETIT_ALIGN_LINE) + " Do this only when the tube is out of the flame.",
+            "If E8 remains after that alignment, check the air-pressure switch. Repair it and retest if it fails.",
+            "If the air-pressure switch is good, check the gas supply and retest the heater.",
+            "The confirmed correction is the petit tube in the burner flame. Do not replace the control board ahead of that alignment.",
         ],
         "do_not": [
             "Do not replace the control board before the petit tube is aligned.",
@@ -3638,11 +3977,11 @@ def _cooktop_tip_path() -> dict:
         ),
         "bay_order": [
             "Set a pan on the lit burner. If the flame goes out, look at the thermocouple tip next.",
-            "If the thermocouple tip sits low, the pan pushes it out of the flame. Go to the reposition step.",
-            body + " If the flame holds with the pan on, that is the confirmed correction.",
-            "If the flame still goes out, reseat the thermocouple tip in the burner flame and retest with the pan on.",
-            "Relight with the pan on. If the flame holds, you are done. If it goes out, reposition the thermocouple tip again.",
-            "The confirmed correction is the thermocouple tip repositioned in the burner flame with the pan on.",
+            "If the thermocouple tip sits low, the pan pushes it out of the flame.",
+            body + " If the flame holds with the pan on, you are done.",
+            "If the flame still goes out, raise the tip so the pan cannot push it clear, then light the burner again.",
+            "With the pan on the grate, watch that the tip stays in the flame for a full minute.",
+            "Write that tip position on this sheet. That reposition is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the thermocouple until the tip has been repositioned in the flame with the pan on.",
@@ -3793,6 +4132,8 @@ def compile_bay_procedure(
         path_kind,
         prefer_diagnostic=_is_fault_complaint(concern),
     )
+    if path_kind == "stabilizer":
+        sources = _prefer_front_jack_sources(sources)
     if fact12_mislabeled_only and path_kind in ("", "fact12_freeze"):
         page = _page_int(ranked[0].get("page")) if ranked else None
         sources = [
@@ -4265,8 +4606,8 @@ def _cluster_rows(nodes: list[FlowNode], tol: float = 0.07) -> list[list[FlowNod
 
 def _flowchart_inner(frame_x: float, frame_y: float, frame_w: float, frame_h: float):
     """Gutters keep node boxes and loop-back arrows off the frame stroke."""
-    # Right inset is wide enough for a return stub to stay inside the frame.
-    return (frame_x + 12.0, frame_y + 10.0, frame_w - 44.0, frame_h - 40.0)
+    # The right gutter is wide so a return stub does not ride the page frame.
+    return (frame_x + 12.0, frame_y + 10.0, frame_w - 86.0, frame_h - 40.0)
 
 
 def _pack_rows(flow: Flowchart, inner_w: float, inner_h: float, readable: bool, scale: float):
@@ -4492,8 +4833,8 @@ def _route_elbow(x1: float, y1: float, x2: float, y2: float, from_side: str, to_
     elif from_side in ("left", "right") and to_side in ("left", "right"):
         horizontal_then_down()
     elif from_side == "right" and to_side == "top":
-        limit = (frame[2] - 10.0) if frame else (x1 + 12.0)
-        out_x = min(x1 + 12.0, limit)
+        limit = (frame[2] - 30.0) if frame else (x1 + 16.0)
+        out_x = min(x1 + 16.0, limit)
         if out_x < x2:
             out_x = min((x1 + x2) / 2.0, limit)
         lanes = _lane_candidates(y1, y2, 2.6 if y1 > y2 else -2.6)
@@ -5259,17 +5600,49 @@ def _paint_identity_header(page: SheetPage, proc: BayProcedure, banner_bottom: f
     return header_bottom
 
 
-def _paint_figure_page(pages: list, fig: BayFigure, *, png: bytes, with_footer: bool):
-    cur = _SheetFlow(pages, "Cited library figures")
+def _png_pixel_size(png: bytes) -> tuple[int, int]:
+    from PIL import Image
+
+    image = Image.open(BytesIO(png))
+    return image.size
+
+
+def _fit_image(png: bytes, max_w: float, max_h: float) -> tuple[float, float]:
+    """Display size that keeps the figure's aspect. No letterboxed empty box."""
+    if max_w < 24 or max_h < 24 or not png:
+        return 0.0, 0.0
+    width, height = _png_pixel_size(png)
+    if width < 1 or height < 1:
+        return 0.0, 0.0
+    scale = min(max_w / width, max_h / height)
+    return width * scale, height * scale
+
+
+def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break: bool = True) -> bool:
+    """Draw the caption and the figure under the cursor. False when it will not fit."""
     cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
     cap_m = measure_text(cap, _CONTENT_W - 16, 9, bold=True, leading=12)
-    _add_section(cur, "CITED LIBRARY FIGURES", NAVY, follow_h=cap_m.height + 40)
-    _emit_block(cur, cap_m, x=MARGIN + 8, size=9, bold=True, color=NAVY, gap_after=8)
-    cur.y -= 4
-    img_h = cur.y - cur.floor
     img_w = _CONTENT_W - 32
-    if img_h >= 80 and png:
-        cur.page.images.append(DrawnImage(png, MARGIN + 16, cur.floor, img_w, img_h))
+    dw, dh = _fit_image(png, img_w, max(0.0, cur.remaining() - cap_m.height - 36))
+    if dh < 28 or dw < 28:
+        return False
+    if not _add_section(
+        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(cap_m.height + 12, 36), allow_break=allow_break
+    ):
+        return False
+    _emit_block(cur, cap_m, x=MARGIN + 8, size=9, bold=True, color=NAVY, gap_after=6)
+    cur.y -= 2
+    if cur.y - dh < cur.floor:
+        return False
+    cur.page.images.append(DrawnImage(png, MARGIN + 16, cur.y - dh, dw, dh))
+    cur.y -= dh + 8
+    return True
+
+
+def _paint_figure_page(pages: list, fig: BayFigure, *, png: bytes, with_footer: bool):
+    cur = _SheetFlow(pages, "Cited library figures")
+    if not _paint_figure_on(cur, fig, png=png):
+        return
     if with_footer:
         _add_3c_footer(cur.page)
 
@@ -5417,23 +5790,33 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     imaged = []
     for fig in proc.figures:
-        if not fig.image_png or figure_is_placeholder(fig):
+        if not fig.image_png or figure_is_placeholder(fig) or _figure_is_plenum(fig):
             continue
         png = crop_page_png_to_figure(fig.image_png)
         if not png:
             continue
         imaged.append((fig, png))
-    room = max(0, MAX_SHEET_PAGES - len(pages))
-    show = imaged[: min(MAX_FIGURES_PER_SHEET, room)]
-    if show:
-        for i, (fig, png) in enumerate(show):
-            _paint_figure_page(
-                pages,
-                fig,
-                png=png,
-                with_footer=bool(proc.include_3c and i == len(show) - 1),
-            )
-    elif proc.include_3c:
+    # A short crop stays on the current page. A dedicated figure page has to
+    # be a real figure, not a thin strip floating in blank paper.
+    shown = 0
+    min_page_figure = 240.0
+    for fig, png in imaged:
+        if shown >= MAX_FIGURES_PER_SHEET:
+            break
+        if _paint_figure_on(body, fig, png=png, allow_break=False):
+            shown += 1
+            continue
+        page_h = _fit_image(png, _CONTENT_W - 32, PAGE_H - 180)[1]
+        if page_h < min_page_figure or len(pages) >= MAX_SHEET_PAGES:
+            continue
+        _paint_figure_page(
+            pages,
+            fig,
+            png=png,
+            with_footer=bool(proc.include_3c and shown == 0),
+        )
+        shown += 1
+    if proc.include_3c and shown == 0:
         _add_3c_footer(body.page)
     return pages
 
