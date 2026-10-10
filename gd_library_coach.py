@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.29"
+COACH_REVISION = "v4.19.31"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -649,7 +649,7 @@ COOKTOP_PRODUCT_LOCK = """
 SUBURBAN / GAS COOKTOP PAN-ON FLAME-OUT PRODUCT LOCK:
 - Burner lights, then goes out when a pan/cookware is placed (either burner) is a cooktop flame-sensor / thermocouple-tip geometry complaint. It is NOT a furnace sail-switch / draft / igniter-first path.
 - Search and cite Suburban Range/Cooktops SM FIRST.
-- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load.
+- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load. End that sentence. Do not glue the next instruction onto "under load".
 - Do this BEFORE condemning or R&R of the thermocouple, safety valve, orifice, regulator, or igniter.
 - Only if tip geometry is correct WITH the pan on and the flame still drops out, proceed to parts / readings from the Suburban Range/Cooktops SM excerpt actually used.
 - Never invent OEM voltages or page numbers. Cite 📖 Source from an excerpt actually used.
@@ -738,6 +738,10 @@ ICE_MONTH_CLOSE = (
 ICE_MOISTURE_SHOP_LINE = (
     "Rear-wall ice is the Ice and Moisture check. "
     "Check whether the temperature dial is at maximum. Report the setting.\n"
+    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36)"
+)
+ICE_COOLING_UNIT_LINE = (
+    "Replace the cooling unit.\n"
     "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36)"
 )
 FRIDGE_NO_POWER_RE = re.compile(
@@ -2508,8 +2512,7 @@ COLEMAN_MOTOR_BOARD_AUTH_LINE = (
     "AUTHORIZATION: R&R the rooftop fan motor and the control board only on the Coleman-Mach 2111-0001. "
     "Fan High at the control board is dead (tester dark and about 0 VAC on the 9-pin black-to-white Fan High path). "
     "Peacemaker bypass: the compressor runs, the fan does not rotate on high or low, and shaft-locked current is about 1.9 A. "
-    "The fan run capacitor measures about its rated value and is not the failed part. "
-    "Stop. No further tests.\n"
+    "The fan run capacitor measures about its rated value and is not the failed part.\n"
     "📖 Source: Coleman-Mach 12VDC Wall Thermostat rooftop service manual "
     "(printed circuit board; 115 VAC missing at the 9-pin means the board); "
     "1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common); "
@@ -3166,7 +3169,7 @@ FURNACE_WALL_TSTAT_LINE = (
     "📖 Source: Suburban Furnace Service and Training Manual"
 )
 COOKTOP_TIP_LOW_REPAIR = (
-    "Reposition the thermocouple tip in the burner flame with the pan on. "
+    "Reposition the thermocouple tip in the flame with the pan on. "
     "Figs. 3-4 on page 4 show that tip height.\n"
     + COOKTOP_TIP_CITE
 )
@@ -3202,6 +3205,10 @@ GIRARD_PETIT_ALIGN_LINE = (
 GIRARD_BLOWER_SUCTION_LINE = (
     "The sensing tube is at the blower for the air pressure switch. "
     "With the blower running, confirm suction at that tube and report the result.\n"
+    "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
+)
+GIRARD_SEATING_REPAIR_LINE = (
+    "That seating is the repair.\n"
     "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
 )
 _LIBRARY_NO_STEPS_RE = re.compile(
@@ -3686,7 +3693,7 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
         r"\b(?:shut off|shuts off|goes out|flameout|flame out)\b", blob
     ):
         options.append(
-            "Reposition the thermocouple tip in the burner flame with the pan on. That is the repair."
+            "Reposition the thermocouple tip in the flame with the pan on. That is the repair."
         )
     if re.search(r"\b(?:rear|back)\s*wall\b", blob) and re.search(r"\bice\b", blob):
         if re.search(r"\b(?:frost|ice|icing)\s+return", blob):
@@ -3758,7 +3765,7 @@ def _alternate_lines(text: str) -> list[str]:
         ("freeze sensor", "Check whether the freeze sensor is fastened on the evaporator coil and report what you find."),
         ("20300427", "Replace the soft-touch user panel, part 20300427."),
         ("20300427", "The soft-touch user panel is the repair. Part 20300427."),
-        ("thermocouple", "Reposition the thermocouple tip in the burner flame with the pan on."),
+        ("thermocouple", "Reposition the thermocouple tip in the flame with the pan on."),
         ("thermocouple", "Put the thermocouple tip back in the flame with the pan on."),
         ("inverter pcb", "Replace the inverter PCB and the freezer evaporator fan."),
         ("inverter pcb", "The inverter PCB and the freezer evaporator fan are the repair."),
@@ -4436,6 +4443,12 @@ def _answered_checks(blob: str) -> set[str]:
     found = set()
     if re.search(r"filter is clean|filters are clean", low):
         found.add("filter")
+    if re.search(
+        r"\b\d{2,3}\s*/\s*\d{2,3}\b|"
+        r"\bpressures?\b.{0,24}\b(?:good|ok|normal|in range|reported)\b",
+        low,
+    ):
+        found.add("pressure")
     if re.search(r"dial (?:is )?at max", low):
         found.add("dial")
     if _sail_answered(low):
@@ -4480,6 +4493,11 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "can" in answered and re.search(r"unplug", low) and "firefly" in low and re.search(
         r"report|try manual|whether it holds", low
+    ):
+        return True
+    if "pressure" in answered and re.search(
+        r"read the refrigerant|connect gauges|check refrigerant pressures|read both gauges",
+        low,
     ):
         return True
     return False
@@ -4559,6 +4577,14 @@ def _proved_shop_reply(
             return DOMETIC_CEILING_LINE
     if job == "levelup" and _levelup_firefly_confirmed(blob):
         return LEVELUP_FIREFLY_FIRM_LINE
+    if job == "facr" and facr_terminal_path_complete(facr_proves_from_chat(history, latest_msg)):
+        return FACR_TERMINAL_ASSEMBLY_RR_LINE
+    if job == "ice" and _ice_cooling_unit_ready(blob):
+        return ICE_COOLING_UNIT_LINE
+    if job == "girard" and _girard_seating_confirmed(blob):
+        return GIRARD_SEATING_REPAIR_LINE
+    if job == "cooktop" and _cooktop_repair_ready(blob, latest_msg):
+        return COOKTOP_TIP_LOW_REPAIR
     return ""
 
 
@@ -4643,6 +4669,11 @@ def _conditional_lines(
             "If the fan motor stays locked after the capacitor measures near rated, replace the fan motor and the control board only.",
         ]
     if job == "facr":
+        facr_facts = facr_proves_from_chat(history, latest_msg)
+        if facr_terminal_path_complete(facr_facts):
+            return [FACR_TERMINAL_ASSEMBLY_RR_LINE]
+        if facr_facts.get("facr_pressure") == "ok":
+            return [_facr_stay_on_prove_line(facr_facts)]
         return [
             "Connect gauges and read the suction and discharge pressures. If those pressures are in range and the interior leak remains, replace the rooftop assembly.",
             "If the suction and discharge pressures are in range and water still leaks inside, replace the rooftop assembly.",
@@ -4700,8 +4731,8 @@ def _conditional_lines(
         ]
     if job == "cooktop":
         return [
-            "Set a pan on a lit burner and look at the thermocouple tip. If the tip sits low in the flame, reposition the thermocouple tip.",
-            "If the thermocouple tip sits low once a pan is on the burner, reposition that tip in the flame.",
+            "Set a pan on a lit burner and look at the thermocouple tip. If the tip sits low in the flame, reposition the thermocouple tip in the flame.",
+            "If the thermocouple tip sits low once a pan is on the burner, reposition the thermocouple tip in the flame.",
         ]
     if job == "dial":
         return [
@@ -5009,6 +5040,8 @@ def _answer_latest(
             return "The rooftop bypass cools. Bypass the ceiling selector and report whether that also cools."
         return ""
     if _open("ice") and re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
+        if _ice_cooling_unit_ready(blob):
+            return "Replace the cooling unit."
         if re.search(r"\b(?:frost|ice|icing)\s+returns?\b", low):
             return "Heavy frost returned. Replace the cooling unit."
         if re.search(r"still cooling|still cools", low):
@@ -5042,7 +5075,7 @@ def _answer_latest(
         return ""
     if _open("cooktop") and re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
         if asks_what_is_the_repair(latest_msg) or cooktop_tip_sits_low(blob):
-            return "Reposition the thermocouple tip in the burner flame with the pan on."
+            return "Reposition the thermocouple tip in the flame with the pan on."
         if _is_fallback_question(latest_msg):
             return "Set a pan on a lit burner and report whether the thermocouple tip stays in the flame."
         return ""
@@ -5234,6 +5267,7 @@ def polish_shop_reply(
     if re.search(r"(?:^|\s)2\.", text or "") and not re.search(r"(?:^|\s)1\.", text or ""):
         text = re.sub(r"(?:^|\s)\d{1,2}\.\s+", " ", text or "")
     text = _FILENAME_RE.sub("", text)
+    text = _strip_stop_no_further_tests(text)
     text = _LEAKED_GUARD_RE.sub("", text)
     text = _META_QUESTION_RE.sub("", text)
     text = re.sub(
@@ -5385,6 +5419,84 @@ def polish_shop_reply(
     return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 
+def _ice_cooling_unit_ready(blob: str) -> bool:
+    """Overnight dry-and-wait plus frost back is the cooling-unit repair."""
+    raw = blob or ""
+    overnight = bool(re.search(r"\bovernight\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    dried = bool(re.search(r"\b(?:dried|towel)\b|\bdry-and-wait\b|\bdry and wait\b", raw, re.I))
+    back = bool(
+        re.search(
+            r"\b(?:frost|ice|icing)\b.{0,40}\b(?:return(?:ed|s)?|came back|persists?)\b|"
+            r"\bheavy frost\b|"
+            r"\b(?:frost|ice|icing)\b.{0,24}\bstill\b|"
+            r"\bstill (?:icing|iced|there)\b",
+            raw,
+            re.I,
+        )
+    )
+    return bool(overnight and dried and back)
+
+
+def _girard_seating_confirmed(blob: str) -> bool:
+    """Seating is a reported fact. A clear tube is not seating."""
+    raw = blob or ""
+    if re.search(r"\b(?:not|isn't|is not)\s+seated\b|\bunseated\b", raw, re.I):
+        return False
+    return bool(
+        re.search(
+            r"\bseating(?:\s+is)?\s+confirmed\b|"
+            r"\bseated the (?:sensing )?tube\b|"
+            r"\b(?:sensing )?tube(?:\s+is|\s+was)?\s+seated\b|"
+            r"\bi seated (?:it|the tube|the sensing tube)\b",
+            raw,
+            re.I,
+        )
+    )
+
+
+def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
+    """The tip repair waits until the tip is low or the tech asks for the repair."""
+    if cooktop_tip_sits_low(blob or ""):
+        return True
+    if not asks_what_is_the_repair(latest_msg or ""):
+        return False
+    return _has_pan_on_flameout_marker(blob or "")
+
+
+def _live_close_reply(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Terminal card for a proved job. Other jobs stay on their own prove."""
+    job = _job_key(history, latest_msg, category_name, model_text)
+    blob = _user_blob(history, latest_msg)
+    if job == "facr":
+        facts = facr_proves_from_chat(history, latest_msg)
+        if facr_terminal_path_complete(facts):
+            return FACR_TERMINAL_ASSEMBLY_RR_LINE
+        if facts.get("facr_pressure") == "ok":
+            return _facr_stay_on_prove_line(facts)
+        return ""
+    if job == "ice" and _ice_cooling_unit_ready(blob):
+        return ICE_COOLING_UNIT_LINE
+    if job == "girard" and _girard_seating_confirmed(blob):
+        return GIRARD_SEATING_REPAIR_LINE
+    if job == "cooktop" and _cooktop_repair_ready(blob, latest_msg):
+        return COOKTOP_TIP_LOW_REPAIR
+    return ""
+
+
+_STOP_NO_FURTHER_RE = re.compile(r"\bStop\.\s*No further tests\.?\s*", re.I)
+_COOKTOP_RUNON_RE = re.compile(r"under load\s+[A-Z]")
+
+
+def _strip_stop_no_further_tests(text: str) -> str:
+    cleaned = _STOP_NO_FURTHER_RE.sub("", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
 def avoid_duplicate_reply(
     reply: str,
     history: list = None,
@@ -5397,9 +5509,12 @@ def avoid_duplicate_reply(
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
-    text = (reply or "").strip()
+    text = _strip_stop_no_further_tests((reply or "").strip())
     if _is_offline_notice(text):
         return text
+    closed = _live_close_reply(history, latest_msg, category_name, model_text)
+    if closed:
+        return closed
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         if "📖" not in locked:
@@ -5926,6 +6041,8 @@ def ensure_girard_petit_align(
     )
     if "burner flame" in _norm(reply):
         reply = ""
+    if _girard_seating_confirmed(_chat_user_blob(history, latest_msg)):
+        return GIRARD_SEATING_REPAIR_LINE
     if facts.get("girard_tube") == "clear":
         return GIRARD_BLOWER_SUCTION_LINE
     if not ready:
@@ -6660,6 +6777,10 @@ def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list 
     repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
         complaint or ""
     )
+    if _COOKTOP_RUNON_RE.search(cleaned):
+        if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
+            return COOKTOP_TIP_LOW_REPAIR
+        return COOKTOP_TIP_PAN_SHOP_LINE
     if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
         low = _norm(cleaned)
         if (
@@ -9062,10 +9183,10 @@ def strip_path_complete_trap(text: str) -> str:
 # assistant reply. Groq/xAI answer that with HTTP 413 "request too large".
 # Trim history and compact citations on every GD turn, then retry a 413 with
 # a smaller payload so the session can still reach a part climax.
-COACH_HISTORY_MAX_MESSAGES = 8
-COACH_HISTORY_ASSISTANT_CAP = 900
-COACH_EXCERPT_CHAR_CAP = 1400
-COACH_CONTEXT_CHAR_CAP = 9000
+COACH_HISTORY_MAX_MESSAGES = 6
+COACH_HISTORY_ASSISTANT_CAP = 480
+COACH_EXCERPT_CHAR_CAP = 700
+COACH_CONTEXT_CHAR_CAP = 4200
 COACH_SYSTEM_CHAR_CAP = 16000
 _PAYLOAD_TOO_LARGE_RE = re.compile(
     r"("

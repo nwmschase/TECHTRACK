@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.29
+RV TechTrack v4.19.31
+- v4.19.31: The FACR retest NO goes out to the clear-drain end, and the drain NO sits off the line junction. After refrigerant pressures, Guided Diagnostics authorizes rooftop assembly R&R on CCD-0007990 and does not ask for pressures again. Overnight dry-and-wait with frost back replaces the cooling unit. Confirmed Girard seating is the repair. The cooktop repair repositions the thermocouple tip in the flame, and a run-on tip sentence does not ship. The Coleman authorization drops the extra stop line. Ask turns use a smaller library context and a low reasoning cap.
 - v4.19.29: A Thetford flush-lever leak sheet keeps the English leak checks only: supply connection, water valve weeping at the pedal, vacuum breaker leaking during flush, then the floor flange. Multilingual lines, poor flush, flow rate, blade seal, frozen lines, and the riser stay off. Sources are the 42088 troubleshooting page, water valve kit 42109 page 1, and vacuum breaker kit 34122/34123.
 - v4.19.28: A typed unit with no matching shop manual does not borrow another brand. Thetford with no Thetford document says so. The reading filler cannot ship on any path, including a job with no lock. Plumbing / Toilets is a library category.
 - v4.19.27: A firm repair stays the repair. An answered check, including sail-switch continuity OK, is not asked again. The reading filler cannot ship. The Girard chart runs blower suction YES to the air-pressure switch, then that switch's own YES to the gas supply. The FACT12 E2 do-not says reseated.
@@ -203,7 +204,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.29"
+_GDC_REQUIRED_REVISION = "v4.19.31"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -1232,20 +1233,24 @@ def ai_available() -> bool:
     return gd_llm.ai_configured(_secret)
 
 
-def _ai_chat_once(messages, temperature=0.2, max_tokens=1400) -> str:
+def _ai_chat_once(messages, temperature=0.2, max_tokens=1400, reasoning_effort=None) -> str:
     """One chat completion via gd_llm (xAI primary, Groq fallback). Retrieval is unchanged."""
     return gd_llm.complete_chat(
         messages,
         temperature=temperature,
         max_tokens=max_tokens,
         secret_fn=_secret,
+        reasoning_effort=reasoning_effort,
     )
 
 
-def ai_chat(messages, temperature=0.2, max_tokens=1400) -> str:
+def ai_chat(messages, temperature=0.2, max_tokens=1400, reasoning_effort=None) -> str:
     """Chat completion. On HTTP 413 / request-too-large, retry with a smaller payload."""
+    def call(payload, temp, tokens):
+        return _ai_chat_once(payload, temp, tokens, reasoning_effort=reasoning_effort)
+
     return complete_chat_with_payload_retry(
-        _ai_chat_once,
+        call,
         messages,
         temperature,
         max_tokens,
@@ -4811,7 +4816,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         category_name,
         model_text,
         search_symptom,
-        limit=8,
+        limit=5,
         unity_gate=unity_gate,
         figure_seek=figure_seek,
         figure_query=user_msg,
@@ -4955,7 +4960,12 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        reply = ai_chat(messages, temperature=0.2, max_tokens=900)
+        reply = ai_chat(
+            messages,
+            temperature=0.2,
+            max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
+            reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
+        )
     except Exception as e:
         if dial_off_job and is_ai_request_too_large(e):
             reply = ensure_fcr_dial_off_compressor_run_path("", facts)
@@ -4987,7 +4997,12 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "content": system_prompt + "\n\n" + retry_rule,
         }
         try:
-            retry = ai_chat(retry_messages, temperature=0.1, max_tokens=900)
+            retry = ai_chat(
+                retry_messages,
+                temperature=0.1,
+                max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
+                reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
+            )
             retry = strip_path_complete_trap(strip_fake_markdown_images(retry))
             if retry and not claims_fcr_e2_board_only_cage(retry):
                 reply = retry
@@ -5040,7 +5055,12 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "content": system_prompt + "\n\n" + retry_rule,
         }
         try:
-            retry = ai_chat(retry_messages, temperature=0.1, max_tokens=900)
+            retry = ai_chat(
+                retry_messages,
+                temperature=0.1,
+                max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
+                reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
+            )
             retry = strip_path_complete_trap(strip_fake_markdown_images(retry))
             if retry and not reply_reasks_stated_facts(retry, facts):
                 reply = retry
