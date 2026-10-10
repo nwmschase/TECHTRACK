@@ -124,6 +124,79 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _cited_pages(primary: str) -> set[int]:
+    text = primary or ""
+    pages = {int(number) for number in re.findall(r"\bpage\s+(\d{1,3})\b", text, flags=re.I)}
+    pages.update(int(number) for number in re.findall(r"\bfig(?:ure)?\.?\s*(\d{1,3})\b", text, flags=re.I))
+    return pages
+
+
+# Pages the live retrieval path actually returns. The text snapshots above use a
+# short fixture and never see a later page steal the primary cite.
+RETRIEVAL = (
+    (
+        "S04",
+        "temperature dial OFF but compressor still running, freezer frozen solid",
+        "Furrion",
+        "FCR10",
+        "Refrigerators",
+        {31, 43},
+        [
+            {
+                "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                "page": 45,
+                "excerpt": "C and T open with no jumper on the thermostat.",
+            }
+        ],
+    ),
+    (
+        "S05",
+        "icing up on rear wall — only about half from the top down",
+        "Furrion",
+        "FCR10",
+        "Refrigerators",
+        {36},
+        [],
+    ),
+    (
+        "S07",
+        "FCR10 E2 fan fault current on the freezer evaporator fan",
+        "Furrion",
+        "FCR10",
+        "Refrigerators",
+        {27},
+        [
+            {
+                "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                "page": 18,
+                "excerpt": "Fan Fault Current 1 A peak. Inverter-board fan driver specification.",
+            },
+            {
+                "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                "page": 27,
+                "excerpt": (
+                    "Error Code - Fan Fault Diagnostics. Connect power to the appliance "
+                    "and locate the inverter PCB. Measure voltage at the F+ and F- terminals."
+                ),
+            },
+            {
+                "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                "page": 30,
+                "excerpt": (
+                    "Error Code - Thermal Fault Diagnostics. Connect power to the appliance "
+                    "and locate the inverter PCB."
+                ),
+            },
+            {
+                "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                "page": 33,
+                "excerpt": "Hold a sheet of paper at the vent to prove airflow. Proceed to Fan Replacement.",
+            },
+        ],
+    ),
+)
+
+
 class TestCleanSheetSnapshots(unittest.TestCase):
     def test_clean_sheet_text_matches_the_locked_snapshot(self):
         for name, concern, brand, model, category, chunks in CASES:
@@ -138,6 +211,27 @@ class TestCleanSheetSnapshots(unittest.TestCase):
             got = _norm(_pdf_text(render_bay_procedure_pdf(proc)))
             locked = (ROOT / f"{name}.txt").read_text(encoding="utf-8").strip()
             self.assertEqual(got, locked, name)
+            source_pages = {src.get("page") for src in proc.sources}
+            missing = _cited_pages(proc.primary_cite) - source_pages
+            self.assertEqual(missing, set(), f"{name} primary {proc.primary_cite}")
+
+    def test_primary_page_survives_retrieval(self):
+        """The page PRIMARY names has to remain in Sources after rank and scrub."""
+        for name, concern, brand, model, category, required, chunks in RETRIEVAL:
+            proc = compile_bay_procedure(
+                concern=concern,
+                brand=brand,
+                model=model,
+                category=category,
+                chunks=chunks,
+                created=CREATED,
+            )
+            source_pages = {src.get("page") for src in proc.sources}
+            cited = _cited_pages(proc.primary_cite)
+            self.assertTrue(cited, name)
+            self.assertEqual(cited - source_pages, set(), f"{name} {proc.primary_cite} {source_pages}")
+            self.assertTrue(required <= source_pages, f"{name} {source_pages}")
+            self.assertTrue(required <= cited, f"{name} primary {proc.primary_cite}")
 
 
 if __name__ == "__main__":

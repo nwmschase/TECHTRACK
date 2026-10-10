@@ -115,7 +115,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.11"
+MODULE_REVISION = "v4.19.12"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -1699,6 +1699,7 @@ _SHOP_WORDS = frozenset({
     "setpoint", "airflow", "thermocouple", "evaporator", "inverter", "condensate",
     "basepan", "onecontrol", "techtrack", "furrion", "dometic", "lippert", "girard",
     "peacemaker", "rooftop", "lockout", "defrost", "pigtail", "writeup",
+    "ducted", "petit", "overcurrent",
 })
 _DICT_WORDS: set[str] | None = None
 
@@ -1719,21 +1720,37 @@ def _is_dict_word(word: str) -> bool:
     return bool(token) and token in _dictionary_words()
 
 
+# 'go' is a real word in 'willgo'. A 2-letter scrap such as 'ed' or 'pe' is not a half.
+_SPLIT_SHORT_OK = frozenset({"go"})
+
+
+def _split_half_ok(part: str) -> bool:
+    if not _is_dict_word(part):
+        return False
+    if len(part) >= 3:
+        return True
+    return part in _SPLIT_SHORT_OK
+
+
 def _split_known_join(token: str) -> str:
-    """'willgo' is will + go. A real word such as 'prevent' stays whole."""
+    """'willgo' is will + go. Split only when both halves are words and the join is not.
+
+    'ducted' and 'petit' are words. A 2-letter dictionary scrap must not break them.
+    """
     if not token.isalpha() or not token.islower() or _is_dict_word(token):
         return ""
     best = ""
     best_score = 0
     for cut in range(2, len(token) - 1):
         left, right = token[:cut], token[cut:]
-        if len(right) < 2:
+        if not _split_half_ok(left) or not _split_half_ok(right):
             continue
-        if _is_dict_word(left) and _is_dict_word(right):
-            score = min(len(left), len(right))
-            if score > best_score:
-                best = f"{left} {right}"
-                best_score = score
+        if _is_dict_word(left + right):
+            continue
+        score = min(len(left), len(right))
+        if score > best_score:
+            best = f"{left} {right}"
+            best_score = score
     return best
 
 
@@ -2110,6 +2127,8 @@ _PATH_OFF = {
         r"install(?:ation)?\s+screws?",
         r"wood\s+screws?",
         r"fasten unit",
+        r"burner\s+knobs?",
+        r"\boff\s+position\b",
         r"hand[-\s]?held\s+ignitor",
         r"oven\s+pilot",
         r"\bignitor\b",
@@ -2452,7 +2471,7 @@ def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind:
     has_family = any(_has_source_needle(blob, needle) for needle in _PATH_FAMILY.get(path_kind, ()))
     has_off = any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ()))
     if path_kind == "cooktop_tip":
-        on_topic = bool(re.search(r"thermocouple|\bburner\b", blob))
+        on_topic = bool(re.search(r"thermocouple|\bflame\b", blob))
         return on_topic and not has_off
     if has_off and not has_climax:
         return False
@@ -2555,7 +2574,7 @@ def _cooktop_excerpt(excerpt: str) -> str:
     for sentence in _split_sentences(excerpt or ""):
         if any(re.search(pattern, sentence, re.I) for pattern in patterns):
             continue
-        if re.search(r"thermocouple|\bburner\b", sentence, re.I):
+        if re.search(r"thermocouple|\bflame\b", sentence, re.I):
             kept.append(sentence)
     return " ".join(kept)
 
@@ -2583,8 +2602,10 @@ def polish_bay_sources(
     path_kind: str,
     *,
     prefer_diagnostic: bool = False,
+    protect_pages: set[int] | None = None,
 ) -> list[dict]:
     """Human titles, whole-sentence snippets, and only cites that belong on this sheet."""
+    protect = protect_pages or set()
     out = []
     seen = set()
     locked_flags = []
@@ -2592,6 +2613,8 @@ def polish_bay_sources(
         locked = index < locked_count
         raw_excerpt = src.get("excerpt") or ""
         title = human_source_title(src.get("title") or "", src.get("file_path") or "")
+        page = _page_int(src.get("page"))
+        cited = page in protect
         if source_is_discontinued(title, raw_excerpt) or source_is_discontinued(src.get("title") or "", raw_excerpt):
             continue
         file_path = src.get("file_path") or ""
@@ -2603,16 +2626,17 @@ def polish_bay_sources(
         excerpt = _drop_path_off_sentences(excerpt, path_kind)
         if path_kind == "cooktop_tip":
             excerpt = _cooktop_excerpt(excerpt)
-        if path_kind == "stabilizer" and not _STABILIZER_KEEP_RE.search(excerpt or ""):
+        if path_kind == "stabilizer" and not cited and not _STABILIZER_KEEP_RE.search(excerpt or ""):
             continue
+        if not (excerpt or "").strip() and cited:
+            excerpt = _keep_primary_excerpt(raw_excerpt)
         if not (excerpt or "").strip():
             continue
-        if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
+        if not locked and not cited and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
             continue
-        page = _page_int(src.get("page"))
         excerpt_key = re.sub(r"\s+", " ", excerpt.lower()).strip()
         key = (title.lower(), page)
-        if key in seen or excerpt_key in seen:
+        if key in seen or (excerpt_key in seen and not cited):
             continue
         seen.add(key)
         seen.add(excerpt_key)
@@ -2629,7 +2653,7 @@ def polish_bay_sources(
         out = kept
     for src in out:
         src.pop("_install", None)
-    out = _drop_near_duplicate_sources(out)
+    out = _drop_near_duplicate_sources(out, protect)
     if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
         return _cooktop_title_only(sources)
     if path_kind == "stabilizer" and not any((src.get("excerpt") or "").strip() for src in out):
@@ -2637,16 +2661,32 @@ def polish_bay_sources(
     return out
 
 
-def _drop_near_duplicate_sources(sources: list[dict]) -> list[dict]:
-    """A later page that restates an earlier snippet replaces that earlier page."""
+def _drop_near_duplicate_sources(sources: list[dict], protect_pages: set[int] | None = None) -> list[dict]:
+    """A later page that restates an earlier snippet replaces that earlier page.
+
+    A page named in PRIMARY is never the one that gets replaced.
+    """
+    protect = protect_pages or set()
     kept: list[dict] = []
     for src in sources:
         replaced = False
-        for prev in kept:
+        for prev in list(kept):
             if not _is_near_duplicate_excerpt(src.get("excerpt") or "", prev.get("excerpt") or ""):
                 continue
             prev_page = prev.get("page") or 0
             page = src.get("page") or 0
+            prev_protected = prev_page in protect
+            src_protected = page in protect
+            if prev_protected and src_protected:
+                continue
+            if prev_protected:
+                replaced = True
+                break
+            if src_protected:
+                prev.clear()
+                prev.update(src)
+                replaced = True
+                break
             longer = len(src.get("excerpt") or "") > len(prev.get("excerpt") or "")
             if page > prev_page or (page == prev_page and longer):
                 prev.clear()
@@ -2656,6 +2696,25 @@ def _drop_near_duplicate_sources(sources: list[dict]) -> list[dict]:
         if not replaced:
             kept.append(src)
     return kept
+
+
+def _cited_pages(primary_cite: str) -> set[int]:
+    """Page numbers the PRIMARY line names. Those sources have to stay."""
+    text = primary_cite or ""
+    pages = {int(number) for number in re.findall(r"\bpage\s+(\d{1,3})\b", text, flags=re.I)}
+    pages.update(int(number) for number in re.findall(r"\bfig(?:ure)?\.?\s*(\d{1,3})\b", text, flags=re.I))
+    return pages
+
+
+def _keep_primary_excerpt(raw: str) -> str:
+    """A cited page still needs a sentence when the scrub would otherwise empty it."""
+    cleaned = clean_ocr_prose(raw or "")
+    for sentence in _split_sentences(cleaned):
+        sentence = _strip_ocr_bullet(sentence).strip()
+        if len(sentence) >= 20 and not _is_header_residue(sentence):
+            return _as_sentence(sentence)
+    clipped = _clip(cleaned, 220)
+    return _as_sentence(clipped) if clipped else ""
 
 
 def _strip_ocr_bullet(text: str) -> str:
@@ -3464,9 +3523,10 @@ _OEM_FIGURE_CROP = {
     # The whole drainage-openings row, including the diagram. Not the cut
     # neighbors ("blower is defective" above, "seals are damaged" below).
     # Full drainage row: "Water enters the vehicle" through "openings are clogged".
-    # y=732 cut that first line. Caps start just under the rule at 676.
-    # The blower bullet is above that rule; the seals bullet starts at 872.
-    "ccd7990-p7.png": (30, 680, 1070, 868),
+    # One whole drainage row, borders included. The rule at 733 is the top of
+    # "Water enters the vehicle". The rule at 816 is its bottom. The blower row
+    # ends at 676; the seals row starts at 816.
+    "ccd7990-p7.png": (36, 732, 1066, 818),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
@@ -4605,6 +4665,7 @@ def compile_bay_procedure(
         _procedure_topic(spec),
         path_kind,
         prefer_diagnostic=_is_fault_complaint(concern),
+        protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
     if path_kind == "stabilizer":
         sources = _prefer_front_jack_sources(sources)
