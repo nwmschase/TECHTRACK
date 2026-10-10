@@ -255,12 +255,20 @@ class TestFiguresAndArrows(unittest.TestCase):
         self.assertLess(max(image.size), 900)
         bottom = sum(1 for x in range(0, width, 2) if image.getpixel((x, height - 1)) < 80)
         self.assertEqual(bottom, 0)
-        rule = max(
+        # The outer grey frame closes above the padding. A cut crop has no wide bar there.
+        grey_rows = [
             y
             for y in range(height)
-            if sum(1 for x in range(0, width, 4) if image.getpixel((x, y)) < 80) > width / 8
-        )
-        self.assertLess(rule, height - 8)
+            if sum(
+                1
+                for x in range(0, width, 2)
+                if 140 <= image.getpixel((x, y)) <= 230
+            )
+            > width / 8
+        ]
+        self.assertTrue(grey_rows)
+        self.assertLess(grey_rows[-1], height - 8)
+        self.assertGreater(grey_rows[-1], height * 0.7)
         proc = compile_bay_procedure(
             concern="icing up on rear wall — only about half from the top down",
             brand="Furrion",
@@ -369,9 +377,9 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         )
         self.assertEqual(stab.model_line, "Lippert PSX1 front stabilizer")
         self.assertTrue(any(src.get("page") == 7 and "psx1" in (src.get("title") or "").lower() for src in stab.sources))
-        self.assertTrue(any(src.get("page") == 11 for src in stab.sources))
+        self.assertFalse(any(src.get("page") == 11 for src in stab.sources))
         blob = _blob(stab)
-        self.assertIn("rear stabilizer", blob)
+        self.assertNotIn("rear stabilizer", blob)
         self.assertNotIn("override-usage pages", blob)
         self.assertNotIn("not the end fix for a destroyed pin", blob)
 

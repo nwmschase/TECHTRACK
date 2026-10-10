@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.22"
+MODULE_REVISION = "v4.19.23"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -611,6 +611,11 @@ def _dial_off_path() -> dict:
                     "Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007). "
                     "Reseat the probe and reconnect the wires."
                 ),
+            },
+            {
+                "title": FURRION_8122_TITLE,
+                "page": 44,
+                "excerpt": "",
             },
             {
                 "title": FURRION_8122_TITLE,
@@ -1153,12 +1158,6 @@ def _firefly_path() -> dict:
             "Do not push Firefly USB firmware unless Manual Mode holds with the Firefly CAN cable unplugged.",
         ],
         "sources": [
-            {
-                "title": "Level Up Advantage controller shop PN 807662",
-                "page": None,
-                "excerpt": "",
-                "title_only": True,
-            },
             {
                 "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
                 "page": None,
@@ -3083,6 +3082,8 @@ def _manual_family(title: str) -> str:
         return "suburban-range"
     if "suburban" in text and "furnace" in text:
         return "suburban-furnace"
+    if "girard" in text and any(token in text for token in ("gswh", "tankless", "9390")):
+        return "girard-gswh"
     return ""
 
 
@@ -4248,6 +4249,49 @@ def _cropped_oem_png(name: str) -> bytes:
     return _png_bytes(cropped)
 
 
+def _close_cut_figure(image):
+    """Drop a white strip of stray rules under a grey frame.
+
+    The live sheet paints whatever this returns. A small pre-crop used to skip
+    the page crop and keep a frame whose bottom was already cut off.
+    """
+    width, height = image.size
+    if width < 40 or height < 40:
+        return image
+    px = image.convert("L").load()
+
+    def _grey(y: int) -> int:
+        return sum(
+            1
+            for x in range(0, width, 2)
+            if 140 <= px[x, y] <= 230
+        )
+
+    def _dark(y: int) -> int:
+        return sum(1 for x in range(0, width, 2) if px[x, y] < 80)
+
+    wide = [y for y in range(height) if _grey(y) > width / 8]
+    if not wide:
+        return image
+    last = wide[-1]
+    if last > height - 8:
+        return image
+    # A closed frame ends in white padding. A cut frame has a near-empty
+    # gap and then a full-width rule that is not part of the drawing.
+    gap = False
+    rule = None
+    for y in range(last + 1, height):
+        if _dark(y) > width / 4 and gap:
+            rule = y
+            break
+        if _dark(y) < 12 and _grey(y) < 8:
+            gap = True
+    if rule is None:
+        return image
+    pad = 12
+    return image.crop((0, 0, width, min(height, last + 1 + pad)))
+
+
 def crop_page_png_to_figure(png: bytes) -> bytes:
     """Crop a rendered manual page down to a figure. Empty means keep the full page off the sheet."""
     if not png:
@@ -4257,6 +4301,9 @@ def crop_page_png_to_figure(png: bytes) -> bytes:
     except Exception:
         return b""
     image = Image.open(BytesIO(png)).convert("RGB")
+    closed = _close_cut_figure(image)
+    if closed.size != image.size:
+        return _png_bytes(closed)
     width, height = image.size
     if max(width, height) < 900 or height < width * 1.15:
         return png
@@ -5061,7 +5108,7 @@ def _dometic_ceiling_path(concern: str) -> dict:
             "Fan running with no cold air is the no-cool path. Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
             "If the Peacemaker bypass cools, bypass the ceiling selector. If bypassing the ceiling selector does not cool, stay on that bypass and retest.",
             _shop_body(DOMETIC_CEILING_LINE)
-            + " That is the confirmed correction per diagnostic manual 3311071.",
+            + " That is the confirmed correction per the Dometic diagnostic manual.",
         ],
         "do_not": [
             "Do not start on the filter check.",
@@ -5108,13 +5155,31 @@ def _fact12_e3_path() -> dict:
                     h=72,
                 ),
                 FlowNode(
+                    "d_conn",
+                    "decision",
+                    "Is the data connector\nseated?",
+                    0.32,
+                    0.52,
+                    w=220,
+                    h=78,
+                ),
+                FlowNode(
+                    "e_conn",
+                    "end",
+                    "Seat the connector\nand retest the code.",
+                    0.78,
+                    0.52,
+                    w=200,
+                    h=68,
+                ),
+                FlowNode(
                     "d2",
                     "decision",
                     "Is the freeze sensor\non the coil?",
                     0.32,
-                    0.62,
-                    w=230,
-                    h=90,
+                    0.70,
+                    w=220,
+                    h=72,
                 ),
                 FlowNode(
                     "p1",
@@ -5122,25 +5187,37 @@ def _fact12_e3_path() -> dict:
                     "Reseat the freeze sensor\non the evaporator coil.",
                     0.32,
                     0.86,
-                    w=250,
-                    h=72,
+                    w=240,
+                    h=56,
+                ),
+                FlowNode(
+                    "e_re",
+                    "end",
+                    "Retest the code.",
+                    0.78,
+                    0.86,
+                    w=180,
+                    h=56,
                 ),
                 FlowNode(
                     "e_ok",
                     "end",
                     "Sensor is seated.\nRetest the code.",
                     0.78,
-                    0.62,
-                    w=200,
-                    h=72,
+                    0.70,
+                    w=190,
+                    h=64,
                 ),
             ],
             edges=[
                 FlowEdge("s", "d1"),
-                FlowEdge("d1", "d2", "YES", "bottom", "top"),
+                FlowEdge("d1", "d_conn", "YES", "bottom", "top"),
                 FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("d_conn", "d2", "YES", "bottom", "top"),
+                FlowEdge("d_conn", "e_conn", "NO", "right", "left"),
                 FlowEdge("d2", "e_ok", "YES", "right", "left"),
                 FlowEdge("d2", "p1", "NO", "bottom", "top"),
+                FlowEdge("p1", "e_re", "", "right", "left"),
             ],
         ),
         "bay_order": [
@@ -5282,44 +5359,84 @@ def _girard_petit_path() -> dict:
                     "d_in",
                     "decision",
                     "Does the blower tube\nshow suction?",
-                    0.32,
-                    0.38,
-                    w=230,
-                    h=90,
-                ),
-                FlowNode(
-                    "e_yes",
-                    "end",
-                    "Suction is present.\nRetest the heater.",
-                    0.78,
-                    0.38,
-                    w=210,
+                    0.28,
+                    0.24,
+                    w=220,
                     h=72,
                 ),
                 FlowNode(
                     "p_no",
                     "process",
                     "Seat the sensing tube\nat the blower, then retest.",
-                    0.32,
-                    0.66,
-                    w=280,
-                    h=72,
+                    0.28,
+                    0.46,
+                    w=250,
+                    h=64,
                 ),
                 FlowNode(
                     "e_no",
                     "end",
                     "Blower-tube suction\nis the correction.",
-                    0.32,
-                    0.88,
-                    w=280,
+                    0.28,
+                    0.66,
+                    w=240,
+                    h=60,
+                ),
+                FlowNode(
+                    "d_aps",
+                    "decision",
+                    "Does the air-pressure\nswitch pass?",
+                    0.62,
+                    0.42,
+                    w=210,
+                    h=72,
+                ),
+                FlowNode(
+                    "e_aps",
+                    "end",
+                    "Repair the air-pressure\nswitch and retest.",
+                    0.86,
+                    0.24,
+                    w=190,
+                    h=64,
+                ),
+                FlowNode(
+                    "d_gas",
+                    "decision",
+                    "Is the gas supply\ngood?",
+                    0.62,
+                    0.64,
+                    w=190,
                     h=68,
+                ),
+                FlowNode(
+                    "e_gas",
+                    "end",
+                    "Repair the gas supply\nand retest.",
+                    0.86,
+                    0.64,
+                    w=180,
+                    h=60,
+                ),
+                FlowNode(
+                    "e_stop",
+                    "end",
+                    "Suction is present.\nWrite the readings and stop.",
+                    0.62,
+                    0.86,
+                    w=220,
+                    h=64,
                 ),
             ],
             edges=[
                 FlowEdge("s", "d_in"),
-                FlowEdge("d_in", "e_yes", "YES", "right", "left"),
                 FlowEdge("d_in", "p_no", "NO", "bottom", "top"),
                 FlowEdge("p_no", "e_no"),
+                FlowEdge("d_in", "d_aps", "YES", "right", "left"),
+                FlowEdge("d_aps", "e_aps", "NO", "top", "bottom"),
+                FlowEdge("d_aps", "d_gas", "YES", "bottom", "top"),
+                FlowEdge("d_gas", "e_gas", "NO", "right", "left"),
+                FlowEdge("d_gas", "e_stop", "YES", "bottom", "top"),
             ],
         ),
         "bay_order": [
@@ -5373,11 +5490,6 @@ def _stabilizer_rr_path() -> dict:
             {
                 "title": "Lippert PSX1 front stabilizer jack",
                 "page": 7,
-                "excerpt": "",
-            },
-            {
-                "title": "Lippert rear stabilizer",
-                "page": 11,
                 "excerpt": "",
             },
         ],
@@ -5589,6 +5701,8 @@ def compile_bay_procedure(
         prefer_diagnostic=_is_fault_complaint(concern),
         protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
+    if path_kind == "stabilizer":
+        sources = _prefer_front_jack_sources(sources)
     if path_kind == "e2":
         if "page 27" not in (spec.get("primary_cite") or "").lower():
             spec["primary_cite"] = "Furrion fridge service manual, Fan Fault Diagnostics, page 27."

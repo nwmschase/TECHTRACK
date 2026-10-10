@@ -411,7 +411,8 @@ class TestBayCaseFixes(unittest.TestCase):
         )
         low = text.lower()
         self.assertIn("replace the ceiling thermostat/selector", low)
-        self.assertIn("3311071", text)
+        self.assertIn("dometic diagnostic manual", low)
+        self.assertNotIn("3311071", text)
         self.assertIn(DOMETIC_CEILING_LINE.split(".")[0].lower(), low)
         self.assertNotIn("pushingup", low)
         self.assertNotIn("did the first", low)
@@ -575,8 +576,8 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("lippert.", low)
         self.assertNotIn("4a)", low)
         self.assertNotIn("5012486", text)
-        self.assertTrue(any(src.get("page") == 11 for src in proc.sources))
-        self.assertIn("rear stabilizer", low)
+        self.assertFalse(any("rear stabilizer" in (src.get("title") or "").lower() for src in proc.sources))
+        self.assertNotIn("rear stabilizer", low)
         _no_generic_chart(text)
         pages = compose_sheet(proc)
         header = [t.text.strip() for t in pages[0].texts if t.role == "header"]
@@ -896,7 +897,8 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("subject to change", blob)
         self.assertEqual(stab.model_line, "Lippert PSX1 front stabilizer")
         self.assertTrue(all(src.get("page") for src in stab.sources))
-        self.assertTrue(any(src.get("page") == 11 and not (src.get("excerpt") or "").strip() for src in stab.sources))
+        self.assertTrue(any(src.get("page") == 7 and not (src.get("excerpt") or "").strip() for src in stab.sources))
+        self.assertFalse(any("rear stabilizer" in (src.get("title") or "").lower() for src in stab.sources))
         _proc, cook = _sheet(
             "Suburban SDN2U cooktop. Burner goes out with a pan on. The thermocouple tip sits low and gets pushed.",
             "Suburban",

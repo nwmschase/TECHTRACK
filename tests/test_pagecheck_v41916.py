@@ -472,8 +472,8 @@ class TestPagecheckQuotes(unittest.TestCase):
         )
         blob = _norm(" ".join([proc.pattern_means, _excerpts(proc)] + [s.get("title") or "" for s in proc.sources]))
         self.assertNotIn("override-usage", blob)
-        self.assertIn("11", " ".join(str(s.get("page")) for s in proc.sources))
-        self.assertIn("rear stabilizer", blob)
+        self.assertNotIn("rear stabilizer", blob)
+        self.assertTrue(any(src.get("page") == 7 for src in proc.sources))
 
     def test_s15_cites_page_4_and_figs_3_4(self):
         proc = self._sheet(

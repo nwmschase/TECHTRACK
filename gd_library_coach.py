@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.22"
+COACH_REVISION = "v4.19.23"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -686,13 +686,12 @@ LIPPERT PSX1 / FRONT STABILIZER MANUAL OVERRIDE PRODUCT LOCK:
 PSX1_PROVE_LINE = (
     "Does the manual crank turn, and what does the override roll pin or coupler look like? "
     "Report what you see.\n"
-    "📖 Source: Lippert rear stabilizer, page 11"
+    "📖 Source: Lippert PSX1 front stabilizer, page 7"
 )
 PSX1_ASSEMBLY_RR_SHOP_LINE = (
     "Replace the complete front stabilizer jack assembly. "
     "Reconnect the mount and the electrical connector, then retest power and the manual crank.\n"
-    "📖 Source: Lippert PSX1 CCD-0007345, page 7\n"
-    "📖 Source: Lippert rear stabilizer, page 11"
+    "📖 Source: Lippert PSX1 CCD-0007345, page 7"
 )
 COUPLER_ONLY_RE = re.compile(
     r"(replace|r\s*&\s*r|r and r)\s+(the\s+)?(override\s+)?coupler.{0,20}(only|alone)|"
@@ -3578,10 +3577,6 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
         options.append(
             "Reposition the thermocouple tip in the burner flame with the pan on. That is the repair."
         )
-    if re.search(r"\b(?:dial is at max|dial at max)\b", blob) or (
-        "turn the dial" in prior or "dial down" in prior
-    ):
-        options.append("Dry the cabinet, clear the rear drain, and check the door gasket.")
     if re.search(r"\b(?:rear|back)\s*wall\b", blob) and re.search(r"\bice\b", blob):
         if re.search(r"\b(?:frost|ice|icing)\s+return", blob):
             options.append("Replace the cooling unit.")
@@ -3608,16 +3603,22 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
     if re.search(r"\b(?:bypass operates|thermostat bypassed|jumped)\b", blob) and re.search(
         r"\bfurnace\b", blob
     ):
-        options.append("Prove the sail switch with the blower running before the module board.")
-    if "wall thermostat" in prior:
-        options.extend(
-            [
-                "Replace the wall thermostat. If voltage is missing, check the wire run.",
-                "The wall thermostat is the repair on this furnace. Replace it.",
-            ]
+        options.append(
+            "With the blower running, measure power in and power out at the sail switch. "
+            "If power is present in and out, replace the wall thermostat."
         )
-    if "freeze sensor" in prior:
-        options.append("Reseat the freeze sensor on the coil and retest before any board swap.")
+    furnace_job = bool(re.search(r"\bfurnace\b|suburban", blob)) and not re.search(
+        r"2111|coleman", blob
+    )
+    if furnace_job and "wall thermostat" in prior:
+        options.append(
+            "If the sail switch has power in and power out while the blower runs, replace the wall thermostat."
+        )
+    if "freeze sensor" in prior and re.search(r"fact\s*12", blob) and not re.search(r"\bfacr\b", blob):
+        options.append(
+            "If the freeze sensor is loose or off the coil, reseat it and retest. "
+            "If it is seated and the code remains, replace the freeze sensor."
+        )
     if "20300427" in prior or "soft-touch user panel" in prior:
         options.append("Replace the soft-touch user panel, part 20300427.")
     if "inverter pcb" in prior:
@@ -3633,8 +3634,8 @@ def _alternate_lines(text: str) -> list[str]:
     """Different wordings for a card that was already sent."""
     low = _norm(text)
     options = (
-        ("wall thermostat", "Replace the wall thermostat."),
-        ("wall thermostat", "Prove the sail switch with the blower running and report power in and power out."),
+        ("wall thermostat", "If the sail switch has power in and power out while the blower runs, replace the wall thermostat."),
+        ("wall thermostat", "With the blower running, measure power in and power out at the sail switch. If power is present in and out, replace the wall thermostat."),
         ("petit tube", "With the blower running, confirm suction at the sensing tube and report the result."),
         ("petit tube", "The sensing tube is at the blower. Report the suction with the blower running."),
         ("freeze sensor", "Reseat the freeze sensor on the evaporator coil and retest."),
@@ -3645,7 +3646,7 @@ def _alternate_lines(text: str) -> list[str]:
         ("thermocouple", "Put the thermocouple tip back in the flame with the pan on."),
         ("inverter pcb", "Replace the inverter PCB and the freezer evaporator fan."),
         ("inverter pcb", "The inverter PCB and the freezer evaporator fan are the repair."),
-        ("dial", "Dry the cabinet, clear the rear drain, and check the door gasket."),
+        ("dial", "If heavy frost returns after the overnight wait, replace the cooling unit."),
     )
     return [line for needle, line in options if needle in low]
 
@@ -3911,7 +3912,7 @@ def _has_shop_step(text: str) -> bool:
     return bool(
         re.search(
             r"\b(?:replace|r&r|authoriz\w*|align|reseat|re-?secure|check|prove|bypass|jumper|confirm|"
-            r"measure|inspect|remove|wait|reposition|verify|install|turn|set|dry|write|"
+            r"measure|read|inspect|remove|wait|reposition|verify|install|turn|set|dry|write|"
             r"fasten|put|seat)\b",
             body,
             re.I,
@@ -3974,8 +3975,254 @@ def _context_blob(history: list = None, latest_msg: str = "") -> str:
     return _norm(_prior_assistant_text(history) + " " + _user_blob(history, latest_msg))
 
 
+def _give_repair_now(latest_msg: str = "", history: list = None) -> bool:
+    """The tech asked for the repair, or said the check is not done yet."""
+    if not _last_assistant_text(history):
+        return False
+    return bool(asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg))
+
+
+def _job_key(history: list = None, latest_msg: str = "") -> str:
+    user = _user_blob(history, latest_msg)
+    ctx = _context_blob(history, latest_msg)
+    # A short fallback has no new job words, so the earlier turns still name the job.
+    blob = (
+        f"{user} {ctx}"
+        if asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)
+        else (user or ctx)
+    )
+    if re.search(r"2111|coleman", blob) and not re.search(r"\bfurnace\b|suburban|nt-20", user):
+        return "coleman"
+    if re.search(r"fact\s*12", blob) or (
+        re.search(r"freeze sensor", blob) and re.search(r"\be\s*[23]\b", user)
+    ):
+        if not re.search(r"interior leak|water leaking|condensate", user):
+            return "fact12"
+    if re.search(r"facr\d|interior leak|water leaking|condensate", user):
+        return "facr"
+    if re.search(r"\be\s*8\b", blob) and re.search(r"girard|gswh|petit", blob):
+        return "girard"
+    if re.search(r"\bfurnace\b|suburban|sail switch|thermostat bypass", blob) and not re.search(
+        r"2111|coleman", user
+    ):
+        return "furnace"
+    if re.search(r"ground control|343633|zero[\s-]*point|auto-level", blob):
+        return "ground"
+    if re.search(r"stabilizer|psx1|roll pin|manual crank", blob):
+        return "stab"
+    if re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
+        return "ice"
+    if re.search(r"\bpan\b", blob) and re.search(r"shut off|shuts off|goes out", blob):
+        return "cooktop"
+    if re.search(r"\bdial\b", blob) and re.search(r"\bcompressor\b", blob):
+        return "dial"
+    if re.search(r"b57915|3311071|will not blow cold|ceiling", blob):
+        return "dometic"
+    return ""
+
+
+def _conditional_lines(history: list = None, latest_msg: str = "") -> list[str]:
+    """Next step plus an If-then repair. Two wordings so a repeat can move on."""
+    user = _user_blob(history, latest_msg)
+    prior = _norm(_prior_assistant_text(history))
+    job = _job_key(history, latest_msg)
+    if job == "coleman":
+        return [
+            "Do the Peacemaker bypass at the rooftop unit. If the compressor runs and the fan does not rotate, measure the fan-motor stall current. If that current is about 1.9 A and the run capacitor is near its rated value, replace the fan motor and the control board only.",
+            "If the compressor runs, the fan stays locked, the stall current is about 1.9 A, and the run capacitor is near rated, replace the fan motor and the control board only.",
+            "Measure the run capacitor. If it is near its rated value after the fan-motor stall current is about 1.9 A, replace the fan motor and the control board only.",
+            "If the shaft is locked and the capacitor is near rated, replace the fan motor and the control board only.",
+            "If the fan motor stays locked after the capacitor measures near rated, replace the fan motor and the control board only.",
+        ]
+    if job == "facr":
+        return [
+            "Connect gauges and read the suction and discharge pressures. If those pressures are in range and the interior leak remains, replace the rooftop assembly.",
+            "If the suction and discharge pressures are in range and water still leaks inside, replace the rooftop assembly.",
+            "If gauge pressures are in range while the interior leak continues, replace the rooftop assembly.",
+            "Read both gauges with the unit in cooling. If the readings are in range, replace the rooftop assembly.",
+            "If the pressures stay in range on a second gauge check, replace the rooftop assembly.",
+        ]
+    if job == "fact12":
+        if re.search(r"\be\s*3\b", user + " " + prior):
+            return [
+                "Measure 12 V and the data line at the connector, and confirm the connector is seated. If 12 V is missing, repair that feed. If the freeze sensor is loose or off the coil, reseat it and retest.",
+                "If the data connector is loose, seat it and retest. If the freeze sensor is loose or off the coil, reseat it and retest. If both are good and E3 remains, replace the freeze sensor.",
+            ]
+        return [
+            "Look at the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated and the code remains, replace the freeze sensor.",
+            "If the freeze sensor is loose or off the coil, reseat it and retest. If it is seated and E2 remains, replace the freeze sensor.",
+        ]
+    if job == "girard":
+        return [
+            "With the blower running, confirm suction at the sensing tube. If that tube has no suction, seat the sensing tube at the blower. That seating is the repair.",
+            "If the sensing tube at the blower has no suction, seat that tube at the blower and call that the repair.",
+            "If blower suction is missing, seat the sensing tube at the blower and treat that as the repair.",
+        ]
+    if job == "furnace":
+        return [
+            "With the blower running, measure power in and power out at the sail switch. If power is present in and out, replace the wall thermostat.",
+            "If the sail switch has power in and power out while the blower runs, replace the wall thermostat.",
+            "If power is present on both sail-switch terminals with the blower running, replace the wall thermostat.",
+        ]
+    if job == "ground":
+        return [
+            "Confirm the controller, jack, and touch pad plugs are seated. If they are seated, run zero point: manual level, press FRONT five times, press REAR five times, then press ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
+            "If the plugs are seated and one side still lifts, press FRONT five times, then REAR five times, then ENTER. If the coach sits level after that, the zero-point calibration is the repair.",
+            "If the plugs are seated, press FRONT five times and then ENTER. If the display stores zero point, that calibration is the repair.",
+        ]
+    if job == "stab":
+        return [
+            "Look at the override roll pin and the coupler. If the pin or coupler is broken or seized, replace the complete front stabilizer jack assembly.",
+            "If the override roll pin is broken or seized, replace the complete front stabilizer jack assembly and retest the manual crank.",
+        ]
+    if job == "ice":
+        if re.search(r"gasket", user) and re.search(r"seal", user):
+            return [
+                "Leave the cabinet dry after the overnight wait. If heavy frost returns, replace the cooling unit.",
+                "If heavy frost returns after the overnight wait, replace the cooling unit.",
+                "If the rear wall frosts again after the cabinet is dry, replace the cooling unit.",
+                "If frost comes back on the rear wall, replace the cooling unit.",
+            ]
+        return [
+            "Check the door gasket, then set the dial for an overnight wait and dry the cabinet. If heavy frost returns after that wait, replace the cooling unit.",
+            "If heavy frost returns after the overnight wait, replace the cooling unit.",
+            "If the rear wall frosts again after the cabinet is dry, replace the cooling unit.",
+            "If frost comes back on the rear wall, replace the cooling unit.",
+            "Dry the cabinet once more. If heavy frost returns, replace the cooling unit.",
+        ]
+    if job == "cooktop":
+        return [
+            "Set a pan on a lit burner and look at the thermocouple tip. If the tip sits low in the flame, reposition the thermocouple tip.",
+            "If the thermocouple tip sits low once a pan is on the burner, reposition that tip in the flame.",
+        ]
+    if job == "dial":
+        return [
+            "Leave the dial fully OFF and open flag terminals C and T with no jumper. If the compressor stops, replace the Spark-Free Thermostat part G 2021128850.",
+            "If the compressor stops with C and T open, replace the Spark-Free Thermostat part G 2021128850.",
+        ]
+    if job == "dometic":
+        return [
+            "Bypass the ceiling selector and report whether it cools. If both bypasses cool, replace the ceiling thermostat/selector.",
+            "If both bypasses cool, replace the ceiling thermostat/selector.",
+        ]
+    return []
+
+
+def _pick_fresh_line(lines: list[str], history: list = None) -> str:
+    prior = _prior_sentence_keys(history)
+    already = {
+        _norm(message.get("content") or "")
+        for message in history or []
+        if (message.get("role") or "") == "assistant"
+    }
+    for line in lines:
+        if not line or _norm(line) in already:
+            continue
+        sentences = _split_reply_sentences(line) or [line]
+        if any(_sentence_key(sentence) in prior for sentence in sentences):
+            continue
+        if any(_same_as_last_turn(sentence, history) for sentence in sentences):
+            continue
+        return line
+    return ""
+
+
+def _prove_lines(history: list = None, latest_msg: str = "") -> list[str]:
+    """The first ask. The repair waits until the tech answers or asks for it."""
+    job = _job_key(history, latest_msg)
+    if job == "coleman":
+        return [
+            "Do the Peacemaker bypass at the rooftop unit and report whether the compressor runs while the fan stays still.",
+        ]
+    if job == "facr":
+        return [
+            "Check the condensation drain openings and the base pan, and report whether the drain is clear.",
+        ]
+    if job == "fact12":
+        return [
+            "Check whether the freeze sensor is fastened on the evaporator coil and report what you find before any repair.",
+        ]
+    if job == "girard":
+        return [
+            "E8 is the air pressure switch. Confirm the sensing tube is connected at the blower and report what you find.",
+        ]
+    if job == "furnace":
+        return [
+            "Bypass the wall thermostat at the furnace and report whether the furnace operates.",
+        ]
+    if job == "ground":
+        return [
+            "Confirm the controller, jack, and touch pad plugs are seated and report whether those plugs are seated.",
+        ]
+    if job == "stab":
+        return [
+            "Does the manual crank turn, and what does the override roll pin or coupler look like? Report what you see.",
+        ]
+    if job == "ice":
+        return [
+            "Check whether the temperature dial is at maximum and report the setting.",
+        ]
+    if job == "cooktop":
+        return [
+            "With a pan on the burner, check the thermocouple tip position in the flame and report what you see.",
+        ]
+    if job == "dial":
+        return [
+            "Confirm the dial is fully OFF and report whether the compressor is still running.",
+        ]
+    if job == "dometic":
+        return [
+            "Confirm the fan runs, then do the Peacemaker bypass and report whether it cools.",
+        ]
+    return [
+        "Check the first step on this job and report what you find.",
+    ]
+
+
+def _final_shop_line(history: list = None, latest_msg: str = "") -> str:
+    """A non-empty line that is not a verbatim repeat. A blank reply cannot ship."""
+    later = bool(_last_assistant_text(history))
+    lines = (
+        _conditional_lines(history, latest_msg)
+        if later or _give_repair_now(latest_msg, history)
+        else _prove_lines(history, latest_msg)
+    )
+    chosen = _pick_fresh_line(lines, history)
+    if chosen:
+        return chosen
+    fillers = (
+        "Take the next check on this job and write the reading down. If that check fails, replace the part that check names.",
+        "Measure the open check and write the number. If the reading is out of range, replace the failed part and retest.",
+        "Write the open reading on the work order. If that reading fails the check, replace the failed part and retest.",
+    )
+    chosen = _pick_fresh_line(list(fillers), history)
+    if chosen:
+        return chosen
+    turn = sum(1 for message in history or [] if (message.get("role") or "") == "assistant") + 1
+    return (
+        f"Write reading {turn} on the work order and retest. "
+        "If that reading fails the check, replace the failed part."
+    )
+
+
+def _strip_source_header(text: str) -> str:
+    """A copied excerpt header is not a shop line."""
+    kept = []
+    for line in (text or "").splitlines():
+        if re.search(r"source\s*:\s*\|", line, re.I):
+            continue
+        if re.search(r"\bmanual\s*:.*\|\s*page\s*:", line, re.I):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def _answer_latest(history: list = None, latest_msg: str = "", current: str = "") -> str:
     """The next shop step for this turn. Empty when the draft can stand."""
+    if _give_repair_now(latest_msg, history):
+        fresh = _pick_fresh_line(_conditional_lines(history, latest_msg), history)
+        if fresh:
+            return fresh
     blob = _user_blob(history, latest_msg)
     ctx = _context_blob(history, latest_msg)
     joined = _norm(ctx + " " + (current or ""))
@@ -4085,11 +4332,9 @@ def _answer_latest(history: list = None, latest_msg: str = "", current: str = ""
         if re.search(r"jumper|thermostat bypass|bypassed|jumped red|r\s*/\s*w", blob + " " + ctx):
             if user_said_sail and not _is_fallback_question(latest_msg):
                 return ""
-            if _is_fallback_question(latest_msg) and "sail switch" in prior:
-                return (
-                    "The sail-switch check is still open. "
-                    "Report power in and power out with the blower running."
-                )
+            fresh = _pick_fresh_line(_conditional_lines(history, latest_msg), history)
+            if fresh:
+                return fresh
             return (
                 "Prove the sail switch with the blower running. "
                 "Report power in and power out before any thermostat replacement."
@@ -4122,7 +4367,7 @@ def _is_offline_notice(text: str) -> bool:
     return "ai is offline" in low or low.startswith("error contacting ai")
 
 
-def _draft_is_bad(text: str, history: list = None, latest_msg: str = "") -> bool:
+def _draft_is_bad(text: str, history: list = None, latest_msg: str = "", *, similar: bool = True) -> bool:
     low = _norm(text)
     if not low or not _reply_has_body(text):
         return True
@@ -4135,26 +4380,54 @@ def _draft_is_bad(text: str, history: list = None, latest_msg: str = "") -> bool
         return True
     if re.search(r"\be\s*8\b", blob) and "burner flame" in low:
         return True
-    if re.search(r"\bbroken or seized\b", low) and not re.search(r"\b(?:broken|seized)\b", _user_blob(history, latest_msg)):
+    if (
+        re.search(r"\bbroken or seized\b", low)
+        and not re.search(r"\b(?:broken|seized)\b", _user_blob(history, latest_msg))
+        and not re.search(r"\bif\b", low)
+    ):
         return True
     if re.search(r"still cooling|still cools", _norm(latest_msg)) and re.search(r"1 month|replace the unit", low):
         return True
-    if (
-        re.search(r"replace the wall thermostat", low)
-        and re.search(r"\bfurnace\b", _context_blob(history, latest_msg))
-        and not re.search(r"\bsail\b", blob)
+    if "module board" in low or "rear drain" in low or "voltage is missing" in low:
+        return True
+    if re.search(r"compressor starts|fan stays locked", low) and not re.search(
+        r"compressor runs|shaft locked|fan does not rotate", _user_blob(history, latest_msg)
     ):
         return True
-    joined = _norm(_context_blob(history, latest_msg) + " " + (text or ""))
+    if re.search(r"report the result of that check", low):
+        return True
+    ctx = _context_blob(history, latest_msg)
+    if (
+        re.search(r"replace the wall thermostat", low)
+        and re.search(r"2111|coleman", ctx)
+        and not re.search(r"\bfurnace\b", blob)
+    ):
+        return True
+    if (
+        re.search(r"replace the wall thermostat", low)
+        and re.search(r"\bfurnace\b", ctx)
+        and not re.search(r"\bsail\b", blob)
+        and not re.search(r"\bif\b", low)
+    ):
+        return True
+    if (
+        re.search(r"\breseat the freeze sensor\b", low)
+        and re.search(r"facr", ctx)
+        and not re.search(r"fact\s*12", blob)
+    ):
+        return True
+    joined = _norm(ctx + " " + (text or ""))
     if (
         re.search(r"\breseat the freeze sensor\b", low)
         and re.search(r"\be\s*[23]\b", joined)
         and not _SENSOR_LOOSE_RE.search(blob)
+        and not re.search(r"\bif\b", low)
     ):
         return True
-    last = _last_assistant_text(history)
-    if last and _too_similar(text, last) and not asks_what_is_the_repair(latest_msg):
-        return True
+    if similar:
+        last = _last_assistant_text(history)
+        if last and _too_similar(text, last) and not asks_what_is_the_repair(latest_msg):
+            return True
     return False
 
 
@@ -4164,16 +4437,21 @@ def _next_unused_step(history: list = None, latest_msg: str = "", original: str 
     if repair:
         candidates.append(repair)
     candidates.extend(_alternate_lines(original))
-    candidates.append("Report the result of that check.")
-    for line in candidates:
-        if line and not _overlaps_prior(line, history):
-            return line
-    return candidates[-1]
+    if _last_assistant_text(history) or _give_repair_now(latest_msg, history):
+        candidates.extend(_conditional_lines(history, latest_msg))
+    else:
+        candidates.extend(_prove_lines(history, latest_msg))
+    fresh = [
+        line
+        for line in candidates
+        if line and not _draft_is_bad(line, history, latest_msg, similar=False)
+    ]
+    return _pick_fresh_line(fresh, history) or _final_shop_line(history, latest_msg)
 
 
 def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
     """Shop text only: no model instructions, no invented facts, no repeated block."""
-    text = (reply or "").strip()
+    text = _strip_source_header((reply or "").strip())
     if _is_offline_notice(text):
         return text
     if not text:
@@ -4290,8 +4568,22 @@ def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") ->
                 text = text + "\n" + "\n".join(sources)
             changed = True
     text = _strip_heard_clauses(text)
-    if not changed:
-        return (reply or "").strip()
+    text = _strip_source_header(text)
+    asked = _give_repair_now(latest_msg, history) and not re.search(
+        r"\bif\b.+\b(?:replace|reseat|repair)\b", text or "", re.I | re.S
+    )
+    if (
+        not text
+        or not _reply_has_body(text)
+        or _draft_is_bad(text, history, latest_msg, similar=False)
+        or re.search(r"report the result of that check", text or "", re.I)
+        or asked
+    ):
+        nxt = _final_shop_line(history, latest_msg)
+        if nxt and not _draft_is_bad(nxt, history, latest_msg, similar=False):
+            text = nxt
+    if not (text or "").strip():
+        text = _final_shop_line(history, latest_msg)
     return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
 
 
@@ -4323,9 +4615,10 @@ def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = ""
             chosen = polish_shop_reply(
                 _repair_from_chat(history, latest_msg, text), history, latest_msg
             )
-        return chosen if chosen and _norm(chosen) not in already else polish_shop_reply(
+        chosen = chosen if chosen and _norm(chosen) not in already else polish_shop_reply(
             "", history, latest_msg
         )
+        return chosen or _final_shop_line(history, latest_msg)
     if prev:
         text = _drop_repeated_checks(text, prev, history, latest_msg)
     polished = polish_shop_reply(text, history, latest_msg)
@@ -4334,6 +4627,9 @@ def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = ""
             candidate = polish_shop_reply(line, history, latest_msg)
             if candidate and _norm(candidate) not in already:
                 return candidate
+        polished = ""
+    if not (polished or "").strip() or (prev and _norm(polished) in already):
+        polished = _final_shop_line(history, latest_msg)
     return polished
 
 

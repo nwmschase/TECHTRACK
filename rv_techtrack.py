@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.22
+RV TechTrack v4.19.23
+- v4.19.23: After the proving check, a reported result, "Not checked yet", or "What is the repair?" gets the next step and a conditional repair. A reply cannot be blank or a repeated sentence. Bay sheets close Fig. 36, drop the rear-stabilizer cite on a front jack, list Level Up documents only, and add the missing dial-off, FACT12, Girard, and Dometic lines.
 - v4.19.22: Ask for the proving check before any repair. A later turn answers the new fact. Heard, Noted, repair-stands, and unchanged fillers stay off the reply. Girard E8 is the air-pressure switch at the blower. FACT12 E3 shows the 12 V and data-line path.
 - v4.19.20: Start new chat clears Category. A named model beats a leftover category. A shop reply keeps a short traceable fact or none, and it always has a next step. A Bay sheet that names a page in PRIMARY keeps that page in Sources.
 - v4.19.19: A Sources quote is copied from a retrieved manual chunk for that page, or the cite has no quote. Expected pages stay on the sheet. Guided Diagnostics does not show a model instruction, does not invent a fact the tech did not report, and does not echo a fallback question.
@@ -196,7 +197,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.22"
+_GDC_REQUIRED_REVISION = "v4.19.23"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 

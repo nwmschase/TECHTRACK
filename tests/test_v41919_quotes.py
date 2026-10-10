@@ -318,7 +318,8 @@ class TestShopReplyPolish(unittest.TestCase):
         )
         self.assertNotIn("jumped red and white", reply.lower())
         self.assertIn("sail switch", reply.lower())
-        self.assertNotIn("replace the wall thermostat", reply.lower())
+        self.assertIn("if ", reply.lower())
+        self.assertIn("replace the wall thermostat", reply.lower())
 
     def test_the_dial_instruction_and_the_cooktop_guard_do_not_repeat(self):
         history = [
@@ -470,9 +471,10 @@ class TestLiveTranscripts(unittest.TestCase):
         ])
         self.assertNotIn("are good", replies[1].lower())
         self.assertIn("sail switch", replies[1].lower())
-        self.assertNotIn("replace the wall thermostat", replies[1].lower())
-        self.assertNotIn("replace the wall thermostat", replies[2].lower())
+        self.assertIn("if ", replies[1].lower())
+        self.assertNotIn("module board", replies[1].lower())
         self.assertNotIn("voltage is missing", replies[2].lower())
+        self.assertIn("if ", replies[2].lower())
         self.assertNotIn("unchanged", replies[2].lower())
         self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
 
