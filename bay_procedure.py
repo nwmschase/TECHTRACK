@@ -115,7 +115,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.13"
+MODULE_REVISION = "v4.19.14"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -2329,6 +2329,20 @@ def _drop_verbless_fragments(text: str) -> str:
     return " ".join(s for s in _split_sentences(text) if not _is_verbless_fragment(s))
 
 
+def _trim_trailing_verbless(sentences: list[str]) -> list[str]:
+    """End a snippet at the last full sentence.
+
+    'Fan quick connection to harness' is a noun phrase. Drop it when a sentence
+    with a verb already sits in front of it. A cite that is only a part name stays.
+    """
+    kept = list(sentences)
+    if not any(_sentence_has_verb(sentence) for sentence in kept):
+        return kept
+    while len(kept) > 1 and not _sentence_has_verb(kept[-1]):
+        kept.pop()
+    return kept
+
+
 def _sentence_is_cut(text: str) -> bool:
     """True when a snippet ends mid-word, on a cut figure callout, or on a stub."""
     sentence = (text or "").strip()
@@ -2487,6 +2501,7 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
             break
     if any(not _is_tiny_heading(sentence) for sentence in kept):
         kept = [sentence for sentence in kept if not _is_tiny_heading(sentence)]
+    kept = _trim_trailing_verbless(kept)
     if not kept:
         return ""
     cap = 400 if locked else 280
@@ -2767,13 +2782,17 @@ def _cited_pages(primary_cite: str) -> set[int]:
 def _keep_primary_excerpt(raw: str) -> str:
     """A cited page still needs a sentence when the scrub would otherwise empty it."""
     cleaned = clean_ocr_prose(raw or "")
+    sentences = []
     for sentence in _split_sentences(cleaned):
         sentence = _strip_ocr_bullet(sentence).strip()
-        if (
-            len(sentence) >= 20
-            and not _is_header_residue(sentence)
-            and not _is_verbless_fragment(sentence)
-        ):
+        if sentence and not _is_verbless_fragment(sentence):
+            sentences.append(sentence)
+    sentences = _trim_trailing_verbless(sentences)
+    for sentence in sentences:
+        if len(sentence) >= 20 and not _is_header_residue(sentence):
+            return _as_sentence(sentence)
+    for sentence in reversed(sentences):
+        if _sentence_has_verb(sentence):
             return _as_sentence(sentence)
     return ""
 
