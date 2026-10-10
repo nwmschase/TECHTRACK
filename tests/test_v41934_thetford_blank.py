@@ -104,6 +104,33 @@ class TestThetfordBlankReply(unittest.TestCase):
             self.assertIn("📖", reply)
             self.assertNotEqual((reply or "").strip(), (draft or "").strip())
 
+    def test_not_checked_yet_advances_and_does_not_reask(self):
+        """Each skip moves to the next unasked check and does not bounce back."""
+        history = []
+        steps = (
+            (CONCERN, "supply", ()),
+            ("Not checked yet", "weep", ("supply line connection",)),
+            ("Not checked yet", "vacuum breaker", ("supply line connection", "weep")),
+            ("Not checked yet", "flange", ("supply line connection", "weep", "vacuum breaker")),
+            ("Not checked yet", "flange", ("supply line connection", "weep", "vacuum breaker")),
+        )
+        bouncing = (
+            "Check the water supply line connection at the water valve again.",
+            "Check whether the water valve weeps at the pedal.",
+            "Back of the toilet: check the water supply line connection at the water valve.",
+            "Check the water supply line connection at the water valve.",
+            "Check whether the vacuum breaker leaks while flushing.",
+        )
+        for (latest, needle, banned), draft in zip(steps, bouncing):
+            reply = _turn(draft, latest, history)
+            low = reply.lower()
+            self.assertIn(needle, low, reply)
+            self.assertIn("📖", reply)
+            for phrase in banned:
+                self.assertNotIn(phrase, low, reply)
+            history.append({"role": "user", "content": latest})
+            history.append({"role": "assistant", "content": reply})
+
     def test_no_library_miss_line_still_ships_without_a_cite(self):
         filler = "Check the reading on this unit and write it down."
         reply = polish_shop_reply(filler, [], CONCERN, "", "Thetford Style II 42070")
