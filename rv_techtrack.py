@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.41
-- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Every library document stores a rendered page image and each figure crop, with the caption, the page, and the box, in cloud storage and linked to the chunk. Guided Diagnostics and the Bay PDF show those figures for any brand. A bundled Thetford kit image is a last resort only, and its caption says it is not from the shop library. A manager can backfill figures for manuals already loaded, including a Lippert bulk import, and can resume that job. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading.
+- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Every library document stores a rendered page image and each figure crop in cloud storage. The database keeps the key, the caption, the page, the box, and the link to the chunk. Guided Diagnostics and the Bay PDF show those figures for any brand. A bundled Thetford kit image is a last resort only, and its caption says it is not from the shop library. A manager can backfill figures for manuals already loaded, including a Lippert bulk import, and can resume that job. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
 - v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
@@ -887,11 +887,11 @@ class DocChunk(Base):
 
 
 class DocAsset(Base):
-    """Page PNG or figure crop stored with the library chunks.
+    """Key for a page PNG or figure crop stored in R2.
 
-    The row lives in the same sqlite file the R2 database backup uploads.
-    ``image_path`` is the library-pages key, and ``png_blob`` rides along in
-    that backup so a restored DB still has the picture.
+    ``image_path`` is the object key. The caption, page, box, and chunk link
+    live on this row. The PNG bytes do not. ``png_blob`` stays empty so an
+    older database file still opens.
     """
     __tablename__ = "doc_assets"
     id = Column(Integer, primary_key=True)
@@ -1740,7 +1740,7 @@ def _bulk_index_figures(document_id, pdf_bytes, title):
 
 
 def _store_pdf_assets(doc: Document, file_bytes: bytes):
-    """Render page PNGs and figure crops into the library DB, R2, and the page folder."""
+    """Render page PNGs and figure crops into R2. The database keeps the key."""
     import library_figure_backfill as fb
 
     indexed = fb.store_pdf_figures(
@@ -1749,7 +1749,6 @@ def _store_pdf_assets(doc: Document, file_bytes: bytes):
         file_bytes,
         title=doc.title or "",
         upload_png=r2_put_bytes,
-        root=Path("."),
     )
     session.commit()
     return indexed
@@ -3587,6 +3586,10 @@ def render_library_page_image(src: dict, key_suffix: str):
     label = src.get("label") or ""
     caption = src.get("caption") or mf.display_caption(title, page, label or "page")
     png = src.get("png")
+    if not png and src.get("image_path"):
+        import library_figure_backfill as fb
+
+        png = fb.fetch_png(src.get("image_path") or "", download=r2_download_bytes)
     if png:
         st.image(png, caption=caption, use_container_width=True)
         return True

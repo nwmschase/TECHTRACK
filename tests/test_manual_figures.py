@@ -106,7 +106,7 @@ class TestManualFigureIndex(unittest.TestCase):
             self.assertEqual(count, len(assets))
             conn = sqlite3.connect(db)
             rows = conn.execute(
-                "SELECT document_id, page, kind, label, image_path, width, png_blob FROM doc_assets"
+                "SELECT document_id, page, kind, label, image_path, width, png_blob, bbox FROM doc_assets"
             ).fetchall()
             conn.close()
             pages = [row for row in rows if row[2] == "page"]
@@ -118,8 +118,11 @@ class TestManualFigureIndex(unittest.TestCase):
                 self.assertGreater(row[1], 0)
                 self.assertTrue(row[4])
                 self.assertGreaterEqual(row[5], 250)
-                self.assertFalse(mf.png_is_blank(row[6]))
-                self.assertTrue((root / row[4]).is_file())
+                self.assertFalse(row[6])
+                png = (root / row[4]).read_bytes()
+                self.assertFalse(mf.png_is_blank(png))
+            for row in figures:
+                self.assertIn(",", row[7] or "")
         finally:
             shutil.rmtree(tmp)
 

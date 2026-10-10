@@ -534,7 +534,7 @@ def write_asset_files(document_id: int, assets: list[dict], root: Path) -> None:
 
 
 def save_assets_sqlite(db_path: str, document_id: int, assets: list[dict]) -> int:
-    """Persist crops in the same sqlite file the library backup uploads."""
+    """Persist the image key and caption. The PNG itself stays in R2 or on disk."""
     conn = sqlite3.connect(db_path)
     try:
         ensure_asset_columns(conn)
@@ -545,7 +545,7 @@ def save_assets_sqlite(db_path: str, document_id: int, assets: list[dict]) -> in
                 INSERT INTO doc_assets
                     (document_id, page, kind, label, image_path, width, height, png_blob,
                      caption, bbox, chunk_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
                 """,
                 (
                     int(document_id),
@@ -555,7 +555,6 @@ def save_assets_sqlite(db_path: str, document_id: int, assets: list[dict]) -> in
                     asset.get("image_path") or "",
                     int(asset.get("width") or 0),
                     int(asset.get("height") or 0),
-                    asset.get("png") or b"",
                     asset.get("caption") or "",
                     format_bbox(asset.get("bbox")),
                     asset.get("chunk_id"),

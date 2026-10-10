@@ -1,9 +1,9 @@
 """Page images and figure crops for every document in the shop library.
 
 Rendering uses the same 150 dpi cropper as a single upload. The PNG is stored
-in R2 at image_path and again in doc_assets.png_blob. A figure row keeps the
-caption, the page, and the box, and chunk_id points at the first chunk on
-that page. This module does not import Streamlit.
+in R2 at image_path. The database row keeps that key, the caption, the page,
+the box, and chunk_id for the first chunk on that page. A local cache speeds
+up the next read. This module does not import Streamlit.
 """
 from __future__ import annotations
 
@@ -26,6 +26,8 @@ SAMPLE_NOTE = (
 )
 
 BUNDLED_NOTE = "Bundled kit sheet, not from the shop library."
+# Read-through cache. The durable copy is the R2 object. This folder is gitignored.
+CACHE_DIR = Path("library_pages")
 _LOCK_SECONDS = 180
 _BATCH = 2
 
@@ -140,6 +142,43 @@ def link_chunk_ids(session, document_id: int) -> None:
     )
 
 
+def _cache_file(image_path: str, cache_root=None):
+    """Local path for one R2 key. Rejects absolute paths and parent segments."""
+    raw = (image_path or "").replace("\\", "/").lstrip("/")
+    if not raw:
+        return None
+    parts = Path(raw).parts
+    if ".." in parts or Path(raw).is_absolute():
+        return None
+    root = Path(cache_root) if cache_root is not None else CACHE_DIR
+    return root / raw
+
+
+def fetch_png(image_path: str, download=None, cache_root=None) -> bytes:
+    """PNG for one library key. Cache first, then R2, then save the cache."""
+    dest = _cache_file(image_path, cache_root)
+    if dest is not None and dest.is_file():
+        try:
+            cached = dest.read_bytes()
+        except Exception:
+            cached = b""
+        if cached:
+            return cached
+    if not download or not image_path:
+        return b""
+    try:
+        data = download(image_path) or b""
+    except Exception:
+        data = b""
+    if data and dest is not None:
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+        except Exception:
+            pass
+    return data or b""
+
+
 def store_pdf_figures(
     session,
     document_id: int,
@@ -150,7 +189,9 @@ def store_pdf_figures(
 ) -> dict:
     """Render every page and crop captioned figures for one document.
 
-    Does not commit. A failed upload still keeps the PNG in sqlite.
+    Does not commit. The PNG is uploaded to R2. The row stores the key,
+    caption, page, and box, not the image bytes. ``root`` writes a cache copy
+    for callers that are not using R2.
     """
     ensure_ready(session)
     indexed = mf.index_pdf_bytes(pdf_bytes)
@@ -186,7 +227,7 @@ def store_pdf_figures(
                     png_blob, caption, bbox, chunk_id
                 ) VALUES (
                     :document_id, :page, :kind, :label, :image_path, :width, :height,
-                    :png, :caption, :bbox, NULL
+                    NULL, :caption, :bbox, NULL
                 )
                 """
             ),
@@ -198,7 +239,6 @@ def store_pdf_figures(
                 "image_path": path,
                 "width": int(asset.get("width") or 0),
                 "height": int(asset.get("height") or 0),
-                "png": png,
                 "caption": caption,
                 "bbox": mf.format_bbox(asset.get("bbox")),
             },
@@ -227,7 +267,7 @@ def estimate_backfill(session) -> dict:
 
     Page images are one PNG per page (the highest chunk page, or 1). Figure
     crops use the kit-sheet rate from the measured sample, which is higher
-    than a text manual. png_blob stores the same bytes again in sqlite.
+    than a text manual. The bytes are the R2 objects only.
     """
     ensure_ready(session)
     docs = _pdf_documents(session)
@@ -251,8 +291,8 @@ def estimate_backfill(session) -> dict:
         "page_bytes": page_bytes,
         "crop_bytes": crop_bytes,
         "r2_bytes": r2_bytes,
-        "sqlite_bytes": r2_bytes,
-        "total_bytes": r2_bytes * 2,
+        "sqlite_bytes": 0,
+        "total_bytes": r2_bytes,
         "page_png_bytes": PAGE_PNG_BYTES,
         "crop_png_bytes": CROP_PNG_BYTES,
         "crops_per_page": SAMPLE_CROPS / SAMPLE_PAGES,
@@ -279,19 +319,19 @@ def estimate_caption(est: dict) -> str:
     rate = float(est.get("crops_per_page") or 0)
     if docs == 0 or pages == 0:
         return (
-            "No manuals are in this database, so the backfill would store 0 bytes. "
+            "No manuals are in this database, so the backfill would store 0 bytes in R2. "
             f"A 150 dpi page image is about {page_kb:.0f} KB and a figure crop is about {crop_kb:.0f} KB. "
-            "R2 and the database each store the PNG. "
+            "The database stores the key, caption, page, box, and chunk link, not a second copy of the PNG. "
             f"The kit sheets used for that measurement averaged {rate:.1f} crops per page. "
             "A text manual has fewer crops."
         )
     return (
         f"Backfill storage estimate: {docs} manuals, {pages} pages. "
-        f"Page images {format_bytes(est.get('page_bytes'))} plus about "
+        f"R2 holds the page images {format_bytes(est.get('page_bytes'))} plus about "
         f"{int(est.get('figures') or 0)} figure crops "
-        f"({format_bytes(est.get('crop_bytes'))} at the kit-sheet rate of {rate:.1f} per page) "
-        f"in R2, and the same PNGs again in the database "
-        f"({format_bytes(est.get('total_bytes'))} together). "
+        f"({format_bytes(est.get('crop_bytes'))} at the kit-sheet rate of {rate:.1f} per page), "
+        f"{format_bytes(est.get('r2_bytes'))} in all. "
+        "The database stores the key, caption, page, box, and chunk link, not the PNG. "
         f"Measured page image about {page_kb:.0f} KB, crop about {crop_kb:.0f} KB. "
         "A text manual has fewer crops than those kit sheets. "
         "This count is the manuals in this database."
@@ -547,7 +587,7 @@ def process_backfill_batch(
 
 
 def meta_rows(session) -> list[dict]:
-    """Figure and page rows without the PNG blobs."""
+    """Figure and page rows. Image bytes stay in R2."""
     ensure_ready(session)
     return _all(
         session,
@@ -561,33 +601,28 @@ def meta_rows(session) -> list[dict]:
     )
 
 
-def attach_pngs(session, offers, read_local: bool = False, download=None) -> list:
-    """Load PNG bytes for the chosen rows only."""
-    missing = [offer for offer in offers or [] if offer.get("id") and not offer.get("png")]
-    if not missing:
-        return offers
-    ids = [int(offer["id"]) for offer in missing]
-    placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
-    params = {f"id{i}": value for i, value in enumerate(ids)}
-    rows = _all(
-        session,
-        f"SELECT id, image_path, png_blob FROM doc_assets WHERE id IN ({placeholders})",
-        params,
-    )
-    by_id = {int(row["id"]): row for row in rows}
-    for offer in missing:
-        row = by_id.get(int(offer["id"])) or {}
-        png = row.get("png_blob") or b""
-        path = row.get("image_path") or offer.get("image_path") or ""
-        if not png and read_local and path:
+def attach_pngs(session, offers, read_local: bool = False, download=None, cache_root=None) -> list:
+    """Load PNG bytes for the chosen rows from the cache or from R2.
+
+    ``session`` is unused. The database does not hold the image.
+    """
+    del session
+    for offer in offers or []:
+        if offer.get("png"):
+            continue
+        path = offer.get("image_path") or ""
+        if not path:
+            continue
+        png = b""
+        if read_local:
             local = Path(path)
-            if local.is_file():
-                png = local.read_bytes()
-        if not png and download and path:
-            try:
-                png = download(path) or b""
-            except Exception:
-                png = b""
+            if not local.is_absolute() and local.is_file():
+                try:
+                    png = local.read_bytes()
+                except Exception:
+                    png = b""
+        if not png:
+            png = fetch_png(path, download=download, cache_root=cache_root)
         offer["png"] = png or b""
     return offers
 

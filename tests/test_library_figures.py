@@ -17,6 +17,18 @@ LIPPERT_TITLE = "Lippert Level Up Towable Owner's Manual"
 THETFORD_TITLE = "Thetford Water Valve Kit 42109"
 
 
+class MemoryR2:
+    def __init__(self):
+        self.objects = {}
+
+    def upload(self, data, key, content_type="image/png"):
+        self.objects[key] = data
+        return True
+
+    def download(self, key):
+        return self.objects.get(key)
+
+
 def _lippert_pdf() -> bytes:
     import fitz
 
@@ -100,9 +112,25 @@ class TestLippertLibraryFigures(FigureCase):
             "library/valve.pdf",
             page_text="Fig. 1 PEDAL REMOVED",
         )
-        fb.store_pdf_figures(self.session, lippert_id, _lippert_pdf(), title=LIPPERT_TITLE)
-        fb.store_pdf_figures(self.session, thetford_id, VALVE_PDF.read_bytes(), title=THETFORD_TITLE)
+        r2 = MemoryR2()
+        cache = Path(self.tmp.name) / "cache"
+        fb.store_pdf_figures(
+            self.session, lippert_id, _lippert_pdf(), title=LIPPERT_TITLE, upload_png=r2.upload
+        )
+        fb.store_pdf_figures(
+            self.session, thetford_id, VALVE_PDF.read_bytes(), title=THETFORD_TITLE, upload_png=r2.upload
+        )
         self.session.commit()
+        stored = [
+            row[0]
+            for row in self.session.execute(
+                text("SELECT png_blob FROM doc_assets WHERE document_id = :id"),
+                {"id": lippert_id},
+            ).fetchall()
+        ]
+        self.assertTrue(stored)
+        self.assertTrue(all(not blob for blob in stored))
+        self.assertTrue(r2.objects)
         linked = self.session.execute(
             text(
                 """
@@ -127,7 +155,13 @@ class TestLippertLibraryFigures(FigureCase):
             "Leveling",
             "Level Up Advantage 807662",
         )
-        fb.attach_pngs(self.session, offers)
+        fb.attach_pngs(self.session, offers, download=r2.download, cache_root=cache)
+        cached = list(cache.rglob("*.png"))
+        self.assertTrue(cached)
+        r2.objects.clear()
+        from_cache = fb.fetch_png(offers[0]["image_path"], download=r2.download, cache_root=cache)
+        self.assertTrue(from_cache)
+        self.assertFalse(mf.png_is_blank(from_cache))
         figures = [offer for offer in offers if offer.get("kind") == "figure"]
         self.assertTrue(figures)
         crop = figures[0]
@@ -146,10 +180,15 @@ class TestLippertLibraryFigures(FigureCase):
     def test_bay_pdf_paints_the_lippert_library_figure(self):
         lippert_id = self.add_document(LIPPERT_TITLE, "Lippert", "library/level-up.pdf")
         self.add_document(THETFORD_TITLE, "Thetford", "library/valve.pdf", page_text="Fig. 1 PEDAL REMOVED")
-        fb.store_pdf_figures(self.session, lippert_id, _lippert_pdf(), title=LIPPERT_TITLE)
+        r2 = MemoryR2()
+        fb.store_pdf_figures(
+            self.session, lippert_id, _lippert_pdf(), title=LIPPERT_TITLE, upload_png=r2.upload
+        )
         self.session.commit()
         rows = fb.meta_rows(self.session)
-        fb.attach_pngs(self.session, rows)
+        fb.attach_pngs(
+            self.session, rows, download=r2.download, cache_root=Path(self.tmp.name) / "bay-cache"
+        )
         chunks = [
             {
                 "document_id": lippert_id,
@@ -220,13 +259,15 @@ class TestBackfillJob(FigureCase):
             estimate["r2_bytes"],
             estimate["pages"] * fb.PAGE_PNG_BYTES + estimate["figures"] * fb.CROP_PNG_BYTES,
         )
-        self.assertEqual(estimate["sqlite_bytes"], estimate["r2_bytes"])
-        self.assertEqual(estimate["total_bytes"], estimate["r2_bytes"] * 2)
+        self.assertEqual(estimate["sqlite_bytes"], 0)
+        self.assertEqual(estimate["total_bytes"], estimate["r2_bytes"])
         self.assertEqual(fb.PAGE_PNG_BYTES, 519584)
         self.assertEqual(fb.CROP_PNG_BYTES, 82040)
         caption = fb.estimate_caption(estimate)
         self.assertIn("2 manuals", caption)
-        self.assertIn("database", caption.lower())
+        self.assertIn("R2", caption)
+        self.assertNotIn("again", caption.lower())
+        self.assertIn("not the PNG", caption)
         empty = fb.estimate_caption(
             {
                 "documents": 0,
@@ -376,6 +417,10 @@ class TestBulkImportFigures(unittest.TestCase):
         self.assertTrue(scanned)
         self.assertIn("page", kinds[scanned[0]])
         self.assertNotIn("figure", kinds[scanned[0]])
+        blobs = self.session.execute(
+            text("SELECT COUNT(*) FROM doc_assets WHERE png_blob IS NOT NULL AND length(png_blob) > 0")
+        ).scalar()
+        self.assertEqual(int(blobs or 0), 0)
 
         def boom(document_id, data, title):
             raise RuntimeError("crop failed")
