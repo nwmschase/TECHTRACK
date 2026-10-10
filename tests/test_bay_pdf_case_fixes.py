@@ -70,6 +70,76 @@ def _sheet(concern, brand="", model="", category="", chunks=None):
     return proc, _pdf_text(pdf)
 
 
+def _node_text(trace, owner: str) -> str:
+    return " ".join(
+        mark.text or ""
+        for mark in trace
+        if mark.kind == "text" and mark.owner == owner
+    )
+
+
+def _segments_cross(a1, a2, b1, b2, eps: float = 0.8) -> bool:
+    """Proper crossing. Shared endpoints and collinear overlaps do not count."""
+
+    def cross(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    d1, d2 = cross(b1, b2, a1), cross(b1, b2, a2)
+    d3, d4 = cross(a1, a2, b1), cross(a1, a2, b2)
+    return ((d1 > eps and d2 < -eps) or (d1 < -eps and d2 > eps)) and (
+        (d3 > eps and d4 < -eps) or (d3 < -eps and d4 > eps)
+    )
+
+
+def _connector_crossings(trace, page: int = 0) -> list[tuple[int, int]]:
+    """Pairs of connector polylines on one page whose strokes cross."""
+    conns = [
+        mark
+        for mark in trace
+        if mark.role == "connector" and mark.page == page and len(mark.points or []) >= 2
+    ]
+    hits = []
+    for i, left in enumerate(conns):
+        for j in range(i + 1, len(conns)):
+            right = conns[j]
+            crossed = False
+            for s1, s2 in zip(left.points, left.points[1:]):
+                for t1, t2 in zip(right.points, right.points[1:]):
+                    if _segments_cross(s1, s2, t1, t2):
+                        crossed = True
+                        break
+                if crossed:
+                    break
+            if crossed:
+                hits.append((i, j))
+    return hits
+
+
+def _connector_skims_diamond(trace, diamond, page: int = 0, pad: float = 2.0) -> bool:
+    """True when a connector runs along a diamond vertex instead of entering a port."""
+    import math
+
+    cx = (diamond.x0 + diamond.x1) / 2.0
+    cy = (diamond.y0 + diamond.y1) / 2.0
+    vertices = ((cx, diamond.y1), (diamond.x1, cy), (cx, diamond.y0), (diamond.x0, cy))
+    for mark in trace:
+        if mark.role != "connector" or mark.page != page or len(mark.points or []) < 2:
+            continue
+        ends = {mark.points[0], mark.points[-1]}
+        for (x1, y1), (x2, y2) in zip(mark.points, mark.points[1:]):
+            dist = math.hypot(x2 - x1, y2 - y1)
+            steps = max(1, int(dist / 2.0))
+            for step in range(steps + 1):
+                t = step / steps
+                x = x1 + (x2 - x1) * t
+                y = y1 + (y2 - y1) * t
+                if any(math.hypot(x - ex, y - ey) <= pad + 0.5 for ex, ey in ends):
+                    continue
+                if any(math.hypot(x - vx, y - vy) <= pad for vx, vy in vertices):
+                    return True
+    return False
+
+
 def _no_generic_chart(text: str):
     low = text.lower()
     assert "did the first check pass" not in low
@@ -550,7 +620,7 @@ class TestBayCaseFixes(unittest.TestCase):
             item for item in proc.flowchart.edges if item.from_id == "d_aps" and item.to_id == "e_aps"
         )
         self.assertEqual(edge.label, "NO")
-        self.assertEqual((edge.from_side, edge.to_side), ("right", "left"))
+        self.assertEqual((edge.from_side, edge.to_side), ("bottom", "top"))
         self.assertNotEqual(gas, no)
         self.assertNotIn("burner flame", gas)
         self.assertIn("blower", no)
@@ -559,6 +629,42 @@ class TestBayCaseFixes(unittest.TestCase):
         self.assertNotIn("efault", low)
         self.assertNotIn("tools required", low)
         _no_generic_chart(text)
+
+    def test_s13_connectors_do_not_cross_or_touch_the_aps_diamond(self):
+        proc, _text = _sheet(
+            "Girard GSWH-2 E8 lockout after flame",
+            "Girard",
+            "GSWH-2",
+            "Water Heaters",
+        )
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [])
+        crossings = _connector_crossings(trace, page=0)
+        self.assertEqual(crossings, [])
+        diamonds = [
+            mark
+            for mark in trace
+            if mark.page == 0 and mark.role == "node" and mark.kind == "diamond"
+        ]
+        aps = next(
+            mark
+            for mark in diamonds
+            if "switch" in _node_text(trace, mark.id).lower()
+            and "pass" in _node_text(trace, mark.id).lower()
+        )
+        self.assertFalse(_connector_skims_diamond(trace, aps, page=0))
+
+    def test_s12_flowchart_says_reseat(self):
+        proc, _text = _sheet(
+            "Furrion FACT12SA2 rooftop shows E2",
+            "Furrion",
+            "FACT12SA2",
+            "Air Conditioning",
+        )
+        chart = " ".join(node.text for node in proc.flowchart.nodes)
+        self.assertIn("Reseat the freeze sensor", chart)
+        self.assertNotIn("Resecure", chart)
 
     def test_s14_replaces_the_complete_jack_and_leaves_model_blank(self):
         proc, text = _sheet(

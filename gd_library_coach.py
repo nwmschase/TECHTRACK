@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.24"
+COACH_REVISION = "v4.19.26"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -2908,7 +2908,7 @@ def ensure_fact12_freeze_resecure(
     if _SENSOR_LOOSE_RE.search(user) and not _is_fallback_question(latest_msg or ""):
         return FACT12_FREEZE_RESECURE_LINE
     if re.search(r"\be\s*3\b", _norm(blob)):
-        if re.search(r"\d+(?:\.\d+)?\s*v\b", _norm(latest_msg or "")):
+        if re.search(r"\d+(?:\.\d+)?\s*v\b", _norm(user)):
             return FACT12_E3_AFTER_VOLTS_LINE
         return FACT12_E3_PROVE_LINE
     return FACT12_E2_PROVE_LINE
@@ -3073,8 +3073,8 @@ FACT12_E3_PROVE_LINE = (
     "📖 Source: Furrion Chill FACR CCD-0008666, page 18"
 )
 FACT12_E3_AFTER_VOLTS_LINE = (
-    "Those supply readings are in. Check the data line at the connector and "
-    "whether the freeze sensor is fastened on the evaporator coil. Report what you find.\n"
+    "Those supply readings are in. Check whether the freeze sensor is fastened "
+    "on the evaporator coil. Report what you find.\n"
     "📖 Source: Furrion Chill FACR CCD-0008666, page 15"
 )
 FACT12_FREEZE_RESECURE_LINE = (
@@ -4200,16 +4200,134 @@ def _with_cite(text: str, job: str) -> str:
     return body + "\n" + cite
 
 
+def _answered_checks(blob: str) -> set[str]:
+    """Checks the tech already reported. A later turn must not ask them again."""
+    low = _norm(blob)
+    found = set()
+    if re.search(r"filter is clean|filters are clean", low):
+        found.add("filter")
+    if re.search(r"dial (?:is )?at max", low):
+        found.add("dial")
+    if re.search(r"sail switch is good|sail is good", low):
+        found.add("sail")
+    if re.search(r"\d+(?:\.\d+)?\s*v\b", low):
+        found.add("voltage")
+    if re.search(r"wiring is good|data line is good", low):
+        found.add("dataline")
+    return found
+
+
+def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
+    """True when this sentence asks for a check the tech already answered."""
+    low = _norm(sentence)
+    if not low or not answered:
+        return False
+    if "filter" in answered and re.search(r"clean it if dirty|won'?t come clean|return air filter", low):
+        return True
+    if "dial" in answered and re.search(r"\bdial\b", low) and re.search(
+        r"maximum|at max|report the setting", low
+    ):
+        return True
+    if "sail" in answered and re.search(r"sail switch", low) and re.search(
+        r"measure|prove|power in|report power", low
+    ):
+        return True
+    if "voltage" in answered and re.search(
+        r"measure 12\s*v|check (?:the )?12\s*v|12\s*v and the data line", low
+    ):
+        return True
+    if "dataline" in answered and re.search(r"data line", low) and re.search(
+        r"check|measure|report", low
+    ):
+        return True
+    return False
+
+
+def _reply_body(text: str) -> str:
+    lines = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("📖") or stripped.lower().startswith("source:"):
+            continue
+        lines.append(stripped)
+    return _norm(" ".join(lines))
+
+
+def _repeats_last_body(text: str, history: list = None) -> bool:
+    """True when this turn's shop text is the previous turn word for word."""
+    prev = _last_assistant_text(history)
+    body = _reply_body(text)
+    return bool(body) and body == _reply_body(prev)
+
+
+def _as_repair_statement(sentence: str) -> str:
+    """'Reseat it…' becomes 'The repair is to reseat it…', not 'The repair is reseat it…'."""
+    chosen = (sentence or "").strip()
+    if not chosen.endswith("."):
+        chosen += "."
+    if re.match(r"(?i)^the repair\b", chosen):
+        return chosen
+    body = chosen[0].lower() + chosen[1:]
+    if body.endswith("."):
+        body = body[:-1]
+    if not re.match(r"(?i)^to\b", body):
+        body = "to " + body
+    return "The repair is " + body + "."
+
+
+def _direct_repair_sentence(sentence: str, job: str, answered: set[str]) -> bool:
+    """A firm repair is an imperative, not a check and not an If-sentence."""
+    text = (sentence or "").strip()
+    if not text or text.startswith("📖") or "?" in text:
+        return False
+    if re.match(r"(?i)^if\b", text) or re.search(r"\bif\b", text):
+        return False
+    if not _is_repair_sentence(text) or not _line_fits_job(text, job):
+        return False
+    if _sentence_reasks_check(text, answered):
+        return False
+    return True
+
+
+def _proved_shop_reply(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """The repair itself, once the proving fact is already in the tech's words."""
+    job = _job_key(history, latest_msg, category_name, model_text)
+    blob = _user_blob(history, latest_msg)
+    if job == "furnace" and re.search(
+        r"sail switch is good|sail is good|power in and (?:power )?out", blob
+    ):
+        return FURNACE_WALL_TSTAT_LINE
+    if job == "fact12" and _SENSOR_LOOSE_RE.search(blob):
+        return FACT12_FREEZE_RESECURE_LINE
+    if job == "coleman":
+        facts = coleman_facts_from_chat(
+            history, latest_msg, f"{category_name or ''} {model_text or ''}"
+        )
+        if coleman_motor_board_evidence_complete(facts):
+            return COLEMAN_MOTOR_BOARD_AUTH_LINE
+    return ""
+
+
 def _firm_repair_reply(
     history: list = None,
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
 ) -> str:
-    """A replace/reseat already given on THIS job stays the repair."""
+    """A replace/reseat already given on THIS job stays the repair.
+
+    An answered check is not restated as that repair, and the sentence is
+    'The repair is to <verb>', not 'The repair is <verb>'.
+    """
     if not (asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)):
         return ""
     job = _job_key(history, latest_msg, category_name, model_text)
+    answered = _answered_checks(_user_blob(history, latest_msg))
     chosen = ""
     sources: list[str] = []
     for message in history or []:
@@ -4218,20 +4336,21 @@ def _firm_repair_reply(
         content = message.get("content") or ""
         cites = [line.strip() for line in content.splitlines() if line.strip().startswith("📖")]
         for sentence in _split_reply_sentences(content):
-            if sentence.startswith("📖") or "?" in sentence:
-                continue
-            if re.match(r"(?i)^if\b", sentence.strip()):
-                continue
-            if _is_repair_sentence(sentence) and _line_fits_job(sentence, job):
+            if _direct_repair_sentence(sentence, job, answered):
                 chosen = sentence.strip()
                 sources = cites
     if not chosen:
-        return ""
-    if not re.match(r"(?i)^the repair\b", chosen):
-        body = chosen[0].lower() + chosen[1:]
-        chosen = "The repair is " + body
-    if not chosen.endswith("."):
-        chosen += "."
+        proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
+        if not proved or _repeats_last_body(proved, history):
+            return ""
+        return proved
+    chosen = _as_repair_statement(chosen)
+    if _repeats_last_body(chosen, history):
+        bare = re.sub(r"(?i)^the repair is to\s+", "", chosen).strip()
+        if bare:
+            bare = bare[0].upper() + bare[1:]
+            if not _repeats_last_body(bare, history):
+                chosen = bare
     if sources:
         chosen += "\n" + "\n".join(sources)
     return chosen
@@ -4289,7 +4408,7 @@ def _conditional_lines(
         return [
             "Confirm the controller, jack, and touch pad plugs are seated. If they are seated, run zero point: manual level, press FRONT five times, press REAR five times, then press ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
             "If the plugs are seated and one side still lifts, press FRONT five times, then REAR five times, then ENTER. If the coach sits level after that, the zero-point calibration is the repair.",
-            "If the plugs are seated, press FRONT five times and then ENTER. If the display stores zero point, that calibration is the repair.",
+            "If the plugs are seated, press FRONT five times, then REAR five times, then ENTER. If the display stores zero point, that calibration is the repair.",
         ]
     if job == "stab":
         return [
@@ -4440,6 +4559,9 @@ def _final_shop_line(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
+    proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
+    if proved and not _repeats_last_body(proved, history):
+        return proved
     job = _job_key(history, latest_msg, category_name, model_text)
     later = bool(_last_assistant_text(history))
     lines = (
@@ -4447,8 +4569,18 @@ def _final_shop_line(
         if later or _give_repair_now(latest_msg, history)
         else _prove_lines(history, latest_msg, category_name, model_text)
     )
-    lines = [line for line in lines if _line_fits_job(line, job)]
-    chosen = _pick_fresh_line(lines, history) or (lines[0] if lines else "")
+    answered = _answered_checks(_user_blob(history, latest_msg))
+    lines = [
+        line
+        for line in lines
+        if _line_fits_job(line, job) and not _sentence_reasks_check(line, answered)
+    ]
+    chosen = _pick_fresh_line(lines, history)
+    if not chosen:
+        for line in lines:
+            if line and not _repeats_last_body(line, history) and not _same_as_last_turn(line, history):
+                chosen = line
+                break
     if not chosen:
         return "Check the reading on this unit and write it down."
     return _with_cite(chosen, job)
@@ -4507,10 +4639,10 @@ def _answer_latest(
                 "The freeze sensor is off the coil. "
                 "Reseat it on the evaporator coil and retest."
             )
-        if re.search(r"\d+(?:\.\d+)?\s*v\b", low):
+        if re.search(r"\d+(?:\.\d+)?\s*v\b", low) or re.search(r"\d+(?:\.\d+)?\s*v\b", blob):
             return (
-                "Those supply readings are in. Check the data line at the connector and "
-                "whether the freeze sensor is fastened on the evaporator coil. Report what you find."
+                "Those supply readings are in. Check whether the freeze sensor is fastened "
+                "on the evaporator coil. Report what you find."
             )
         if _is_fallback_question(latest_msg):
             if re.search(r"\be\s*3\b", joined):
@@ -4601,6 +4733,8 @@ def _answer_latest(
     ):
         user_said_sail = bool(re.search(r"\bsail\b", blob))
         if re.search(r"jumper|thermostat bypass|bypassed|jumped red|r\s*/\s*w", blob + " " + ctx):
+            if re.search(r"sail switch is good|sail is good|power in and (?:power )?out", blob):
+                return _with_cite("Replace the wall thermostat.", job)
             if user_said_sail and not _is_fallback_question(latest_msg):
                 return ""
             fresh = _pick_fresh_line(
@@ -4709,6 +4843,12 @@ def _draft_is_bad(
         and not re.search(r"\bif\b", low)
     ):
         return True
+    answered = _answered_checks(blob)
+    if any(_sentence_reasks_check(sentence, answered) for sentence in _split_reply_sentences(text or "")):
+        return True
+    proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
+    if proved and _reply_body(text) == _reply_body(proved):
+        return False
     if similar:
         last = _last_assistant_text(history)
         if last and _too_similar(text, last) and not asks_what_is_the_repair(latest_msg):
@@ -4761,7 +4901,7 @@ def polish_shop_reply(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
-    text = _strip_source_header((reply or "").strip())
+    text = _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip()))
     if _is_offline_notice(text):
         return text
     if not text:
@@ -4780,6 +4920,7 @@ def polish_shop_reply(
     )
     text = _FALLBACK_ACK_RE.sub("", text).strip()
     user_blob = _user_blob(history, latest_msg)
+    answered = _answered_checks(user_blob)
     prior = _prior_sentence_keys(history)
     seen = set()
     seen_checks = set()
@@ -4838,6 +4979,9 @@ def polish_shop_reply(
                 if not asks_what_is_the_repair(latest_msg):
                     changed = True
                     continue
+            if _sentence_reasks_check(sentence, answered):
+                changed = True
+                continue
             if _is_fallback_question(sentence) and len(_sentence_key(sentence)) < 80:
                 changed = True
                 continue
@@ -4909,6 +5053,10 @@ def polish_shop_reply(
         text = _final_shop_line(history, latest_msg, category_name, model_text)
     if text and "📖" not in text:
         text = _with_cite(text, job)
+    if _repeats_last_body(text, history):
+        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
+            text = nxt
     return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
 
 
@@ -5014,14 +5162,8 @@ def ensure_furnace_wall_thermostat(
     )
     if not sail_reported:
         return FURNACE_SAIL_PROVE_LINE
-    low_reply = _norm(reply)
-    if (
-        "replace the wall thermostat" in low_reply
-        and "does not cover" not in low_reply
-        and "voltage is missing" not in low_reply
-        and not reply_loops_furnace_12v(reply)
-    ):
-        return reply
+    # The sail-switch result is the proving fact. The repair is the thermostat,
+    # not another measure-the-sail-switch conditional.
     return FURNACE_WALL_TSTAT_LINE
 
 
@@ -5202,12 +5344,8 @@ def ensure_coleman_motor_board_auth(reply: str, facts: dict | None = None) -> st
     facts = facts or {}
     if not coleman_motor_board_evidence_complete(facts):
         return reply
-    if (
-        reply_names_coleman_motor_board_only(reply)
-        and not reply_authorizes_coleman_full_assembly(reply)
-        and not reply_fishes_coleman_more_tests(reply)
-    ):
-        return reply
+    # Stall current and a near-rated capacitor close the prove. The card is the
+    # repair. A conditional that still names those checks is not sent again.
     return COLEMAN_MOTOR_BOARD_AUTH_LINE
 
 
@@ -6145,14 +6283,20 @@ def reply_has_tip_pan_before_parts(reply: str) -> bool:
 
 
 _COOKTOP_OTHER_PAGES_RE = re.compile(
-    r"do you have other pages|other pages from that manual",
+    r"do you have other pages|other pages from that manual|"
+    r"do you have a different page(?: or section)?|different page or section",
+    re.I,
+)
+_STRAY_PAGE_RE = re.compile(
+    r"do you have (?:other pages|a different page(?: or section)?)"
+    r"(?: from (?:that|the) [\w /-]+manual)?[^.?!\n]*[.?!]?",
     re.I,
 )
 
 
 def _strip_cooktop_contradiction(reply: str) -> str:
     """Drop a library-coverage denial and the follow-up ask for other pages."""
-    text = strip_library_no_steps(reply or "")
+    text = _STRAY_PAGE_RE.sub("", strip_library_no_steps(reply or ""))
     kept = []
     for part in _reply_sentences(text):
         if _COOKTOP_OTHER_PAGES_RE.search(part):

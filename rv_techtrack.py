@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.24
+RV TechTrack v4.19.26
+- v4.19.26: A repair already proved is stated as the repair, and an answered check is not asked again or restated as the repair. The next turn is not a copy of the last one. Ground Control keeps FRONT five times, REAR five times, then ENTER. The Girard chart lines do not cross, and the FACT12 E2 chart says Reseat.
 - v4.19.24: A Guided Diagnostics repair is chosen from the category and model, not from loose words in an earlier chat. Placeholders and broken If-sentences cannot ship, and a firm repair stays the repair. Bay sheets drop the reversed C/T note, cite Level Up page 1, name Brisk II page 23, and finish the FACT12 and Girard charts.
 - v4.19.23: After the proving check, a reported result, "Not checked yet", or "What is the repair?" gets the next step and a conditional repair. A reply cannot be blank or a repeated sentence. Bay sheets close Fig. 36, drop the rear-stabilizer cite on a front jack, list Level Up documents only, and add the missing dial-off, FACT12, Girard, and Dometic lines.
 - v4.19.22: Ask for the proving check before any repair. A later turn answers the new fact. Heard, Noted, repair-stands, and unchanged fillers stay off the reply. Girard E8 is the air-pressure switch at the blower. FACT12 E3 shows the 12 V and data-line path.
@@ -198,7 +199,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.24"
+_GDC_REQUIRED_REVISION = "v4.19.26"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
