@@ -1,4 +1,5 @@
 """S20: Level Up front jacks drift. Coil and plumbing before the cartridge."""
+import re
 import unittest
 from pathlib import Path
 
@@ -21,6 +22,20 @@ POISON = (
     "If the pin or coupler or seized, replace the complete front stabilizer jack assembly.\n"
     "Press FRONT five times, then REAR five times, then ENTER for zero-point calibration."
 )
+_CARTRIDGE_PAGE_CITE_RE = re.compile(
+    r"towable owner'?s manual.{0,60}(?:page|p\.)\s*15"
+    r"|fw owner'?s manual.{0,60}(?:page|p\.)\s*18",
+    re.I | re.S,
+)
+
+
+def _assert_177094_is_cited(case: unittest.TestCase, text: str) -> None:
+    """Part 177094 never prints without the owner's-manual parts-list page."""
+    if "177094" not in (text or ""):
+        return
+    case.assertRegex(text, _CARTRIDGE_PAGE_CITE_RE)
+
+
 BANNED = (
     "sail switch",
     "wall thermostat",
@@ -114,6 +129,7 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertIn("177094", repair)
         self.assertIn("cartridge", low)
         self.assertIn("ti-005", low)
+        _assert_177094_is_cited(self, repair)
 
     def test_plumbing_yes_advances_to_the_override_screw(self):
         history = []
@@ -149,6 +165,42 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertEqual(calls["n"], 0)
         self.assertIn("gray wire", (text or "").lower())
 
+    def test_answered_plumbing_is_not_asked_again(self):
+        history = []
+        self._turn(CONCERN, history)
+        self._turn("The lead-jack valve coil on the gray wire tests good.", history)
+        self._turn("Yes", history)
+        follow = self._turn("What is the repair?", history)
+        low = follow.lower()
+        self.assertNotIn("notched", low)
+        self.assertNotIn("swap plumbing", low)
+        self.assertIn("override screw", low)
+
+        stated = []
+        self._turn(CONCERN, stated)
+        self._turn("The lead-jack valve coil on the gray wire tests good.", stated)
+        self._turn(
+            "Manifold hose is in the notched port. Follow-leg hose is in the non-notched port. "
+            "Unused ports are plugged. Orange extend and black retract hoses are not reversed.",
+            stated,
+        )
+        later = self._turn("What next?", stated)
+        self.assertNotIn("notched port", later.lower())
+        self.assertIn("override", later.lower())
+
+    def test_177094_never_prints_without_the_owners_manual_page(self):
+        from gd_library_coach import LEADJACK_CARTRIDGE_LINE
+
+        _assert_177094_is_cited(self, LEADJACK_CARTRIDGE_LINE)
+        history = []
+        self._turn(CONCERN, history)
+        self._turn("The lead-jack valve coil on the gray wire tests good.", history)
+        self._turn("Yes. The swap plumbing looks good.", history)
+        repair = self._turn("The manual override screw is backed out.", history)
+        _assert_177094_is_cited(self, repair)
+        self.assertIn("177094", repair)
+        self.assertIn("cartridge valve", repair.lower())
+
     def test_s20_does_not_borrow_a_furnace_chat(self):
         history = [
             {"role": "user", "content": "Suburban furnace. Will not blow warm; fan turns on then shuts off."},
@@ -178,6 +230,14 @@ class TestLeadJackBaySheet(unittest.TestCase):
         for token in ("ccd-0001750", "qr-109", "ti-143", "ti-324", "ti-170", "ti-005"):
             self.assertIn(token, titles, token)
         self.assertIn("177094", self.proc.pattern_means + " " + self.proc.bay_order[-1])
+        _assert_177094_is_cited(self, self.proc.pattern_means)
+        _assert_177094_is_cited(self, self.proc.bay_order[-1])
+        source_text = "\n".join(
+            f"{src.get('title') or ''} page {src.get('page')} {src.get('excerpt') or ''}"
+            for src in self.proc.sources
+        )
+        self.assertIn("177094", source_text)
+        _assert_177094_is_cited(self, source_text)
         self.assertIn("page 3", self.proc.primary_cite.lower())
         order = " ".join(self.proc.bay_order).lower()
         self.assertLess(order.index("gray wire"), order.index("notched"))
@@ -198,8 +258,10 @@ class TestLeadJackBaySheet(unittest.TestCase):
         self.assertEqual(problems, [], problems[:8])
         rects = flowchart_node_rects(self.proc.flowchart, *FRAME)
         self.assertEqual(flowchart_boxes_overlap(rects, gap=6.0), [])
-        low = _pdf_text(pdf).lower()
+        pdf_text = _pdf_text(pdf)
+        low = pdf_text.lower()
         self.assertIn("177094", low)
+        _assert_177094_is_cited(self, pdf_text)
         self.assertIn("gray wire", low)
         self.assertIn("notched", low)
         self.assertIn("override", low)

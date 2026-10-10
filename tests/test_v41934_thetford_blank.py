@@ -1,7 +1,12 @@
 """v4.19.34: a Thetford flush-lever turn cannot ship as a source line alone."""
 import unittest
 
-from gd_library_coach import avoid_duplicate_reply, polish_shop_reply
+from gd_library_coach import (
+    avoid_duplicate_reply,
+    guard_blank_shop_reply,
+    polish_shop_reply,
+    reply_is_source_only_or_empty,
+)
 
 SOURCE = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
 CONCERN = "toilet leaks under the flush lever when flushing"
@@ -71,6 +76,33 @@ class TestThetfordBlankReply(unittest.TestCase):
         self.assertIn("supply", reply.lower())
         self.assertIn("42088", reply)
         self.assertNotIn("rooftop", reply.lower())
+
+    def test_source_only_or_empty_falls_back_to_the_next_cited_check(self):
+        history = [
+            {"role": "user", "content": CONCERN},
+            {
+                "role": "assistant",
+                "content": (
+                    "Back of the toilet: check the water supply line connection at the water valve. "
+                    "Secure or tighten it as necessary.\n"
+                    + SOURCE
+                ),
+            },
+        ]
+        latest = "Supply connection is tight. No leak there."
+        drafts = ("", SOURCE, "📖 Source: Other Manual, page 9", "Source: page 3")
+        for draft in drafts:
+            self.assertTrue(reply_is_source_only_or_empty(draft), draft)
+            guarded = guard_blank_shop_reply(draft, history, latest, CATEGORY, MODEL)
+            self.assertFalse(reply_is_source_only_or_empty(guarded), guarded)
+            self.assertIn("weep", guarded.lower())
+            self.assertIn("📖", guarded)
+            reply = _turn(draft, latest, history)
+            self.assertFalse(reply_is_source_only_or_empty(reply), reply)
+            self.assertIn("water valve", reply.lower())
+            self.assertIn("weep", reply.lower())
+            self.assertIn("📖", reply)
+            self.assertNotEqual((reply or "").strip(), (draft or "").strip())
 
     def test_no_library_miss_line_still_ships_without_a_cite(self):
         filler = "Check the reading on this unit and write it down."

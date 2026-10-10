@@ -4860,8 +4860,17 @@ LEADJACK_OVERRIDE_LINE = (
     "Confirm the manual override screw is backed out and report what you find.\n"
     "📖 Source: Lippert TI-170, page 1"
 )
+LEADJACK_CARTRIDGE_CITE_TOWABLE = (
+    "📖 Source: Lippert Level Up Towable Owner's Manual, page 15"
+)
+LEADJACK_CARTRIDGE_CITE_FW = "📖 Source: Lippert Level Up FW Owner's Manual, page 18"
 LEADJACK_CARTRIDGE_LINE = (
-    "Replace the front lead-jack cartridge valve, part 177094.\n"
+    "Replace the front lead-jack cartridge valve, part 177094. "
+    "The parts list calls 177094 the Cartridge Valve, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 
@@ -4874,7 +4883,8 @@ def _leadjack_coil_good(blob: str) -> bool:
     )
 
 
-def _leadjack_plumbing_ok(blob: str, history: list = None, latest_msg: str = "") -> bool:
+def _leadjack_plumbing_stated(blob: str) -> bool:
+    """The plumbing fact itself. A later turn must not have to say it again."""
     low = _norm(blob)
     if re.search(r"plumbing (?:is |checks? )?(?:correct|good|ok)", low):
         return True
@@ -4890,17 +4900,61 @@ def _leadjack_plumbing_ok(blob: str, history: list = None, latest_msg: str = "")
             low,
         ):
             return True
-    if re.search(r"\b(?:correct|good|ok|okay|fine|right|confirmed)\b.{0,32}plumb", low):
-        return True
-    prev = _norm(_last_assistant_text(history))
-    latest = _norm(latest_msg or "")
-    if "notched" in prev and "plumb" in prev and re.search(
-        r"\b(?:yes|correct|confirmed|good|ok|okay|fine|right)\b|\bchecks out\b",
-        latest,
+    return bool(re.search(r"\b(?:correct|good|ok|okay|fine|right|confirmed)\b.{0,32}plumb", low))
+
+
+def _leadjack_ask_slot(text: str) -> str:
+    """Which lead-jack fact this assistant line was asking for."""
+    low = _norm(text)
+    if "notched" in low and "plumb" in low:
+        return "plumb"
+    if "override" in low:
+        return "override"
+    if "gray wire" in low or "coil" in low:
+        return "coil"
+    return ""
+
+
+def _leadjack_affirmed(text: str) -> bool:
+    low = _norm(text)
+    if not low or re.search(
+        r"\b(?:wrong|isn'?t|is not|not good|not correct|not ok|not okay|not backed)\b",
+        low,
     ):
-        if not re.search(r"\b(?:wrong|isn'?t|is not|not good|not correct|not ok|not okay)\b", latest):
-            return True
-    return False
+        return False
+    return bool(re.search(r"\b(?:yes|correct|confirmed|good|ok|okay|fine|right)\b|\bchecks out\b", low))
+
+
+def _leadjack_answered_slots(history: list = None, latest_msg: str = "") -> set[str]:
+    """Facts the tech already closed. A yes after the plumbing ask stays closed."""
+    slots: set[str] = set()
+    pending = ""
+
+    def _consider(user_text: str, pending_ask: str) -> None:
+        if _leadjack_coil_good(user_text):
+            slots.add("coil")
+        if _leadjack_plumbing_stated(user_text):
+            slots.add("plumb")
+        if _leadjack_override_out(user_text):
+            slots.add("override")
+        if pending_ask == "plumb" and _leadjack_affirmed(user_text):
+            slots.add("plumb")
+
+    for message in history or []:
+        role = message.get("role") or ""
+        content = message.get("content") or ""
+        if role == "assistant":
+            pending = _leadjack_ask_slot(content) or pending
+        elif role == "user":
+            _consider(content, pending)
+    _consider(latest_msg or "", pending)
+    return slots
+
+
+def _leadjack_plumbing_ok(blob: str, history: list = None, latest_msg: str = "") -> bool:
+    if _leadjack_plumbing_stated(blob):
+        return True
+    return "plumb" in _leadjack_answered_slots(history, latest_msg)
 
 
 def _leadjack_override_out(blob: str) -> bool:
@@ -4912,13 +4966,24 @@ def _leadjack_override_out(blob: str) -> bool:
 
 
 def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
-    """coil, then plumbing, then the override screw, then the cartridge."""
+    """coil, then plumbing, then the override screw, then the cartridge.
+
+    Answered slots stay answered. A later 'what is the repair?' does not
+    open the plumbing question again.
+    """
     blob = _user_blob(history, latest_msg)
-    if not _leadjack_coil_good(blob):
+    slots = _leadjack_answered_slots(history, latest_msg)
+    if _leadjack_coil_good(blob):
+        slots.add("coil")
+    if _leadjack_plumbing_stated(blob) or _leadjack_plumbing_ok(blob, history, latest_msg):
+        slots.add("plumb")
+    if _leadjack_override_out(blob):
+        slots.add("override")
+    if "coil" not in slots:
         return "coil"
-    if not _leadjack_plumbing_ok(blob, history, latest_msg):
+    if "plumb" not in slots:
         return "plumb"
-    if not _leadjack_override_out(blob):
+    if "override" not in slots:
         return "override"
     return "cartridge"
 
@@ -5568,6 +5633,46 @@ def _next_unused_step(
     return _with_cite(chosen, job) if chosen and "📖" not in chosen else chosen
 
 
+_SOURCE_ONLY_LINE_RE = re.compile(r"^(?:📖\s*)?source\s*:", re.I)
+
+
+def reply_is_source_only_or_empty(text: str) -> bool:
+    """True when the tech would see no shop step. A library-miss line is a step."""
+    raw = (text or "").strip()
+    if _is_library_miss_line(raw):
+        return False
+    if not raw:
+        return True
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return True
+    return all(_SOURCE_ONLY_LINE_RE.match(line) for line in lines)
+
+
+def guard_blank_shop_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """An empty reply or a bare source line becomes the next cited check."""
+    if _is_offline_notice(reply):
+        return reply
+    if not reply_is_source_only_or_empty(reply):
+        return reply
+    job = _job_key(history, latest_msg, category_name, model_text)
+    if job == "thetford":
+        nxt = _thetford_shop_line(history, latest_msg)
+    elif job == "leadjack":
+        nxt = _leadjack_shop_line(history, latest_msg)
+    else:
+        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+    if nxt and not reply_is_source_only_or_empty(nxt):
+        return nxt
+    return reply
+
+
 def polish_shop_reply(
     reply: str,
     history: list = None,
@@ -5745,6 +5850,7 @@ def polish_shop_reply(
     text = ensure_thetford_flush_reply(
         text, history, latest_msg, category_name, model_text, original=reply or ""
     )
+    text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
     return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 
@@ -5838,19 +5944,22 @@ def avoid_duplicate_reply(
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     """
+    def _out(text: str) -> str:
+        return guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+
     text = _strip_stop_no_further_tests((reply or "").strip())
     if _is_offline_notice(text):
         return text
     closed = _live_close_reply(history, latest_msg, category_name, model_text)
     if closed:
-        return closed
+        return _out(closed)
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         if "📖" not in locked:
             locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
-        return locked
+        return _out(locked)
     if not text:
-        return polish_shop_reply("", history, latest_msg, category_name, model_text)
+        return _out(polish_shop_reply("", history, latest_msg, category_name, model_text))
     prev = _last_assistant_text(history)
     already = {
         _norm(message.get("content") or "")
@@ -5877,7 +5986,7 @@ def avoid_duplicate_reply(
         chosen = chosen if chosen and _norm(chosen) not in already else polish_shop_reply(
             "", history, latest_msg, category_name, model_text
         )
-        return chosen or _final_shop_line(history, latest_msg, category_name, model_text)
+        return _out(chosen or _final_shop_line(history, latest_msg, category_name, model_text))
     if prev:
         text = _drop_repeated_checks(text, prev, history, latest_msg)
     polished = polish_shop_reply(text, history, latest_msg, category_name, model_text)
@@ -5887,11 +5996,11 @@ def avoid_duplicate_reply(
                 continue
             candidate = polish_shop_reply(line, history, latest_msg, category_name, model_text)
             if candidate and _norm(candidate) not in already:
-                return candidate
+                return _out(candidate)
         polished = ""
     if not (polished or "").strip() or (prev and _norm(polished) in already):
         polished = _final_shop_line(history, latest_msg, category_name, model_text)
-    return polished
+    return _out(polished)
 
 
 def reply_loops_furnace_12v(reply: str) -> bool:

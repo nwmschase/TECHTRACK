@@ -5881,7 +5881,9 @@ def _lead_jack_drift_path() -> dict:
         "primary_cite": "Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3.",
         "pattern_means": (
             "Front jacks that move when another circuit pressurizes, including the slides, "
-            "are a front lead-jack cartridge that leaks internally. Part 177094. "
+            "are a front lead-jack cartridge that leaks internally. Part 177094 is the "
+            "Cartridge Valve, item F, in the Lippert Level Up Towable Owner's Manual page 15 "
+            "and the Lippert Level Up FW Owner's Manual page 18. "
             "There is no bench test for that leak."
         ),
         "flowchart": _lead_jack_drift_flowchart(),
@@ -5894,13 +5896,26 @@ def _lead_jack_drift_path() -> dict:
             "and the orange extend and black retract hoses not reversed.",
             "Confirm the manual override screw is backed out.",
             "If the coil is good, the plumbing is correct, and the override screw is backed out, "
-            "replace the front lead-jack cartridge valve, part 177094.",
+            "replace the front lead-jack cartridge valve, part 177094. "
+            "The parts list calls 177094 the Cartridge Valve, item F "
+            "(Lippert Level Up Towable Owner's Manual, page 15; "
+            "Lippert Level Up FW Owner's Manual, page 18).",
         ],
         "do_not": [
             "Do not replace the cartridge before the gray-wire coil, the swap plumbing, "
             "and the manual override screw are checked.",
         ],
         "sources": [
+            {
+                "title": "Lippert Level Up Towable Owner's Manual",
+                "page": 15,
+                "excerpt": "Cartridge Valve, item F, part 177094.",
+            },
+            {
+                "title": "Lippert Level Up FW Owner's Manual",
+                "page": 18,
+                "excerpt": "Cartridge Valve, item F, part 177094.",
+            },
             {"title": "Lippert CCD-0001750", "page": 8, "excerpt": ""},
             {"title": "Lippert QR-109", "page": 3, "excerpt": ""},
             {"title": "Lippert TI-143", "page": 2, "excerpt": ""},

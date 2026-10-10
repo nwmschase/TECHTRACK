@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.34
-- v4.19.34: A Thetford flush-lever leak keeps the next cited check when the draft is only a source line. A Level Up lead-jack turn answers the plumbing question and does not wait on the model.
+- v4.19.34: A Thetford flush-lever leak keeps the next cited check when the draft is only a source line. An empty or source-only reply falls back to that check. A Level Up lead-jack turn answers the plumbing question once and does not wait on the model. Part 177094 cites the Level Up Towable Owner's Manual page 15 or the Level Up FW Owner's Manual page 18.
 - v4.19.33: Shop behavior is the v4.19.29 release again. The v4.19.31 and v4.19.32 changes are not in this deploy.
 - v4.19.32: Level Up front jacks that drift after a jack swap ask for the gray-wire coil, the swap plumbing, and the manual override screw before the lead-jack cartridge 177094.
 - v4.19.31: The FACR retest NO goes out to the clear-drain end, and the drain NO sits off the line junction. After refrigerant pressures, Guided Diagnostics authorizes rooftop assembly R&R on CCD-0007990 and does not ask for pressures again. Overnight dry-and-wait with frost back replaces the cooling unit. Confirmed Girard seating is the repair. The cooktop repair repositions the thermocouple tip in the flame, and a run-on tip sentence does not ship. The Coleman authorization drops the extra stop line. Ask turns use a smaller library context and a low reasoning cap.
@@ -4469,6 +4469,9 @@ def guided_diagnostics_reply(
         reply = _gdc.without_reading_filler(
             reply, history, user_msg, category_name, model_text
         )
+        reply = _gdc.guard_blank_shop_reply(
+            reply, history, user_msg, category_name, model_text
+        )
         return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
     if HARD_TREE_EXCLUSIVE_CHAT:
         result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
@@ -4501,6 +4504,9 @@ def guided_diagnostics_reply(
         reply, history, user_msg, category_name, model_text
     )
     reply = _gdc.without_reading_filler(
+        reply, history, user_msg, category_name, model_text
+    )
+    reply = _gdc.guard_blank_shop_reply(
         reply, history, user_msg, category_name, model_text
     )
     return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
