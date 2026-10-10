@@ -8,8 +8,11 @@ from gd_library_coach import (
     COOKTOP_TIP_LOW_REPAIR,
     FACT12_FREEZE_RESECURE_LINE,
     avoid_duplicate_reply,
+    category_conflicts_with_model,
     extract_bal_tongue_facts,
     facr_reported_assembly_rr_line,
+    is_air_conditioning_context,
+    is_water_heater_context,
     polish_shop_reply,
 )
 
@@ -231,6 +234,110 @@ class TestShopReplyPolish(unittest.TestCase):
         self.assertEqual(FACT12_FREEZE_RESECURE_LINE.lower().count("not in the shop library"), 1)
         self.assertNotIn("closest reference", FACT12_FREEZE_RESECURE_LINE.lower())
         self.assertIn("do not replace the control board first", FACT12_FREEZE_RESECURE_LINE.lower())
+
+    def test_category_does_not_override_a_named_model(self):
+        self.assertFalse(
+            is_air_conditioning_context("Air Conditioning", "Girard GSWH-2", "E8 code")
+        )
+        self.assertTrue(
+            is_water_heater_context("Air Conditioning", "Girard GSWH-2", "E8 code")
+        )
+        self.assertTrue(category_conflicts_with_model("Air Conditioning", "Girard GSWH-2", "E8"))
+        self.assertTrue(
+            is_air_conditioning_context("Air Conditioning", "Furrion FACT12SA2", "E2")
+        )
+
+    def test_noted_claims_have_to_be_in_the_tech_message(self):
+        history = [{"role": "assistant", "content": "Bypass the wall thermostat at the furnace."}]
+        sail = polish_shop_reply(
+            "The sail switch, limits, ignition, and gas valve is good. "
+            "Prove the sail switch with the blower running.",
+            history,
+            "Bypass operates the furnace.",
+        )
+        self.assertNotIn("gas valve", sail.lower())
+        self.assertIn("sail switch", sail.lower())
+        reported = polish_shop_reply(
+            "The petit tube alignment was reported. Align the petit tube in the burner flame.",
+            history,
+            "Tubing is clear.",
+        )
+        self.assertNotIn("was reported", reported.lower())
+        self.assertIn("align the petit tube", reported.lower())
+        pin = polish_shop_reply(
+            "The roll pin or override coupler is broken or seized. "
+            "Replace the complete front stabilizer jack assembly.",
+            history,
+            "Power works. Manual crank will not operate.",
+        )
+        self.assertNotIn("is broken", pin.lower())
+        self.assertIn("replace the complete", pin.lower())
+        flame = polish_shop_reply(
+            "Heard: the burner lights but goes out when the pan is placed. "
+            "Reposition the thermocouple tip in the burner flame with the pan on.",
+            history,
+            "It shuts off as soon as a pan is put on it.",
+        )
+        self.assertNotIn("goes out", flame.lower())
+        self.assertNotIn("heard:", flame.lower())
+        self.assertIn("reposition", flame.lower())
+
+    def test_a_reply_is_not_only_a_source_line_or_a_bare_repair_label(self):
+        source_only = polish_shop_reply(
+            "📖 Source: Girard tankless water heater service manual",
+            [{"role": "user", "content": "Girard GSWH-2 E8. Tubing is clear."},
+             {"role": "assistant", "content": "Check the vent."}],
+            "Tubing is clear.",
+        )
+        self.assertIn("align", source_only.lower())
+        bare = polish_shop_reply(
+            "That is the repair.",
+            [
+                {"role": "user", "content": "FACT12SA2-PS shows E3 and the freeze sensor is off the coil."},
+                {"role": "assistant", "content": FACT12_FREEZE_RESECURE_LINE},
+            ],
+            "The sensor was disconnected.",
+        )
+        self.assertNotEqual(bare.strip().lower(), "that is the repair.")
+        self.assertTrue(re.search(r"\b(?:confirm|reseat|resecure|write|fasten)\b", bare, re.I))
+
+    def test_a_long_tech_message_is_not_echoed(self):
+        history = [{"role": "assistant", "content": "Bypass the wall thermostat at the furnace."}]
+        latest = "I jumped red and white at the furnace and the burner lights and the blower runs."
+        reply = polish_shop_reply(
+            "Replace the wall thermostat. That is the repair.",
+            history,
+            latest,
+        )
+        self.assertNotIn("jumped red and white", reply.lower())
+        self.assertIn("thermostat", reply.lower())
+
+    def test_the_dial_instruction_and_the_cooktop_guard_do_not_repeat(self):
+        history = [
+            {"role": "assistant", "content": "Turn the thermostat dial to 4-5 and recheck the rear wall."},
+        ]
+        reply = polish_shop_reply(
+            "Set the thermostat dial to 4 to 5 and look at the rear wall again.",
+            history,
+            "Rear wall ice is still there.",
+        )
+        self.assertNotIn("4 to 5", reply.lower())
+        self.assertNotIn("4-5", reply.lower())
+        self.assertTrue(re.search(r"\b(?:dry|month|replace|gasket|write)\b", reply, re.I))
+        guard = polish_shop_reply(
+            "Before condemning the thermocouple, confirm the flame is present with the pan on. "
+            "1. Confirm the flame is present with the pan on. "
+            "2. Remove the pan and watch the flame. "
+            "3. Check the thermocouple position against the manual. "
+            "Does the unit have a thermocouple or flame sensor, and is the tip in the flame with the pan on? "
+            "Reposition the thermocouple tip in the burner flame with the pan on. Figs. That is the repair.",
+            [],
+            "It shuts off as soon as a pan is put on it.",
+        )
+        self.assertNotIn("before condemning", guard.lower())
+        self.assertNotIn("does the unit have", guard.lower())
+        self.assertNotRegex(guard, r"\bFigs\.(?!\s*\d)")
+        self.assertIn("reposition", guard.lower())
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.19"
+MODULE_REVISION = "v4.19.20"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -3086,6 +3086,16 @@ def _doc_ids(title: str) -> set[str]:
     return {match.group(0).lower() for match in re.finditer(r"ccd-0*\d{4,}|\b\d{4}-\d{3}\b", title or "", re.I)}
 
 
+def _manual_family(title: str) -> str:
+    """Titles that are the same manual under two labels."""
+    text = (title or "").lower()
+    if "suburban" in text and any(token in text for token in ("range", "cooktop", "sdn")):
+        return "suburban-range"
+    if "suburban" in text and "furnace" in text:
+        return "suburban-furnace"
+    return ""
+
+
 def _dedupe_cited_pages(sources: list[dict]) -> list[dict]:
     """One line per manual page. A second title for the same page does not print."""
     kept: list[dict] = []
@@ -3103,7 +3113,9 @@ def _dedupe_cited_pages(sources: list[dict]) -> list[dict]:
             prev_ids = _doc_ids(prev.get("title") or "")
             same_doc = bool(ids and prev_ids and (ids & prev_ids))
             same_title = title and title == (prev.get("title") or "").strip().lower()
-            if not same_doc and not same_title:
+            family = _manual_family(src.get("title") or "")
+            same_family = bool(family and family == _manual_family(prev.get("title") or ""))
+            if not same_doc and not same_title and not same_family:
                 continue
             duplicate = prev
             break
@@ -5311,6 +5323,39 @@ def _cooktop_tip_path() -> dict:
     }
 
 
+def bind_primary_sources(proc: "BayProcedure") -> "BayProcedure":
+    """A page named in PRIMARY stays in Sources, with no quote unless one was kept.
+
+    An installation manual or a discontinued sheet that won the cite is not
+    put back after the source pass dropped it.
+    """
+    pages = [
+        int(number)
+        for number in re.findall(r"\bpage\s+(\d{1,3})\b", proc.primary_cite or "", flags=re.I)
+    ]
+    if not pages:
+        return proc
+    title = re.sub(r"\s+", " ", proc.primary_cite or "").strip()
+    title = re.sub(r",?\s*\bpage\s+\d+.*$", "", title, flags=re.I).strip(" .,")
+    title = re.sub(r",?\s*\bfigs?\..*$", "", title, flags=re.I).strip(" .,")
+    title = title or "Shop Document Library"
+    low = title.lower()
+    if any(token in low for token in ("installation", "discontinued", "ti-005")):
+        proc.sources = _dedupe_cited_pages(proc.sources)
+        return proc
+    have = {src.get("page") for src in proc.sources}
+    if proc.sources and pages and have & set(pages):
+        proc.sources = _dedupe_cited_pages(proc.sources)
+        return proc
+    for page in pages:
+        if page in have:
+            continue
+        proc.sources.append({"title": title, "page": page, "excerpt": ""})
+        have.add(page)
+    proc.sources = _dedupe_cited_pages(proc.sources)
+    return proc
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -5623,7 +5668,7 @@ def compile_bay_procedure(
     proc = apply_sheet_standard(proc)
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
-    return apply_shop_channel_wording(proc)
+    return bind_primary_sources(apply_shop_channel_wording(proc))
 
 
 def _is_fact12_job(model_text: str) -> bool:

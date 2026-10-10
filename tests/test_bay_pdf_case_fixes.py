@@ -1406,3 +1406,72 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("burner knobs", text.lower())
         self.assertIn("thermocouple", text.lower())
         self.assertTrue(any(src.get("page") == 4 for src in proc.sources))
+
+
+class TestPrimaryPageKeepsASource(unittest.TestCase):
+    def test_s08_sources_match_the_primary_page(self):
+        proc, text = _sheet(
+            "Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
+            "Suburban",
+            "NT-20SEQT",
+            "Furnaces",
+        )
+        pages = {int(number) for number in re.findall(r"\bpage\s+(\d+)", proc.primary_cite, re.I)}
+        self.assertTrue(pages, proc.primary_cite)
+        self.assertTrue(proc.sources)
+        self.assertTrue(pages & {src.get("page") for src in proc.sources})
+        self.assertIn(
+            "suburban furnace",
+            " ".join(src.get("title") or "" for src in proc.sources).lower(),
+        )
+        self.assertIn("sources", text.lower())
+        quoted = " ".join(src.get("excerpt") or "" for src in proc.sources)
+        self.assertFalse(quoted.strip())
+
+    def test_a_primary_page_is_never_left_without_sources(self):
+        samples = [
+            (
+                "Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
+                "Suburban",
+                "NT-20SEQT",
+                "Furnaces",
+                [],
+            ),
+            (
+                "Dometic B57915 rooftop air conditioner is not cooling.",
+                "Dometic",
+                "B57915",
+                "Air Conditioning",
+                [],
+            ),
+            (
+                "Suburban SDN2U cooktop. Burner goes out with a pan on.",
+                "Suburban",
+                "SDN2U",
+                "Cooktops",
+                [
+                    {"title": "Suburban SDN2U Range/Cooktops SM", "page": 4, "excerpt": ""},
+                    {"title": "Suburban Range/Cooktops service manual", "page": 4, "excerpt": ""},
+                ],
+            ),
+        ]
+        for concern, brand, model, category, chunks in samples:
+            proc, _text = _sheet(concern, brand, model, category, chunks=chunks)
+            pages = {int(number) for number in re.findall(r"\bpage\s+(\d+)", proc.primary_cite, re.I)}
+            if not pages:
+                continue
+            self.assertTrue(proc.sources, proc.primary_cite)
+            self.assertTrue(pages & {src.get("page") for src in proc.sources}, proc.primary_cite)
+
+    def test_s15_lists_page_4_once(self):
+        proc, _text = _sheet(
+            "Suburban SDN2U cooktop. Burner goes out with a pan on.",
+            "Suburban",
+            "SDN2U",
+            "Cooktops",
+            chunks=[
+                {"title": "Suburban SDN2U Range/Cooktops SM", "page": 4, "excerpt": ""},
+                {"title": "Suburban Range/Cooktops service manual", "page": 4, "excerpt": ""},
+            ],
+        )
+        self.assertEqual(sum(1 for src in proc.sources if src.get("page") == 4), 1)

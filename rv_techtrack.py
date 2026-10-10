@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.19
+RV TechTrack v4.19.20
+- v4.19.20: Start new chat clears Category. A named model beats a leftover category. A shop reply keeps a short traceable fact or none, and it always has a next step. A Bay sheet that names a page in PRIMARY keeps that page in Sources.
 - v4.19.19: A Sources quote is copied from a retrieved manual chunk for that page, or the cite has no quote. Expected pages stay on the sheet. Guided Diagnostics does not show a model instruction, does not invent a fact the tech did not report, and does not echo a fallback question.
 - v4.19.18: A Sources quote is one verbatim sentence from that page, or the page is cited with no quote. FACT12 repairs stay on a FACT12 model. The same canned reply is not sent twice in a row.
 - v4.19.17: A Sources quote is one complete sentence about this procedure. Table glue, headings, catalog lines, scan text, and off-topic pages stay off the sheet. Guided Diagnostics drops an instruction echo, does not repeat a check the tech already answered, and gives the repair once the facts support it. The cooktop tip cites Suburban SDN2U page 4, Figs. 3-4. Turn-1 tongue, ceiling, and Ground Control replies are short steps.
@@ -194,7 +195,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.19"
+_GDC_REQUIRED_REVISION = "v4.19.20"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -4802,8 +4803,15 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
 
     stated = format_stated_facts_rule(facts)
     system_prompt = ASK_TECHTRACK_SYSTEM
-    if category_name:
+    if category_name and not _gdc.category_conflicts_with_model(
+        category_name, model_text, search_symptom
+    ):
         system_prompt += f"\n\nCategory selected: {category_name}"
+    elif _gdc.category_conflicts_with_model(category_name, model_text, search_symptom):
+        system_prompt += (
+            "\n\nThe category dropdown does not match this model. "
+            "Follow the model and its manual."
+        )
     if model_text:
         system_prompt += f"\nModel/system: {model_text}"
     if is_furnace_context(category_name, model_text, search_symptom):
@@ -5565,6 +5573,9 @@ with tab_ask:
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = gd_category_select_options([c.name for c in cats])
     _restore_widget("ask_cat", "gd_category_memory", cat_names)
+    if st.session_state.pop("ask_clear_cat", False):
+        st.session_state["ask_cat"] = "(any)"
+        st.session_state["gd_category_memory"] = "(any)"
     if st.session_state.pop("ask_clear_model", False):
         st.session_state["ask_model"] = ""
         st.session_state["gd_model_memory"] = ""
@@ -5749,6 +5760,8 @@ with tab_ask:
         st.session_state["ask_reset_input"] = True
         st.session_state["ask_clear_model"] = True
         st.session_state["gd_model_memory"] = ""
+        st.session_state["ask_clear_cat"] = True
+        st.session_state["gd_category_memory"] = "(any)"
         st.rerun()
 
     if write_story:
