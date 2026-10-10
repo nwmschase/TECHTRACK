@@ -133,17 +133,19 @@ class TestChunkQuotes(unittest.TestCase):
             "FACT12SA2",
             "Air Conditioning",
         )
-        self.assertEqual(len(proc.sources), 1)
-        self.assertEqual(
-            proc.sources[0]["title"],
-            "Furrion CCD-0008666 (FACR08 manual, closest reference)",
-        )
-        self.assertEqual(proc.sources[0]["page"], 5)
-        self.assertFalse((proc.sources[0].get("excerpt") or "").strip())
-        plain = procedure_plain_text(proc)
-        self.assertIn("Furrion CCD-0008666 (FACR08 manual, closest reference) p.5", plain)
-        self.assertNotIn("not in the library", plain.lower())
-        self.assertNotIn("see doc", plain.lower())
+        self.assertEqual(len(proc.sources), 2)
+        pages = {src.get("page") for src in proc.sources}
+        self.assertEqual(pages, {15, 18})
+        self.assertTrue(all("CCD-0008666" in (src.get("title") or "") for src in proc.sources))
+        self.assertFalse(any("closest reference" in (src.get("title") or "").lower() for src in proc.sources))
+        self.assertFalse(any((src.get("excerpt") or "").strip() for src in proc.sources))
+        plain = procedure_plain_text(proc).lower()
+        self.assertIn("data line", plain)
+        self.assertIn("page 15", plain)
+        self.assertIn("page 18", plain)
+        self.assertNotIn("closest reference", plain)
+        self.assertNotIn("not in the library", plain)
+        self.assertNotIn("see doc", plain)
 
     def test_dial_off_master_keeps_the_full_model(self):
         proc = compile_bay_procedure(
@@ -208,6 +210,7 @@ class TestShopReplyPolish(unittest.TestCase):
         self.assertNotIn("no sticky", low)
         self.assertNotIn("after reset", low)
         self.assertIn("thaw", low)
+        self.assertNotIn("unchanged", low)
 
     def test_cooktop_repair_does_not_invent_tip_height_or_ask_to_pivot(self):
         self.assertNotIn("sits low", COOKTOP_TIP_LOW_REPAIR.lower())
@@ -231,9 +234,11 @@ class TestShopReplyPolish(unittest.TestCase):
         self.assertEqual(reply.lower().count("check for 12v"), 1)
 
     def test_library_gap_is_one_line_of_shop_advice(self):
-        self.assertEqual(FACT12_FREEZE_RESECURE_LINE.lower().count("not in the shop library"), 1)
+        self.assertNotIn("not in the shop library", FACT12_FREEZE_RESECURE_LINE.lower())
         self.assertNotIn("closest reference", FACT12_FREEZE_RESECURE_LINE.lower())
-        self.assertIn("do not replace the control board first", FACT12_FREEZE_RESECURE_LINE.lower())
+        self.assertNotIn("do not replace the control board first", FACT12_FREEZE_RESECURE_LINE.lower())
+        self.assertIn("reseat", FACT12_FREEZE_RESECURE_LINE.lower())
+        self.assertIn("page 5", FACT12_FREEZE_RESECURE_LINE.lower())
 
     def test_category_does_not_override_a_named_model(self):
         self.assertFalse(
@@ -289,7 +294,9 @@ class TestShopReplyPolish(unittest.TestCase):
              {"role": "assistant", "content": "Check the vent."}],
             "Tubing is clear.",
         )
-        self.assertIn("align", source_only.lower())
+        self.assertIn("suction", source_only.lower())
+        self.assertIn("blower", source_only.lower())
+        self.assertNotIn("burner flame", source_only.lower())
         bare = polish_shop_reply(
             "That is the repair.",
             [
@@ -310,7 +317,8 @@ class TestShopReplyPolish(unittest.TestCase):
             latest,
         )
         self.assertNotIn("jumped red and white", reply.lower())
-        self.assertIn("thermostat", reply.lower())
+        self.assertIn("sail switch", reply.lower())
+        self.assertNotIn("replace the wall thermostat", reply.lower())
 
     def test_the_dial_instruction_and_the_cooktop_guard_do_not_repeat(self):
         history = [
@@ -323,7 +331,8 @@ class TestShopReplyPolish(unittest.TestCase):
         )
         self.assertNotIn("4 to 5", reply.lower())
         self.assertNotIn("4-5", reply.lower())
-        self.assertTrue(re.search(r"\b(?:dry|month|replace|gasket|write)\b", reply, re.I))
+        self.assertNotIn("unchanged", reply.lower())
+        self.assertTrue(re.search(r"\b(?:dry|month|replace|gasket|frost)\b", reply, re.I))
         guard = polish_shop_reply(
             "Before condemning the thermocouple, confirm the flame is present with the pan on. "
             "1. Confirm the flame is present with the pan on. "
@@ -378,7 +387,9 @@ class TestLiveTranscripts(unittest.TestCase):
         self.assertNotIn("noted:", joined)
         self.assertIn("peacemaker", replies[1].lower())
         self.assertIn("capacitor", replies[2].lower())
-        self.assertIn("do not replace the full 2111-0001 assembly", replies[3].lower())
+        self.assertIn("fan motor", replies[3].lower())
+        self.assertIn("control board", replies[3].lower())
+        self.assertNotIn("do not replace the full 2111-0001 assembly", replies[3].lower())
 
     def test_s03_drops_the_echo_and_the_second_panel_sentence(self):
         replies = _turns([
@@ -428,7 +439,8 @@ class TestLiveTranscripts(unittest.TestCase):
         ])
         self.assertNotIn("noted:", "\n".join(replies).lower())
         self.assertNotIn("dial adjustment", replies[4].lower())
-        self.assertIn("month", replies[4].lower())
+        self.assertNotIn("unchanged", replies[4].lower())
+        self.assertIn("frost", replies[4].lower())
         self.assertNotEqual(_collapse(replies[2]), _collapse(replies[3]))
 
     def test_s07_does_not_call_a_voltage_cycle_near_nominal(self):
@@ -457,10 +469,12 @@ class TestLiveTranscripts(unittest.TestCase):
             ),
         ])
         self.assertNotIn("are good", replies[1].lower())
-        self.assertNotIn("sail switch", replies[1].lower())
-        self.assertIn("wall thermostat", replies[1].lower())
-        self.assertIn("replace the wall thermostat", replies[2].lower())
-        self.assertNotIn("that is the repair", replies[2].lower())
+        self.assertIn("sail switch", replies[1].lower())
+        self.assertNotIn("replace the wall thermostat", replies[1].lower())
+        self.assertNotIn("replace the wall thermostat", replies[2].lower())
+        self.assertNotIn("voltage is missing", replies[2].lower())
+        self.assertNotIn("unchanged", replies[2].lower())
+        self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
 
     def test_s11_states_the_repair_once_then_does_not_repeat_the_sentence(self):
         replies = _turns([
@@ -484,11 +498,14 @@ class TestLiveTranscripts(unittest.TestCase):
         joined = "\n".join(replies).lower()
         self.assertNotIn("noted:", joined)
         self.assertNotIn("that is the repair", replies[3].lower())
-        self.assertIn("repair stands:", replies[1].lower())
-        self.assertEqual(joined.count("repair stands:"), 1)
+        self.assertNotIn("repair stands", joined)
+        self.assertNotIn("unchanged", joined)
+        self.assertNotIn("not in the shop library", replies[0].lower())
+        self.assertIn("before any repair", replies[0].lower())
+        self.assertIn("data line", replies[2].lower())
+        self.assertIn("reseat", replies[3].lower())
         self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
         self.assertNotEqual(_collapse(replies[2]), _collapse(replies[3]))
-        self.assertIn("do not replace the control board first", replies[0].lower())
 
     def test_s13_does_not_claim_the_alignment_was_reported(self):
         replies = _turns([
@@ -508,9 +525,11 @@ class TestLiveTranscripts(unittest.TestCase):
         ])
         self.assertNotIn("noted:", "\n".join(replies).lower())
         self.assertNotIn("was reported", replies[1].lower())
-        self.assertIn("align the petit tube", replies[1].lower())
-        self.assertIn("do not replace the control board", replies[1].lower())
-        self.assertIn("repair stands:", replies[2].lower())
+        self.assertIn("blower", replies[1].lower())
+        self.assertIn("suction", replies[1].lower())
+        self.assertNotIn("burner flame", replies[1].lower())
+        self.assertNotIn("repair stands", replies[2].lower())
+        self.assertNotIn("unchanged", replies[2].lower())
         self.assertNotIn("that is the repair", replies[2].lower())
         self.assertNotEqual(_collapse(replies[1]), _collapse(replies[2]))
 

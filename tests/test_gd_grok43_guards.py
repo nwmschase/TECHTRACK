@@ -9,8 +9,10 @@ from gd_library_coach import (
     DOMETIC_CEILING_LINE,
     DOMETIC_NOCOOL_CONFIRM_FAN,
     DOMETIC_NOCOOL_OPEN,
+    FURNACE_SAIL_PROVE_LINE,
     FURNACE_WALL_TSTAT_LINE,
     GROUND_CONTROL_LEVEL_LINE,
+    GROUND_CONTROL_PROVE_LINE,
     GROUND_CONTROL_STAY_LINE,
     chunk_matches_asked_brand,
     cooktop_tip_sits_low,
@@ -126,7 +128,13 @@ class TestGroundControlRetrieval(unittest.TestCase):
 
     def test_library_miss_becomes_manual_level_and_zero_point(self):
         miss = "The library has no Ground Control docs, so there are no steps."
-        fixed = ensure_ground_control_level_path(miss)
+        prove = ensure_ground_control_level_path(miss)
+        self.assertEqual(prove, GROUND_CONTROL_PROVE_LINE)
+        self.assertNotIn("front five", prove.lower())
+        fixed = ensure_ground_control_level_path(
+            miss,
+            history=[{"role": "user", "content": "The plugs are seated."}],
+        )
         self.assertEqual(fixed, GROUND_CONTROL_LEVEL_LINE)
         self.assertTrue(reply_names_ground_control_calibration(fixed))
         low = fixed.lower()
@@ -146,10 +154,16 @@ class TestGroundControlRetrieval(unittest.TestCase):
             "Check the wiring harness and swap the level sensor."
         )
         first = ensure_ground_control_level_path(opener)
-        self.assertEqual(first, GROUND_CONTROL_LEVEL_LINE)
+        self.assertEqual(first, GROUND_CONTROL_PROVE_LINE)
         self.assertNotIn("swap the level sensor", first.lower())
         self.assertNotIn("check the wiring harness", first.lower())
-        self.assertIn("do not replace a harness", first.lower())
+        self.assertNotIn("do not replace a harness", first.lower())
+        sequenced = ensure_ground_control_level_path(
+            opener,
+            history=[{"role": "user", "content": "The plugs are seated."}],
+        )
+        self.assertEqual(sequenced, GROUND_CONTROL_LEVEL_LINE)
+        first = sequenced
         later = ensure_ground_control_level_path(
             opener,
             history=[{"role": "assistant", "content": first}],
@@ -221,14 +235,13 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
         low = fixed.lower()
         self.assertIn("replace the ceiling thermostat/selector", low)
         self.assertNotIn("filter", low)
-        self.assertIn("3311071", fixed)
+        self.assertIn("brisk ii", low)
+        self.assertIn("page 23", low)
         steered = ensure_dometic_ceiling_thermostat(loop, {})
         self.assertEqual(steered, DOMETIC_NOCOOL_CONFIRM_FAN)
         self.assertIn("3311071", steered)
         self.assertIn("confirm the fan runs", steered.lower())
         self.assertIn("peacemaker", steered.lower())
-        self.assertIn("ceiling selector", steered.lower())
-        self.assertLess(steered.lower().index("peacemaker"), steered.lower().index("filter"))
         self.assertNotIn("clean the filter", steered.lower())
         self.assertNotIn("library has no", steered.lower())
         opening = (
@@ -286,8 +299,8 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
         self.assertIn("peacemaker", low)
         self.assertIn("3311071", turn1)
         self.assertNotIn("library has no", low)
-        self.assertLess(low.index("peacemaker"), low.index("filter"))
         self.assertNotIn("clean the filter", low)
+        self.assertNotIn("start on the filter", low)
         self.assertNotIn("channel", low)
         kept = filter_chunks_for_unit(
             [FILTER_PAGE, DIAG_PAGE], "Air Conditioning", "B57915E711J0EMX", complaint
@@ -376,17 +389,27 @@ class TestFurnaceWallThermostat(unittest.TestCase):
         fixed = ensure_furnace_wall_thermostat(
             loop, history, latest, "Furnaces", "Suburban NT-20SEQT"
         )
-        self.assertEqual(fixed, FURNACE_WALL_TSTAT_LINE)
+        self.assertEqual(fixed, FURNACE_SAIL_PROVE_LINE)
         low = fixed.lower()
-        self.assertIn("replace the wall thermostat", low)
-        self.assertIn("wire run", low)
-        self.assertIn("voltage is missing", low)
+        self.assertIn("sail switch", low)
+        self.assertNotIn("wire run", low)
+        self.assertNotIn("voltage is missing", low)
+        self.assertNotIn("replace the wall thermostat", low)
         self.assertFalse(reply_loops_furnace_12v(fixed))
         self.assertNotIn("12 v", low)
         early = ensure_furnace_wall_thermostat(
             loop, history, "Still looking.", "Furnaces", "Suburban NT-20SEQT"
         )
-        self.assertEqual(early, loop)
+        self.assertEqual(early, FURNACE_SAIL_PROVE_LINE)
+        reported = history + [
+            {"role": "assistant", "content": fixed},
+            {"role": "user", "content": "Sail switch has power in and power out."},
+        ]
+        replaced = ensure_furnace_wall_thermostat(
+            loop, reported, latest, "Furnaces", "Suburban NT-20SEQT"
+        )
+        self.assertEqual(replaced, FURNACE_WALL_TSTAT_LINE)
+        self.assertNotIn("voltage is missing", replaced.lower())
 
     def test_library_cover_line_is_said_at_most_once(self):
         cover = "The library does not cover this."
@@ -406,18 +429,22 @@ class TestFurnaceWallThermostat(unittest.TestCase):
         first = ensure_furnace_wall_thermostat(
             repair, history, "What is the repair?", "Furnaces", "Suburban NT-20SEQT"
         )
-        self.assertEqual(first.lower().count("does not cover"), 1)
-        self.assertIn("replace the wall thermostat", first.lower())
+        self.assertEqual(first.lower().count("does not cover"), 0)
+        self.assertIn("sail switch", first.lower())
+        self.assertNotIn("replace the wall thermostat", first.lower())
         again = ensure_furnace_wall_thermostat(
             repair,
-            history + [{"role": "assistant", "content": first}],
+            history + [
+                {"role": "assistant", "content": first},
+                {"role": "user", "content": "Sail switch has power in and power out."},
+            ],
             "What is the repair?",
             "Furnaces",
             "Suburban NT-20SEQT",
         )
         self.assertNotIn("does not cover", again.lower())
         self.assertIn("replace the wall thermostat", again.lower())
-        self.assertIn("wire run", again.lower())
+        self.assertNotIn("wire run", again.lower())
 
     def test_coleman_and_cooktop_are_not_this_furnace_commit(self):
         reply = "Check 12 VDC at the wall thermostat."

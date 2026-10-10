@@ -199,12 +199,12 @@ class TestIceMoistureGuard(unittest.TestCase):
         self.assertIn("ice and moisture", low)
         self.assertIn("page 36", low)
         self.assertIn("fig.36", low.replace(" ", "").replace("fig. 36", "fig.36"))
-        self.assertIn("gasket", low)
+        self.assertIn("dial", low)
         self.assertNotIn("fuse location", low)
         self.assertIn(ICE_MOISTURE_SHOP_LINE.split("\n")[0][:40], fixed)
         self.assertIn("📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36", fixed)
-        self.assertIn("1 month", fixed.lower())
-        self.assertIn("replace the unit", fixed.lower())
+        self.assertNotIn("1 month", fixed.lower())
+        self.assertNotIn("replace the unit", fixed.lower())
 
     def test_good_p36_reply_gains_month_close(self):
         good = (
@@ -218,8 +218,8 @@ class TestIceMoistureGuard(unittest.TestCase):
         self.assertFalse(ice_moisture_reply_needs_guard(good))
         fixed = ensure_fridge_ice_moisture_path(good)
         self.assertTrue(fixed.startswith(good))
-        self.assertIn("1 month", fixed.lower())
-        self.assertIn("replace the unit", fixed.lower())
+        self.assertNotIn("1 month", fixed.lower())
+        self.assertNotIn("replace the unit", fixed.lower())
         self.assertNotIn("fuse location", fixed.lower())
         again = ensure_fridge_ice_moisture_path(fixed)
         self.assertEqual(again, fixed)

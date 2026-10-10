@@ -9,6 +9,7 @@ from gd_library_coach import (
     COOKTOP_TIP_LOW_REPAIR,
     DOMETIC_CEILING_LINE,
     FACR_REPORTED_ASSEMBLY_RR_LINE,
+    FACT12_E2_PROVE_LINE,
     FACT12_FREEZE_RESECURE_LINE,
     FURNACE_WALL_TSTAT_LINE,
     GIRARD_PETIT_ALIGN_LINE,
@@ -76,7 +77,8 @@ class TestCannedRepairsStayOnTheirModel(unittest.TestCase):
             "FACT12SA2-PS",
             "E2 error code; sometimes normal.",
         )
-        self.assertEqual(fixed, FACT12_FREEZE_RESECURE_LINE)
+        self.assertEqual(fixed, FACT12_E2_PROVE_LINE)
+        self.assertIn("before any repair", fixed.lower())
 
     def test_coleman_transcript_authorizes_motor_and_board(self):
         history = []
@@ -118,7 +120,9 @@ class TestCannedRepairsStayOnTheirModel(unittest.TestCase):
         self.assertTrue(facr_reported_path_supports_rr(facts), facts)
         self.assertIsNone(facts.get("facr_nozzle"))
         card = ensure_facr_freeze_assembly_rr("Read the refrigerant pressures.", facts)
-        self.assertEqual(card, FACR_REPORTED_ASSEMBLY_RR_LINE)
+        self.assertIn("refrigerant pressures", card.lower())
+        self.assertNotEqual(card, FACR_REPORTED_ASSEMBLY_RR_LINE)
+        self.assertNotIn("replace the rooftop assembly", card.lower())
 
     def test_three_proves_without_the_pan_still_withhold_rr(self):
         facts = {
@@ -159,8 +163,10 @@ class TestNoRepeat(unittest.TestCase):
         ]
         again = avoid_duplicate_reply(first, history, "What is the repair?")
         self.assertNotEqual(_norm(again), _norm(first))
-        self.assertIn("wall thermostat", again.lower())
+        self.assertIn("sail switch", again.lower())
         self.assertNotIn("what is the repair", again.lower())
+        self.assertNotIn("repair stands", again.lower())
+        self.assertNotIn("unchanged", again.lower())
         self.assertNotIn("that check was already asked", again.lower())
         third = avoid_duplicate_reply(first, history + [
             {"role": "user", "content": "What is the repair?"},
@@ -271,7 +277,7 @@ class TestSourceQuotes(unittest.TestCase):
         titles = " ".join(src.get("title") or "" for src in proc.sources)
         self.assertEqual(
             [src.get("title") for src in proc.sources],
-            ["Furrion CCD-0008666 (FACR08 manual, closest reference)"],
+            ["Furrion Chill FACR08 8K manual CCD-0008666"],
         )
         self.assertNotIn("not in the library", titles.lower())
         self.assertTrue(any(src.get("page") == 5 and "8666" in (src.get("title") or "") for src in proc.sources))
