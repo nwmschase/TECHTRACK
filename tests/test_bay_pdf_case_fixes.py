@@ -1012,6 +1012,29 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertNotIn("21)", text)
         self.assertIn("F+", text)
 
+    def test_s07_drops_a_trailing_noun_phrase(self):
+        excerpt = clean_source_excerpt(
+            "Connect power to the appliance and locate the inverter PCB. "
+            "Fan quick connection to harness."
+        )
+        self.assertIn("locate the inverter PCB", excerpt)
+        self.assertNotIn("quick connection", excerpt.lower())
+        self.assertNotIn("harness", excerpt.lower())
+        part = clean_source_excerpt(
+            "Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007). "
+            "Reseat the probe and reconnect the wires."
+        )
+        self.assertIn("2021128850", part)
+        self.assertIn("Reseat", part)
+        alone = clean_source_excerpt(
+            "Rooftop assembly, condensate drain, base pan, and freeze path."
+        )
+        self.assertIn("condensate drain", alone.lower())
+        voltage = clean_source_excerpt(
+            "Sensor comm (typical 3-9V). If a sensor wire is open, replace the sensor."
+        )
+        self.assertIn("3-9V", voltage)
+
     def test_s10_yes_label_sits_on_the_repeat_branch_and_the_range_survives(self):
         proc, text = _sheet(
             GROUNDED,
