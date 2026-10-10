@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.31"
+COACH_REVISION = "v4.19.32"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -891,6 +891,42 @@ def is_level_up_library_title(title: str) -> bool:
     return False
 
 
+_LEAD_JACK_DRIFT_RE = re.compile(
+    r"\bdrift(?:s|ing)?\b|move on (?:their|its) own|pressuriz|"
+    r"front[-\s]*left jack|lead[-\s]*jack|cartridge valve|\b177094\b",
+    re.I,
+)
+
+
+def is_level_up_lead_jack_drift_context(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> bool:
+    """Front jacks drift after a jack swap when another circuit pressurizes.
+
+    This is the lead-jack cartridge. It is not Manual Mode flash-home and not
+    Ground Control or a stabilizer jack.
+    """
+    blob = _blob(category_name, model_text, symptom)
+    if not blob or not _LEAD_JACK_DRIFT_RE.search(blob):
+        return False
+    if _has_manual_mode_dump_marker(blob):
+        return False
+    if is_ground_control_manual(blob) and not re.search(r"level[\s-]*up", blob):
+        return False
+    if re.search(r"\bstabilizer\b|\bpsx1\b|\broll pin\b", blob) and not re.search(
+        r"level[\s-]*up|lead[-\s]*jack|cartridge", blob
+    ):
+        return False
+    level_up = bool(re.search(r"level[\s-]*up|levelup|\boctp\b", blob))
+    hydraulic = "hydraulic" in blob and "level" in blob
+    leveling = "leveling" in _norm(category_name) and (
+        "lippert" in blob or "jack" in blob or level_up
+    )
+    return bool(level_up or hydraulic or leveling)
+
+
 def is_level_up_advantage_context(
     category_name: str = "",
     model_text: str = "",
@@ -899,7 +935,10 @@ def is_level_up_advantage_context(
     """
     Hydraulic Level Up Advantage / 807662 / OCTP / leveling Manual Mode.
     Ground Control electric alone is a different product.
+    A drifting lead jack is a cartridge job, not this Manual Mode path.
     """
+    if is_level_up_lead_jack_drift_context(category_name, model_text, symptom):
+        return False
     blob = _blob(category_name, model_text, symptom)
     if not blob:
         return False
@@ -4151,6 +4190,8 @@ def _job_key(
     if "343633" in ident or "ground control" in ident:
         return "ground"
     if re.search(r"807662|level[\s-]*up", ident):
+        if is_level_up_lead_jack_drift_context(cat, model, symptom):
+            return "leadjack"
         return "levelup"
     if re.search(r"\bbal\b|soft[\s-]*touch", ident):
         return "bal"
@@ -4184,6 +4225,8 @@ def _job_key(
     if re.search(r"ground control|343633|zero[\s-]*point|auto-level", user):
         return "ground"
     if re.search(r"807662|level[\s-]*up|firefly", user):
+        if is_level_up_lead_jack_drift_context(cat, model, user):
+            return "leadjack"
         return "levelup"
     if re.search(r"\be\s*2\b|fan fault|2[\s-]*flash", user) and re.search(r"inverter|f\+|fcr", user):
         return "e2"
@@ -4221,6 +4264,8 @@ def _job_key(
         return "stab"
     if is_ground_control_context(cat, model, symptom):
         return "ground"
+    if is_level_up_lead_jack_drift_context(cat, model, symptom):
+        return "leadjack"
     if (
         is_firefly_can_path_context(cat, model, symptom)
         or is_level_up_manual_dump_context(cat, model, symptom)
@@ -4257,6 +4302,7 @@ _JOB_CITE = {
         "(Ground Control TT/2.0/3.0)"
     ),
     "levelup": "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 1",
+    "leadjack": "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3",
     "dometic": "📖 Source: Dometic Brisk II, page 23",
     "furnace": "📖 Source: Suburban Furnace Service and Training Manual",
     "girard": "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23",
@@ -4277,6 +4323,9 @@ _OWNED_PHRASES = (
     ("zero point", "ground"),
     ("firefly cable", "levelup"),
     ("rubber-boot", "levelup"),
+    ("177094", "leadjack"),
+    ("cartridge valve", "leadjack"),
+    ("gray wire", "leadjack"),
     ("inverter pcb", "e2"),
     ("freezer evaporator fan", "e2"),
     ("spark-free thermostat", "dial"),
@@ -4577,6 +4626,8 @@ def _proved_shop_reply(
             return DOMETIC_CEILING_LINE
     if job == "levelup" and _levelup_firefly_confirmed(blob):
         return LEVELUP_FIREFLY_FIRM_LINE
+    if job == "leadjack" and _leadjack_stage(history, latest_msg) == "cartridge":
+        return LEADJACK_CARTRIDGE_LINE
     if job == "facr" and facr_terminal_path_complete(facr_proves_from_chat(history, latest_msg)):
         return FACR_TERMINAL_ASSEMBLY_RR_LINE
     if job == "ice" and _ice_cooling_unit_ready(blob):
@@ -4759,6 +4810,8 @@ def _conditional_lines(
             "Leave the rubber-boot terminator in. Unplug only the Firefly cable, try Manual Mode again, and report whether it holds. If Manual Mode holds, call Firefly at 574-825-4600 and update the firmware with a USB stick of 4 GB or smaller.",
             "If Manual Mode still dumps home with the Firefly cable unplugged, stay on the Level Up sensor and harness path.",
         ]
+    if job == "leadjack":
+        return [_leadjack_shop_line(history, latest_msg)]
     return []
 
 
@@ -4779,6 +4832,92 @@ def _pick_fresh_line(lines: list[str], history: list = None) -> str:
             continue
         return line
     return ""
+
+
+LEADJACK_COIL_LINE = (
+    "Test the lead-jack valve coil on the gray wire and report whether it tests good.\n"
+    "📖 Source: Lippert CCD-0001750, page 8"
+)
+LEADJACK_PLUMB_LINE = (
+    "Confirm the swap plumbing. The manifold hose goes in the notched port, "
+    "the follow-leg hose goes in the non-notched port, and unused ports stay plugged. "
+    "Orange extend and black retract hoses must not be reversed. Report what you find.\n"
+    "📖 Source: Lippert QR-109, page 3\n"
+    "📖 Source: Lippert TI-143, page 2\n"
+    "📖 Source: Lippert TI-324, page 2\n"
+    "📖 Source: Lippert Level Up owner's manual, hose diagram"
+)
+LEADJACK_OVERRIDE_LINE = (
+    "Confirm the manual override screw is backed out and report what you find.\n"
+    "📖 Source: Lippert TI-170, page 1"
+)
+LEADJACK_CARTRIDGE_LINE = (
+    "Replace the front lead-jack cartridge valve, part 177094.\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+
+
+def _leadjack_coil_good(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"(?:coil|gray wire).{0,48}\b(?:good|ok|okay)\b", low)
+        or re.search(r"\b(?:good|ok|okay)\b.{0,32}(?:coil|gray wire)", low)
+    )
+
+
+def _leadjack_plumbing_ok(blob: str) -> bool:
+    low = _norm(blob)
+    if re.search(r"plumbing (?:is |checks? )?(?:correct|good|ok)", low):
+        return True
+    ports = "notched" in low and (
+        "non-notched" in low or "non notched" in low or "follow-leg" in low or "follow leg" in low
+    )
+    closed = "plugged" in low or "not reversed" in low or ("orange" in low and "black" in low)
+    return bool(ports and closed)
+
+
+def _leadjack_override_out(blob: str) -> bool:
+    low = _norm(blob)
+    return bool(
+        re.search(r"override screw.{0,40}backed out", low)
+        or re.search(r"backed out.{0,40}override", low)
+    )
+
+
+def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
+    """coil, then plumbing, then the override screw, then the cartridge."""
+    blob = _user_blob(history, latest_msg)
+    if not _leadjack_coil_good(blob):
+        return "coil"
+    if not _leadjack_plumbing_ok(blob):
+        return "plumb"
+    if not _leadjack_override_out(blob):
+        return "override"
+    return "cartridge"
+
+
+def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
+    stage = _leadjack_stage(history, latest_msg)
+    if stage == "plumb":
+        return LEADJACK_PLUMB_LINE
+    if stage == "override":
+        return LEADJACK_OVERRIDE_LINE
+    if stage == "cartridge":
+        return LEADJACK_CARTRIDGE_LINE
+    return LEADJACK_COIL_LINE
+
+
+def ensure_level_up_lead_jack_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Coil, plumbing, and the override screw come before the cartridge."""
+    if _job_key(history, latest_msg, category_name, model_text) != "leadjack":
+        return reply
+    return _leadjack_shop_line(history, latest_msg)
 
 
 def _prove_lines(
@@ -4845,6 +4984,8 @@ def _prove_lines(
         return [
             "Confirm Auto Level still works. Leave the rubber-boot terminator in, unplug only the Firefly cable, and report whether Manual Mode holds.",
         ]
+    if job == "leadjack":
+        return [_leadjack_shop_line(history, latest_msg)]
     return []
 
 
@@ -5416,6 +5557,9 @@ def polish_shop_reply(
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
     text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    text = ensure_level_up_lead_jack_reply(
+        text, history, latest_msg, category_name, model_text
+    )
     return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 

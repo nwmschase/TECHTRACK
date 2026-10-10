@@ -93,6 +93,7 @@ from gd_library_coach import (
     is_firefly_can_path_context,
     is_fridge_ice_moisture_context,
     is_level_up_advantage_context,
+    is_level_up_lead_jack_drift_context,
     is_stabilizer_override_pin_context,
     is_water_heater_context,
     level_up_search_symptom,
@@ -116,7 +117,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.31"
+MODULE_REVISION = "v4.19.32"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -4101,6 +4102,7 @@ def _bay_product_lock(category_name: str = "", model_text: str = "", concern: st
             is_girard_petit_tube_context(category_name, model_text, concern),
             is_stabilizer_override_pin_context(category_name, model_text, concern),
             is_cooktop_tip_sheet_context(category_name, model_text, concern),
+            is_level_up_lead_jack_drift_context(category_name, model_text, concern),
         )
     )
 
@@ -5784,6 +5786,141 @@ def _thetford_leak_flowchart() -> Flowchart:
     )
 
 
+def _lead_jack_drift_flowchart() -> Flowchart:
+    """Coil, then plumbing, then the override screw. YES lands on the cartridge."""
+    return Flowchart(
+        readable=True,
+        nodes=[
+            FlowNode(
+                "s",
+                "start",
+                "Front jacks drift when\nother circuits pressurize.",
+                0.78,
+                0.05,
+                w=250,
+                h=56,
+            ),
+            FlowNode(
+                "r1",
+                "end",
+                "Repair the gray-wire\ncoil circuit.",
+                0.22,
+                0.22,
+                w=210,
+                h=56,
+            ),
+            FlowNode(
+                "d1",
+                "decision",
+                "Lead-jack coil\n(gray wire) good?",
+                0.78,
+                0.22,
+                w=210,
+                h=72,
+            ),
+            FlowNode(
+                "r2",
+                "end",
+                "Correct the notched port,\nfollow-leg, plugs, and\norange / black hoses.",
+                0.22,
+                0.44,
+                w=230,
+                h=72,
+            ),
+            FlowNode(
+                "d2",
+                "decision",
+                "Swap plumbing\ncorrect?",
+                0.78,
+                0.44,
+                w=190,
+                h=68,
+            ),
+            FlowNode(
+                "r3",
+                "end",
+                "Back out the manual\noverride screw.",
+                0.22,
+                0.66,
+                w=210,
+                h=56,
+            ),
+            FlowNode(
+                "d3",
+                "decision",
+                "Override screw\nbacked out?",
+                0.78,
+                0.66,
+                w=190,
+                h=68,
+            ),
+            FlowNode(
+                "e",
+                "end",
+                "Replace cartridge\nvalve 177094.",
+                0.78,
+                0.88,
+                w=200,
+                h=56,
+            ),
+        ],
+        edges=[
+            FlowEdge("s", "d1"),
+            FlowEdge("d1", "r1", "NO", "left", "right"),
+            FlowEdge("d1", "d2", "YES", "bottom", "top"),
+            FlowEdge("d2", "r2", "NO", "left", "right"),
+            FlowEdge("d2", "d3", "YES", "bottom", "top"),
+            FlowEdge("d3", "r3", "NO", "left", "right"),
+            FlowEdge("d3", "e", "YES", "bottom", "top"),
+        ],
+    )
+
+
+def _lead_jack_drift_path() -> dict:
+    return {
+        "primary_cite": "Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3.",
+        "pattern_means": (
+            "Front jacks that move when another circuit pressurizes, including the slides, "
+            "are a front lead-jack cartridge that leaks internally. Part 177094. "
+            "There is no bench test for that leak."
+        ),
+        "flowchart": _lead_jack_drift_flowchart(),
+        "flow_tall": True,
+        "bay_order": [
+            "Test the lead-jack valve coil on the gray wire. "
+            "If it does not test good, repair that coil circuit before any cartridge.",
+            "Confirm the swap plumbing: manifold hose in the notched port, "
+            "follow-leg hose in the non-notched port, unused ports plugged, "
+            "and the orange extend and black retract hoses not reversed.",
+            "Confirm the manual override screw is backed out.",
+            "If the coil is good, the plumbing is correct, and the override screw is backed out, "
+            "replace the front lead-jack cartridge valve, part 177094.",
+        ],
+        "do_not": [
+            "Do not replace the cartridge before the gray-wire coil, the swap plumbing, "
+            "and the manual override screw are checked.",
+        ],
+        "sources": [
+            {"title": "Lippert CCD-0001750", "page": 8, "excerpt": ""},
+            {"title": "Lippert QR-109", "page": 3, "excerpt": ""},
+            {"title": "Lippert TI-143", "page": 2, "excerpt": ""},
+            {"title": "Lippert TI-324", "page": 2, "excerpt": ""},
+            {
+                "title": "Lippert Level Up owner's manual, hose diagram",
+                "page": None,
+                "excerpt": "",
+                "title_only": True,
+            },
+            {"title": "Lippert TI-170", "page": 1, "excerpt": ""},
+            {
+                "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
+                "page": 3,
+                "excerpt": "",
+            },
+        ],
+    }
+
+
 def _thetford_leak_path(concern: str, ranked) -> dict:
     return {
         "primary_cite": _thetford_troubleshooting_cite(ranked),
@@ -5959,6 +6096,9 @@ def compile_bay_procedure(
     elif furnace:
         spec = _furnace_path(ranked)
         path_kind = "furnace"
+    elif is_level_up_lead_jack_drift_context(category, model_text, concern):
+        spec = _lead_jack_drift_path()
+        path_kind = "leadjack"
     elif brand_miss:
         spec = _no_brand_match_path(brand, model, concern)
         path_kind = "brand_miss"
@@ -6078,6 +6218,9 @@ def compile_bay_procedure(
             spec["primary_cite"] = "Suburban Furnace Service and Training Manual, page 26."
     if path_kind == "fact12_freeze":
         sources = list(spec.get("sources") or [])
+    if path_kind == "leadjack":
+        sources = list(spec.get("sources") or [])
+        figures = []
     if path_kind == "firefly":
         # These Lippert sheets are cited as page 1. They are not confirmed
         # 1-page tech infos, so the sheet does not use that label.
@@ -6089,7 +6232,7 @@ def compile_bay_procedure(
             }
             for src in (_firefly_path().get("sources") or [])
         ]
-    if fact12_mislabeled_only and path_kind != "fact12_freeze":
+    if fact12_mislabeled_only and path_kind not in ("fact12_freeze", "leadjack"):
         page = _page_int(ranked[0].get("page")) if ranked else None
         sources = []
         if page:
