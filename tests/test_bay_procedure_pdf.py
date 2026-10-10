@@ -637,7 +637,7 @@ class TestQualityGateNamesAndFigures(unittest.TestCase):
                 self.assertNotIn("shop pn", src.lower())
                 self.assertIn("ti-005", src.lower())
                 self.assertIn("qr-092", src.lower())
-                self.assertTrue(any(s.get("title_only") or not s.get("page") for s in proc.sources))
+                self.assertTrue(all(s.get("page") == 1 for s in proc.sources))
                 self.assertFalse(body_uses_network_plugs(body))
                 self.assertFalse(body_uses_power_looks_sane(body))
                 self.assertFalse(body_uses_stays_open(body))
