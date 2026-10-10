@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.26"
+COACH_REVISION = "v4.19.27"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -362,6 +362,12 @@ FIREFLY_HOLDS_FIX = (
     "call Firefly 574-825-4600, and use a USB stick 4 GB or smaller plus the interim file they specify. "
     "Interim: turn the front-bay main battery switch OFF (solar can stay ON) so Firefly drops, "
     "or leave the Firefly cable unplugged with the rubber-boot plug still in."
+)
+LEVELUP_FIREFLY_FIRM_LINE = (
+    "The repair is to update the Firefly firmware. "
+    "Read GUI and CCM from Settings, call Firefly at 574-825-4600, "
+    "and use a USB stick of 4 GB or smaller. "
+    "Do not replace the Level Up controller."
 )
 FIREFLY_STILL_DUMPS = (
     "If Manual Mode still dumps home, this is not the Firefly path. "
@@ -3764,6 +3770,14 @@ _REPAIR_VERB_RE = re.compile(
     r"\b(?:replace|align|reseat|re-?secures?|reposition|authorize)\b",
     re.I,
 )
+_FIRM_LEAD_RE = re.compile(
+    r"^(?:the repair is to\s+)?(?:replace|reseat|re-?secures?|reposition|authorize)\b",
+    re.I,
+)
+_FILLER_RE = re.compile(
+    r"check the reading on this unit and write it down\.?",
+    re.I,
+)
 _BARE_REPAIR_LABEL_RE = re.compile(r"^that is the repair\.?$", re.I)
 
 
@@ -4200,6 +4214,29 @@ def _with_cite(text: str, job: str) -> str:
     return body + "\n" + cite
 
 
+def _sail_answered(blob: str) -> bool:
+    """'continuity OK' and 'good' close the sail-switch prove."""
+    low = _norm(blob)
+    if "sail" not in low:
+        return False
+    return bool(
+        re.search(
+            r"sail(?:\s+switch)?(?:\s+\w+){0,4}\s+(?:is\s+)?(?:continuity\s+)?(?:ok|okay|good)|"
+            r"continuity\s+(?:is\s+)?(?:ok|okay|good)|"
+            r"power in and (?:power )?out",
+            low,
+        )
+    )
+
+
+def _levelup_firefly_confirmed(blob: str) -> bool:
+    """The Firefly cable is already unplugged and Manual Mode holds."""
+    low = _norm(blob)
+    unplugged = bool(re.search(r"unplugg?ed", low) and "firefly" in low)
+    holds = bool(re.search(r"manual mode (?:stays|holds|held|stayed)|mode stays", low))
+    return unplugged and holds
+
+
 def _answered_checks(blob: str) -> set[str]:
     """Checks the tech already reported. A later turn must not ask them again."""
     low = _norm(blob)
@@ -4208,12 +4245,16 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("filter")
     if re.search(r"dial (?:is )?at max", low):
         found.add("dial")
-    if re.search(r"sail switch is good|sail is good", low):
+    if _sail_answered(low):
         found.add("sail")
     if re.search(r"\d+(?:\.\d+)?\s*v\b", low):
         found.add("voltage")
     if re.search(r"wiring is good|data line is good", low):
         found.add("dataline")
+    if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
+        found.add("ceiling")
+    if _levelup_firefly_confirmed(low):
+        found.add("can")
     return found
 
 
@@ -4238,6 +4279,14 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "dataline" in answered and re.search(r"data line", low) and re.search(
         r"check|measure|report", low
+    ):
+        return True
+    if "ceiling" in answered and re.search(r"ceiling", low) and re.search(
+        r"bypass|report whether", low
+    ):
+        return True
+    if "can" in answered and re.search(r"unplug", low) and "firefly" in low and re.search(
+        r"report|try manual|whether it holds", low
     ):
         return True
     return False
@@ -4298,9 +4347,7 @@ def _proved_shop_reply(
     """The repair itself, once the proving fact is already in the tech's words."""
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
-    if job == "furnace" and re.search(
-        r"sail switch is good|sail is good|power in and (?:power )?out", blob
-    ):
+    if job == "furnace" and _sail_answered(blob):
         return FURNACE_WALL_TSTAT_LINE
     if job == "fact12" and _SENSOR_LOOSE_RE.search(blob):
         return FACT12_FREEZE_RESECURE_LINE
@@ -4310,6 +4357,15 @@ def _proved_shop_reply(
         )
         if coleman_motor_board_evidence_complete(facts):
             return COLEMAN_MOTOR_BOARD_AUTH_LINE
+    if job == "dometic":
+        facts = dometic_bypass_facts(history, latest_msg)
+        if (
+            facts.get("dometic_unit_bypass") == "cools"
+            and facts.get("dometic_ceiling_bypass") == "cools"
+        ):
+            return DOMETIC_CEILING_LINE
+    if job == "levelup" and _levelup_firefly_confirmed(blob):
+        return LEVELUP_FIREFLY_FIRM_LINE
     return ""
 
 
@@ -4328,22 +4384,41 @@ def _firm_repair_reply(
         return ""
     job = _job_key(history, latest_msg, category_name, model_text)
     answered = _answered_checks(_user_blob(history, latest_msg))
-    chosen = ""
+    lead = ""
+    other = ""
     sources: list[str] = []
+    other_sources: list[str] = []
     for message in history or []:
         if (message.get("role") or "") != "assistant":
             continue
         content = message.get("content") or ""
         cites = [line.strip() for line in content.splitlines() if line.strip().startswith("📖")]
         for sentence in _split_reply_sentences(content):
-            if _direct_repair_sentence(sentence, job, answered):
-                chosen = sentence.strip()
+            if not _direct_repair_sentence(sentence, job, answered):
+                continue
+            text = sentence.strip()
+            if _FIRM_LEAD_RE.match(text):
+                lead = text
                 sources = cites
+            else:
+                other = text
+                other_sources = cites
+    chosen = lead or other
+    if not lead:
+        sources = other_sources
     if not chosen:
         proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
-        if not proved or _repeats_last_body(proved, history):
+        if not proved:
             return ""
-        return proved
+        if not _repeats_last_body(proved, history):
+            return proved
+        for sentence in _split_reply_sentences(proved):
+            if not _FIRM_LEAD_RE.match(sentence.strip()):
+                continue
+            restated = _as_repair_statement(sentence)
+            if not _repeats_last_body(restated, history):
+                return restated if "📖" in restated else _with_cite(restated, job)
+        return ""
     chosen = _as_repair_statement(chosen)
     if _repeats_last_body(chosen, history):
         bare = re.sub(r"(?i)^the repair is to\s+", "", chosen).strip()
@@ -4561,7 +4636,7 @@ def _final_shop_line(
         return locked
     proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
     if proved and not _repeats_last_body(proved, history):
-        return proved
+        return proved if "📖" in proved else _with_cite(proved, job)
     job = _job_key(history, latest_msg, category_name, model_text)
     later = bool(_last_assistant_text(history))
     lines = (
@@ -4582,7 +4657,24 @@ def _final_shop_line(
                 chosen = line
                 break
     if not chosen:
-        return "Check the reading on this unit and write it down."
+        if proved and _line_fits_job(proved, job):
+            if not _repeats_last_body(proved, history):
+                return proved if "📖" in proved else _with_cite(proved, job)
+            for sentence in _split_reply_sentences(proved):
+                if not _FIRM_LEAD_RE.match(sentence.strip()):
+                    continue
+                restated = _as_repair_statement(sentence)
+                if not _repeats_last_body(restated, history) and _line_fits_job(restated, job):
+                    return restated if "📖" in restated else _with_cite(restated, job)
+        for line in _prove_lines(history, latest_msg, category_name, model_text):
+            if (
+                line
+                and _line_fits_job(line, job)
+                and not _sentence_reasks_check(line, answered)
+                and not _repeats_last_body(line, history)
+            ):
+                return _with_cite(line, job)
+        return ""
     return _with_cite(chosen, job)
 
 
@@ -4676,18 +4768,22 @@ def _answer_latest(
                 "report whether the sensing tube at the blower has suction."
             )
         return ""
-    if _open("dometic") and (
-        re.search(r"b57915|3311071", blob)
-        or (
-            re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
-            and re.search(r"dometic|b57915|air conditioning", blob)
+    if job == "dometic" or (
+        _open("dometic")
+        and (
+            re.search(r"b57915|3311071", blob)
+            or (
+                re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
+                and re.search(r"dometic|b57915|air conditioning", blob)
+            )
         )
     ):
-        ceiling = bool(re.search(r"ceiling", blob) and re.search(r"cool", blob) and "bypass" in blob)
-        unit = bool("peacemaker" in blob and re.search(r"cool", blob))
-        if ceiling and unit and re.search(r"cool", low):
+        facts = dometic_bypass_facts(history, latest_msg)
+        ceiling = facts.get("dometic_ceiling_bypass") == "cools"
+        unit = facts.get("dometic_unit_bypass") == "cools"
+        if ceiling and unit:
             return "Both bypasses cool. Replace the ceiling thermostat/selector."
-        if unit and re.search(r"cool", low) and "ceiling" not in low:
+        if unit and not ceiling and re.search(r"cool", low):
             return "The rooftop bypass cools. Bypass the ceiling selector and report whether that also cools."
         return ""
     if _open("ice") and re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
@@ -4733,7 +4829,7 @@ def _answer_latest(
     ):
         user_said_sail = bool(re.search(r"\bsail\b", blob))
         if re.search(r"jumper|thermostat bypass|bypassed|jumped red|r\s*/\s*w", blob + " " + ctx):
-            if re.search(r"sail switch is good|sail is good|power in and (?:power )?out", blob):
+            if _sail_answered(blob):
                 return _with_cite("Replace the wall thermostat.", job)
             if user_said_sail and not _is_fallback_question(latest_msg):
                 return ""
@@ -4756,6 +4852,8 @@ def _answer_latest(
             return "Does the manual crank turn, and what does the override roll pin or coupler look like? Report what you see."
         return ""
     if _open("levelup") and re.search(r"807662|level[\s-]*up|manual mode", blob) and re.search(r"firefly|manual mode", blob):
+        if _levelup_firefly_confirmed(blob):
+            return LEVELUP_FIREFLY_FIRM_LINE
         if re.search(r"write the reading|ask a manager", _norm(current)):
             return (
                 "Confirm power is solid and Auto Level still works. "
@@ -4786,6 +4884,8 @@ def _draft_is_bad(
 ) -> bool:
     low = _norm(text)
     job = _job_key(history, latest_msg, category_name, model_text)
+    if _FILLER_RE.search(text or ""):
+        return True
     if not _line_fits_job(text, job):
         return True
     if not low or not _reply_has_body(text):
@@ -4900,8 +5000,10 @@ def polish_shop_reply(
     """Shop text only: no model instructions, no invented facts, no repeated block."""
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
+        if "📖" not in locked:
+            locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
         return locked
-    text = _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip()))
+    text = _FILLER_RE.sub("", _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip())))
     if _is_offline_notice(text):
         return text
     if not text:
@@ -5077,6 +5179,8 @@ def avoid_duplicate_reply(
         return text
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
+        if "📖" not in locked:
+            locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
         return locked
     if not text:
         return polish_shop_reply("", history, latest_msg, category_name, model_text)
