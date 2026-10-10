@@ -165,6 +165,33 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertEqual(calls["n"], 0)
         self.assertIn("gray wire", (text or "").lower())
 
+    def test_plumbing_is_not_asked_again_after_the_cartridge_fact(self):
+        history = []
+        self._turn(CONCERN, history)
+        self._turn("The lead-jack valve coil on the gray wire tests good.", history)
+        skipped = self._turn("Not checked yet", history)
+        self.assertIn("override screw", skipped.lower())
+        self.assertNotIn("swap plumbing", skipped.lower())
+        self.assertNotIn("notched", skipped.lower())
+        repair = self._turn("The manual override screw is backed out.", history)
+        self.assertIn("177094", repair)
+        follow = self._turn("What is the repair?", history)
+        self.assertIn("177094", follow)
+        self.assertNotIn("swap plumbing", follow.lower())
+        self.assertNotIn("notched", follow.lower())
+        again = self._turn("Not checked yet", history)
+        self.assertIn("177094", again)
+        self.assertNotIn("swap plumbing", again.lower())
+        self.assertNotIn("notched", again.lower())
+
+        named = []
+        self._turn(CONCERN, named)
+        self._turn("The lead-jack valve coil on the gray wire tests good.", named)
+        after = self._turn("The cartridge valve is 177094.", named)
+        self.assertNotIn("swap plumbing", after.lower())
+        self.assertNotIn("notched port", after.lower())
+        self.assertTrue("override" in after.lower() or "177094" in after)
+
     def test_answered_plumbing_is_not_asked_again(self):
         history = []
         self._turn(CONCERN, history)
@@ -239,6 +266,16 @@ class TestLeadJackBaySheet(unittest.TestCase):
         self.assertIn("177094", source_text)
         _assert_177094_is_cited(self, source_text)
         self.assertIn("page 3", self.proc.primary_cite.lower())
+        self.assertIn("page 15", self.proc.primary_cite.lower())
+        self.assertIn("towable", self.proc.primary_cite.lower())
+        titles = [(src.get("title") or "").lower() for src in self.proc.sources]
+        self.assertFalse(any("hose diagram" in title for title in titles))
+        self.assertTrue(
+            any(
+                "fw owner" in (src.get("title") or "").lower() and src.get("page") == 13
+                for src in self.proc.sources
+            )
+        )
         order = " ".join(self.proc.bay_order).lower()
         self.assertLess(order.index("gray wire"), order.index("notched"))
         self.assertLess(order.index("notched"), order.index("override screw"))
@@ -266,7 +303,15 @@ class TestLeadJackBaySheet(unittest.TestCase):
         self.assertIn("notched", low)
         self.assertIn("override", low)
         self.assertIn("ti-005", low)
+        self.assertNotIn("hose diagram", low)
         self.assertNotIn("firefly", low)
+        import pymupdf
+
+        doc = pymupdf.open(stream=pdf, filetype="pdf")
+        page1 = doc[0].get_text()
+        self.assertIn("177094", page1)
+        self.assertRegex(page1, r"(?i)towable owner\W{0,3}s manual[\s\S]{0,80}page\s*15")
+        self.assertRegex(pdf_text, r"(?i)fw owner\W{0,3}s manual[\s\S]{0,80}page\s*13")
         self.assertNotIn("sail switch", low)
 
 
