@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.13
+RV TechTrack v4.19.14
+- v4.19.14: Sources stay on the job: whole sentences only, no scanned fragments, and no snippet that contradicts the sheet. Internal index notes stay off the page. Figures keep their borders, YES/NO clears the arrowhead, and a clause dash stays a dash. The no-12V fan branch names the board and the fan. A blank stabilizer job still prints its model. Guided Diagnostics strips a leaked prompt and Start new chat clears Model.
 - v4.19.13: The drainage figure includes the full row through its bottom rule, so "vehicle" is not cut. A hyphen after a single capital (F-, T-) stays, and a prepositional source fragment with no verb is dropped.
 - v4.19.12: A page named in PRIMARY stays in Sources. A dictionary split runs only when both halves are words and the joined form is not, so ducted and petit stay whole. The drainage figure is one bordered table row. A cooktop sheet keeps thermocouple and flame lines only.
 - v4.19.11: An em dash or en dash becomes a space, never a deleted character, so shop lines do not glue. All-lowercase joins such as willgo split when both parts are dictionary words. The drainage figure keeps the full row. Clean bay sheets are locked by text snapshots.
@@ -105,7 +106,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.13``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.14``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -188,7 +189,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.13"
+_GDC_REQUIRED_REVISION = "v4.19.14"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -4445,7 +4446,7 @@ def guided_diagnostics_reply(
                     record_cited_pages(f"📖 Source: {title} - page {page}")
                 except Exception:
                     pass
-            return rewrite_shop_channel_words(reply), result.get("ask_flow")
+            return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), result.get("ask_flow")
     reply = ask_techtrack_reply(
         user_msg,
         category_name,
@@ -4460,7 +4461,7 @@ def guided_diagnostics_reply(
         reply = _gdc.ensure_dometic_ceiling_thermostat(
             reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
-    return rewrite_shop_channel_words(reply), None
+    return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -5017,7 +5018,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             "If a page image appears below, that is the real shop library page "
             "(not a chat photo embed). If nothing appears below, say so and use Download PDF / meter from the text labels."
         )
-    return rewrite_shop_channel_words(reply)
+    return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
@@ -5539,6 +5540,9 @@ with tab_ask:
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = gd_category_select_options([c.name for c in cats])
     _restore_widget("ask_cat", "gd_category_memory", cat_names)
+    if st.session_state.pop("ask_clear_model", False):
+        st.session_state["ask_model"] = ""
+        st.session_state["gd_model_memory"] = ""
     _restore_widget("ask_model", "gd_model_memory")
     _restore_widget("ask_unity_gate", "gd_unity_memory", ["Not sure", "Yes", "No"])
     c1, c2 = st.columns(2)
@@ -5718,6 +5722,8 @@ with tab_ask:
         st.session_state.pop("ask_story_area", None)
         st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
         st.session_state["ask_reset_input"] = True
+        st.session_state["ask_clear_model"] = True
+        st.session_state["gd_model_memory"] = ""
         st.rerun()
 
     if write_story:

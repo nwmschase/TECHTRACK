@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.13"
+COACH_REVISION = "v4.19.14"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -193,6 +193,48 @@ def rewrite_shop_channel_words(text: str) -> str:
         pos = marked.end()
     pieces.append(_rewrite_channel_outside_quotes(text[pos:]))
     return "".join(pieces)
+
+
+_LEAKED_PROMPT_START = re.compile(
+    r"^(?:"
+    r"you are an open library coach\b"
+    r"|open library coach\b"
+    r"|product lock\b"
+    r"|shop words:"
+    r"|rules:"
+    r"|manual excerpts\b"
+    r"|your previous draft\b"
+    r"|category selected:"
+    r"|model/system:"
+    r"|ground control 343633:"
+    r"|dometic b57915 turns on\b"
+    r"|furrion fcr .* ice\b"
+    r"|dial[- ]off compressor\b"
+    r"|bal tongue\b"
+    r"|level up manual mode\b"
+    r")",
+    re.I,
+)
+
+
+def strip_leaked_prompt(text: str) -> str:
+    """Drop a system-prompt echo that landed in front of the shop reply.
+
+    A tech-facing line that starts with "Do not" stays. Only a leading block
+    that reads like the coach prompt is removed.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return text or ""
+    paragraphs = re.split(r"\n\s*\n", raw)
+    while paragraphs:
+        head = paragraphs[0].strip()
+        first = head.splitlines()[0].strip() if head else ""
+        if not first or not _LEAKED_PROMPT_START.match(first):
+            break
+        paragraphs.pop(0)
+    cleaned = "\n\n".join(part.strip() for part in paragraphs if part.strip()).strip()
+    return cleaned or raw
 
 
 OPEN_LIBRARY_COACH_RULE = """

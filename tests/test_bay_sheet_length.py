@@ -2,7 +2,6 @@
 import unittest
 
 from bay_procedure import (
-    FACT12_MISLABEL_CITE,
     clean_ocr_prose,
     clean_source_excerpt,
     compile_bay_procedure,
@@ -282,11 +281,13 @@ class TestSheetLengthAndGenericPath(unittest.TestCase):
             category="Air Conditioning",
             chunks=[bad],
         )
-        self.assertEqual(only.primary_cite, FACT12_MISLABEL_CITE)
+        self.assertIn("ccd-0008666", only.primary_cite.lower())
+        self.assertIn("facr08", only.primary_cite.lower())
+        self.assertNotIn("not the fact12", only.primary_cite.lower())
         self.assertNotIn("fact12sa2-ps", only.primary_cite.lower())
         titles = " ".join(src.get("title") or "" for src in only.sources).lower()
         self.assertIn("facr08", titles)
-        self.assertIn("not the fact12", titles)
+        self.assertNotIn("not the fact12", titles)
 
 
 if __name__ == "__main__":

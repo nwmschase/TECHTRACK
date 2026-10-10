@@ -115,7 +115,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.13"
+MODULE_REVISION = "v4.19.14"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -333,7 +333,18 @@ def scrub_sheet_text(text: str) -> str:
 def apply_sheet_standard(proc: "BayProcedure") -> "BayProcedure":
     """Post-compile pass. Locked Firefly strings are a no-op when already clean."""
     proc.pattern_means = scrub_sheet_text(proc.pattern_means)
-    proc.primary_cite = (proc.primary_cite or "").strip()
+    proc.primary_cite = _strip_internal_notes((proc.primary_cite or "").strip())
+    proc.sources = [
+        src
+        for src in proc.sources
+        if not sheet_has_internal_note(src.get("title") or "")
+        and (_strip_internal_notes(src.get("excerpt") or "") or not (src.get("excerpt") or "").strip())
+    ]
+    for src in proc.sources:
+        src["excerpt"] = _strip_internal_notes(src.get("excerpt") or "")
+        if sheet_has_internal_note(src.get("title") or ""):
+            src["title"] = "Furrion Chill FACR08 8K manual CCD-0008666"
+    proc.notes = [note for note in proc.notes if not sheet_has_internal_note(note)]
     proc.bay_order = [scrub_sheet_text(step) for step in proc.bay_order if (step or "").strip()]
     proc.do_not = [
         item
@@ -932,7 +943,7 @@ def _facr_path() -> dict:
             },
             {
                 "title": FACR_8666_TITLE,
-                "page": None,
+                "page": 10,
                 "excerpt": (
                     "Furrion Chill drain, base-pan, and freeze-sensor layout."
                 ),
@@ -1161,7 +1172,22 @@ def _firefly_path() -> dict:
             {
                 "title": "Level Up Advantage controller shop PN 807662",
                 "page": None,
-                "excerpt": "Listed in Sources only. This is not the MODEL headline.",
+                "excerpt": "Shop part 807662 is the Level Up Advantage controller on this coach.",
+            },
+            {
+                "title": "Lippert TI-005 Electronic Leveling Troubleshooting Guide",
+                "page": None,
+                "excerpt": (
+                    "When Manual Mode flashes back to the home screen and Auto Level still works, "
+                    "prove Firefly communication before a Level Up controller fault."
+                ),
+            },
+            {
+                "title": "Lippert QR-092 Level-Up wiring",
+                "page": None,
+                "excerpt": (
+                    "The QR-092 Level-Up wiring drawing shows the two CAN ports on the controller."
+                ),
             },
         ],
         "display_model": "Level Up Advantage controller (Brinkley / Firefly)",
@@ -1266,17 +1292,19 @@ def _coleman_sources(ranked) -> list[dict]:
     used = set()
     for spec in _COLEMAN_SOURCE_SPECS:
         hit, idx = _coleman_source_hit(pages, spec["needles"], used)
+        title = spec["title"]
+        excerpt = spec["excerpt"]
+        page = None
         if hit is not None and idx is not None:
             used.add(idx)
-            out.append(
-                {
-                    "title": (hit.get("title") or spec["title"]).strip(),
-                    "page": _page_int(hit.get("page")),
-                    "excerpt": ((hit.get("excerpt") or spec["excerpt"]).strip() or spec["excerpt"])[:400],
-                }
+            candidate = _drop_path_off_sentences(
+                clean_source_excerpt((hit.get("excerpt") or "").strip()),
+                "coleman",
             )
-        else:
-            out.append({"title": spec["title"], "page": None, "excerpt": spec["excerpt"]})
+            if candidate and source_is_on_procedure(title, candidate, spec["excerpt"], "coleman"):
+                excerpt = candidate
+                page = _page_int(hit.get("page"))
+        out.append({"title": title, "page": page, "excerpt": excerpt})
     return out
 
 
@@ -1786,19 +1814,21 @@ def _unglue_dictionary_joins(text: str) -> str:
 def _rejoin_hyphen_splits(text: str) -> str:
     """Pull a line-break hyphen together only when the result is one dictionary word.
 
-    An em dash or en dash has already become a space. A spaced hyphen between two
-    real words ('terminator - leave') stays a space. It is never deleted.
+    A clause dash between two whole words ('terminator - leave') stays a dash.
+    A fragment hyphen that does not make a word becomes a space.
     """
 
     def repl(match):
         left, right = match.group(1), match.group(2)
         joined = left + right
         if right[:1].isupper() and not (left.isupper() and right.isupper()):
-            return f"{left} {right}"
+            return f"{left} - {right}" if len(left) >= 3 and len(right) >= 3 else f"{left} {right}"
         if _is_dict_word(joined):
             if left.isupper() and right.isupper():
                 return joined.upper()
             return joined
+        if len(left) >= 3 and len(right) >= 3:
+            return f"{left} - {right}"
         return f"{left} {right}"
 
     return _HYPHEN_SPLIT_RE.sub(repl, text or "")
@@ -1897,14 +1927,15 @@ _DASH_CHARS = "\u2010\u2011\u2012\u2013\u2014\u2212"
 def _normalize_ocr_chars(text: str) -> str:
     """A dash between digits stays a hyphen. F− and T– stay F- and T-.
 
-    Any other em or en dash becomes a space. Deleting it glued 'terminatorleave'.
+    Any other em or en dash becomes a spaced hyphen. Deleting it glued
+    'terminatorleave'. Turning it into a bare space reads as 'terminator leave'.
     """
     out = text or ""
     out = re.sub(rf"(\d)\s*[{_DASH_CHARS}]\s*(\d)", r"\1-\2", out)
     # A terminal label is one capital and a hyphen: F-, T-, C-.
     out = re.sub(rf"(?<![A-Za-z])([A-Z])\s*[{_DASH_CHARS}]\s*", r"\1- ", out)
     out = re.sub(r"(?<![A-Za-z])([A-Z])\s+-\s+", r"\1- ", out)
-    out = re.sub(rf"[{_DASH_CHARS}]", " ", out)
+    out = re.sub(rf"[{_DASH_CHARS}]", " - ", out)
     out = out.replace("\uff1f", "?").replace("\u2047", "?")
     out = re.sub(r"[\u2022\u2023\u2043\u2219\u25aa\u25cf\u25e6\u00b7\uf0b7\uf0a7]", " ? ", out)
     return out
@@ -2029,7 +2060,7 @@ _PATH_FAMILY = {
     ),
     "ice": (
         "ice", "moisture", "frost", "gasket", "defrost", "drain",
-        "ccd-0008122", "rear wall", "dollar-bill", "dollar bill",
+        "rear wall", "dollar-bill", "dollar bill",
     ),
     "dial_off": (
         "thermostat", "compressor", "spark-free", "spark free",
@@ -2037,14 +2068,14 @@ _PATH_FAMILY = {
     ),
     "facr": (
         "rooftop", "condensate", "drain", "base pan", "base-pan", "freeze",
-        "suction", "ccd-0007990", "ccd-0008666", "evaporator", "assembly",
+        "suction", "evaporator", "assembly",
     ),
     "firefly": (
         "firefly", "terminator", "manual mode", "807662", "level up",
         "power connector", "onecontrol", "can",
     ),
     "furnace": ("furnace", "thermostat", "sail", "jumper", "limit", "module"),
-    "e2": ("inverter", "fan", "e2", "pcb", "ccd-0008122", "12v"),
+    "e2": ("inverter", "fan", "e2", "pcb", "12v"),
     "coleman": (
         "coleman", "peacemaker", "1976", "fan high", "9-pin", "capacitor", "airxcel",
         "control board", "fan motor",
@@ -2088,6 +2119,7 @@ _PATH_OFF = {
         r"\bno power\b",
         r"flat[-\s]?rate",
         r"rear leveling",
+        r"open the refrigerator and note",
     ),
     "dial_off": (
         r"\bfuse location\b",
@@ -2095,6 +2127,10 @@ _PATH_OFF = {
         r"ice and moisture",
         r"flat[-\s]?rate",
         r"rear leveling",
+        r"hard reset",
+        r"\blockout\b",
+        r"knob removal",
+        r"remove the knob",
     ),
     "facr": (
         r"\bcoleman\b",
@@ -2102,6 +2138,9 @@ _PATH_OFF = {
         r"flat[-\s]?rate",
         r"\bfurnace\b",
         r"rear leveling",
+        r"cleaning and maintenance",
+        r"blocked filter",
+        r"problem cause remedy",
     ),
     "firefly": (
         r"flat[-\s]?rate",
@@ -2109,14 +2148,59 @@ _PATH_OFF = {
         r"tongue jack",
         r"\bcoleman\b",
         r"rear leveling",
+        r"touch pad error",
+        r"ccd-0001749",
+        r"fifth[-\s]?wheel",
+        r"5th[-\s]?wheel",
     ),
     "furnace": (r"flat[-\s]?rate", r"rear leveling", r"\bcoleman\b"),
-    "e2": (r"flat[-\s]?rate", r"rear leveling", r"ice and moisture", r"\bfuse location\b"),
-    "coleman": (r"\bfurrion\b", r"ccd-0008666", r"ccd-0007990", r"flat[-\s]?rate", r"6799-730", r"\bplenum\b"),
-    "ground_control": (r"flat[-\s]?rate", r"\bcoupler\b"),
-    "dometic_ceiling": (r"\bfurrion\b", r"installation manual", r"\binstalling the\b"),
+    "e2": (
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"ice and moisture",
+        r"\bfuse location\b",
+        r"piece of paper",
+        r"sheet of paper",
+        r"paper over",
+        r"led blink",
+        r"\bblinking\b",
+        r"thermal fault",
+    ),
+    "coleman": (
+        r"\bfurrion\b",
+        r"ccd-0008666",
+        r"ccd-0007990",
+        r"flat[-\s]?rate",
+        r"6799-730",
+        r"\bplenum\b",
+        r"pulls the air through the coil",
+        r"condenser fan pulls",
+    ),
+    "ground_control": (
+        r"flat[-\s]?rate",
+        r"\bcoupler\b",
+        r"comm(?:unication)?[-\s]?fail",
+        r"jack faults",
+    ),
+    "dometic_ceiling": (
+        r"\bfurrion\b",
+        r"installation manual",
+        r"\binstalling the\b",
+        r"air distribution",
+        r"\badb\b",
+        r"operating instructions",
+        r"\blcd\b",
+        r"heat pump",
+        r"yellow wire",
+    ),
     "fact12_freeze": (r"\bboltx\b", r"parts list"),
-    "girard_e8": (r"tools required", r"\bduct size\b"),
+    "girard_e8": (
+        r"tools required",
+        r"\bduct size\b",
+        r"\bblower\b",
+        r"water[-\s]?flow",
+        r"general troubleshooting",
+    ),
     "stabilizer": (
         r"rear stabilizer",
         r"\bframework\b",
@@ -2413,9 +2497,84 @@ def _is_parts_list_dump(text: str) -> bool:
 
 
 def source_is_discontinued(title: str = "", excerpt: str = "") -> bool:
-    """Lippert TI-005 and any library file stamped discontinued stay off the sheet."""
+    """A library file stamped discontinued stays off the sheet."""
     blob = f"{title or ''} {excerpt or ''}".lower()
-    return "discontinued" in blob or bool(re.search(r"\bti-005\b", blob))
+    return "discontinued" in blob
+
+
+_INTERNAL_NOTE_RE = re.compile(
+    r"listed in sources only|this is not the model headline|"
+    r"only the facr08 book|not the fact12 model manual|"
+    r"indexed file is the facr08|this indexed file is the facr08",
+    re.I,
+)
+_SCANNED_FRAGMENT_RE = re.compile(
+    r"(?:"
+    r"(?:^|\s)\d{1,3}\s+ccd-\d"
+    r"|troubleshooting\s+problem\s+cause\s+remedy"
+    r"|cleaning\s+and\s+maintenance"
+    r"|lockout\s*/?\s*hard\s+reset"
+    r"|error\s+code\s*[-–]?\s*fan\s+fault\s+diagnostics"
+    r"|touch\s+pad\s+error\s+codes"
+    r"|\bsection\s+\d+\b"
+    r"|\b\d+\.\d+\s+(?:air\s+distribution|ccc|the\s+operating)"
+    r"|\b1\.\d+\s+ccc\b"
+    r"|\boperating\s+instructions\b"
+    r"|\bnote\s*:"
+    r")",
+    re.I,
+)
+
+
+def sheet_has_internal_note(text: str) -> bool:
+    """True when copy is an index note for the compiler, not a line for the tech."""
+    return bool(_INTERNAL_NOTE_RE.search(text or ""))
+
+
+def _strip_internal_notes(text: str) -> str:
+    kept = [sentence for sentence in _split_sentences(text or "") if not sheet_has_internal_note(sentence)]
+    if kept:
+        return " ".join(kept)
+    if sheet_has_internal_note(text or "") or not (text or "").strip():
+        return ""
+    return text or ""
+
+
+def _is_scanned_fragment(sentence: str) -> bool:
+    """A column read or a document id glued to a heading is not a sentence."""
+    text = (sentence or "").strip()
+    if not text:
+        return True
+    if _SCANNED_FRAGMENT_RE.search(text):
+        return True
+    if re.match(r"^(?:\d{1,3}\s+)?ccd-\d{4,}\b", text, re.I):
+        return True
+    if re.search(r"\bccd-\d{4,}\s+[A-Za-z]", text, re.I) and not re.search(
+        r"\bccd-\d{4,}\s+page\b", text, re.I
+    ):
+        return True
+    return False
+
+
+def _drop_sheet_contradictions(excerpt: str, topic_text: str) -> str:
+    """Drop a snippet that tells the tech to do what this sheet forbids."""
+    topic = (topic_text or "").lower()
+    bans_sensor = bool(re.search(r"do not (?:swap|replace).{0,48}sensor", topic))
+    bans_harness = bool(re.search(r"do not replace a harness", topic))
+    if not bans_sensor and not bans_harness:
+        return excerpt or ""
+    kept = []
+    for sentence in _split_sentences(excerpt or ""):
+        low = sentence.lower()
+        if "do not" in low:
+            kept.append(sentence)
+            continue
+        if bans_sensor and re.search(r"\b(?:replace|swap)\b.{0,48}\bsensor", low):
+            continue
+        if bans_harness and re.search(r"\b(?:replace|swap)\b.{0,40}\bharness", low):
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
 
 
 def _is_install_manual(title: str = "", excerpt: str = "") -> bool:
@@ -2475,6 +2634,27 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
             continue
         if _is_verbless_fragment(sentence):
             continue
+        if sheet_has_internal_note(sentence):
+            continue
+        if _is_scanned_fragment(sentence):
+            # A document id glued on the front is not a sentence. A heading in
+            # front of a real step can be cut off so the step stays.
+            if re.match(r"^(?:\d{1,3}\s+)?ccd-\d{4,}\b", sentence, re.I):
+                continue
+            sentence = _SCANNED_FRAGMENT_RE.sub(" ", sentence)
+            sentence = re.sub(r"\s{2,}", " ", sentence).strip(" .;")
+            # A section index left in front ("2 This type of…") is still a scan scrap.
+            if re.match(r"^\d", sentence or ""):
+                continue
+            if (
+                not sentence
+                or _is_scanned_fragment(sentence)
+                or _sentence_is_cut(sentence)
+                or excerpt_starts_mid_word(sentence)
+                or _is_verbless_fragment(sentence)
+                or _is_tiny_heading(sentence)
+            ):
+                continue
         if _is_tiny_heading(sentence):
             continue
         if not locked and _is_header_residue(sentence):
@@ -2680,8 +2860,15 @@ def polish_bay_sources(
             src.get("title") or "", raw_excerpt, file_path
         ):
             continue
+        if sheet_has_internal_note(title) or sheet_has_internal_note(raw_excerpt):
+            if re.search(r"facr08|ccd-0*8666", f"{title} {raw_excerpt}", re.I):
+                title = "Furrion Chill FACR08 8K manual CCD-0008666"
+            else:
+                continue
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
+        excerpt = _strip_internal_notes(excerpt)
         excerpt = _drop_path_off_sentences(excerpt, path_kind)
+        excerpt = _drop_sheet_contradictions(excerpt, topic_text)
         if path_kind == "cooktop_tip":
             excerpt = _cooktop_excerpt(excerpt)
         if path_kind == "stabilizer" and not cited and not _STABILIZER_KEEP_RE.search(excerpt or ""):
@@ -2773,6 +2960,8 @@ def _keep_primary_excerpt(raw: str) -> str:
             len(sentence) >= 20
             and not _is_header_residue(sentence)
             and not _is_verbless_fragment(sentence)
+            and not _is_scanned_fragment(sentence)
+            and not sheet_has_internal_note(sentence)
         ):
             return _as_sentence(sentence)
     return ""
@@ -3030,8 +3219,8 @@ def _e2_fan_path(ranked) -> dict:
         "pattern_means": (
             "An E2 or fan-fault code on this fridge is the fan-fault diagnostics path. "
             "Measure about 12V at F+ and F- on the inverter PCB. No voltage means replace "
-            "the inverter PCB. Voltage present with the error still on after the connection "
-            "check means replace the inverter PCB and the fan."
+            "the inverter PCB and the fan. Voltage present with the error still on after the "
+            "connection check means replace the inverter PCB and the fan."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -3066,7 +3255,7 @@ def _e2_fan_path(ranked) -> dict:
                 FlowNode(
                     "n1",
                     "end",
-                    "Replace the inverter PCB.",
+                    "Replace the inverter\nPCB and the fan.",
                     0.82,
                     0.29,
                     w=200,
@@ -3113,7 +3302,7 @@ def _e2_fan_path(ranked) -> dict:
             (
                 "Connect power and locate the inverter PCB. Measure voltage at the F+ and "
                 "F- terminals. Is the nominal voltage about 12V? If no, replace the inverter "
-                "PCB. That is the confirmed correction for a dead fan-voltage reading. If yes, "
+                "PCB and the fan. That is the confirmed correction for a dead fan-voltage reading. If yes, "
                 "go to the connection check."
             ),
             (
@@ -3586,7 +3775,7 @@ _OEM_FIGURE_CROP = {
     # Full drainage row: "Water enters the vehicle" through "openings are clogged".
     # Drainage row, both rules. "vehicle" ends near y=834. The partial line at
     # 816 does not cross that cell. The next full-width rule is y=872.
-    "ccd7990-p7.png": (36, 732, 1066, 876),
+    "ccd7990-p7.png": (36, 732, 1066, 880),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
@@ -4395,7 +4584,12 @@ def _dometic_ceiling_path(concern: str) -> dict:
                 "title": "Dometic diagnostic service manual 3311071",
                 "page": None,
                 "excerpt": "Replace the ceiling thermostat/selector when both bypasses cool.",
-            }
+            },
+            {
+                "title": "Dometic Brisk II",
+                "page": 23,
+                "excerpt": "The Brisk II ceiling assembly uses the selector bypass when the rooftop unit will not cool.",
+            },
         ],
         "flow_tall": True,
         "full_story": True,
@@ -4545,12 +4739,20 @@ def _stabilizer_rr_path() -> dict:
         "sources": [
             {
                 "title": "Lippert PSX1 front stabilizer jack",
-                "page": None,
+                "page": 7,
                 "excerpt": (
-                    "Replace the complete front stabilizer jack assembly when the "
-                    "override roll pin is broken or seized."
+                    "The PSX1 front jack uses a roll pin in the override coupler. "
+                    "Replace the complete front stabilizer jack assembly when that roll pin is broken."
                 ),
-            }
+            },
+            {
+                "title": "Lippert rear stab",
+                "page": 11,
+                "excerpt": (
+                    "The jack assembly mount and the electrical connector are on the Lippert drawing. "
+                    "Reconnect both after the jack is replaced."
+                ),
+            },
         ],
         "flow_tall": True,
         "full_story": True,
@@ -4730,21 +4932,35 @@ def compile_bay_procedure(
     if path_kind == "stabilizer":
         sources = _prefer_front_jack_sources(sources)
     if path_kind == "fact12_freeze" and _only_facr08_book(ranked):
-        spec["primary_cite"] = (
-            "Only the FACR08 book CCD-0008666 is in the library. "
-            "It is not the FACT12 model manual."
-        )
+        named = False
+        for src in sources:
+            blob = f"{src.get('title') or ''} {src.get('excerpt') or ''}"
+            if re.search(r"ccd-0*8666|facr08|fact\s*12", blob, re.I):
+                src["title"] = "Furrion Chill FACR08 8K manual CCD-0008666"
+                named = True
+        if not named:
+            sources.insert(
+                0,
+                {
+                    "title": "Furrion Chill FACR08 8K manual CCD-0008666",
+                    "page": _page_int(ranked[0].get("page")) if ranked else None,
+                    "excerpt": "Resecure the freeze sensor on the evaporator coil.",
+                },
+            )
     if fact12_mislabeled_only and path_kind in ("", "fact12_freeze"):
         page = _page_int(ranked[0].get("page")) if ranked else None
         sources = [
             {
-                "title": "Only the FACR08 book CCD-0008666 is in the library, not the FACT12 model manual",
+                "title": "Furrion Chill FACR08 8K manual CCD-0008666",
                 "page": page,
-                "excerpt": "This indexed file is the FACR08 8K book CCD-0008666.",
+                "excerpt": (
+                    "The roof opening and the base pan are in the Furrion Chill "
+                    "FACR08 8K manual CCD-0008666."
+                ),
             }
         ]
         if path_kind != "fact12_freeze":
-            spec["primary_cite"] = FACT12_MISLABEL_CITE
+            spec["primary_cite"] = "Furrion Chill FACR08 8K manual CCD-0008666."
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -4804,7 +5020,7 @@ def compile_bay_procedure(
     ]
     if fact12_mislabeled_only and not path_kind:
         seed = _seed_path_figure("generic")
-        seed.caption = FACT12_MISLABEL_CITE
+        seed.caption = "Furrion Chill FACR08 8K manual CCD-0008666"
         seed.title = "Shop Document Library"
         figs = [seed]
 
@@ -4819,6 +5035,8 @@ def compile_bay_procedure(
         display_model = spec.get("display_model") or "BAL Soft-Touch SS 5.1"
     elif ice and not display_model:
         display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
+    elif stabilizer_rr and not (brand or model):
+        display_model = "Lippert PSX1 front stabilizer"
 
     notes = _lock_note(category, model_text, concern)
     spec["do_not"] = [
@@ -5700,6 +5918,11 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         sizes.append(trial)
         trial -= 1.25
 
+    def clears_heads(box) -> bool:
+        if own_pts and _arrowhead_hits_box(box, own_pts, pad=1.8):
+            return False
+        return not any(_arrowhead_hits_box(box, pts, pad=1.8) for pts in routes)
+
     def accept(box) -> bool:
         if box[0] < fx0 + 1.5 or box[2] > fx1 - 1.5 or box[1] < fy0 + 1.5 or box[3] > fy1 - 1.5:
             return False
@@ -5707,10 +5930,12 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             return False
         if any(_stroke_hits_box(box, pts, pad=0.55) for pts in routes):
             return False
-        if _port_distance(box, px, py) > 22.0:
+        if not clears_heads(box):
+            return False
+        if _port_distance(box, px, py) > 34.0:
             return False
         gap = _shaft_gap(box, ax, ay, bx, by)
-        if not (1.4 <= gap <= 5.5):
+        if not (2.2 <= gap <= 10.0):
             return False
         if horizontal and bx >= ax and box[0] < px - 1.0:
             return False
@@ -5731,17 +5956,22 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
                 candidates.append((x, baseline))
                 baseline = (py - 2.4 - h) + (h - block.ascent)
                 candidates.append((x, baseline))
+            # A short arrow's head fills the shaft. Lift the label clear of it.
+            for lift in (6.5, 9.0):
+                x = px + 2.0
+                candidates.append((x, py + lift + (h - block.ascent)))
+                candidates.append((x, py - lift - block.ascent))
         elif horizontal:
             for along in (3.0, 8.0, 14.0):
                 x = px - along - w
                 baseline = py + 2.4 + (h - block.ascent)
                 candidates.append((x, baseline))
         elif by < ay:
-            for along in (2.0, 8.0):
-                x = px + 3.0
-                top = py - along
-                candidates.append((x, top - block.ascent))
-                candidates.append((px - 3.0 - w, top - block.ascent))
+            for along in (4.0, 10.0, 16.0):
+                for side in (8.0, 14.0, 20.0):
+                    top = py - along
+                    candidates.append((px + side, top - block.ascent))
+                    candidates.append((px - side - w, top - block.ascent))
         else:
             for along in (2.0, 8.0):
                 x = px + 3.0
@@ -5751,6 +5981,26 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             box = _label_box(x, baseline, block)
             if accept(box):
                 return x, baseline, block, box
+    for sz in sizes:
+        block = measure_text(text, 80.0, sz, bold=True, leading=sz + 1.0)
+        w = block.width
+        h = block.height
+        fallback = []
+        if horizontal:
+            fallback.append((px + 8.0, py + 3.0 + (h - block.ascent)))
+            fallback.append((px - 8.0 - w, py + 3.0 + (h - block.ascent)))
+        else:
+            fallback.append((px + 16.0, py - block.ascent))
+            fallback.append((px - 16.0 - w, py - block.ascent))
+        for x, baseline in fallback:
+            box = _label_box(x, baseline, block)
+            if box[0] < fx0 + 1.5 or box[2] > fx1 - 1.5 or box[1] < fy0 + 1.5 or box[3] > fy1 - 1.5:
+                continue
+            if any(_rects_hit(box, obs, 1.0) for obs in obstacles):
+                continue
+            if not clears_heads(box):
+                continue
+            return x, baseline, block, box
     return None
 
 
@@ -6235,6 +6485,20 @@ def _png_pixel_size(png: bytes) -> tuple[int, int]:
     return image.size
 
 
+def _figure_is_squeezed(png: bytes, remaining: float) -> bool:
+    """A tall drawing that would shrink to a thumbnail belongs on its own page.
+
+    A wide, short table row stays inline.
+    """
+    width, height = _png_pixel_size(png)
+    if width < 1 or height < 1 or height < width * 0.45:
+        return False
+    target_h = min(280.0, (_CONTENT_W - 32) * height / width)
+    avail = max(0.0, remaining - 80.0)
+    fitted = _fit_image(png, _CONTENT_W - 32, avail)[1]
+    return fitted < min(140.0, target_h * 0.7)
+
+
 def _fit_image(png: bytes, max_w: float, max_h: float) -> tuple[float, float]:
     """Display size that keeps the figure's aspect. No letterboxed empty box."""
     if max_w < 24 or max_h < 24 or not png:
@@ -6443,7 +6707,9 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     for fig, png in imaged:
         if shown >= MAX_FIGURES_PER_SHEET:
             break
-        if _paint_figure_on(body, fig, png=png, allow_break=False):
+        if not _figure_is_squeezed(png, body.remaining()) and _paint_figure_on(
+            body, fig, png=png, allow_break=False
+        ):
             shown += 1
             continue
         page_h = _fit_image(png, _CONTENT_W - 32, PAGE_H - 180)[1]
@@ -6670,13 +6936,59 @@ def _rl_draw_shape(c, sh: DrawnShape, trace=None, page_index: int = 0):
         )
 
 
+def _arrowhead_size(length: float) -> float:
+    """Keep the head on the last segment so it cannot reach back into a label."""
+    if length < 1.0:
+        return 3.2
+    return min(6.0, max(3.2, length * 0.72))
+
+
+def _arrowhead_triangle(pts) -> list[tuple[float, float]] | None:
+    if not pts or len(pts) < 2:
+        return None
+    x1, y1 = pts[-2]
+    x2, y2 = pts[-1]
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / length, dy / length
+    px, py = -uy, ux
+    size = _arrowhead_size(length)
+    return [
+        (x2, y2),
+        (x2 - ux * size + px * size * 0.45, y2 - uy * size + py * size * 0.45),
+        (x2 - ux * size - px * size * 0.45, y2 - uy * size - py * size * 0.45),
+    ]
+
+
+def _point_in_triangle(x: float, y: float, tri) -> bool:
+    (x1, y1), (x2, y2), (x3, y3) = tri
+    denom = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+    if abs(denom) < 1e-6:
+        return False
+    a = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / denom
+    b = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / denom
+    c = 1.0 - a - b
+    return a >= -0.02 and b >= -0.02 and c >= -0.02
+
+
+def _arrowhead_hits_box(box, pts, pad: float = 1.5) -> bool:
+    tri = _arrowhead_triangle(pts)
+    if not tri:
+        return False
+    x0, y0, x1, y1 = box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad
+    if any(x0 <= x <= x1 and y0 <= y <= y1 for x, y in tri):
+        return True
+    corners = ((x0, y0), (x0, y1), (x1, y0), (x1, y1), ((x0 + x1) / 2, (y0 + y1) / 2))
+    return any(_point_in_triangle(x, y, tri) for x, y in corners)
+
+
 def _rl_arrowhead(c, x1, y1, x2, y2, stroke):
     import math
 
     dx, dy = x2 - x1, y2 - y1
     length = math.hypot(dx, dy) or 1.0
     ux, uy = dx / length, dy / length
-    size = 6.0
+    size = _arrowhead_size(length)
     px, py = -uy, ux
     c.setFillColorRGB(*stroke)
     p = c.beginPath()
@@ -6814,12 +7126,21 @@ def layout_problems(trace: list[LayoutMark]) -> list[str]:
             if not followed:
                 problems.append(f"p{page + 1} orphan section bar")
         texts_only = [m for m in texts if m.role != "header"]
+        labels = [m for m in texts if m.role == "label"]
         for conn in (m for m in items if m.role == "connector"):
             for x, y in _connector_samples(conn):
                 for text in texts_only:
                     if (text.x0 + 0.8) < x < (text.x1 - 0.8) and (text.y0 + 0.8) < y < (text.y1 - 0.8):
                         problems.append(f"p{page + 1} arrow through text {text.text!r}")
                         break
+            tri = _arrowhead_triangle(conn.points)
+            if not tri:
+                continue
+            for text in labels:
+                box = (text.x0, text.y0, text.x1, text.y1)
+                if _arrowhead_hits_box(box, conn.points, pad=0.8):
+                    problems.append(f"p{page + 1} arrowhead overlaps {text.text!r}")
+                    break
     return problems
 
 
