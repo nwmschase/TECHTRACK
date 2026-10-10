@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.9"
+MODULE_REVISION = "v4.19.10"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -482,6 +482,7 @@ class BayProcedure:
     display_model: str = ""
     flow_tall: bool = False
     full_story: bool = False
+    unit_id: bool = False
 
     @property
     def model_line(self) -> str:
@@ -1667,18 +1668,23 @@ _RUNON_NEXT = {
 _NO_SPLIT_LEFT = frozenset({
     "and", "or", "the", "of", "to", "for", "a", "an", "in", "on", "at",
 })
-# "36B)" is a cut callout. "3-9V)" is a voltage range and must stay.
-_FIG_FRAG_RE = re.compile(r"(?<![\d\-])\b\d{1,3}[A-Za-z]\)")
+# "36B)" is a cut callout. "3-9V)" and "3 to 9V)" are voltage ranges and must stay.
+_FIG_FRAG_RE = re.compile(r"(?<![\d\-])(?<!to )\b\d{1,3}[A-Za-z]\)")
 _RANGE_PAREN_RE = re.compile(r"(\d\s*-\s*\d+\s*[VvAaWw])\)")
+_BROKEN_RANGE_RE = re.compile(r"\d\s*-\s*(?:[.)]|$)")
+_LEADING_FIG_RE = re.compile(r"^\d{1,3}\)\s*")
 _FLOW_OCR_RE = re.compile(r"\byes\s+no\b", re.I)
 _OCR_GARBAGE_RE = re.compile(
     r"grease\s+fire|\bpiezo\b|damage\s*,\s*personal|open\s+[\"“]flame|"
-    r"\bTum\b|/\*",
+    r"\bTum\b|/\*|hand[-\s]?held\s+ignitor|oven\s+pilot",
     re.I,
 )
 _BOILERPLATE_RE = re.compile(
     r"\bwelding\b|subject to change|extension cord|"
-    r"do not extend|extend warning|warning:\s*do not use an extension",
+    r"do not extend|extend warning|warning:\s*do not use an extension|"
+    r"framework note|considered factual|manual information is considered|"
+    r"\bplease recycle\b|\brecycle this\b|for recycling|"
+    r"warning\W{0,24}extend|extend\W{0,24}warning",
     re.I,
 )
 _NEW_PASSAGE_RE = re.compile(r"^refer to\b", re.I)
@@ -1779,10 +1785,42 @@ def _strip_fig_fragments(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _FIG_FRAG_RE.sub(" ", text or "")).strip()
 
 
+def _normalize_ocr_chars(text: str) -> str:
+    """Dashes and bullets become ASCII so a range and a '?' bullet are visible to the scrub."""
+    out = text or ""
+    for dash in ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
+        out = out.replace(dash, "-")
+    out = out.replace("\uff1f", "?").replace("\u2047", "?")
+    out = re.sub(r"[\u2022\u2023\u2043\u2219\u25aa\u25cf\u25e6\u00b7\uf0b7\uf0a7]", " ? ", out)
+    return out
+
+
+def _normalize_voltage_ranges(text: str) -> str:
+    """'3- 9V', '3–9V', and '3 to 9V' are the same range."""
+    return re.sub(
+        r"(\d)\s*(?:-|to)\s*(\d+)\s*([VvAaWw])\b",
+        r"\1-\2\3",
+        text or "",
+    )
+
+
+def _strip_orphan_range_paren(text: str) -> str:
+    """Drop a paren glued onto a range. Keep the paren that closes '(typical 3-9V)'."""
+
+    def repl(match):
+        before = text[: match.start()]
+        if before.count("(") > before.count(")"):
+            return match.group(0)
+        return match.group(1)
+
+    return _RANGE_PAREN_RE.sub(repl, text or "")
+
+
 def _repair_ocr_text(text: str) -> str:
     """Shared OCR repair for sheet steps and source snippets."""
     # Newlines are whitespace. Joining them with '' glues Button to If.
-    out = re.sub(r"\s+", " ", text or "").strip()
+    out = _normalize_ocr_chars(text or "")
+    out = re.sub(r"\s+", " ", out).strip()
     out = _TRANSCRIPTION_RE.sub(" ", out)
     out = re.sub(r"\(\s*ocr\s*\)", " ", out, flags=re.I)
     out = _split_glued_camel(out)
@@ -1795,7 +1833,8 @@ def _repair_ocr_text(text: str) -> str:
         out = pattern.sub(repl, out)
     out = re.sub(r"([A-Za-z]),([A-Za-z])", r"\1, \2", out)
     out = _split_runon_sentences(out)
-    out = _RANGE_PAREN_RE.sub(r"\1", out)
+    out = _normalize_voltage_ranges(out)
+    out = _strip_orphan_range_paren(out)
     out = _strip_fig_fragments(out)
     out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
     out = _OCR_HEADER_RE.sub(" ", out)
@@ -1851,6 +1890,7 @@ _LOWER_SENTENCE_OPEN = {
     "locate", "test", "clean", "jumper", "tongue", "panel", "compressor",
     "door", "ice", "light", "water", "frost", "dial", "rooftop", "defrost",
     "back", "unplug", "power", "spark", "listed", "both", "with",
+    "at", "on", "for", "between", "across",
 }
 _TOPIC_STOP = {
     "this", "that", "with", "from", "into", "over", "then", "than", "them",
@@ -1963,6 +2003,10 @@ _PATH_OFF = {
         r"\bfurnace\b",
         r"damage\s*,\s*personal",
         r"mounting screw",
+        r"install(?:ation)?\s+screws?",
+        r"hand[-\s]?held\s+ignitor",
+        r"oven\s+pilot",
+        r"\bignitor\b",
         r"\bTum\b",
         r"/\*",
     ),
@@ -2125,7 +2169,10 @@ def _sentence_is_cut(text: str) -> bool:
         return True
     if re.search(r"\blippert\.$", sentence, re.I):
         return True
-    if re.search(r"\bthe\s+(?:black|white|red|blue|green)\.$", sentence, re.I):
+    # The period may not be on the excerpt yet. "then the black" is still cut.
+    if re.search(r"\bthe\s+(?:black|white|red|blue|green)\.?$", sentence, re.I):
+        return True
+    if _BROKEN_RANGE_RE.search(sentence):
         return True
     match = _SHORT_CUT_END_RE.search(sentence)
     if match:
@@ -2214,10 +2261,12 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         return ""
     out = clean_ocr_prose(text)
     out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
+    out = re.sub(r"(?:(?<=^)|(?<=[.!?]\s))\d{1,3}\)\s+", "", out)
     kept = []
     skip_after_bullet = False
     for sentence in _split_sentences(out):
         sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence))
+        sentence = _LEADING_FIG_RE.sub("", sentence).strip()
         if skip_after_bullet:
             skip_after_bullet = False
             continue
@@ -2260,9 +2309,12 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
     if len(out) > cap:
         out = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
     out = _strip_incomplete_callout(out)
+    out = _as_sentence(out)
     if _sentence_is_cut(out):
         return ""
-    return _as_sentence(out)
+    if "?" in out and not (re.search(r"\bif\b", out, re.I) and out.endswith("?")):
+        return ""
+    return out
 
 
 def _has_source_needle(blob: str, needle: str) -> bool:
@@ -2289,6 +2341,9 @@ def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind:
     has_climax = any(_has_source_needle(blob, needle) for needle in _PATH_CLIMAX.get(path_kind, ()))
     has_family = any(_has_source_needle(blob, needle) for needle in _PATH_FAMILY.get(path_kind, ()))
     has_off = any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ()))
+    if path_kind == "cooktop_tip":
+        on_topic = bool(re.search(r"thermocouple|\bburner\b", blob))
+        return on_topic and not has_off
     if has_off and not has_climax:
         return False
     if has_climax or has_family:
@@ -2337,6 +2392,38 @@ def _prefer_front_jack_sources(sources: list[dict]) -> list[dict]:
     return [src for src in sources if "rear stabilizer" not in _blob(src)]
 
 
+def _excerpt_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(word) > 3 and word not in _TOPIC_STOP
+    }
+
+
+def _is_near_duplicate_excerpt(left: str, right: str) -> bool:
+    """True when the shorter cite is the same passage with a few words changed."""
+    words_left, words_right = _excerpt_words(left), _excerpt_words(right)
+    if min(len(words_left), len(words_right)) < 3:
+        return False
+    small, large = (
+        (words_left, words_right) if len(words_left) <= len(words_right) else (words_right, words_left)
+    )
+    return len(small & large) / len(small) >= 0.8
+
+
+def _cooktop_title_only(sources: list[dict]) -> list[dict]:
+    """No burner or thermocouple sentence: cite the manual and print no snippet."""
+    title = "Suburban Range/Cooktops service manual"
+    page = None
+    for src in sources or []:
+        named = human_source_title(src.get("title") or "", src.get("file_path") or "")
+        if named:
+            title = named
+            page = _page_int(src.get("page"))
+            break
+    return [{"title": title, "page": page, "excerpt": ""}]
+
+
 def polish_bay_sources(
     sources: list[dict],
     locked_count: int,
@@ -2362,6 +2449,12 @@ def polish_bay_sources(
             continue
         excerpt = clean_source_excerpt(raw_excerpt, locked=locked)
         excerpt = _drop_path_off_sentences(excerpt, path_kind)
+        if path_kind == "cooktop_tip":
+            blob = excerpt or ""
+            on_topic = bool(re.search(r"thermocouple|\bburner\b", blob, re.I))
+            off_topic = any(re.search(pattern, blob, re.I) for pattern in _PATH_OFF.get("cooktop_tip", ()))
+            if not on_topic or off_topic:
+                continue
         if not (excerpt or "").strip():
             continue
         if not locked and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
@@ -2386,7 +2479,31 @@ def polish_bay_sources(
         out = kept
     for src in out:
         src.pop("_install", None)
+    out = _drop_near_duplicate_sources(out)
+    if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
+        return _cooktop_title_only(sources)
     return out
+
+
+def _drop_near_duplicate_sources(sources: list[dict]) -> list[dict]:
+    """A later page that restates an earlier snippet replaces that earlier page."""
+    kept: list[dict] = []
+    for src in sources:
+        replaced = False
+        for prev in kept:
+            if not _is_near_duplicate_excerpt(src.get("excerpt") or "", prev.get("excerpt") or ""):
+                continue
+            prev_page = prev.get("page") or 0
+            page = src.get("page") or 0
+            longer = len(src.get("excerpt") or "") > len(prev.get("excerpt") or "")
+            if page > prev_page or (page == prev_page and longer):
+                prev.clear()
+                prev.update(src)
+            replaced = True
+            break
+        if not replaced:
+            kept.append(src)
+    return kept
 
 
 def _strip_ocr_bullet(text: str) -> str:
@@ -3838,7 +3955,7 @@ def _ground_control_path(concern: str) -> dict:
                     "process",
                     "Run manual level.\nFront to back, then side to side.",
                     0.32,
-                    0.28,
+                    0.20,
                     w=280,
                     h=72,
                 ),
@@ -3847,7 +3964,7 @@ def _ground_control_path(concern: str) -> dict:
                     "process",
                     "Then set the zero point\nwith the touch pad off.",
                     0.32,
-                    0.48,
+                    0.36,
                     w=280,
                     h=72,
                 ),
@@ -3856,7 +3973,7 @@ def _ground_control_path(concern: str) -> dict:
                     "process",
                     "FRONT five times, REAR five times,\nthen press ENTER.",
                     0.32,
-                    0.68,
+                    0.52,
                     w=300,
                     h=72,
                 ),
@@ -3865,7 +3982,7 @@ def _ground_control_path(concern: str) -> dict:
                     "decision",
                     "Does auto-level\nstill lift one side?",
                     0.32,
-                    0.72,
+                    0.70,
                     w=230,
                     h=80,
                 ),
@@ -3874,7 +3991,7 @@ def _ground_control_path(concern: str) -> dict:
                     "end",
                     "Repeat the button sequence.",
                     0.78,
-                    0.72,
+                    0.70,
                     w=210,
                     h=56,
                 ),
@@ -3883,7 +4000,7 @@ def _ground_control_path(concern: str) -> dict:
                     "end",
                     "That is the confirmed\ncorrection.",
                     0.32,
-                    0.92,
+                    0.90,
                     w=220,
                     h=64,
                 ),
@@ -4014,14 +4131,14 @@ def _fact12_freeze_path() -> dict:
         "flowchart": _named_fix_chart(
             "FACT12 shows E2 or E3.",
             "Is the freeze sensor\nloose or off the coil?",
-            "Resecure the freeze sensor.\nThat is the correction.",
-            "Sensor is seated.\nRetest before a board swap.",
+            "The code cleared.\nThat is the correction.",
+            "Replace the freeze sensor\nand retest.",
             "Resecure the freeze sensor\non the evaporator coil.",
         ),
         "bay_order": [
-            "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, resecure the freeze sensor.",
+            "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, do the seating correction next. If it is already seated, go to the replace step.",
             _shop_body(FACT12_FREEZE_RESECURE_LINE)
-            + " If the code clears, that resecure is the confirmed correction.",
+            + " If the code clears, that is the confirmed correction.",
             "If the sensor is seated and the code remains, replace the freeze sensor and retest. Do not replace the control board first.",
         ],
         "do_not": [
@@ -4104,9 +4221,9 @@ def _girard_petit_path() -> dict:
         ),
         "bay_order": [
             "Confirm the E8 code after the flame lights. Look at the petit tube before any other part.",
-            "If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
+            "Do this only when the tube is out of the flame. If the petit tube is already in the burner flame, retest the heater. If E8 clears, that position is the correction.",
             _shop_body(GIRARD_PETIT_ALIGN_LINE)
-            + " Do this only when the tube is out of the flame. That is the confirmed correction.",
+            + " That is the confirmed correction.",
             "If E8 remains after that alignment, check the air-pressure switch. Repair it and retest if it fails.",
             "If the air-pressure switch is good, check the gas supply and retest the heater.",
             "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
@@ -4446,6 +4563,7 @@ def compile_bay_procedure(
         display_model=display_model,
         flow_tall=bool(spec.get("flow_tall")),
         full_story=bool(spec.get("full_story", path_kind in ("ice", "facr", "dial_off", "bal_tongue"))),
+        unit_id=bool(ice),
     )
     proc = apply_sheet_standard(proc)
     if dial_off:
@@ -5258,28 +5376,43 @@ def _stroke_hits_box(box, pts, pad: float = 0.4) -> bool:
     return False
 
 
-def _port_host(px: float, py: float, obstacles):
-    """Node box the port sits on. Stroke corridors are too thin to qualify."""
-    best = None
-    best_area = -1.0
-    for box in obstacles:
-        x0, y0, x1, y1 = box
-        if (x1 - x0) < 24 or (y1 - y0) < 18:
-            continue
-        if x0 - 1.6 <= px <= x1 + 1.6 and y0 - 1.6 <= py <= y1 + 1.6:
-            area = (x1 - x0) * (y1 - y0)
-            if area > best_area:
-                best = box
-                best_area = area
+def _outgoing_segment(port, side: str, own_pts):
+    """The arrow's first stroke. The label sits on this segment, not on the node."""
+    px, py = port
+    if own_pts and len(own_pts) >= 2 and math.hypot(own_pts[1][0] - own_pts[0][0], own_pts[1][1] - own_pts[0][1]) >= 4:
+        return own_pts[0][0], own_pts[0][1], own_pts[1][0], own_pts[1][1]
+    if side == "left":
+        return px, py, px - 28.0, py
+    if side == "bottom":
+        return px, py, px, py - 28.0
+    if side == "top":
+        return px, py, px, py + 28.0
+    return px, py, px + 28.0, py
+
+
+def _shaft_gap(box, ax: float, ay: float, bx: float, by: float) -> float:
+    """Distance from the label box to the arrow shaft. Zero means the line runs through the glyphs."""
+    x0, y0, x1, y1 = box
+    dist = math.hypot(bx - ax, by - ay)
+    steps = max(1, int(dist / 2.0))
+    best = 1e9
+    for i in range(steps + 1):
+        t = i / steps
+        x = ax + (bx - ax) * t
+        y = ay + (by - ay) * t
+        dx = 0.0 if x0 <= x <= x1 else min(abs(x - x0), abs(x - x1))
+        dy = 0.0 if y0 <= y <= y1 else min(abs(y - y0), abs(y - y1))
+        best = min(best, math.hypot(dx, dy))
     return best
 
 
-def _place_branch_label(text: str, port, side: str, obstacles, frame, size: float, routes=None):
-    """Put YES/NO beside the arrow, outside every node box and every stroke."""
+def _place_branch_label(text: str, port, side: str, obstacles, frame, size: float, routes=None, own_pts=None):
+    """Put YES/NO on the outgoing arrow, just off the shaft, clear of every node."""
     routes = list(routes or [])
     px, py = port
     fx0, fy0, fx1, fy1 = frame
-    toward_right = px <= (fx0 + fx1) / 2.0
+    ax, ay, bx, by = _outgoing_segment(port, side, own_pts)
+    horizontal = abs(bx - ax) >= abs(by - ay)
     sizes = []
     trial = float(size)
     while trial >= 6.4:
@@ -5293,55 +5426,48 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             return False
         if any(_stroke_hits_box(box, pts, pad=0.55) for pts in routes):
             return False
+        if _port_distance(box, px, py) > 22.0:
+            return False
+        gap = _shaft_gap(box, ax, ay, bx, by)
+        if not (1.4 <= gap <= 5.5):
+            return False
+        if horizontal and bx >= ax and box[0] < px - 1.0:
+            return False
+        if horizontal and bx < ax and box[2] > px + 1.0:
+            return False
         return True
 
-    host = _port_host(px, py, obstacles)
     for sz in sizes:
         block = measure_text(text, 80.0, sz, bold=True, leading=sz + 1.0)
         w = block.width
         h = block.height
-        tops = []
-
-        def add_top(x: float, top: float):
-            tops.append((x, top - block.ascent))
-
-        if side == "bottom":
-            top = py - 1.1
-            first = px + 4.5 if toward_right else px - 4.5 - w
-            second = px - 4.5 - w if toward_right else px + 4.5
-            add_top(first, top)
-            add_top(second, top)
-        elif side == "top":
-            top = py + 1.1 + h
-            first = px + 4.5 if toward_right else px - 4.5 - w
-            second = px - 4.5 - w if toward_right else px + 4.5
-            add_top(first, top)
-            add_top(second, top)
-        elif side == "right":
-            add_top(px + 4.0, py + h + 2.5)
-            add_top(px + 4.0, py - 1.0)
-        elif side == "left":
-            add_top(px - 4.0 - w, py + h + 2.5)
-            add_top(px - 4.0 - w, py - 1.0)
+        candidates = []
+        if horizontal and bx >= ax:
+            for along in (3.0, 8.0, 14.0):
+                x = px + along
+                # Just above the shaft. PDF y grows upward.
+                baseline = py + 2.4 + (h - block.ascent)
+                candidates.append((x, baseline))
+                baseline = (py - 2.4 - h) + (h - block.ascent)
+                candidates.append((x, baseline))
+        elif horizontal:
+            for along in (3.0, 8.0, 14.0):
+                x = px - along - w
+                baseline = py + 2.4 + (h - block.ascent)
+                candidates.append((x, baseline))
+        elif by < ay:
+            for along in (2.0, 8.0):
+                x = px + 3.0
+                top = py - along
+                candidates.append((x, top - block.ascent))
+                candidates.append((px - 3.0 - w, top - block.ascent))
         else:
-            add_top(px + 4.0, py + h + 2.0)
-        for step in (10.0, 18.0, 28.0, 42.0):
-            add_top(px + step, py + h + 2.0)
-            add_top(px - step - w, py + h + 2.0)
-            add_top(px + 4.0, py - step)
-            add_top(px - w - 4.0, py - step)
-        if host:
-            x0, y0, x1, y1 = host
-            add_top(x1 + 3.0, y1)
-            add_top(x0 - 3.0 - w, y1)
-            add_top(max(fx0 + 2.0, min(px - w / 2.0, fx1 - w - 2.0)), y1 + h + 2.0)
-            add_top(max(fx0 + 2.0, min(px - w / 2.0, fx1 - w - 2.0)), y0 - 2.0)
-            add_top(x0, y1 + h + 2.0)
-            add_top(x1 - w, y0 - 2.0)
-        for x, baseline in tops:
+            for along in (2.0, 8.0):
+                x = px + 3.0
+                top = py + along + h
+                candidates.append((x, top - block.ascent))
+        for x, baseline in candidates:
             box = _label_box(x, baseline, block)
-            if _port_distance(box, px, py) > 28.0:
-                continue
             if accept(box):
                 return x, baseline, block, box
     return None
@@ -5465,16 +5591,16 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
         routed.append((edge, pts, (x1, y1), corridors))
     for index, (edge, pts, port, _own) in enumerate(routed):
         if edge.label:
-            other_strokes = [box for j, item in enumerate(routed) if j != index for box in item[3]]
-            all_routes = [item[1] for item in routed]
+            other_routes = [item[1] for j, item in enumerate(routed) if j != index]
             placed = _place_branch_label(
                 edge.label.upper(),
                 port,
                 edge.from_side,
-                node_boxes + label_boxes + other_strokes,
+                node_boxes + label_boxes,
                 frame,
                 label_size,
-                routes=all_routes,
+                routes=other_routes,
+                own_pts=pts,
             )
             if placed is None:
                 continue
@@ -5946,6 +6072,16 @@ def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_b
         paint_row(title, excerpt)
 
 
+def _paint_unit_id(body: _SheetFlow, proc: BayProcedure) -> None:
+    """Brand and model from the job. Serial stays blank for the tech to write."""
+    _add_section(body, "UNIT ID", NAVY, follow_h=40)
+    brand = (proc.brand or "").strip() or "____________________"
+    model = (proc.model or "").strip() or "____________________"
+    _add_plain_item(body, f"Brand: {brand}", size=9, gap=3.0)
+    _add_plain_item(body, f"Model: {model}", size=9, gap=3.0)
+    _add_plain_item(body, "Serial: ____________________", size=9, gap=8.0)
+
+
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     """Build drawable pages for a human bay sheet.
 
@@ -5980,6 +6116,8 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     page.texts.extend(f_texts)
 
     body = _SheetFlow(pages, "Bay order  ·  Tacoma RV Center")
+    if proc.unit_id:
+        _paint_unit_id(body, proc)
     if big_flow:
         means = measure_text(proc.pattern_means or "-", _CONTENT_W - 16, 9, leading=12)
         _add_section(body, "WHAT THIS PATTERN USUALLY MEANS", NAVY, follow_h=min(means.height + 20, 80))
