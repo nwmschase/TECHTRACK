@@ -1,6 +1,6 @@
 """
-RV TechTrack v4.19.35
-- v4.19.35: After refrigerant pressures, Guided Diagnostics authorizes rooftop assembly R&R and does not print the internal FACR prove guard or ask for the thermostat setpoint. Dry-and-wait with frost back replaces the cooling unit. Water Heaters stays at the top of the Guided Diagnostics category picker. The Level Up hose cite is the FW Owner's Manual page 13, and page 1 cites the Towable Owner's Manual page 15 with part 177094. Thetford kit sources drop install-step quotes that are not leak sentences.
+RV TechTrack v4.19.36
+- v4.19.36: Shop behavior is the v4.19.34 release again. The v4.19.35 changes are not in this deploy.
 - v4.19.34: A Thetford flush-lever leak keeps the next cited check when the draft is only a source line. An empty or source-only reply falls back to that check. A Level Up lead-jack turn answers the plumbing question once and does not wait on the model. Part 177094 cites the Level Up Towable Owner's Manual page 15 or the Level Up FW Owner's Manual page 18.
 - v4.19.33: Shop behavior is the v4.19.29 release again. The v4.19.31 and v4.19.32 changes are not in this deploy.
 - v4.19.32: Level Up front jacks that drift after a jack swap ask for the gray-wire coil, the swap plumbing, and the manual override screw before the lead-jack cartridge 177094.
@@ -208,7 +208,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.35"
+_GDC_REQUIRED_REVISION = "v4.19.36"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 

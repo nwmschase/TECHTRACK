@@ -173,38 +173,6 @@ class TestLiveCloses(unittest.TestCase):
             self.assertNotIn("cooling unit", low)
             self.assertNotIn("thermocouple", low)
             self.assertNotIn("seating is the repair", low)
-            self.assertNotIn("stay on the facr", low)
-            self.assertNotIn("do not leave this prove", low)
-
-    def test_s01_pressures_authorize_without_asking_the_setpoint(self):
-        replies = self._send(
-            [
-                "Furrion FACR08HESA2-PS rooftop AC. Water leaking from the forward AC inside while running, not raining. Frost on the evaporator.",
-                "Drain is clear, pan is clean and draining, base-pan slope is fine.",
-                "Filter is clean. Evaporator fan spins freely with good airflow.",
-                "Suction line is not iced.",
-                "Freeze sensor reads 2 kΩ at 25°C.",
-                "Open nozzles. 72°F ambient.",
-                "68/235 psi. Frost and the interior leak are still there.",
-                "What is the repair?",
-            ],
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-            draft=(
-                "Stay on the FACR condensate and freeze prove. "
-                "Do not leave this prove for a no-start tree or a high-voltage bus measurement. "
-                "Next check: What is the cool setpoint on the thermostat?"
-            ),
-        )
-        for reply in replies[-2:]:
-            low = reply.lower()
-            self.assertIn("ccd-0007990", low)
-            self.assertIn("authorize rooftop assembly", low)
-            self.assertIn("replace the rooftop assembly", low)
-            self.assertNotIn("stay on the facr", low)
-            self.assertNotIn("do not leave this prove", low)
-            self.assertNotIn("cool setpoint", low)
-            self.assertNotIn("supply a procedure excerpt", low)
 
     def test_s01_without_pressures_does_not_authorize(self):
         replies = self._send(
@@ -234,8 +202,6 @@ class TestLiveCloses(unittest.TestCase):
         low = replies[-1].lower()
         self.assertNotIn("authorize rooftop assembly", low)
         self.assertNotIn("read the refrigerant pressures", low)
-        self.assertNotIn("stay on the facr", low)
-        self.assertNotIn("do not leave this prove", low)
 
     def test_s05_overnight_dry_and_frost_back_is_the_cooling_unit(self):
         early = self._send(
@@ -264,23 +230,6 @@ class TestLiveCloses(unittest.TestCase):
         self.assertFalse(low.startswith("if "))
         self.assertNotIn("authorize rooftop", low)
         self.assertNotIn("thermocouple", low)
-
-    def test_s05_dried_and_waited_is_the_firm_cooling_unit(self):
-        replies = self._send(
-            [
-                "Furrion FCR10 fridge; icing up on the rear wall about halfway from the top.",
-                "Door gasket is sealing properly.",
-                "Dried the cabinet and waited. Heavy frost came back.",
-            ],
-            "Refrigerators",
-            "FCR10DCGTA-BL",
-            draft="If heavy frost returns after the overnight wait, replace the cooling unit.",
-        )
-        low = replies[-1].lower()
-        self.assertTrue(low.startswith("replace the cooling unit"))
-        self.assertNotIn("only if", low)
-        self.assertFalse(low.startswith("if "))
-        self.assertNotIn("authorize rooftop", low)
 
     def test_s13_seating_is_the_repair_once_under_water_heaters(self):
         replies = self._send(
