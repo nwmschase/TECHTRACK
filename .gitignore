@@ -9,6 +9,7 @@ certificates/
 documents/
 safety/
 training_materials/
+bulk_imports/
 
 # Python
 __pycache__/

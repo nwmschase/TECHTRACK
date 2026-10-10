@@ -1,0 +1,4 @@
+[server]
+# Manager bulk import sends one ZIP per upload. Stay at 200 MB so a ZIP
+# near 180 MB is accepted. Split anything larger.
+maxUploadSize = 200

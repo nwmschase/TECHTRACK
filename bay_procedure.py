@@ -63,6 +63,7 @@ from gd_library_coach import (
     is_toilet_job,
     library_miss_brand_label,
     chunk_matches_asked_brand,
+    model_list_allows,
     dometic_nocoool_search_symptom,
     filter_chunks_for_unit,
     ground_control_search_symptom,
@@ -3969,11 +3970,29 @@ def model_text_from(brand: str = "", model: str = "") -> str:
     return join_brand_model(brand, model)
 
 
+def _chunk_meta_value(ch, name: str) -> str:
+    """Stored document field, or the lookup copy search attaches to a chunk."""
+    lookup = f"_lookup_{name}"
+    if isinstance(ch, dict):
+        value = ch.get(name)
+        if value is None or value == "":
+            value = ch.get(lookup)
+        if (value is None or value == "") and name == "keywords":
+            value = ch.get("_lookup_doc_keywords")
+    else:
+        value = getattr(ch, name, None)
+        if value is None or value == "":
+            value = getattr(ch, lookup, None)
+        if (value is None or value == "") and name == "keywords":
+            value = getattr(ch, "_lookup_doc_keywords", None)
+    return "" if value is None else str(value)
+
+
 def chunk_as_dict(ch) -> dict:
     """Normalize a DocChunk or dict used by ranking helpers."""
     if isinstance(ch, dict):
         excerpt = ch.get("excerpt") or ch.get("chunk_text") or ""
-        return {
+        row = {
             "title": ch.get("title") or "",
             "page": ch.get("page"),
             "excerpt": excerpt,
@@ -3983,17 +4002,21 @@ def chunk_as_dict(ch) -> dict:
             "document_id": ch.get("document_id"),
             "image_png": ch.get("image_png"),
         }
-    excerpt = getattr(ch, "chunk_text", "") or getattr(ch, "excerpt", "") or ""
-    return {
-        "title": getattr(ch, "title", "") or "",
-        "page": getattr(ch, "page", None),
-        "excerpt": excerpt,
-        "chunk_text": excerpt,
-        "file_path": getattr(ch, "file_path", None),
-        "category": getattr(ch, "category", "") or getattr(ch, "category_name", "") or "",
-        "document_id": getattr(ch, "document_id", None),
-        "image_png": getattr(ch, "image_png", None),
-    }
+    else:
+        excerpt = getattr(ch, "chunk_text", "") or getattr(ch, "excerpt", "") or ""
+        row = {
+            "title": getattr(ch, "title", "") or "",
+            "page": getattr(ch, "page", None),
+            "excerpt": excerpt,
+            "chunk_text": excerpt,
+            "file_path": getattr(ch, "file_path", None),
+            "category": getattr(ch, "category", "") or getattr(ch, "category_name", "") or "",
+            "document_id": getattr(ch, "document_id", None),
+            "image_png": getattr(ch, "image_png", None),
+        }
+    for name in ("keywords", "brand", "models", "clean_title", "product_line", "doc_number"):
+        row[name] = _chunk_meta_value(ch, name)
+    return row
 
 
 def rewrite_bay_search_symptom(
@@ -4059,14 +4082,37 @@ def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", c
         return pages, False
     matched, other, plain = [], [], []
     for d in pages:
+        models = (d.get("models") or "").strip()
+        if models and not model_list_allows(models, model_text or ""):
+            continue
         title = d.get("title") or ""
         keywords = d.get("keywords") or ""
         excerpt = d.get("excerpt") or ""
         file_path = d.get("file_path") or ""
-        canon = canonical_shop_brands(title, keywords, library_filename_words(file_path))
-        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt} {library_filename_words(file_path)}")
+        brand = d.get("brand") or ""
+        clean_title = d.get("clean_title") or ""
+        product_line = d.get("product_line") or ""
+        doc_number = d.get("doc_number") or ""
+        extra = " ".join(part for part in (models, clean_title, product_line, doc_number) if part)
+        name = library_filename_words(file_path)
+        declared = canonical_shop_brands(brand)
+        canon = canonical_shop_brands(title, keywords, name, extra)
+        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt} {name} {extra}")
+        if declared and not (asked & declared):
+            other.append(d)
+            continue
         if chunk_matches_asked_brand(
-            title, keywords, excerpt, asked, coleman_job=coleman_job, file_path=file_path
+            title,
+            keywords,
+            excerpt,
+            asked,
+            coleman_job=coleman_job,
+            file_path=file_path,
+            brand=brand,
+            models=models,
+            clean_title=clean_title,
+            product_line=product_line,
+            doc_number=doc_number,
         ):
             matched.append(d)
         elif canon or (coleman_text and not coleman_job):

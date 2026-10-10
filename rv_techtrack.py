@@ -123,6 +123,7 @@ import re
 import json
 import base64
 import time
+import library_bulk_import
 
 
 def product_version_from_doc(doc):
@@ -633,6 +634,23 @@ def get_r2_client():
         return None
 
 
+def r2_put_bytes(file_obj, key: str, content_type: str = "application/octet-stream") -> bool:
+    """Upload bytes to R2. Bulk import uses this so a failed file does not write a page error."""
+    client = get_r2_client()
+    if not client or not key:
+        return False
+    try:
+        client.put_object(
+            Bucket=st.secrets["R2_BUCKET_NAME"],
+            Key=key,
+            Body=file_obj,
+            ContentType=content_type or "application/octet-stream",
+        )
+        return True
+    except Exception:
+        return False
+
+
 def r2_upload(file_obj, key: str, content_type: str = "application/octet-stream") -> bool:
     client = get_r2_client()
     if not client:
@@ -702,6 +720,54 @@ def r2_list_keys(prefix: str = "", max_keys: int = 500):
         return [], f"Could not list storage: {e}"
 
 
+def r2_prefix_totals(prefixes):
+    """Count objects and sum sizes under each prefix.
+
+    Returns ``(totals, error)``. A listing failure leaves totals empty so the
+    caller can still show the document count and the database file size.
+    ``bytes_known`` is false when the API omits Size.
+    """
+    client = get_r2_client()
+    try:
+        bucket = st.secrets["R2_BUCKET_NAME"]
+    except Exception:
+        bucket = None
+    if not client or not bucket:
+        return {}, "Storage not configured"
+    grouped = {prefix: [] for prefix in prefixes}
+    truncated = {prefix: False for prefix in prefixes}
+    cap = 20000
+    try:
+        for prefix in prefixes:
+            token = None
+            while True:
+                kwargs = {
+                    "Bucket": bucket,
+                    "Prefix": prefix or "",
+                    "MaxKeys": 1000,
+                }
+                if token:
+                    kwargs["ContinuationToken"] = token
+                resp = client.list_objects_v2(**kwargs)
+                for item in resp.get("Contents") or []:
+                    grouped[prefix].append(item)
+                    if len(grouped[prefix]) >= cap:
+                        truncated[prefix] = True
+                        break
+                if truncated[prefix] or not resp.get("IsTruncated"):
+                    break
+                token = resp.get("NextContinuationToken")
+                if not token:
+                    break
+        totals = library_bulk_import.summarize_prefix_objects(grouped)
+        for prefix, hit in truncated.items():
+            if prefix in totals and hit:
+                totals[prefix]["truncated"] = True
+        return totals, ""
+    except Exception as e:
+        return {}, f"Could not list storage: {e}"
+
+
 def r2_key_already_registered(key: str) -> bool:
     if session.query(Document).filter_by(file_path=key).first():
         return True
@@ -737,6 +803,14 @@ def export_library_catalog() -> str:
             "file_path": d.file_path,
             "file_type": d.file_type,
             "indexed": bool(d.indexed),
+            "clean_title": d.clean_title or "",
+            "brand": d.brand or "",
+            "product_line": d.product_line or "",
+            "models": d.models or "",
+            "doc_type": d.doc_type or "",
+            "doc_number": d.doc_number or "",
+            "ti_number": d.ti_number or "",
+            "revision_date": d.revision_date or "",
         })
     return json.dumps({"exported_at": datetime.now().isoformat(), "documents": rows}, indent=2)
 
@@ -770,6 +844,18 @@ class Document(Base):
     keywords = Column(Text, default="")
     indexed = Column(Boolean, default=False)
     index_note = Column(String(250), default="")
+    content_sha256 = Column(String(64), default=None)
+    doc_type = Column(String(80), default="")
+    ti_number = Column(String(80), default="")
+    import_tier = Column(Integer, default=None)
+    byte_size = Column(Integer, default=None)
+    needs_ocr = Column(Boolean, default=False)
+    clean_title = Column(String(250), default=None)
+    brand = Column(String(80), default=None)
+    product_line = Column(String(150), default=None)
+    models = Column(Text, default=None)
+    doc_number = Column(String(80), default=None)
+    revision_date = Column(String(40), default=None)
 
 
 class DocChunk(Base):
@@ -885,6 +971,10 @@ def _ensure_schema_upgrades():
             if "sources_json" not in job_cols:
                 conn.exec_driver_sql("ALTER TABLE diagnostic_jobs ADD COLUMN sources_json TEXT")
             conn.commit()
+    except Exception:
+        pass
+    try:
+        library_bulk_import.ensure_schema(engine)
     except Exception:
         pass
 
@@ -1554,19 +1644,10 @@ def extract_pdf_pages(file_bytes: bytes):
 
 
 def chunk_page_text(page_num: int, text: str, chunk_size: int = 900, overlap: int = 120):
-    if len(text) <= chunk_size:
-        return [(page_num, text)]
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        piece = text[start:end].strip()
-        if piece:
-            chunks.append((page_num, piece))
-        if end >= len(text):
-            break
-        start = end - overlap
-    return chunks
+    """900-character windows with 120 overlap. Shared with bulk import."""
+    return library_bulk_import.chunk_page_text(
+        page_num, text, chunk_size=chunk_size, overlap=overlap
+    )
 
 
 def clear_document_chunks(document_id: int):
@@ -1797,14 +1878,38 @@ def symptom_matched_pages_from_index(index_text: str, symptom: str):
     return pages
 
 
+def _chunk_meta_text(ch) -> str:
+    """Brand, models, and document numbers copied onto a chunk for scoring.
+
+    Empty lookup fields add nothing, so a document from before these columns
+    scores the same title and keywords it always did.
+    """
+    parts = []
+    for name in ("clean_title", "brand", "product_line", "models", "doc_number", "revision_date"):
+        if isinstance(ch, dict):
+            value = ch.get(f"_lookup_{name}") or ch.get(name) or ""
+        else:
+            value = getattr(ch, f"_lookup_{name}", None)
+            if value is None or value == "":
+                value = getattr(ch, name, "") or ""
+        text = "" if value is None else str(value).strip()
+        if text:
+            parts.append(text)
+    return " ".join(parts)
+
+
 def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) -> int:
-    hay = f"{ch.title or ''} {ch.keywords or ''} {ch.chunk_text or ''}".lower()
+    meta = _chunk_meta_text(ch)
+    base = f"{ch.title or ''} {ch.keywords or ''}"
+    if meta:
+        base = f"{base} {meta}"
+    hay = f"{base} {ch.chunk_text or ''}".lower()
     if not query_terms:
         return 1
     score = 0
+    title_kw = base.lower()
     for term in query_terms:
         if term in hay:
-            title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
             score += 4 if term in title_kw else 1
             score += min(hay.count(term), 3)
     if model_text.strip() and model_text.strip().lower() in hay:
@@ -1962,15 +2067,35 @@ def search_manual_chunks(
             q = q.filter(DocChunk.category_id.in_(cat_ids))
     all_chunks = q.all()
     path_by_doc = {}
-    doc_ids = {getattr(c, "document_id", None) for c in all_chunks}
-    doc_ids.discard(None)
-    if doc_ids:
-        for doc in session.query(Document).filter(Document.id.in_(list(doc_ids))).all():
+    loaded_docs = {}
+
+    def _attach(chunks):
+        need = []
+        for ch in chunks:
+            doc_id = getattr(ch, "document_id", None)
+            if doc_id is not None and doc_id not in loaded_docs:
+                need.append(doc_id)
+        if need:
+            for doc in session.query(Document).filter(Document.id.in_(need)).all():
+                loaded_docs[doc.id] = doc
+            for doc_id in need:
+                loaded_docs.setdefault(doc_id, None)
+        for ch in chunks:
+            doc = loaded_docs.get(getattr(ch, "document_id", None))
+            if doc is None:
+                continue
             path_by_doc[doc.id] = doc.file_path or ""
-    for ch in all_chunks:
-        looked = path_by_doc.get(getattr(ch, "document_id", None), "")
-        if looked and not getattr(ch, "_lookup_file_path", ""):
-            ch._lookup_file_path = looked
+            if not getattr(ch, "_lookup_file_path", ""):
+                ch._lookup_file_path = doc.file_path or ""
+            ch._lookup_brand = doc.brand or ""
+            ch._lookup_models = doc.models or ""
+            ch._lookup_clean_title = doc.clean_title or ""
+            ch._lookup_product_line = doc.product_line or ""
+            ch._lookup_doc_number = doc.doc_number or ""
+            ch._lookup_revision_date = doc.revision_date or ""
+            ch._lookup_doc_keywords = doc.keywords or ""
+
+    _attach(all_chunks)
     # Brand comes from the unit the tech named, not from an AC search boost that
     # says "Furrion" on a Coleman job. Coleman also keeps 1976 / Peacemaker titles.
     asked_canon = _gdc.asked_brands_for_lookup("", model_text or "", symptom or "")
@@ -1979,6 +2104,9 @@ def search_manual_chunks(
     )
 
     def _brand_keep(ch) -> bool:
+        models = getattr(ch, "_lookup_models", "") or ""
+        if not _gdc.model_list_allows(models, model_text or ""):
+            return False
         if not asked_canon:
             return True
         return _gdc.chunk_matches_asked_brand(
@@ -1987,7 +2115,13 @@ def search_manual_chunks(
             ch.chunk_text or "",
             asked_canon,
             coleman_job=coleman_brand_job,
-            file_path=path_by_doc.get(getattr(ch, "document_id", None), ""),
+            file_path=path_by_doc.get(getattr(ch, "document_id", None), "")
+            or getattr(ch, "_lookup_file_path", ""),
+            brand=getattr(ch, "_lookup_brand", "") or "",
+            models=models,
+            clean_title=getattr(ch, "_lookup_clean_title", "") or "",
+            product_line=getattr(ch, "_lookup_product_line", "") or "",
+            doc_number=getattr(ch, "_lookup_doc_number", "") or "",
         )
 
     fridge_job = is_fridge_context("", model_text or "", symptom or "")
@@ -2024,12 +2158,15 @@ def search_manual_chunks(
                     if key not in seen:
                         all_chunks.append(ch)
                         seen.add(key)
+            _attach(all_chunks)
             branded = [ch for ch in all_chunks if _brand_keep(ch)]
             if branded:
                 all_chunks = branded
             else:
                 # A named brand with no hit does not keep another brand's pages.
                 all_chunks = []
+    else:
+        all_chunks = [ch for ch in all_chunks if _brand_keep(ch)]
     all_chunks = _gdc.filter_chunks_for_unit(all_chunks, "", model_text or "", symptom or "")
     if not all_chunks:
         return []
@@ -2175,7 +2312,10 @@ def search_manual_chunks(
             sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
         if dial_off_run_context:
             sc += score_dial_off_run_chunk(ch, f"{model_text or ''} {symptom or ''}")
+        meta = _chunk_meta_text(ch)
         title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
+        if meta:
+            title_kw = f"{title_kw} {meta.lower()}"
         hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
         if asked_canon and _brand_keep(ch):
             sc += 6
@@ -5939,14 +6079,20 @@ with tab_lib:
     else:
         cat_name = st.selectbox("Select Category", cat_names, key="lib_cat")
         cat = next((c for c in cats if c.name == cat_name), None) or session.query(Category).filter_by(name=cat_name).first()
-        q = st.text_input("Search documents by title or keyword", key="lib_search")
+        q = st.text_input("Search documents by title, keyword, or model", key="lib_search")
         docs = session.query(Document).filter_by(category_id=cat.id).order_by(Document.title).all() if cat else []
-        if q.strip():
-            terms = q.lower().split()
-            docs = [
-                d for d in docs
-                if all(t in f"{d.title} {d.keywords or ''}".lower() for t in terms)
-            ]
+        brands = sorted(
+            {(d.brand or "").strip() for d in docs if (d.brand or "").strip()},
+            key=str.lower,
+        )
+        brand_pick = "(any)"
+        if brands:
+            brand_pick = st.selectbox("Brand", ["(any)", *brands], key="lib_brand")
+        model_q = st.text_input("Model", key="lib_model")
+        docs = [
+            d for d in docs
+            if library_bulk_import.library_record_matches(d, query=q, brand=brand_pick, model=model_q)
+        ]
         st.write(f"**{len(docs)} document(s) found**")
         if not docs:
             st.info("No documents matched your search.")
@@ -5954,6 +6100,17 @@ with tab_lib:
             with st.container(border=True):
                 idx = "✅" if d.indexed else "⚠️ not indexed"
                 st.write(f"**{d.title}** · {idx}")
+                meta_bits = [
+                    bit
+                    for bit in (
+                        (d.brand or "").strip(),
+                        (d.models or "").strip(),
+                        (d.doc_number or d.ti_number or "").strip(),
+                    )
+                    if bit
+                ]
+                if meta_bits:
+                    st.caption(" · ".join(meta_bits))
                 if d.keywords:
                     st.caption(d.keywords)
                 r2_download_button("⬇️ Download", d.file_path, f"{d.title}.pdf", f"lib_dl_{d.id}")
@@ -6052,6 +6209,23 @@ if is_manager and tab_mgr is not None:
         doc_count = session.query(Document).count()
         st.info(f"Library right now: **{doc_count}** document record(s) in the database.")
 
+        try:
+            _bulk_open = library_bulk_import.latest_open_job(session)
+        except Exception:
+            _bulk_open = None
+        with st.expander("📥 Bulk import", expanded=_bulk_open is not None):
+            library_bulk_import.render_manager_bulk_panel(
+                st,
+                session=session,
+                db_path=DB_PATH,
+                user_id=user["id"],
+                upload_bytes=r2_put_bytes,
+                download_bytes=r2_download_bytes,
+                backup_db=lambda: maybe_backup_db_to_r2(force=True),
+                r2_prefix_totals=r2_prefix_totals,
+                r2_ready=r2_available(),
+            )
+
         with st.expander("👤 User Management", expanded=False):
             st.markdown("#### Add New User")
             nu = st.text_input("Username", key="new_username")
@@ -6136,7 +6310,12 @@ if is_manager and tab_mgr is not None:
                             ext = (ufile.name.split(".")[-1] or "pdf").lower()
                             key = f"documents/{cat.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}_{ufile.name}"
                             ctype = "application/pdf" if ext == "pdf" else "application/octet-stream"
-                            if r2_upload(ufile.getvalue(), key, ctype):
+                            raw = ufile.getvalue()
+                            sha = hashlib.sha256(raw).hexdigest()
+                            dup = session.query(Document).filter(Document.content_sha256 == sha).first()
+                            if dup:
+                                st.warning(f"This file is already in the library as {dup.title}.")
+                            elif r2_upload(raw, key, ctype):
                                 doc = Document(
                                     category_id=cat.id,
                                     title=utitle.strip(),
@@ -6144,11 +6323,13 @@ if is_manager and tab_mgr is not None:
                                     file_type=ext,
                                     uploaded_by=user["id"],
                                     keywords=ukw.strip(),
+                                    content_sha256=sha,
+                                    byte_size=len(raw),
                                 )
                                 session.add(doc)
                                 session.commit()
                                 if ext == "pdf":
-                                    ok, note = index_document_from_bytes(doc, ufile.getvalue())
+                                    ok, note = index_document_from_bytes(doc, raw)
                                     if ok:
                                         st.success(f"Document uploaded and indexed. {note}")
                                     else:
@@ -6162,7 +6343,8 @@ if is_manager and tab_mgr is not None:
         with st.expander("🧠 Re-index Manuals for Guided Diagnostics", expanded=False):
             st.caption(
                 "Pulls each PDF from storage, extracts text, and stores searchable chunks. "
-                "Run this after restoring a database or if older uploads were never indexed."
+                "Run this after restoring a database or if older uploads were never indexed. "
+                "A large Lippert or Furrion drop belongs in Bulk import, which saves after each batch."
             )
             if not PYPDF_AVAILABLE:
                 st.error("Add `pypdf` to requirements.txt and reboot the app.")
