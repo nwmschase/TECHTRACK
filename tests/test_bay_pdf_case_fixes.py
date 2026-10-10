@@ -151,14 +151,22 @@ class TestBayCaseFixes(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertGreater(image.size[1], 140)
-        self.assertLess(image.size[1], 210)
+        self.assertGreater(image.size[1], 70)
+        self.assertLess(image.size[1], 110)
         self.assertGreater(image.size[0], 1000)
         from bay_procedure import _OEM_FIGURE_CROP
 
         crop = _OEM_FIGURE_CROP["ccd7990-p7.png"]
-        self.assertLessEqual(crop[1], 690)
-        self.assertGreaterEqual(crop[3], 860)
+        self.assertGreaterEqual(crop[1], 728)
+        self.assertLessEqual(crop[1], 734)
+        self.assertGreaterEqual(crop[3], 816)
+        self.assertLessEqual(crop[3], 822)
+        gray = image.convert("L")
+        width, height = gray.size
+        top = sum(1 for x in range(0, width, 2) if gray.getpixel((x, 1)) < 80) / (width / 2)
+        bottom = sum(1 for x in range(0, width, 2) if gray.getpixel((x, height - 3)) < 80) / (width / 2)
+        self.assertGreater(top, 0.7)
+        self.assertGreater(bottom, 0.7)
         pages = compose_sheet(proc)
         self.assertTrue(
             any("drainage openings" in (t.text or "").lower() for page in pages for t in page.texts)
@@ -1137,6 +1145,11 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertIn("onecontrol unplug", low)
         self.assertIn("will go", low)
         self.assertEqual(lowercase_dictionary_glues(text), [])
+        self.assertIn("ducted", clean_ocr_prose("The unit can be ducted or have a box.").lower())
+        self.assertNotIn("duct ed", clean_ocr_prose("The unit can be ducted or have a box.").lower())
+        petit = clean_ocr_prose("Align the petit tube in the burner flame first and retest.")
+        self.assertIn("petit", petit.lower())
+        self.assertNotIn("pe tit", petit.lower())
         joined = clean_ocr_prose(
             "The air con- ditioner lost refriger - ant. This will pre - vent heat. "
             "Check the FUR - NACE next."
@@ -1166,8 +1179,8 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         from PIL import Image
 
         image = Image.open(BytesIO(proc.figures[0].image_png))
-        self.assertGreater(image.size[1], 140)
-        self.assertLess(image.size[1], 210)
+        self.assertGreater(image.size[1], 70)
+        self.assertLess(image.size[1], 110)
 
     def test_s02_drops_a_snippet_that_ends_on_a_list_number(self):
         proc, text = _sheet(
@@ -1283,3 +1296,23 @@ class TestSnippetScrubRegressions(unittest.TestCase):
         self.assertIn("thermocouple", low)
         self.assertNotIn("wood screw", low)
         self.assertNotIn("fasten unit", low)
+
+    def test_s15_drops_the_burner_knobs_install_line(self):
+        proc, text = _sheet(
+            "Suburban SDN2U cooktop. Burner goes out with a pan on. The thermocouple tip sits low and gets pushed.",
+            "Suburban",
+            "SDN2U",
+            "Cooktops",
+            chunks=[
+                {
+                    "title": "Suburban range service manual",
+                    "page": 2,
+                    "excerpt": 'Be sure burner knobs are in "off" position.',
+                }
+            ],
+        )
+        blob = " ".join(src.get("excerpt") or "" for src in proc.sources).lower()
+        self.assertNotIn("burner knobs", blob)
+        self.assertNotIn("off position", blob)
+        self.assertNotIn("burner knobs", text.lower())
+        self.assertTrue(any("thermocouple" in (src.get("excerpt") or "").lower() for src in proc.sources))
