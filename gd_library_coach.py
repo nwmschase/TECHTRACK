@@ -2943,10 +2943,28 @@ def page_identity_blob(
     keywords: str = "",
     excerpt: str = "",
     file_path: str = "",
+    brand: str = "",
+    models: str = "",
+    product_line: str = "",
+    doc_number: str = "",
+    clean_title: str = "",
 ) -> str:
-    """Title, keywords, excerpt, and filename words. GD and the Bay PDF share this."""
+    """Title, keywords, excerpt, and filename words. GD and the Bay PDF share this.
+
+    Empty metadata collapses to the same identity as a page that has none.
+    """
     bits = []
-    for raw in (title, keywords, excerpt, library_filename_words(file_path)):
+    for raw in (
+        title,
+        keywords,
+        excerpt,
+        library_filename_words(file_path),
+        brand,
+        models,
+        product_line,
+        doc_number,
+        clean_title,
+    ):
         text = (raw or "").replace("_", " ").replace("-", " ")
         bits.append(text)
     return _norm(" ".join(bits))
@@ -2959,27 +2977,76 @@ def chunk_matches_asked_brand(
     asked=None,
     coleman_job: bool = False,
     file_path: str = "",
+    brand: str = "",
+    models: str = "",
+    clean_title: str = "",
+    product_line: str = "",
+    doc_number: str = "",
 ) -> bool:
     """
     True when this library page is the asked brand, or a Coleman 2111 title
     (1976-536 / Peacemaker / wall-thermostat) that does not name a different maker.
     Brand tokens in the filename count, same as a human title.
     An empty asked set does not filter.
+
+    A stored shop brand is authoritative: keywords that name a second maker do
+    not pull the page in, and the title does not have to repeat the brand.
+    With no stored brand, title, keywords, filename, models, and clean title
+    are scanned the same way as before.
     """
     asked = set(asked or [])
     if not asked:
         return True
+    declared = canonical_shop_brands(brand or "")
+    if declared:
+        return bool(asked & declared)
     name = library_filename_words(file_path)
-    canon = canonical_shop_brands(title or "", keywords or "", name)
+    extra = " ".join(
+        part for part in (models or "", clean_title or "", product_line or "", doc_number or "") if part
+    )
+    canon = canonical_shop_brands(title or "", keywords or "", name, extra)
     if asked & canon:
         return True
     if coleman_job and "coleman" in asked:
         if canon - {"coleman"}:
             return False
         return is_coleman_library_text(
-            f"{title or ''} {keywords or ''} {excerpt or ''} {name}"
+            f"{title or ''} {keywords or ''} {excerpt or ''} {name} {extra}"
         )
     return False
+
+
+# Brand words alone are not a model. "Lippert" does not exclude a model list.
+# "Schwintek" is a product, so "Lippert Schwintek" is model-specific.
+_PRIMARY_OEM_BRANDS = frozenset({
+    "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
+    "bal", "coleman", "airxcel", "thetford", "girard",
+})
+
+
+def _model_query_is_specific(query: str) -> bool:
+    text = query or ""
+    if re.search(r"\d", text):
+        return True
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    return any(len(tok) >= 4 and tok not in _PRIMARY_OEM_BRANDS for tok in tokens)
+
+
+def model_list_allows(models, query: str) -> bool:
+    """True when this page's model list does not rule out the tech's model.
+
+    An empty list never excludes an older document. A brand-only query such as
+    "Lippert" does not exclude a listed model. A specific model must hit the list.
+    """
+    from library_bulk_import import listed_models_match, split_semicolon_list
+
+    if not split_semicolon_list(models):
+        return True
+    if not (query or "").strip():
+        return True
+    if not _model_query_is_specific(query):
+        return True
+    return listed_models_match(models, query)
 
 
 def _page_fields(page) -> tuple:
@@ -2997,6 +3064,35 @@ def _page_fields(page) -> tuple:
         getattr(page, "keywords", "") or "",
         excerpt,
         getattr(page, "file_path", "") or getattr(page, "_lookup_file_path", "") or "",
+    )
+
+
+def _meta_field(page, name: str) -> str:
+    lookup = f"_lookup_{name}"
+    if isinstance(page, dict):
+        value = page.get(name)
+        if value is None or value == "":
+            value = page.get(lookup)
+    else:
+        value = getattr(page, name, None)
+        if value is None or value == "":
+            value = getattr(page, lookup, None)
+    return "" if value is None else str(value)
+
+
+def identity_from_page(page) -> str:
+    """Same identity blob, plus brand and models when the document stored them."""
+    title, keywords, excerpt, path = _page_fields(page)
+    return page_identity_blob(
+        title,
+        keywords,
+        excerpt,
+        path,
+        brand=_meta_field(page, "brand"),
+        models=_meta_field(page, "models"),
+        product_line=_meta_field(page, "product_line"),
+        doc_number=_meta_field(page, "doc_number"),
+        clean_title=_meta_field(page, "clean_title"),
     )
 
 
@@ -3198,8 +3294,7 @@ def filter_chunks_for_unit(chunks, category_name: str = "", model_text: str = ""
         return rows
     family = []
     for ch in rows:
-        title, keywords, excerpt, path = _page_fields(ch)
-        ident = page_identity_blob(title, keywords, excerpt, path)
+        ident = identity_from_page(ch)
         if gc and page_is_ground_control_family(ident):
             family.append(ch)
         elif dom and page_is_dometic_nocoool_family(ident):
@@ -3209,8 +3304,7 @@ def filter_chunks_for_unit(chunks, category_name: str = "", model_text: str = ""
 
 def unit_page_score(page, model_text: str = "", symptom: str = "") -> int:
     """Extra rank so the shared family page beats a same-brand cousin."""
-    title, keywords, excerpt, path = _page_fields(page)
-    ident = page_identity_blob(title, keywords, excerpt, path)
+    ident = identity_from_page(page)
     score = 0
     if is_ground_control_context("", model_text, symptom):
         if page_is_ground_control_family(ident):
