@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.18"
+COACH_REVISION = "v4.19.19"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -1874,13 +1874,27 @@ FACR_TERMINAL_ASSEMBLY_RR_LINE = (
     "Replace the rooftop assembly.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
-FACR_REPORTED_ASSEMBLY_RR_LINE = (
-    "Drain, pan and slope, filter and fan, nozzles, and the freeze sensor are reported good. "
-    "The freeze or interior leak remains. "
-    "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
-    "Replace the rooftop assembly.\n"
-    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-)
+def facr_reported_assembly_rr_line(facts: dict | None = None) -> str:
+    """Rooftop R&R card. Name nozzles only when the tech reported them open."""
+    facts = facts or {}
+    if facts.get("facr_nozzle") == "open":
+        proved = (
+            "Drain, pan and slope, filter and fan, nozzles, and the freeze sensor are reported good. "
+        )
+    else:
+        proved = (
+            "Drain, pan and slope, filter and fan, and the freeze sensor are reported good. "
+        )
+    return (
+        proved
+        + "The freeze or interior leak remains. "
+        "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
+        "Replace the rooftop assembly.\n"
+        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+    )
+
+
+FACR_REPORTED_ASSEMBLY_RR_LINE = facr_reported_assembly_rr_line()
 FACR_ASSEMBLY_RR_SHOP_LINE = (
     "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
     "Do not keep searching manuals and do not repeat a drain-only check. "
@@ -2327,7 +2341,7 @@ def _facr_climax_line(facts: dict | None) -> str:
     if facr_terminal_path_complete(facts):
         return FACR_TERMINAL_ASSEMBLY_RR_LINE
     if facr_reported_path_supports_rr(facts):
-        return FACR_REPORTED_ASSEMBLY_RR_LINE
+        return facr_reported_assembly_rr_line(facts)
     return _facr_stay_on_prove_line(facts)
 
 
@@ -2992,7 +3006,6 @@ FURNACE_WALL_TSTAT_LINE = (
     "📖 Source: Suburban furnace service manual"
 )
 COOKTOP_TIP_LOW_REPAIR = (
-    "The thermocouple tip sits low and the pan pushes it out of the flame. "
     "Reposition the thermocouple tip in the burner flame with the pan on. "
     "Figs. 3-4 on page 4 show that tip height. That is the repair.\n"
     + COOKTOP_TIP_CITE
@@ -3002,7 +3015,6 @@ FACT12_FREEZE_RESECURE_LINE = (
     "Resecure the freeze sensor on the evaporator coil. "
     "That is the FACT12 E2 or E3 correction. "
     "The FACT12 manual is not in the shop library. "
-    "The closest reference is the FACR08 book CCD-0008666. "
     "Do not replace the control board first.\n"
     "📖 Source: Furrion Chill FACR08 8K manual CCD-0008666"
 )
@@ -3380,45 +3392,331 @@ def _reply_asks_check(text: str, pattern: re.Pattern) -> bool:
 
 
 def _ack_latest(latest_msg: str, forward: str) -> str:
-    fact = re.sub(r"\s+", " ", (latest_msg or "Noted").strip())[:180]
+    """Note a fact the tech actually sent. A fallback question is not a fact."""
+    if _is_fallback_question(latest_msg):
+        return re.sub(r"\s+", " ", (forward or "").strip())
+    fact = re.sub(r"\s+", " ", (latest_msg or "").strip())[:180]
+    if not fact:
+        return re.sub(r"\s+", " ", (forward or "").strip())
     if fact[-1:] not in ".!?":
         fact += "."
     step = re.sub(r"\s+", " ", (forward or "").strip())
     if not step:
-        step = "Use the facts already in the chat and move to the repair they support."
+        return f"Noted: {fact}"
     return f"Noted: {fact} {step}"
 
 
-def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
-    """Do not send the same reply twice in a row, and do not ask a check again.
+def _is_fallback_question(text: str) -> bool:
+    blob = text or ""
+    if asks_what_is_the_repair(blob) or asks_what_next(blob):
+        return True
+    return bool(re.search(r"\bnot checked yet\b", _norm(blob)))
 
-    The first time the facts support a repair, that repair stands. The next turn
-    acknowledges the latest note and moves forward instead of pasting the card again.
-    """
-    text = (reply or "").strip()
-    prev = _last_assistant_text(history)
-    if not text or not prev:
-        return text
-    already = {
+
+_LEAKED_GUARD_RE = re.compile(
+    r"that check was already asked\.?\s*"
+    r"(?:use the facts already reported and give the next repair\.?)?",
+    re.I,
+)
+_META_QUESTION_RE = re.compile(
+    r"[^.?!]*(?:does the coach have any other symptoms|pivot to a different check|"
+    r"any other symptoms)[^.?!]*[.?!]?",
+    re.I,
+)
+_FALLBACK_ACK_RE = re.compile(
+    r"^(?:noted|heard)\s*:\s*"
+    r"(?:what is the repair\??|what'?s the repair\??|"
+    r"not checked yet[^.?!]*[.?!]?|"
+    r"what do you recommend(?: next)?\??)\s*",
+    re.I,
+)
+
+
+def _split_reply_sentences(text: str) -> list[str]:
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", text or "") if part.strip()]
+
+
+def _sentence_key(sentence: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", _norm(sentence)).strip()
+
+
+def _user_blob(history: list = None, latest_msg: str = "") -> str:
+    parts = []
+    for message in history or []:
+        if (message.get("role") or "") == "user":
+            parts.append(message.get("content") or "")
+    parts.append(latest_msg or "")
+    return _norm(" ".join(parts))
+
+
+def _prior_sentence_keys(history: list = None) -> set[str]:
+    keys = set()
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        for sentence in _split_reply_sentences(message.get("content") or ""):
+            key = _sentence_key(sentence)
+            if len(key) >= 30:
+                keys.add(key)
+    return keys
+
+
+def _fresh_line(line: str, history: list = None) -> str:
+    if _sentence_key(line) in _prior_sentence_keys(history):
+        return ""
+    return line
+
+
+def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: str = "") -> str:
+    """A real next repair from facts the tech reported. Never an instruction to the model."""
+    blob = _user_blob(history, latest_msg)
+    prior = _norm(prior_text)
+    options = []
+    if re.search(r"\b0\s*v\b.{0,80}\b(?:tongue|panel)\b", blob):
+        options.append("Replace the soft-touch user panel (part 20300427).")
+    if re.search(r"\btubing is clear\b", blob) and re.search(r"\be\s*8\b|\bgirard\b|\bpetit\b", blob):
+        options.append(
+            "Align the petit tube in the burner flame first and retest. That is the repair."
+        )
+    if re.search(r"\bpan\b", blob) and re.search(
+        r"\b(?:shut off|shuts off|goes out|flameout|flame out)\b", blob
+    ):
+        options.append(
+            "Reposition the thermocouple tip in the burner flame with the pan on. That is the repair."
+        )
+    if re.search(r"\b(?:dial is at max|dial at max)\b", blob) or (
+        "turn the dial" in prior or "dial down" in prior
+    ):
+        options.append("Dry the cabinet, clear the rear drain, and check the door gasket.")
+    if "wall thermostat" in prior:
+        options.extend(
+            [
+                "Replace the wall thermostat. If voltage is missing, check the wire run.",
+                "The wall thermostat is the repair on this furnace. Replace it.",
+            ]
+        )
+    if "freeze sensor" in prior:
+        options.append("Reseat the freeze sensor on the coil and retest before any board swap.")
+    if "20300427" in prior or "soft-touch user panel" in prior:
+        options.append("Replace the soft-touch user panel, part 20300427.")
+    if "inverter pcb" in prior:
+        options.append("Replace the inverter PCB and the freezer evaporator fan.")
+    for line in options:
+        fresh = _fresh_line(line, history)
+        if fresh:
+            return fresh
+    return ""
+
+
+def _alternate_lines(text: str) -> list[str]:
+    """Different wordings for a card that was already sent."""
+    low = _norm(text)
+    options = (
+        ("wall thermostat", "Replace the wall thermostat. If voltage is missing, check the wire run."),
+        ("wall thermostat", "The wall thermostat is the repair on this furnace. Replace it."),
+        ("petit tube", "Align the petit tube in the burner flame and retest. That is the repair."),
+        ("petit tube", "The petit tube alignment is the repair. Retest the heater."),
+        ("freeze sensor", "Reseat the freeze sensor on the coil and retest before any board swap."),
+        ("freeze sensor", "Seat the freeze sensor on the evaporator coil. That is the repair."),
+        ("20300427", "Replace the soft-touch user panel, part 20300427."),
+        ("20300427", "The soft-touch user panel is the repair. Part 20300427."),
+        ("thermocouple", "Reposition the thermocouple tip in the burner flame with the pan on."),
+        ("thermocouple", "Put the thermocouple tip back in the flame with the pan on."),
+        ("inverter pcb", "Replace the inverter PCB and the freezer evaporator fan."),
+        ("inverter pcb", "The inverter PCB and the freezer evaporator fan are the repair."),
+        ("dial", "Dry the cabinet, clear the rear drain, and check the door gasket."),
+    )
+    return [line for needle, line in options if needle in low]
+
+
+def _alternate_repair(text: str, history: list = None, latest_msg: str = "") -> str:
+    """A different sentence for a card that was already sent."""
+    used = {
         _norm(message.get("content") or "")
         for message in history or []
         if (message.get("role") or "") == "assistant"
     }
-    if _norm(text) in already:
-        first = ""
-        for sentence in re.split(r"(?<=[.!?])\s+|\n+", text):
-            sentence = sentence.strip()
-            if sentence and not sentence.startswith("📖"):
-                first = sentence
+    for line in _alternate_lines(text):
+        if _norm(line) in used:
+            continue
+        if _fresh_line(line, history):
+            return line
+    fresh = _repair_from_chat(history, latest_msg, text)
+    if fresh and _norm(fresh) not in used and _norm(fresh) != _norm(text):
+        return fresh
+    return ""
+
+
+def _drop_repeated_checks(text: str, prev: str, history: list = None, latest_msg: str = "") -> str:
+    """Drop a check the previous turn already asked. Keep a repair sentence."""
+    kept = []
+    dropped = False
+    for sentence in _split_reply_sentences(text):
+        repeated = False
+        for _name, pattern in _REPEATED_CHECK_RES:
+            if _reply_asks_check(prev, pattern) and _reply_asks_check(sentence, pattern):
+                repeated = True
                 break
-        return _ack_latest(latest_msg, first)
-    for _name, pattern in _REPEATED_CHECK_RES:
-        if _reply_asks_check(prev, pattern) and _reply_asks_check(text, pattern):
-            return _ack_latest(
-                latest_msg,
-                "That check was already asked. Use the facts already reported and give the next repair.",
+        if repeated:
+            dropped = True
+            continue
+        kept.append(sentence)
+    if not dropped:
+        return text
+    forward = " ".join(kept).strip()
+    actionable = bool(
+        re.search(r"\b(?:replace|reposition|align|resecure|reseat|repair|authorize)\b", forward, re.I)
+    )
+    if not actionable:
+        repair = _repair_from_chat(history, latest_msg, text)
+        return repair or forward
+    return forward
+
+
+def _scrub_unreported_sentence(sentence: str, user_blob: str) -> str:
+    """Drop a claim the tech did not make. Keep a check that is still an instruction."""
+    low = _norm(sentence)
+    if re.search(r"\bnozzles?\b.{0,48}\breported good\b", low) and not re.search(r"\bnozzles?\b", user_blob):
+        return ""
+    if re.search(r"\b(?:dial turned down|dial adjusted)\b", low) and not re.search(
+        r"\b(?:turned down|turned the dial|adjusted the dial|set the dial|dial adjusted)\b",
+        user_blob,
+    ):
+        return ""
+    if re.search(r"\berror remains\b", low) and not re.search(
+        r"\berror remains\b|\berror (?:is )?still\b|\bstill (?:shows|showing|on)\b",
+        user_blob,
+    ):
+        return ""
+    if re.search(r"\b(?:tip sits low|sits low)\b", low) and not re.search(
+        r"\bsits low\b|\btip (?:is )?low\b", user_blob
+    ):
+        return ""
+    if re.search(r"\b(?:no|not) sticky\b", low) and not re.search(
+        r"\bsticky\b|low voltage|excess angle", user_blob
+    ):
+        if not re.search(r"\b(?:confirm|check|if|clear|unless)\b", low):
+            return ""
+    if re.search(r"\bafter reset\b", low) and not re.search(r"\breset\b", user_blob):
+        if re.search(r"\bthaw\b", user_blob):
+            return re.sub(r"\bafter reset\b", "after the thaw", sentence, flags=re.I)
+        return re.sub(r"\bafter reset\b", "after that", sentence, flags=re.I)
+    return sentence
+
+
+def polish_shop_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
+    """Shop text only: no model instructions, no invented facts, no repeated block."""
+    text = (reply or "").strip()
+    if not text:
+        text = _repair_from_chat(history, latest_msg, "")
+    text = _LEAKED_GUARD_RE.sub("", text)
+    text = _META_QUESTION_RE.sub("", text)
+    text = _FALLBACK_ACK_RE.sub("", text).strip()
+    user_blob = _user_blob(history, latest_msg)
+    prior = _prior_sentence_keys(history)
+    seen = set()
+    seen_checks = set()
+    lines_out = []
+    changed = text != (reply or "").strip()
+    for line in text.splitlines():
+        kept = []
+        pieces = _split_reply_sentences(line) or ([line] if line.strip() else [])
+        for sentence in pieces:
+            if sentence.startswith("📖"):
+                key = _sentence_key(sentence)
+                if key in seen:
+                    changed = True
+                    continue
+                seen.add(key)
+                kept.append(sentence)
+                continue
+            cleaned = _scrub_unreported_sentence(sentence, user_blob)
+            if cleaned != sentence:
+                changed = True
+            sentence = cleaned
+            if not sentence or _LEAKED_GUARD_RE.search(sentence) or _META_QUESTION_RE.search(sentence):
+                changed = True
+                continue
+            if _is_fallback_question(sentence) and len(_sentence_key(sentence)) < 80:
+                changed = True
+                continue
+            key = _sentence_key(sentence)
+            if not key or key in seen or (len(key) >= 30 and key in prior):
+                changed = True
+                continue
+            check = ""
+            for name, pattern in _REPEATED_CHECK_RES:
+                if _reply_asks_check(sentence, pattern):
+                    check = name
+                    break
+            if check and check in seen_checks:
+                changed = True
+                continue
+            if check:
+                seen_checks.add(check)
+            seen.add(key)
+            kept.append(sentence)
+        if kept:
+            lines_out.append(" ".join(kept))
+        elif line.strip():
+            changed = True
+    text = "\n".join(lines_out).strip()
+    if not changed:
+        text = (reply or "").strip()
+    if not text:
+        text = _alternate_repair(reply or "", history, latest_msg) or _repair_from_chat(
+            history, latest_msg, reply or ""
+        )
+    follow_up = any((message.get("role") or "") == "assistant" for message in history or [])
+    if (
+        follow_up
+        and latest_msg
+        and not _is_fallback_question(latest_msg)
+        and not re.match(r"^(?:noted|heard)\s*:", text or "", re.I)
+        and _norm(latest_msg) not in _norm(text)
+    ):
+        text = _ack_latest(latest_msg, text)
+    return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+
+
+def avoid_duplicate_reply(reply: str, history: list = None, latest_msg: str = "") -> str:
+    """Do not send the same reply twice, and do not ask a check that was already asked.
+
+    A repeated card becomes the next repair. The leaked 'already asked' instruction
+    never reaches the tech.
+    """
+    text = (reply or "").strip()
+    if not text:
+        return polish_shop_reply("", history, latest_msg)
+    prev = _last_assistant_text(history)
+    already = {
+        _norm(message.get("content") or "")
+        for message in history or []
+        if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip()
+    }
+    if prev and _norm(text) in already:
+        chosen = ""
+        for line in _alternate_lines(text):
+            candidate = polish_shop_reply(line, history, latest_msg)
+            if candidate and _norm(candidate) not in already:
+                chosen = candidate
+                break
+        if not chosen:
+            chosen = polish_shop_reply(
+                _repair_from_chat(history, latest_msg, text), history, latest_msg
             )
-    return text
+        return chosen if chosen and _norm(chosen) not in already else polish_shop_reply(
+            "", history, latest_msg
+        )
+    if prev:
+        text = _drop_repeated_checks(text, prev, history, latest_msg)
+    polished = polish_shop_reply(text, history, latest_msg)
+    if prev and _norm(polished) in already:
+        for line in _alternate_lines(text):
+            candidate = polish_shop_reply(line, history, latest_msg)
+            if candidate and _norm(candidate) not in already:
+                return candidate
+    return polished
 
 
 def reply_loops_furnace_12v(reply: str) -> bool:
@@ -3899,6 +4197,7 @@ def ensure_girard_petit_align(
         facts.get("girard_aps") == "ok"
         or asks_what_is_the_repair(latest_msg or "")
         or asks_what_next(latest_msg or "")
+        or bool(re.search(r"\btubing is clear\b", _norm(latest_msg or "")))
     )
     if not ready:
         return reply
@@ -4881,6 +5180,7 @@ def extract_bal_tongue_facts(text: str) -> dict:
     facts = {}
     if re.search(
         r"(no|0|zero|missing|without)\s+12\s*v.{0,64}tongue|"
+        r"\b0\s*v.{0,80}\b(?:tongue|panel)\b|"
         r"tongue (?:jack )?output(?: wire)?.{0,40}(no|0|zero|missing|dead)\s*12|"
         r"tongue channel.{0,40}(no|0|zero|missing|dead)\s*12|"
         r"no voltage.{0,32}tongue (?:jack )?output|"
@@ -5093,7 +5393,10 @@ def bal_tongue_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
     if reply_leads_with_bal_banned_primary(reply):
         return True
     if stage == "panel":
-        return not reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply)
+        if not reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply):
+            return True
+        # The prove script still asks for the 12V check. The panel is the repair.
+        return _reply_asks_check(reply, _REPEATED_CHECK_RES[2][1])
     if stage == "pigtail":
         return not reply_names_pigtail_repair(reply) or not reply_names_tongue_channel_prove(reply)
     return not (

@@ -398,8 +398,9 @@ class TestPagecheckQuotes(unittest.TestCase):
             self.assertNotEqual(excerpt.lower(), "dollar-bill test around the full perimeter.")
             self.assertNotIn("ice or moisture in the fridge.", excerpt.lower())
         joined = " ".join(excerpts).lower()
-        self.assertIn("dollar-bill", joined)
-        self.assertIn("check the door gasket", joined)
+        self.assertNotIn("dollar-bill", joined)
+        self.assertIn("dollar-bill", " ".join(proc.bay_order).lower())
+        self.assertIn("check the door gasket", " ".join(proc.bay_order).lower())
 
     def test_scanned_range_collapses_to_a_hyphen(self):
         cleaned = clean_source_excerpt("Set the dial to about 4 -5 and dry the cavity overnight.")
@@ -482,7 +483,8 @@ class TestPagecheckQuotes(unittest.TestCase):
             "Cooktops",
             [],
         )
-        blob = _norm(proc.primary_cite + " " + _excerpts(proc))
+        blob = _norm(proc.primary_cite + " " + _excerpts(proc) + " " + proc.pattern_means)
         self.assertIn("page 4", blob)
         self.assertIn("figs. 3-4", blob)
         self.assertIn("thermocouple", blob)
+        self.assertNotIn("reposition the thermocouple tip", _excerpts(proc).lower())

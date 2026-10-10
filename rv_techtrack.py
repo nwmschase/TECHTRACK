@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.18
+RV TechTrack v4.19.19
+- v4.19.19: A Sources quote is copied from a retrieved manual chunk for that page, or the cite has no quote. Expected pages stay on the sheet. Guided Diagnostics does not show a model instruction, does not invent a fact the tech did not report, and does not echo a fallback question.
 - v4.19.18: A Sources quote is one verbatim sentence from that page, or the page is cited with no quote. FACT12 repairs stay on a FACT12 model. The same canned reply is not sent twice in a row.
 - v4.19.17: A Sources quote is one complete sentence about this procedure. Table glue, headings, catalog lines, scan text, and off-topic pages stay off the sheet. Guided Diagnostics drops an instruction echo, does not repeat a check the tech already answered, and gives the repair once the facts support it. The cooktop tip cites Suburban SDN2U page 4, Figs. 3-4. Turn-1 tongue, ceiling, and Ground Control replies are short steps.
 - v4.19.16: Sources stay on the job: whole sentences only, no scanned fragments, and no snippet that contradicts the sheet. Internal index notes stay off the page. Figures keep their borders, YES/NO clears the arrowhead, and a clause dash stays a dash. The no-12V fan branch names the board and the fan. A blank stabilizer job still prints its model. Guided Diagnostics strips a leaked prompt and Start new chat clears Model.
@@ -110,7 +111,7 @@ import time
 def product_version_from_doc(doc):
     """First vX.Y.Z in the module docstring is the live sidebar version.
 
-    The header line (``RV TechTrack v4.19.18``) is canonical. Later changelog
+    The header line (``RV TechTrack v4.19.19``) is canonical. Later changelog
     bullets must not override it.
     """
     match = re.search(r"\bv\d+\.\d+\.\d+\b", doc or "")
@@ -193,7 +194,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.18"
+_GDC_REQUIRED_REVISION = "v4.19.19"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 

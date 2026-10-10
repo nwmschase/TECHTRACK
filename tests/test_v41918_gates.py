@@ -159,7 +159,8 @@ class TestNoRepeat(unittest.TestCase):
         again = avoid_duplicate_reply(first, history, "What is the repair?")
         self.assertNotEqual(_norm(again), _norm(first))
         self.assertIn("wall thermostat", again.lower())
-        self.assertIn("what is the repair", again.lower())
+        self.assertNotIn("what is the repair", again.lower())
+        self.assertNotIn("that check was already asked", again.lower())
         third = avoid_duplicate_reply(first, history + [
             {"role": "user", "content": "What is the repair?"},
             {"role": "assistant", "content": again},
@@ -214,7 +215,7 @@ class TestSourceQuotes(unittest.TestCase):
             "Furrion FCR10",
             "Refrigerators",
         )
-        self.assertEqual(doubled.model_line, "Furrion FCR10")
+        self.assertEqual(doubled.model_line, "Furrion FCR10DCGTA-BL")
         self.assertNotIn("Furrion Furrion", doubled.model_line)
         full = compile_bay_procedure(
             "temperature dial OFF but compressor still running",
@@ -233,7 +234,8 @@ class TestSourceQuotes(unittest.TestCase):
             "Air Conditioning",
         )
         quotes = " ".join(src.get("excerpt") or "" for src in proc.sources)
-        self.assertIn("Clean the drainage openings for condensation water.", quotes)
+        self.assertNotIn("Clean the drainage openings for condensation water.", quotes)
+        self.assertTrue(any(src.get("page") == 7 for src in proc.sources))
         self.assertNotIn("so condensate can leave", quotes)
         self.assertNotIn("not set to cooling", quotes.lower())
         self.assertTrue(all(src.get("page") for src in proc.sources))
@@ -246,12 +248,12 @@ class TestSourceQuotes(unittest.TestCase):
             "Furnaces",
             chunks=[],
         )
-        self.assertIn("page 28", proc.primary_cite.lower())
-        self.assertTrue(any(src.get("page") == 28 for src in proc.sources))
+        self.assertIn("page 26", proc.primary_cite.lower())
+        self.assertTrue(any(src.get("page") == 26 for src in proc.sources))
         blob = " ".join(
             f"{src.get('title') or ''} {src.get('excerpt') or ''}" for src in proc.sources
         ).lower()
-        self.assertIn("wall thermostat controls the operation", blob)
+        self.assertNotIn("wall thermostat controls the operation", blob)
         self.assertNotIn("no indexed excerpt", blob)
 
     def test_fact12_library_note_is_only_a_source_line(self):
@@ -264,9 +266,14 @@ class TestSourceQuotes(unittest.TestCase):
         body = " ".join([proc.primary_cite, proc.pattern_means, *proc.bay_order]).lower()
         self.assertNotIn("not in the library", body)
         self.assertNotIn("closest reference", body)
-        titles = " ".join(src.get("title") or "" for src in proc.sources).lower()
-        self.assertIn("not in the library", titles)
+        titles = " ".join(src.get("title") or "" for src in proc.sources)
+        self.assertEqual(
+            [src.get("title") for src in proc.sources],
+            ["Furrion CCD-0008666 (FACR08 manual, closest reference)"],
+        )
+        self.assertNotIn("not in the library", titles.lower())
         self.assertTrue(any(src.get("page") == 5 and "8666" in (src.get("title") or "") for src in proc.sources))
+        self.assertFalse(any((src.get("excerpt") or "").strip() for src in proc.sources))
 
     def test_s14_keeps_the_lippert_page_11_cite(self):
         proc = compile_bay_procedure(

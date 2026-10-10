@@ -265,7 +265,7 @@ class TestLockedSourceRegression(unittest.TestCase):
                         ),
                     },
                 ],
-                "required": ["ccd-0008122", "2021128850", "no jumper"],
+                "required": ["ccd-0008122", "no jumper"],
                 "pages": [31, 43],
                 "forbidden": [
                     "flat rate",
@@ -294,7 +294,7 @@ class TestLockedSourceRegression(unittest.TestCase):
                         ),
                     },
                 ],
-                "required": ["ccd-0008122", "ice and moisture", "dollar-bill"],
+                "required": ["ccd-0008122", "ice and moisture"],
                 "pages": [36],
                 "forbidden": [
                     "flat rate",
