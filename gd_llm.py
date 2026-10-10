@@ -18,7 +18,12 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.29"
+MODULE_REVISION = "v4.19.31"
+
+# Guided Diagnostics ask turns. A lower token cap and a low xAI reasoning
+# effort keep a shop turn from sitting on a long reasoning pass.
+GD_ASK_MAX_TOKENS = 420
+GD_ASK_REASONING_EFFORT = "low"
 
 PROVIDER_XAI = "xai"
 PROVIDER_GROQ = "groq"
@@ -292,14 +297,25 @@ def _run_with_deadline(fn, timeout_sec: float):
     return box.get("value")
 
 
-def _completion_text(client, *, model: str, messages, temperature: float, max_tokens: int) -> str:
+def _completion_text(
+    client,
+    *,
+    model: str,
+    messages,
+    temperature: float,
+    max_tokens: int,
+    extra_body: dict | None = None,
+) -> str:
     def _call():
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        response = client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content
         return (content or "").strip()
 
@@ -323,6 +339,7 @@ def complete_chat(
     client_factory=None,
     models: dict | None = None,
     empty_is_failure: bool = False,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Chat completion. Try the primary provider, then the other one once.
 
@@ -375,12 +392,16 @@ def complete_chat(
         notes: list[str] = []
         for model in model_ids:
             try:
+                extra_body = None
+                if reasoning_effort and provider == PROVIDER_XAI:
+                    extra_body = {"reasoning_effort": reasoning_effort}
                 text = _completion_text(
                     client,
                     model=model,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    extra_body=extra_body,
                 )
             except Exception as exc:
                 action = failure_action(exc)
