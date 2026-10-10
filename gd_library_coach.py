@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.26"
+COACH_REVISION = "v4.19.28"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -26,11 +26,13 @@ WATER_HEATERS_CATEGORY = "Water Heaters"
 RANGE_COOKTOPS_CATEGORY = "Range & Cooktops"
 AIR_CONDITIONING_CATEGORY = "Air Conditioning"
 REFRIGERATORS_CATEGORY = "Refrigerators"
+PLUMBING_TOILETS_CATEGORY = "Plumbing / Toilets"
 
 DEFAULT_LIBRARY_CATEGORIES = (
     REFRIGERATORS_CATEGORY,
     "Furnaces",
     WATER_HEATERS_CATEGORY,
+    PLUMBING_TOILETS_CATEGORY,
     RANGE_COOKTOPS_CATEGORY,
     AIR_CONDITIONING_CATEGORY,
     "Slideouts",
@@ -362,6 +364,12 @@ FIREFLY_HOLDS_FIX = (
     "call Firefly 574-825-4600, and use a USB stick 4 GB or smaller plus the interim file they specify. "
     "Interim: turn the front-bay main battery switch OFF (solar can stay ON) so Firefly drops, "
     "or leave the Firefly cable unplugged with the rubber-boot plug still in."
+)
+LEVELUP_FIREFLY_FIRM_LINE = (
+    "The repair is to update the Firefly firmware. "
+    "Read GUI and CCM from Settings, call Firefly at 574-825-4600, "
+    "and use a USB stick of 4 GB or smaller. "
+    "Do not replace the Level Up controller."
 )
 FIREFLY_STILL_DUMPS = (
     "If Manual Mode still dumps home, this is not the Firefly path. "
@@ -2612,8 +2620,44 @@ SHOP_BRAND_TOKENS = (
     "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
     "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
-    "coleman", "airxcel",
+    "coleman", "airxcel", "thetford",
 )
+_THETFORD_UNIT_RE = re.compile(r"\bthetford\b|\b42070\b|style\s*ii", re.I)
+_TOILET_JOB_RE = re.compile(
+    r"\b(?:toilet|thetford|42070)\b|style\s*ii|flush\s+lever|plumb",
+    re.I,
+)
+_BRAND_DISPLAY = {
+    "thetford": "Thetford",
+    "norcold": "Norcold",
+    "dometic": "Dometic",
+    "furrion": "Furrion",
+    "suburban": "Suburban",
+    "atwood": "Atwood",
+    "lippert": "Lippert",
+    "lci": "LCI",
+    "coleman": "Coleman",
+    "airxcel": "Coleman",
+    "girard": "Girard",
+    "bal": "BAL",
+    "wfco": "WFCO",
+    "winegard": "Winegard",
+    "generac": "Generac",
+    "onan": "Onan",
+    "on-an": "Onan",
+    "victron": "Victron",
+    "renogy": "Renogy",
+    "jayco": "Jayco",
+    "keystone": "Keystone",
+    "brinkley": "Brinkley",
+    "kz": "KZ",
+    "carefree": "Carefree",
+    "schwintek": "Schwintek",
+    "progressive dynamics": "Progressive Dynamics",
+    "power gear": "Power Gear",
+    "intelli-power": "Intelli-Power",
+    "pd": "PD",
+}
 BRAND_CANON = {
     "airxcel": "coleman",
     "coleman": "coleman",
@@ -2667,10 +2711,77 @@ def asked_brands_for_lookup(
     cleaned = symptom_for_brand_detect(symptom)
     if is_coleman_2111_context(category_name, model_text, cleaned):
         return {"coleman"}
+    # Style II / 42070 is Thetford even when the concern also says "leak".
+    if _THETFORD_UNIT_RE.search(model_text or "") or _THETFORD_UNIT_RE.search(category_name or ""):
+        return {"thetford"}
     tech = canonical_shop_brands(model_text)
     if tech:
         return tech
+    if _THETFORD_UNIT_RE.search(cleaned):
+        return {"thetford"}
     return canonical_shop_brands(cleaned)
+
+
+def display_shop_brand(token: str) -> str:
+    """Shop-facing spelling for a brand token. 'thetford' is Thetford."""
+    key = (token or "").strip().lower()
+    if not key:
+        return "this brand"
+    return _BRAND_DISPLAY.get(key, key.capitalize())
+
+
+def is_toilet_job(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
+    """A toilet / flush-lever job. It is not a refrigerator."""
+    return bool(_TOILET_JOB_RE.search(f"{category_name or ''} {model_text or ''} {symptom or ''}"))
+
+
+def typed_unit_brand(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """
+    The brand the tech typed on this unit.
+
+    Model text wins over the complaint, so the word "leak" cannot select Norcold.
+    Thetford Style II and 42070 are Thetford.
+    """
+    if _THETFORD_UNIT_RE.search(f"{category_name or ''} {model_text or ''}"):
+        return "Thetford"
+    brands = asked_brands_for_lookup(category_name, model_text, "")
+    if not brands and _THETFORD_UNIT_RE.search(symptom or ""):
+        return "Thetford"
+    if not brands:
+        brands = asked_brands_for_lookup("", "", symptom or "")
+    if not brands:
+        return ""
+    low_model = (model_text or "").lower()
+    ordered = sorted(brands, key=lambda token: low_model.find(token) if token in low_model else 999)
+    return display_shop_brand(ordered[0])
+
+
+def library_miss_brand_label(
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+) -> str:
+    """Name used in 'No {brand} document in the shop library for this unit.'"""
+    brand = typed_unit_brand(category_name, model_text, symptom)
+    if brand:
+        return brand
+    if is_toilet_job(category_name, model_text, symptom):
+        return "toilet"
+    return ""
+
+
+def library_miss_shop_line(brand: str) -> str:
+    """The only shop line when this unit's manual is not in the library."""
+    who = (brand or "").strip() or "this brand"
+    return (
+        f"No {who} document in the shop library for this unit. "
+        "Add the OEM manual to the shop library. "
+        "What do you observe?"
+    )
 
 
 def is_coleman_library_text(text: str) -> bool:
@@ -3764,6 +3875,18 @@ _REPAIR_VERB_RE = re.compile(
     r"\b(?:replace|align|reseat|re-?secures?|reposition|authorize)\b",
     re.I,
 )
+_FIRM_LEAD_RE = re.compile(
+    r"^(?:the repair is to\s+)?(?:replace|reseat|re-?secures?|reposition|authorize)\b",
+    re.I,
+)
+_FILLER_RE = re.compile(
+    r"check the reading on this unit(?:\s+and write it down)?\.?",
+    re.I,
+)
+_LIBRARY_MISS_LINE_RE = re.compile(
+    r"no .+ document in the shop library for this unit",
+    re.I,
+)
 _BARE_REPAIR_LABEL_RE = re.compile(r"^that is the repair\.?$", re.I)
 
 
@@ -3881,7 +4004,13 @@ def _same_as_last_turn(sentence: str, history: list = None) -> bool:
     return False
 
 
+def _is_library_miss_line(text: str) -> bool:
+    return bool(_LIBRARY_MISS_LINE_RE.search(text or ""))
+
+
 def _reply_has_body(text: str) -> bool:
+    if _is_library_miss_line(text):
+        return True
     if _has_shop_step(text):
         return True
     return bool(re.search(r"\brepair stands\b|\brepair is unchanged\b", text or "", re.I))
@@ -4171,11 +4300,89 @@ _BROKEN_SENTENCE_RE = re.compile(
 )
 
 
+def _chunk_fields(chunk) -> tuple:
+    if isinstance(chunk, dict):
+        return (
+            chunk.get("title") or "",
+            chunk.get("keywords") or "",
+            chunk.get("excerpt") or chunk.get("chunk_text") or "",
+            chunk.get("file_path") or "",
+        )
+    return (
+        getattr(chunk, "title", "") or "",
+        getattr(chunk, "keywords", "") or "",
+        getattr(chunk, "chunk_text", "") or "",
+        getattr(chunk, "_lookup_file_path", "") or getattr(chunk, "file_path", "") or "",
+    )
+
+
+def _unmatched_unit_line(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Miss line for a typed unit that has no job lock and no same-brand cite yet."""
+    if _job_key(history, latest_msg, category_name, model_text):
+        return ""
+    symptom = _user_blob(history, latest_msg)
+    brand = library_miss_brand_label(category_name, model_text, symptom)
+    if not brand:
+        return ""
+    prior = _prior_assistant_text(history)
+    if "📖" in prior and brand.lower() in _norm(prior):
+        return ""
+    return library_miss_shop_line(brand)
+
+
+def library_miss_reply_for_turn(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    symptom: str = "",
+    chunks=None,
+) -> str:
+    """
+    Shop line when this turn's library pages are not the typed unit.
+
+    A known job (furnace, fridge, leveling, and the rest) still uses its own
+    prove. An empty job does not borrow another brand's excerpts.
+    """
+    if _job_key(history, latest_msg, category_name, model_text):
+        return ""
+    symptom = symptom or _user_blob(history, latest_msg)
+    brand = library_miss_brand_label(category_name, model_text, symptom)
+    if not brand:
+        return ""
+    asked = set(asked_brands_for_lookup(category_name, model_text, symptom))
+    if brand == "Thetford" or is_toilet_job(category_name, model_text, symptom):
+        if not asked or asked == {"thetford"} or "thetford" in asked:
+            asked = set(asked) | {"thetford"}
+        elif not asked:
+            asked = {"thetford"}
+    if not asked:
+        return ""
+    for chunk in chunks or []:
+        title, keywords, excerpt, file_path = _chunk_fields(chunk)
+        if chunk_matches_asked_brand(
+            title, keywords, excerpt, asked, file_path=file_path
+        ):
+            return ""
+    return library_miss_shop_line(brand)
+
+
 def _line_fits_job(text: str, job: str) -> bool:
     low = _norm(text)
-    if not low or _PLACEHOLDER_RE.search(low) or _BROKEN_SENTENCE_RE.search(text or ""):
+    if (
+        not low
+        or _PLACEHOLDER_RE.search(low)
+        or _BROKEN_SENTENCE_RE.search(text or "")
+        or _FILLER_RE.search(text or "")
+    ):
         return False
     # An unnamed job keeps the draft. It does not borrow another case's repair.
+    # The reading filler is already rejected above, including this empty-job path.
     if not job:
         return True
     for phrase, owner in _OWNED_PHRASES:
@@ -4200,6 +4407,29 @@ def _with_cite(text: str, job: str) -> str:
     return body + "\n" + cite
 
 
+def _sail_answered(blob: str) -> bool:
+    """'continuity OK' and 'good' close the sail-switch prove."""
+    low = _norm(blob)
+    if "sail" not in low:
+        return False
+    return bool(
+        re.search(
+            r"sail(?:\s+switch)?(?:\s+\w+){0,4}\s+(?:is\s+)?(?:continuity\s+)?(?:ok|okay|good)|"
+            r"continuity\s+(?:is\s+)?(?:ok|okay|good)|"
+            r"power in and (?:power )?out",
+            low,
+        )
+    )
+
+
+def _levelup_firefly_confirmed(blob: str) -> bool:
+    """The Firefly cable is already unplugged and Manual Mode holds."""
+    low = _norm(blob)
+    unplugged = bool(re.search(r"unplugg?ed", low) and "firefly" in low)
+    holds = bool(re.search(r"manual mode (?:stays|holds|held|stayed)|mode stays", low))
+    return unplugged and holds
+
+
 def _answered_checks(blob: str) -> set[str]:
     """Checks the tech already reported. A later turn must not ask them again."""
     low = _norm(blob)
@@ -4208,12 +4438,16 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("filter")
     if re.search(r"dial (?:is )?at max", low):
         found.add("dial")
-    if re.search(r"sail switch is good|sail is good", low):
+    if _sail_answered(low):
         found.add("sail")
     if re.search(r"\d+(?:\.\d+)?\s*v\b", low):
         found.add("voltage")
     if re.search(r"wiring is good|data line is good", low):
         found.add("dataline")
+    if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
+        found.add("ceiling")
+    if _levelup_firefly_confirmed(low):
+        found.add("can")
     return found
 
 
@@ -4238,6 +4472,14 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "dataline" in answered and re.search(r"data line", low) and re.search(
         r"check|measure|report", low
+    ):
+        return True
+    if "ceiling" in answered and re.search(r"ceiling", low) and re.search(
+        r"bypass|report whether", low
+    ):
+        return True
+    if "can" in answered and re.search(r"unplug", low) and "firefly" in low and re.search(
+        r"report|try manual|whether it holds", low
     ):
         return True
     return False
@@ -4298,9 +4540,7 @@ def _proved_shop_reply(
     """The repair itself, once the proving fact is already in the tech's words."""
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
-    if job == "furnace" and re.search(
-        r"sail switch is good|sail is good|power in and (?:power )?out", blob
-    ):
+    if job == "furnace" and _sail_answered(blob):
         return FURNACE_WALL_TSTAT_LINE
     if job == "fact12" and _SENSOR_LOOSE_RE.search(blob):
         return FACT12_FREEZE_RESECURE_LINE
@@ -4310,6 +4550,15 @@ def _proved_shop_reply(
         )
         if coleman_motor_board_evidence_complete(facts):
             return COLEMAN_MOTOR_BOARD_AUTH_LINE
+    if job == "dometic":
+        facts = dometic_bypass_facts(history, latest_msg)
+        if (
+            facts.get("dometic_unit_bypass") == "cools"
+            and facts.get("dometic_ceiling_bypass") == "cools"
+        ):
+            return DOMETIC_CEILING_LINE
+    if job == "levelup" and _levelup_firefly_confirmed(blob):
+        return LEVELUP_FIREFLY_FIRM_LINE
     return ""
 
 
@@ -4328,22 +4577,41 @@ def _firm_repair_reply(
         return ""
     job = _job_key(history, latest_msg, category_name, model_text)
     answered = _answered_checks(_user_blob(history, latest_msg))
-    chosen = ""
+    lead = ""
+    other = ""
     sources: list[str] = []
+    other_sources: list[str] = []
     for message in history or []:
         if (message.get("role") or "") != "assistant":
             continue
         content = message.get("content") or ""
         cites = [line.strip() for line in content.splitlines() if line.strip().startswith("📖")]
         for sentence in _split_reply_sentences(content):
-            if _direct_repair_sentence(sentence, job, answered):
-                chosen = sentence.strip()
+            if not _direct_repair_sentence(sentence, job, answered):
+                continue
+            text = sentence.strip()
+            if _FIRM_LEAD_RE.match(text):
+                lead = text
                 sources = cites
+            else:
+                other = text
+                other_sources = cites
+    chosen = lead or other
+    if not lead:
+        sources = other_sources
     if not chosen:
         proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
-        if not proved or _repeats_last_body(proved, history):
+        if not proved:
             return ""
-        return proved
+        if not _repeats_last_body(proved, history):
+            return proved
+        for sentence in _split_reply_sentences(proved):
+            if not _FIRM_LEAD_RE.match(sentence.strip()):
+                continue
+            restated = _as_repair_statement(sentence)
+            if not _repeats_last_body(restated, history):
+                return restated if "📖" in restated else _with_cite(restated, job)
+        return ""
     chosen = _as_repair_statement(chosen)
     if _repeats_last_body(chosen, history):
         bare = re.sub(r"(?i)^the repair is to\s+", "", chosen).strip()
@@ -4561,8 +4829,11 @@ def _final_shop_line(
         return locked
     proved = _proved_shop_reply(history, latest_msg, category_name, model_text)
     if proved and not _repeats_last_body(proved, history):
-        return proved
+        return proved if "📖" in proved else _with_cite(proved, job)
     job = _job_key(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss:
+        return miss
     later = bool(_last_assistant_text(history))
     lines = (
         _conditional_lines(history, latest_msg, category_name, model_text)
@@ -4582,8 +4853,48 @@ def _final_shop_line(
                 chosen = line
                 break
     if not chosen:
-        return "Check the reading on this unit and write it down."
+        if proved and _line_fits_job(proved, job):
+            if not _repeats_last_body(proved, history):
+                return proved if "📖" in proved else _with_cite(proved, job)
+            for sentence in _split_reply_sentences(proved):
+                if not _FIRM_LEAD_RE.match(sentence.strip()):
+                    continue
+                restated = _as_repair_statement(sentence)
+                if not _repeats_last_body(restated, history) and _line_fits_job(restated, job):
+                    return restated if "📖" in restated else _with_cite(restated, job)
+        for line in _prove_lines(history, latest_msg, category_name, model_text):
+            if (
+                line
+                and _line_fits_job(line, job)
+                and not _sentence_reasks_check(line, answered)
+                and not _repeats_last_body(line, history)
+            ):
+                return _with_cite(line, job)
+        return ""
     return _with_cite(chosen, job)
+
+
+def without_reading_filler(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """The reading filler cannot ship, including when the job has no lock."""
+    text = _FILLER_RE.sub(" ", reply or "")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r" *\n *", "\n", text).strip(" \n.")
+    if text and not _FILLER_RE.search(text):
+        return text
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss and not _FILLER_RE.search(miss):
+        return miss
+    fallback = _final_shop_line(history, latest_msg, category_name, model_text)
+    fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
+    if fallback and not _FILLER_RE.search(fallback):
+        return fallback
+    return ""
 
 
 def _strip_source_header(text: str) -> str:
@@ -4610,6 +4921,9 @@ def _answer_latest(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
+    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    if miss:
+        return miss
     if _give_repair_now(latest_msg, history):
         fresh = _pick_fresh_line(
             _conditional_lines(history, latest_msg, category_name, model_text), history
@@ -4676,18 +4990,22 @@ def _answer_latest(
                 "report whether the sensing tube at the blower has suction."
             )
         return ""
-    if _open("dometic") and (
-        re.search(r"b57915|3311071", blob)
-        or (
-            re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
-            and re.search(r"dometic|b57915|air conditioning", blob)
+    if job == "dometic" or (
+        _open("dometic")
+        and (
+            re.search(r"b57915|3311071", blob)
+            or (
+                re.search(r"will not blow cold|won't blow cold|no cold|not blow cold", blob)
+                and re.search(r"dometic|b57915|air conditioning", blob)
+            )
         )
     ):
-        ceiling = bool(re.search(r"ceiling", blob) and re.search(r"cool", blob) and "bypass" in blob)
-        unit = bool("peacemaker" in blob and re.search(r"cool", blob))
-        if ceiling and unit and re.search(r"cool", low):
+        facts = dometic_bypass_facts(history, latest_msg)
+        ceiling = facts.get("dometic_ceiling_bypass") == "cools"
+        unit = facts.get("dometic_unit_bypass") == "cools"
+        if ceiling and unit:
             return "Both bypasses cool. Replace the ceiling thermostat/selector."
-        if unit and re.search(r"cool", low) and "ceiling" not in low:
+        if unit and not ceiling and re.search(r"cool", low):
             return "The rooftop bypass cools. Bypass the ceiling selector and report whether that also cools."
         return ""
     if _open("ice") and re.search(r"\b(?:rear|back)[\s-]*wall\b", blob) and re.search(r"\b(?:ice|icing|frost)\b", blob):
@@ -4733,7 +5051,7 @@ def _answer_latest(
     ):
         user_said_sail = bool(re.search(r"\bsail\b", blob))
         if re.search(r"jumper|thermostat bypass|bypassed|jumped red|r\s*/\s*w", blob + " " + ctx):
-            if re.search(r"sail switch is good|sail is good|power in and (?:power )?out", blob):
+            if _sail_answered(blob):
                 return _with_cite("Replace the wall thermostat.", job)
             if user_said_sail and not _is_fallback_question(latest_msg):
                 return ""
@@ -4756,6 +5074,8 @@ def _answer_latest(
             return "Does the manual crank turn, and what does the override roll pin or coupler look like? Report what you see."
         return ""
     if _open("levelup") and re.search(r"807662|level[\s-]*up|manual mode", blob) and re.search(r"firefly|manual mode", blob):
+        if _levelup_firefly_confirmed(blob):
+            return LEVELUP_FIREFLY_FIRM_LINE
         if re.search(r"write the reading|ask a manager", _norm(current)):
             return (
                 "Confirm power is solid and Auto Level still works. "
@@ -4786,6 +5106,8 @@ def _draft_is_bad(
 ) -> bool:
     low = _norm(text)
     job = _job_key(history, latest_msg, category_name, model_text)
+    if _FILLER_RE.search(text or ""):
+        return True
     if not _line_fits_job(text, job):
         return True
     if not low or not _reply_has_body(text):
@@ -4900,8 +5222,10 @@ def polish_shop_reply(
     """Shop text only: no model instructions, no invented facts, no repeated block."""
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
+        if "📖" not in locked:
+            locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
         return locked
-    text = _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip()))
+    text = _FILLER_RE.sub("", _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip())))
     if _is_offline_notice(text):
         return text
     if not text:
@@ -5057,7 +5381,8 @@ def polish_shop_reply(
         nxt = _final_shop_line(history, latest_msg, category_name, model_text)
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
-    return re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())
+    return without_reading_filler(text, history, latest_msg, category_name, model_text)
 
 
 def avoid_duplicate_reply(
@@ -5077,6 +5402,8 @@ def avoid_duplicate_reply(
         return text
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
+        if "📖" not in locked:
+            locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
         return locked
     if not text:
         return polish_shop_reply("", history, latest_msg, category_name, model_text)

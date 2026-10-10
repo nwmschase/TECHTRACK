@@ -278,6 +278,161 @@ class TestOneSessionReplay(unittest.TestCase):
         self.assertNotIn("take the next check", low)
         self.assertTrue(reply.strip())
 
+        # The attached v4.19.26 histories, still in this process.
+        def turn(latest, category, model, history):
+            answer, flow = reply_fn(latest, category, model, history, unity_gate="Not sure")
+            self.assertIsNone(flow)
+            text = (answer or "").strip()
+            self.assertTrue(text)
+            self.assertIn("📖", text)
+            self.assertNotIn("check the reading on this unit", text.lower())
+            history.append({"role": "user", "content": latest})
+            history.append({"role": "assistant", "content": text})
+            return text
+
+        s04 = []
+        turn(
+            "Furrion FCR10; dial OFF but compressor still running; fridge ice-cold / overcooling after weeks parked plugged in.",
+            "Refrigerators",
+            "Furrion FCR10",
+            s04,
+        )
+        s04[-1]["content"] = (
+            "Replace the Spark-Free Thermostat, part G 2021128850 (retail C-FCR10DCGTA-007). "
+            "Follow the steps on pages 43–45: remove housing, seat probe straight, align clocking pin, "
+            "tighten lock nut, reconnect wires.\n"
+            "📖 Source: CCD-0008122 - pages 31, 43, 45"
+        )
+        s04.append(
+            {
+                "role": "user",
+                "content": "Opened C (blue) and T (black) at the thermostat, no jumper, left apart: compressor stopped.",
+            }
+        )
+        repair = turn("What is the repair?", "Refrigerators", "Furrion FCR10", s04)
+        self.assertIn("spark-free thermostat", repair.lower())
+        self.assertIn("the repair is to replace", repair.lower())
+        self.assertNotIn("the repair is to follow", repair.lower())
+
+        s06 = [
+            {
+                "role": "user",
+                "content": (
+                    "Level Up Advantage 807662 Manual Mode flashes then dumps back to home. "
+                    "Auto Level and other pad functions still work."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Confirm Auto Level still works. Leave the rubber-boot terminator in, "
+                    "unplug only the Firefly cable, and report whether Manual Mode holds.\n"
+                    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 1"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Unplugged the wired Firefly coach CAN cable, rubber-boot terminator left in: "
+                    "Manual Mode stays."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Real fix is Firefly USB firmware update: read GUI + CCM from Settings, "
+                    "call Firefly 574-825-4600, use USB stick 4 GB or smaller.\n"
+                    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 1"
+                ),
+            },
+        ]
+        firefly = turn(
+            "What is the repair?",
+            "Leveling",
+            "Lippert Level Up Advantage 807662",
+            s06,
+        )
+        self.assertIn("update the firefly firmware", firefly.lower())
+        self.assertNotIn("unplug only", firefly.lower())
+        self.assertFalse(firefly.lower().startswith("if "))
+
+        s08 = [
+            {"role": "user", "content": "Will not blow warm; fan turns on then shuts off."},
+            {
+                "role": "assistant",
+                "content": (
+                    "Prove the sail switch with the blower running. "
+                    "Report power in and power out before any thermostat replacement.\n"
+                    "📖 Source: Suburban Furnace Service and Training Manual"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "Thermostat bypassed at the furnace: the furnace operates.",
+            },
+        ]
+        sail = turn("Sail switch continuity OK", "Furnaces", "Suburban NT-20SEQT", s08)
+        self.assertIn("replace the wall thermostat", sail.lower())
+        self.assertNotIn("measure power", sail.lower())
+        later = turn("What is the repair?", "Furnaces", "Suburban NT-20SEQT", s08)
+        self.assertIn("wall thermostat", later.lower())
+        self.assertNotIn("measure power", later.lower())
+        self.assertNotIn("if the sail", later.lower())
+
+        s09 = [
+            {"role": "user", "content": "AC turns on but will not blow cold."},
+            {
+                "role": "assistant",
+                "content": (
+                    "Bypass the ceiling selector and report whether it cools. "
+                    "If both bypasses cool, replace the ceiling thermostat/selector.\n"
+                    "📖 Source: Dometic Brisk II, page 23"
+                ),
+            },
+            {"role": "user", "content": "Peacemaker bypass at the rooftop unit cools."},
+        ]
+        both = turn(
+            "Bypassing the ceiling controls also cools.",
+            "Air Conditioning",
+            "B57915E711J0EMX",
+            s09,
+        )
+        self.assertIn("replace the ceiling thermostat", both.lower())
+        self.assertNotIn("check the reading on this unit", both.lower())
+        self.assertNotIn("bypass the ceiling selector and report", both.lower())
+        again = turn("What is the repair?", "Air Conditioning", "B57915E711J0EMX", s09)
+        self.assertIn("ceiling thermostat", again.lower())
+        self.assertNotEqual(again.strip(), s09[1]["content"].strip())
+        self.assertNotIn("bypass the ceiling selector and report", again.lower())
+
+        # Live miss: Thetford Style II has no shop manual. Do not cite Norcold.
+        thetford = []
+        for latest in (
+            "leaks under the flush lever when flushing",
+            "Water drips from under the lever only while the flush pedal is held.",
+            "What is the repair?",
+        ):
+            answer, flow = reply_fn(
+                latest,
+                "",
+                "Thetford Style II 42070",
+                thetford,
+                unity_gate="Not sure",
+            )
+            self.assertIsNone(flow)
+            text = (answer or "").strip()
+            low = text.lower()
+            self.assertIn("no thetford document in the shop library for this unit", low)
+            self.assertIn("what do you observe", low)
+            self.assertIn("add the oem manual", low)
+            self.assertNotIn("check the reading on this unit", low)
+            self.assertNotIn("norcold", low)
+            self.assertNotIn("619394", low)
+            self.assertNotIn("sail switch", low)
+            self.assertNotIn("📖", text)
+            thetford.append({"role": "user", "content": latest})
+            thetford.append({"role": "assistant", "content": text})
+
 
 if __name__ == "__main__":
     unittest.main()

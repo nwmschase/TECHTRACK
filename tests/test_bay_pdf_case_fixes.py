@@ -620,7 +620,7 @@ class TestBayCaseFixes(unittest.TestCase):
             item for item in proc.flowchart.edges if item.from_id == "d_aps" and item.to_id == "e_aps"
         )
         self.assertEqual(edge.label, "NO")
-        self.assertEqual((edge.from_side, edge.to_side), ("bottom", "top"))
+        self.assertEqual((edge.from_side, edge.to_side), ("left", "right"))
         self.assertNotEqual(gas, no)
         self.assertNotIn("burner flame", gas)
         self.assertIn("blower", no)
@@ -655,6 +655,75 @@ class TestBayCaseFixes(unittest.TestCase):
         )
         self.assertFalse(_connector_skims_diamond(trace, aps, page=0))
 
+    def test_s13_each_decision_has_its_own_yes_and_no(self):
+        import math
+
+        proc, _text = _sheet(
+            "Girard GSWH-2 E8 lockout after flame",
+            "Girard",
+            "GSWH-2",
+            "Water Heaters",
+        )
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [])
+        diamonds = [
+            mark
+            for mark in trace
+            if mark.page == 0 and mark.role == "node" and mark.kind == "diamond"
+        ]
+        conns = [
+            mark
+            for mark in trace
+            if mark.page == 0 and mark.role == "connector" and len(mark.points or []) >= 2
+        ]
+
+        def port(mark, side):
+            cx = (mark.x0 + mark.x1) / 2.0
+            cy = (mark.y0 + mark.y1) / 2.0
+            return {
+                "left": (mark.x0, cy),
+                "right": (mark.x1, cy),
+                "top": (cx, mark.y1),
+                "bottom": (cx, mark.y0),
+            }[side]
+
+        def near(point, target, tol=3.0):
+            return math.hypot(point[0] - target[0], point[1] - target[1]) <= tol
+
+        def diamond_for(snippet):
+            return next(mark for mark in diamonds if snippet in _node_text(trace, mark.id).lower())
+
+        decisions = [node for node in proc.flowchart.nodes if node.kind == "decision"]
+        self.assertEqual(len(decisions), 3)
+        for node in decisions:
+            outs = [
+                edge
+                for edge in proc.flowchart.edges
+                if edge.from_id == node.id and edge.label in ("YES", "NO")
+            ]
+            self.assertEqual({edge.label for edge in outs}, {"YES", "NO"}, node.id)
+            self.assertEqual(len({edge.from_side for edge in outs}), 2, node.id)
+            diamond = diamond_for(node.text.split("\n")[0].lower())
+            for edge in outs:
+                start = port(diamond, edge.from_side)
+                self.assertTrue(
+                    any(near(conn.points[0], start) for conn in conns),
+                    (node.id, edge.label, edge.from_side),
+                )
+        blower = diamond_for("show suction")
+        aps = diamond_for("switch pass")
+        gas = diamond_for("gas supply")
+        blower_yes = next(edge for edge in proc.flowchart.edges if edge.from_id == "d_in" and edge.label == "YES")
+        aps_yes = next(edge for edge in proc.flowchart.edges if edge.from_id == "d_aps" and edge.label == "YES")
+        self.assertEqual(blower_yes.to_id, "d_aps")
+        self.assertEqual(aps_yes.to_id, "d_gas")
+        blower_line = next(conn for conn in conns if near(conn.points[0], port(blower, blower_yes.from_side)))
+        aps_line = next(conn for conn in conns if near(conn.points[0], port(aps, aps_yes.from_side)))
+        self.assertTrue(near(blower_line.points[-1], port(aps, blower_yes.to_side)))
+        self.assertTrue(near(aps_line.points[-1], port(gas, aps_yes.to_side)))
+        self.assertFalse(near(aps_line.points[0], blower_line.points[0]))
+
     def test_s12_flowchart_says_reseat(self):
         proc, _text = _sheet(
             "Furrion FACT12SA2 rooftop shows E2",
@@ -665,6 +734,9 @@ class TestBayCaseFixes(unittest.TestCase):
         chart = " ".join(node.text for node in proc.flowchart.nodes)
         self.assertIn("Reseat the freeze sensor", chart)
         self.assertNotIn("Resecure", chart)
+        do_not = " ".join(proc.do_not).lower()
+        self.assertIn("reseated", do_not)
+        self.assertNotIn("resecured", do_not)
 
     def test_s14_replaces_the_complete_jack_and_leaves_model_blank(self):
         proc, text = _sheet(

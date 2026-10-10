@@ -196,17 +196,19 @@ class TestBrandMismatchGuard(unittest.TestCase):
             chunks=FURRION_PAGES,
         )
         low = procedure_plain_text(proc).lower()
-        self.assertIn("dometic", proc.primary_cite.lower())
-        self.assertIn("do not use another brand", proc.primary_cite.lower())
+        self.assertIn("no dometic document in the shop library for this unit", proc.primary_cite.lower())
+        self.assertIn("general shop safety, not an oem procedure", low)
+        self.assertIn("add the dometic oem manual", low)
         self.assertNotIn("furrion", proc.primary_cite.lower())
         self.assertNotIn("ccd-0008666", low)
         self.assertNotIn("fact12", low)
         self.assertNotIn("furrion", low)
+        self.assertNotIn("yes:", low)
+        self.assertNotIn("no:", low)
         for src in proc.sources:
             self.assertNotIn("furrion", (src.get("title") or "").lower())
         for fig in proc.figures:
             self.assertNotIn("furrion", f"{fig.title} {fig.caption}".lower())
-        self.assertIn("confirmed correction", " ".join(proc.bay_order).lower())
 
     def test_same_brand_manual_is_still_the_primary(self):
         proc = compile_bay_procedure(
