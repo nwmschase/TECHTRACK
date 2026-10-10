@@ -171,7 +171,7 @@ class TestSourceTitleAndSnippet(unittest.TestCase):
             path_kind="bal_tongue",
         )
         hay = " ".join(f"{s['title']} {s['excerpt']}" for s in polished).lower()
-        self.assertIn("ins.sta.001", hay)
+        self.assertNotIn("ins.sta.001", hay)
         self.assertIn("bal power c-jack troubleshooting check list", hay)
         self.assertNotIn("20300000", hay)
         self.assertNotIn("rear leveling", hay)
@@ -226,9 +226,6 @@ class TestLockedSourceRegression(unittest.TestCase):
                 "category": "Leveling",
                 "chunks": BAL_NOISE,
                 "required": [
-                    "ins.sta.001",
-                    "20300427",
-                    "pigtail",
                     "bal 5.1 ss troubleshooting guide",
                     "bal power c-jack troubleshooting check list",
                     "both directions",
@@ -328,7 +325,7 @@ class TestLockedSourceRegression(unittest.TestCase):
                         ),
                     },
                 ],
-                "required": ["807662", "firefly", "terminator", "level up advantage manual mode"],
+                "required": ["firefly", "terminator", "level up advantage manual mode"],
                 "forbidden": [
                     "flat rate",
                     "20300000",

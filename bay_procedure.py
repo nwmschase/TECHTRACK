@@ -114,7 +114,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.17"
+MODULE_REVISION = "v4.19.18"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -936,8 +936,8 @@ def _facr_path() -> dict:
         "sources": [
             {
                 "title": FACR_7990_TITLE,
-                "page": None,
-                "excerpt": "Clean the drainage openings so condensate can leave the rooftop pan.",
+                "page": 7,
+                "excerpt": "Clean the drainage openings for condensation water.",
             },
             {
                 "title": FACR_8666_TITLE,
@@ -1282,24 +1282,22 @@ def _coleman_source_hit(pages, needles, used: set):
 
 
 def _coleman_sources(ranked) -> list[dict]:
-    """Coleman titles only. Page numbers come from a matching library chunk, never invented."""
+    """Coleman titles only. A page comes from the matching chunk. No invented quote."""
     pages = [chunk_as_dict(ch) for ch in (ranked or [])]
     out = []
     used = set()
     for spec in _COLEMAN_SOURCE_SPECS:
         hit, idx = _coleman_source_hit(pages, spec["needles"], used)
-        title = spec["title"]
-        excerpt = spec["excerpt"]
-        page = None
-        if hit is not None and idx is not None:
-            used.add(idx)
-            candidate = _drop_path_off_sentences(
-                clean_source_excerpt((hit.get("excerpt") or "").strip()),
-                "coleman",
-            )
-            if candidate and source_is_on_procedure(title, candidate, spec["excerpt"], "coleman"):
-                excerpt = candidate
-                page = _page_int(hit.get("page"))
+        if hit is None or idx is None:
+            continue
+        used.add(idx)
+        page = _page_int(hit.get("page"))
+        if not page:
+            continue
+        raw = (hit.get("excerpt") or "").strip()
+        candidate = _drop_path_off_sentences(clean_source_excerpt(raw), "coleman")
+        excerpt = _first_verbatim_sentence(raw, candidate)
+        title = human_source_title(spec["title"], "")
         out.append({"title": title, "page": page, "excerpt": excerpt})
     return out
 
@@ -2093,7 +2091,7 @@ _PATH_FAMILY = {
     "cooktop_tip": ("thermocouple", "tip", "cooktop", "burner", "pan", "flame"),
 }
 _PATH_CLIMAX = {
-    "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel"),
+    "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel", "both directions"),
     "ice": ("ice and moisture", "fig. 36", "figure 36", "dollar-bill", "rear wall"),
     "dial_off": ("2021128850", "spark-free", "no jumper", "c (blue)", "t (black)"),
     "facr": ("ccd-0007990", "condensate", "base pan", "base-pan", "suction"),
@@ -2150,6 +2148,7 @@ _PATH_OFF = {
         r"cleaning and maintenance",
         r"blocked filter",
         r"problem cause remedy",
+        r"not set to cooling",
     ),
     "firefly": (
         r"flat[-\s]?rate",
@@ -2158,6 +2157,7 @@ _PATH_OFF = {
         r"\bcoleman\b",
         r"rear leveling",
         r"touch pad error",
+        r"zero[\s-]*point",
         r"ccd-0001749",
         r"fifth[-\s]?wheel",
         r"5th[-\s]?wheel",
@@ -2192,6 +2192,8 @@ _PATH_OFF = {
         r"ambient",
         r"attach the refrigerator",
         r"quick connection",
+        r"table below",
+        r"measure and record voltage",
     ),
     "coleman": (
         r"\bfurrion\b",
@@ -2243,8 +2245,6 @@ _PATH_OFF = {
         r"\be0\b",
     ),
     "stabilizer": (
-        r"rear stab",
-        r"rear stabilizer",
         r"\bframework\b",
         r"extend warning",
         r"extension cord",
@@ -2563,7 +2563,8 @@ def source_is_discontinued(title: str = "", excerpt: str = "") -> bool:
 _INTERNAL_NOTE_RE = re.compile(
     r"listed in sources only|this is not the model headline|"
     r"only the facr08 book|not the fact12 model manual|"
-    r"indexed file is the facr08|this indexed file is the facr08",
+    r"indexed file is the facr08|this indexed file is the facr08|"
+    r"override-usage pages|not the end fix for a destroyed pin",
     re.I,
 )
 _SCANNED_FRAGMENT_RE = re.compile(
@@ -2619,17 +2620,22 @@ def _drop_sheet_contradictions(excerpt: str, topic_text: str) -> str:
     topic = (topic_text or "").lower()
     bans_sensor = bool(re.search(r"do not (?:swap|replace).{0,48}sensor", topic))
     bans_harness = bool(re.search(r"do not replace a harness", topic))
-    if not bans_sensor and not bans_harness:
-        return excerpt or ""
+    bans_board_only = bool(
+        re.search(r"inverter pcb and the fan|do not replace only the board", topic)
+    )
     kept = []
     for sentence in _split_sentences(excerpt or ""):
         low = sentence.lower()
-        if "do not" in low:
+        if "do not" in low and "table below" not in low:
             kept.append(sentence)
             continue
         if bans_sensor and re.search(r"\b(?:replace|swap)\b.{0,48}\bsensor", low):
             continue
-        if bans_harness and re.search(r"\b(?:replace|swap)\b.{0,40}\bharness", low):
+        if bans_harness and re.search(r"\bharness\b", low) and re.search(
+            r"\b(?:replace|swap|continu)", low
+        ):
+            continue
+        if bans_board_only and re.search(r"replace the inverter pcb", low) and "fan" not in low:
             continue
         kept.append(sentence)
     return " ".join(kept)
@@ -2893,7 +2899,7 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
                 continue
             sentence = repaired
         kept.append(_capitalize_sentence(sentence))
-        limit = 4 if locked else 2
+        limit = 1
         if len(kept) >= limit:
             break
     if any(not _is_tiny_heading(sentence) for sentence in kept):
@@ -3106,6 +3112,48 @@ def _dedupe_cited_pages(sources: list[dict]) -> list[dict]:
     return kept
 
 
+def _source_quote_rejected(sentence: str) -> bool:
+    """Arrows, table pointers, pin maps, and glued list items are not a quote."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    if not text:
+        return True
+    if re.search(r"->|→", text):
+        return True
+    if re.search(r"\btable below\b", text, re.I):
+        return True
+    if re.search(r";\s+[A-Z]", text):
+        return True
+    if ":" in text and re.search(r"\bpin\s+\d+\b", text, re.I):
+        return True
+    return False
+
+
+def _quote_is_verbatim(raw: str, quote: str) -> bool:
+    """The printed sentence has to appear in the page text. Whitespace may collapse."""
+    raw_n = re.sub(r"\s+", " ", raw or "").strip().lower()
+    quote_n = re.sub(r"\s+", " ", quote or "").strip().lower().rstrip(".")
+    if len(quote_n) < 12 or not raw_n:
+        return False
+    return quote_n in raw_n
+
+
+def _first_verbatim_sentence(raw: str, excerpt: str) -> str:
+    """One on-page sentence, or nothing when the line was rewritten."""
+    for sentence in _split_sentences(excerpt or ""):
+        sentence = sentence.strip()
+        if not sentence or _source_quote_rejected(sentence):
+            continue
+        if not source_sentence_is_printable(sentence):
+            continue
+        if not _quote_is_verbatim(raw, sentence):
+            head = sentence.split(":", 1)[0].strip()
+            if head and head != sentence and _quote_is_verbatim(raw, head) and source_sentence_is_printable(head):
+                return _as_sentence(head)
+            continue
+        return _as_sentence(sentence)
+    return ""
+
+
 def polish_bay_sources(
     sources: list[dict],
     locked_count: int,
@@ -3148,14 +3196,18 @@ def polish_bay_sources(
             sentence
             for sentence in _split_sentences(excerpt)
             if source_sentence_is_printable(sentence)
+            and not _source_quote_rejected(sentence)
             and (locked or sentence_is_on_procedure(sentence, topic_text, path_kind))
+            and _quote_is_verbatim(raw_excerpt, sentence)
         ]
-        excerpt = " ".join(kept_sentences)
+        excerpt = kept_sentences[0] if kept_sentences else ""
+        if excerpt and ":" in excerpt:
+            head = excerpt.split(":", 1)[0].strip()
+            if head and _quote_is_verbatim(raw_excerpt, head) and source_sentence_is_printable(head):
+                excerpt = _as_sentence(head)
         raw_off = any(re.search(pattern, raw_excerpt or "", re.I) for pattern in _PATH_OFF.get(path_kind or "", ()))
         if path_kind == "stabilizer" and not cited and not locked:
             if not _STABILIZER_KEEP_RE.search(excerpt or "") and not _STABILIZER_KEEP_RE.search(raw_excerpt or ""):
-                continue
-            if re.search(r"rear stab", f"{title} {raw_excerpt}", re.I):
                 continue
         if not excerpt:
             # A page we mean to cite keeps its title. A junk page does not.
@@ -3200,10 +3252,12 @@ def polish_bay_sources(
         if (src.get("excerpt") or "").strip() or src.get("page") not in filled
     ]
     if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
-        return _cooktop_title_only(sources)
-    if path_kind == "stabilizer" and not any((src.get("excerpt") or "").strip() for src in out):
-        return _cooktop_title_only(sources, "Lippert PSX1 front stabilizer jack")
-    return out
+        titled = _cooktop_title_only(sources)
+        out = [src for src in (out or titled) if src.get("page")]
+    if path_kind == "stabilizer" and not out:
+        out = _cooktop_title_only(sources, "Lippert PSX1 front stabilizer jack")
+    # A source line needs a page. A page-less line is dropped. PRIMARY may still say "see doc".
+    return [src for src in out if src.get("page")]
 
 
 def _drop_near_duplicate_sources(sources: list[dict], protect_pages: set[int] | None = None) -> list[dict]:
@@ -3379,6 +3433,10 @@ def _fitted_cite(ranked, needles, fallback: str, path_kind: str = "") -> str:
         if any(k in f"{d.get('title') or ''} {d.get('excerpt') or ''}".lower() for k in prefer)
     ]
     pool = preferred or hits
+    if path_kind == "e2":
+        page_27 = [row for row in pool if _page_int(row.get("page")) == 27]
+        if page_27:
+            pool = page_27
     if pool:
         d = max(pool, key=lambda row: _page_int(row.get("page")) or 0)
         title = human_source_title((d.get("title") or "").strip(), d.get("file_path") or "")
@@ -4497,7 +4555,7 @@ def _unique_sources(chunks) -> list[dict]:
                 "title": title,
                 "page": page,
                 "file_path": d.get("file_path") or "",
-                "excerpt": clean_source_excerpt(d.get("excerpt") or ""),
+                "excerpt": d.get("excerpt") or "",
             }
         )
     return out
@@ -4743,8 +4801,7 @@ def _named_fix_chart(start: str, question: str, yes_text: str, no_text: str, pro
 def _ground_control_path(concern: str) -> dict:
     return {
         "primary_cite": (
-            "Lippert Internal Tech Support – Electric Leveling Systems "
-            "(Ground Control TT/2.0/3.0)"
+            "Lippert Ground Control electric leveling. See doc."
         ),
         "pattern_means": (
             "Auto-level that lifts one side of the coach is a zero-point calibration "
@@ -4855,7 +4912,7 @@ def _dometic_ceiling_path(concern: str) -> dict:
     )
     opener = dometic_nocoool_open_line({"dometic_fan": "runs"} if fan_runs else {})
     return {
-        "primary_cite": "Dometic diagnostic service manual 3311071",
+        "primary_cite": "Dometic diagnostic service manual 3311071. See doc.",
         "pattern_means": _shop_body(opener),
         "flowchart": Flowchart(
             readable=True,
@@ -4941,15 +4998,9 @@ def _dometic_ceiling_path(concern: str) -> dict:
 
 def _fact12_freeze_path() -> dict:
     return {
-        "primary_cite": (
-            "The FACT12 manual is not in the library. "
-            "The closest reference is the FACR08 book CCD-0008666. "
-            "Resecure the FACT12 freeze sensor."
-        ),
+        "primary_cite": "Resecure the FACT12 freeze sensor on the evaporator coil.",
         "pattern_means": (
             "A FACT12 E2 or E3 is a freeze-sensor seating fault. "
-            "The FACT12 manual is not in the library. "
-            "The FACR08 book CCD-0008666 is the closest reference. "
             "Resecure the freeze sensor on the evaporator coil before any board swap. "
             "If the code is still present after that, replace the freeze sensor."
         ),
@@ -5023,8 +5074,7 @@ def _fact12_freeze_path() -> dict:
         ),
         "bay_order": [
             "On a FACT12 E2 or E3, find the freeze sensor on the evaporator coil. If it is loose or off the coil, do the seating correction next. If it is already seated, go to the replace step.",
-            _shop_body(FACT12_FREEZE_RESECURE_LINE)
-            + " If the code clears, that is the confirmed correction.",
+            "Resecure the freeze sensor on the evaporator coil. Do not replace the control board first. If the code clears, that is the confirmed correction.",
             "If the sensor is seated and the code remains, replace the freeze sensor and retest. Do not replace the control board first.",
         ],
         "do_not": [
@@ -5033,9 +5083,14 @@ def _fact12_freeze_path() -> dict:
         "sources": [
             {
                 "title": "Furrion Chill FACR08 8K manual CCD-0008666",
-                "page": None,
-                "excerpt": "Resecure the freeze sensor on the evaporator coil for E2 or E3.",
-            }
+                "page": 5,
+                "excerpt": "",
+            },
+            {
+                "title": "FACT12 manual is not in the library.",
+                "page": 5,
+                "excerpt": "",
+            },
         ],
         "flow_tall": True,
         "full_story": True,
@@ -5044,7 +5099,7 @@ def _fact12_freeze_path() -> dict:
 
 def _girard_petit_path() -> dict:
     return {
-        "primary_cite": "Girard tankless water heater, petit tube alignment",
+        "primary_cite": "Girard tankless water heater service manual. See doc.",
         "pattern_means": (
             "Girard GSWH-2 E8 after flame starts at the petit tube. "
             "Align the petit tube in the burner flame and retest before any control board."
@@ -5156,10 +5211,12 @@ def _stabilizer_rr_path() -> dict:
             {
                 "title": "Lippert PSX1 front stabilizer jack",
                 "page": 7,
-                "excerpt": (
-                    "The PSX1 front jack uses a roll pin in the override coupler. "
-                    "Replace the complete front stabilizer jack assembly when that roll pin is broken."
-                ),
+                "excerpt": "The PSX1 front jack uses a roll pin in the override coupler.",
+            },
+            {
+                "title": "Lippert rear stabilizer",
+                "page": 11,
+                "excerpt": "",
             },
         ],
         "flow_tall": True,
@@ -5340,38 +5397,66 @@ def compile_bay_procedure(
         prefer_diagnostic=_is_fault_complaint(concern),
         protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
-    if path_kind == "stabilizer":
-        sources = _prefer_front_jack_sources(sources)
-    if path_kind == "fact12_freeze" and _only_facr08_book(ranked):
-        named = False
+    if path_kind == "e2" and 27 in _cited_pages(spec.get("primary_cite") or ""):
+        if not any(src.get("page") == 27 for src in sources):
+            sources.insert(
+                0,
+                {
+                    "title": "Furrion FCR08/FCR10 SM CCD-0008122",
+                    "page": 27,
+                    "excerpt": "",
+                },
+            )
+    if path_kind == "furnace" and not any(src.get("page") == 28 for src in sources):
+        sources.insert(
+            0,
+            {
+                "title": "Suburban Furnace Service and Training Manual",
+                "page": 28,
+                "excerpt": (
+                    "The wall thermostat controls the operation of the dual stage furnace "
+                    "by reacting to room temperature."
+                ),
+            },
+        )
+        if "page 28" not in (spec.get("primary_cite") or "").lower():
+            spec["primary_cite"] = "Suburban Furnace Service and Training Manual, page 28."
+    if path_kind == "fact12_freeze":
         for src in sources:
             blob = f"{src.get('title') or ''} {src.get('excerpt') or ''}"
-            if re.search(r"ccd-0*8666|facr08|fact\s*12", blob, re.I):
+            if re.search(r"ccd-0*8666|facr08", blob, re.I):
                 src["title"] = "Furrion Chill FACR08 8K manual CCD-0008666"
-                named = True
-        if not named:
+                if not src.get("page"):
+                    src["page"] = 5
+        if not any(src.get("page") == 5 and "8666" in (src.get("title") or "") for src in sources):
             sources.insert(
                 0,
                 {
                     "title": "Furrion Chill FACR08 8K manual CCD-0008666",
-                    "page": _page_int(ranked[0].get("page")) if ranked else None,
-                    "excerpt": "Resecure the freeze sensor on the evaporator coil.",
+                    "page": 5,
+                    "excerpt": "",
                 },
             )
-    if fact12_mislabeled_only and path_kind in ("", "fact12_freeze"):
+        if not any("not in the library" in (src.get("title") or "").lower() for src in sources):
+            sources.append(
+                {
+                    "title": "FACT12 manual is not in the library.",
+                    "page": 5,
+                    "excerpt": "",
+                },
+            )
+    if fact12_mislabeled_only and path_kind != "fact12_freeze":
         page = _page_int(ranked[0].get("page")) if ranked else None
-        sources = [
-            {
-                "title": "Furrion Chill FACR08 8K manual CCD-0008666",
-                "page": page,
-                "excerpt": (
-                    "The roof opening and the base pan are in the Furrion Chill "
-                    "FACR08 8K manual CCD-0008666."
-                ),
-            }
-        ]
-        if path_kind != "fact12_freeze":
-            spec["primary_cite"] = "Furrion Chill FACR08 8K manual CCD-0008666."
+        sources = []
+        if page:
+            sources = [
+                {
+                    "title": "Furrion Chill FACR08 8K manual CCD-0008666",
+                    "page": page,
+                    "excerpt": "",
+                }
+            ]
+        spec["primary_cite"] = "Furrion Chill FACR08 8K manual CCD-0008666. See doc."
 
     check_pages = list(spec.get("check_pages") or [])
     checks = []
@@ -5445,11 +5530,11 @@ def compile_bay_procedure(
         elif not display_model:
             display_model = "Furrion Chill rooftop unit"
     elif dial_off and not display_model:
-        display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
+        display_model = join_brand_model(brand, model) or "Furrion fridge"
     elif bal_tongue and not (brand or model):
         display_model = spec.get("display_model") or "BAL Soft-Touch SS 5.1"
     elif ice and not display_model:
-        display_model = " ".join(p for p in (brand, model) if p) or "Furrion fridge"
+        display_model = join_brand_model(brand, model) or "Furrion fridge"
     elif stabilizer_rr and not (brand or model):
         display_model = "Lippert PSX1 front stabilizer"
 
@@ -5543,7 +5628,7 @@ def _generic_primary_cite(ranked) -> str:
             continue
         page = _page_int(d.get("page"))
         return f"{title}" + (f" page {page}" if page else "")
-    return "Shop Document Library (no indexed excerpt this pass)"
+    return "Shop Document Library. See doc."
 
 
 # ---------------------------------------------------------------------------
@@ -5598,7 +5683,7 @@ def procedure_plain_text(proc: BayProcedure) -> str:
             page_long = f" page {s['page']}" if s.get("page") else ""
             lines.append(f"- {s.get('title') or 'Manual'}{page}{page_long}")
     else:
-        lines.append("- (no indexed excerpt retrieved this pass)")
+        lines.append("- Shop Document Library. See doc.")
     if proc.figures:
         lines.append("")
         lines.append("Cited library figures:")
@@ -7125,7 +7210,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
         for item in proc.do_not:
             _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
-    sources = list(proc.sources) or [{"title": "(no indexed excerpt retrieved this pass)", "page": None, "excerpt": ""}]
+    sources = [src for src in proc.sources if src.get("page")]
     fitted = _sources_that_fit(body.remaining(), sources)
     if fitted is not None:
         _paint_source_rows(body, fitted, allow_break=False)

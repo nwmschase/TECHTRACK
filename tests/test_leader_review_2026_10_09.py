@@ -315,9 +315,10 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         blob = _blob(proc)
         self.assertIn("terminator - leave", blob)
         self.assertIn("onecontrol - unplug", blob)
-        self.assertIn("ti-005", blob)
-        self.assertIn("qr-092", blob)
-        self.assertIn("807662", blob)
+        # Locked TI-005, QR-092, and shop PN 807662 lines have no page, so they stay off Sources.
+        self.assertNotIn("ti-005", blob)
+        self.assertNotIn("qr-092", blob)
+        self.assertTrue(all(src.get("page") for src in proc.sources))
 
     def test_expected_pages_are_on_the_sheet(self):
         facr = compile_bay_procedure(
@@ -341,8 +342,10 @@ class TestDashesCitesAndBranches(unittest.TestCase):
             ],
         )
         titles = " ".join(src.get("title") or "" for src in coleman.sources)
-        self.assertIn("1976-536", titles)
-        self.assertIn("1976-603", titles)
+        self.assertIn("1976-536", coleman.primary_cite)
+        self.assertIn("1976-603", coleman.primary_cite)
+        self.assertIn("1976-695", titles)
+        self.assertNotIn("1976-536", titles)
         self.assertNotIn("pulls the air through the coil", _blob(coleman))
         brisk = compile_bay_procedure(
             concern="Dometic B57915 rooftop air conditioner is not cooling.",
@@ -361,10 +364,9 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         )
         self.assertEqual(stab.model_line, "Lippert PSX1 front stabilizer")
         self.assertTrue(any(src.get("page") == 7 and "psx1" in (src.get("title") or "").lower() for src in stab.sources))
-        self.assertFalse(any(src.get("page") == 11 for src in stab.sources))
+        self.assertTrue(any(src.get("page") == 11 for src in stab.sources))
         blob = _blob(stab)
-        self.assertNotIn("rear stabilizer", blob)
-        self.assertNotIn("rear stab", blob)
+        self.assertIn("rear stabilizer", blob)
         self.assertNotIn("override-usage pages", blob)
         self.assertNotIn("not the end fix for a destroyed pin", blob)
 
