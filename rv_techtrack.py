@@ -241,7 +241,7 @@ def _reload_app_module(name, required_revision, required_attrs=()):
 
 
 def _load_gd_library_coach():
-    """Load the sibling coach. See _reload_app_module."""
+    """Load gd_library_coach.py from this file's folder. See _reload_app_module."""
     return _reload_app_module(
         "gd_library_coach",
         _GDC_REQUIRED_REVISION,
