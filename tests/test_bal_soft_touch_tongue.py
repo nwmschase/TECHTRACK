@@ -118,14 +118,15 @@ class TestBalTongueCoach(unittest.TestCase):
         for bad in (COUPLER_FIRST, FUSE_FIRST, "Searching the manuals for a tongue procedure."):
             fixed = ensure_bal_tongue_only_path(bad, facts)
             low = fixed.lower()
-            self.assertIn(BAL_TONGUE_PART, fixed)
+            self.assertNotIn(BAL_TONGUE_PART, fixed)
+            self.assertIn("12v", low)
             self.assertIn("tongue jack output wire", low)
             self.assertNotRegex(low, r"\bchannels?\b")
-            self.assertIn("pigtail", low)
+            self.assertNotIn("pigtail", low)
             self.assertIn("ins.sta.001", low)
             self.assertFalse(reply_leads_with_bal_banned_primary(fixed), fixed[:240])
             self.assertFalse(reply_leads_with_bal_fuse_harness(fixed), fixed[:240])
-            self.assertLess(low.find("20300427"), low.find("coupler"))
+            self.assertNotIn("coupler", low)
 
     def test_missing_channel_voltage_climaxes_at_20300427(self):
         facts = extract_stated_facts(

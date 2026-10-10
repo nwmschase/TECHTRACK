@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.39
+RV TechTrack v4.19.40
+- v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
 - v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
 - v4.19.37: Start new chat clears the Guided Diagnostics conversation, answered slots, model, and category before the next message. The FACR prove asks for refrigerant pressures on the first check so a five-turn path can authorize rooftop assembly R&R.
@@ -109,7 +110,7 @@ RV TechTrack v4.19.39
 - Mobile-friendly
 """
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Boolean, LargeBinary
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 from datetime import datetime, timedelta
@@ -213,7 +214,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.39"
+_GDC_REQUIRED_REVISION = "v4.19.40"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -448,6 +449,7 @@ xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 from bay_procedure import (
     BAY_PROCEDURE_LABEL,
     MAX_FIGURES_PER_SHEET,
+    apply_chunk_figures,
     compile_bay_procedure,
     crop_page_png_to_figure,
     render_bay_procedure_pdf,
@@ -867,6 +869,25 @@ class DocChunk(Base):
     page = Column(Integer, default=1)
     chunk_text = Column(Text, nullable=False)
     keywords = Column(Text, default="")
+
+
+class DocAsset(Base):
+    """Page PNG or figure crop stored with the library chunks.
+
+    The row lives in the same sqlite file the R2 database backup uploads.
+    ``image_path`` is the library-pages key, and ``png_blob`` rides along in
+    that backup so a restored DB still has the picture.
+    """
+    __tablename__ = "doc_assets"
+    id = Column(Integer, primary_key=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
+    page = Column(Integer, nullable=False, default=1)
+    kind = Column(String(20), nullable=False, default="page")
+    label = Column(String(120), default="")
+    image_path = Column(String(400), default="")
+    width = Column(Integer, default=0)
+    height = Column(Integer, default=0)
+    png_blob = Column(LargeBinary)
 
 
 class Certificate(Base):
@@ -1655,6 +1676,66 @@ def clear_document_chunks(document_id: int):
     session.commit()
 
 
+def clear_document_assets(document_id: int):
+    session.query(DocAsset).filter_by(document_id=document_id).delete()
+    session.commit()
+
+
+def _store_pdf_assets(doc: Document, file_bytes: bytes):
+    """Render page PNGs and figure crops into the library DB and the page folder."""
+    import manual_figures as mf
+
+    indexed = mf.index_pdf_bytes(file_bytes)
+    session.query(DocAsset).filter_by(document_id=doc.id).delete()
+    assets = mf.assets_from_index(indexed, doc.id)
+    mf.write_asset_files(doc.id, assets, Path("."))
+    for asset in assets:
+        try:
+            r2_upload(asset["png"], asset["image_path"], "image/png")
+        except Exception:
+            pass
+        session.add(DocAsset(
+            document_id=doc.id,
+            page=asset["page"],
+            kind=asset["kind"],
+            label=asset.get("label") or "",
+            image_path=asset.get("image_path") or "",
+            width=asset.get("width") or 0,
+            height=asset.get("height") or 0,
+            png_blob=asset.get("png") or b"",
+        ))
+    session.commit()
+    return indexed
+
+
+def backfill_missing_page_assets() -> int:
+    """One-time pass: existing manuals get page images and figure crops."""
+    done = 0
+    for doc in session.query(Document).all():
+        if (doc.file_type or "").lower() != "pdf":
+            continue
+        have = session.query(DocAsset).filter_by(document_id=doc.id, kind="page").first()
+        if have:
+            continue
+        data = None
+        try:
+            data = r2_download_bytes(doc.file_path)
+        except Exception:
+            data = None
+        if not data:
+            local = Path(doc.file_path or "")
+            if local.is_file():
+                data = local.read_bytes()
+        if not data:
+            continue
+        try:
+            _store_pdf_assets(doc, data)
+            done += 1
+        except Exception:
+            continue
+    return done
+
+
 def index_document_from_bytes(doc: Document, file_bytes: bytes):
     clear_document_chunks(doc.id)
     if (doc.file_type or "").lower() != "pdf":
@@ -1667,12 +1748,24 @@ def index_document_from_bytes(doc: Document, file_bytes: bytes):
         doc.index_note = "pypdf not installed on server"
         session.commit()
         return False, doc.index_note
+    asset_note = ""
+    scanned = False
+    try:
+        indexed_assets = _store_pdf_assets(doc, file_bytes)
+        scanned = bool(indexed_assets.get("scanned"))
+        asset_note = (
+            f"Page images only ({len(indexed_assets['pages'])} pages, scanned PDF, no extractable text)"
+            if scanned
+            else f"{len(indexed_assets['pages'])} page images, {len(indexed_assets['figures'])} figures"
+        )
+    except Exception:
+        asset_note = ""
     pages = extract_pdf_pages(file_bytes)
     if not pages:
-        doc.indexed = False
-        doc.index_note = "No extractable text (scanned PDF may need OCR)"
+        doc.indexed = scanned or bool(asset_note)
+        doc.index_note = (asset_note or "No extractable text (scanned PDF may need OCR)")[:250]
         session.commit()
-        return False, doc.index_note
+        return bool(doc.indexed), doc.index_note
     count = 0
     for page_num, page_text in pages:
         for p, chunk in chunk_page_text(page_num, page_text):
@@ -1686,7 +1779,10 @@ def index_document_from_bytes(doc: Document, file_bytes: bytes):
             ))
             count += 1
     doc.indexed = True
-    doc.index_note = f"Indexed {count} chunks from {len(pages)} pages"
+    note = f"Indexed {count} chunks from {len(pages)} pages"
+    if asset_note:
+        note = f"{note}; {asset_note}"
+    doc.index_note = note[:250]
     session.commit()
     return True, doc.index_note
 
@@ -3431,12 +3527,20 @@ def reset_guided_diagnostics_session():
 
 
 def render_library_page_image(src: dict, key_suffix: str):
-    """R2 download → pymupdf page → st.image. No markdown image embeds."""
+    """Stored crop or R2 page → st.image. No markdown image embeds."""
+    import manual_figures as mf
+
     title = src.get("title") or "Manual"
     try:
         page = int(src.get("page") or 1)
     except Exception:
         page = 1
+    label = src.get("label") or ""
+    caption = src.get("caption") or mf.display_caption(title, page, label or "page")
+    png = src.get("png")
+    if png:
+        st.image(png, caption=caption, use_container_width=True)
+        return True
     fpath = src.get("file_path")
     if not fpath:
         st.caption(f"{title} p.{page} - no storage path on this library record.")
@@ -3448,7 +3552,7 @@ def render_library_page_image(src: dict, key_suffix: str):
         return False
     png = render_pdf_page_png(data, page)
     if png:
-        st.image(png, caption=f"Shop Document Library - {title} - page {page}", use_container_width=True)
+        st.image(png, caption=caption, use_container_width=True)
         return True
     if not PYMUPDF_AVAILABLE:
         st.warning(
@@ -4619,6 +4723,101 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
     }
 
 
+def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_text: str):
+    """Figure crops for this job. Another brand's image is left out."""
+    import manual_figures as mf
+
+    try:
+        rows = (
+            session.query(DocAsset, Document)
+            .join(Document, Document.id == DocAsset.document_id)
+            .filter(DocAsset.kind == "figure")
+            .all()
+        )
+    except Exception:
+        return []
+    if not rows:
+        return []
+    job = f"{category_name} {model_text} {user_msg} {reply}"
+    blob = (reply or "").lower()
+    if "vacuum" in blob:
+        topic = "vacuum"
+    elif "water valve" in blob or "weep" in blob:
+        topic = "valve"
+    else:
+        topic = ""
+    chosen = []
+    for asset, doc in rows:
+        title = doc.title or ""
+        if mf.brands_conflict(job, title):
+            continue
+        title_l = title.lower()
+        if topic == "vacuum" and not re.search(r"34122|34123|vacuum", title_l):
+            continue
+        if topic == "valve" and not re.search(r"42109|water valve", title_l):
+            continue
+        png = asset.png_blob or b""
+        if not png:
+            local = Path(asset.image_path or "")
+            if local.is_file():
+                png = local.read_bytes()
+        if not png:
+            continue
+        chosen.append({
+            "title": title,
+            "page": asset.page,
+            "label": asset.label or "",
+            "caption": mf.display_caption(title, asset.page, asset.label or ""),
+            "png": png,
+            "file_path": doc.file_path,
+            "document_id": doc.id,
+        })
+    return chosen
+
+
+def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, model_text: str) -> str:
+    """On a physical step, or when the tech asks, name the cropped figure.
+
+    An empty library leaves the reply exactly as the shop line wrote it.
+    """
+    import manual_figures as mf
+
+    try:
+        if session.query(DocAsset).count() == 0:
+            return reply
+    except Exception:
+        return reply
+    physical = bool(re.search(
+        r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
+        reply or "",
+        re.I,
+    ))
+    asked = mf.wants_manual_image(user_msg) or wants_library_page_shown(user_msg)
+    if not physical and not asked:
+        return reply
+    chosen = _stored_figure_matches(reply, user_msg, category_name, model_text)
+    if not chosen:
+        return reply
+    limit = 3 if asked else 1
+    extra = []
+    first = chosen[0]
+    chunk_text = "\n".join(
+        (row.chunk_text or "")
+        for row in session.query(DocChunk).filter_by(
+            document_id=first["document_id"], page=first["page"]
+        ).all()
+    )
+    detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
+    if detail and detail not in (reply or ""):
+        extra.append(detail)
+    for item in chosen[:limit]:
+        if item["caption"] not in (reply or ""):
+            extra.append(item["caption"])
+    if not extra:
+        return reply
+    return ((reply or "").rstrip() + "\n\n" + "\n".join(extra)).strip()
+
+
 def guided_diagnostics_reply(
     user_msg: str,
     category_name: str,
@@ -4647,7 +4846,8 @@ def guided_diagnostics_reply(
         reply = _gdc.guard_blank_shop_reply(
             reply, history, user_msg, category_name, model_text
         )
-        return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), None
+        reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
+        return _append_stored_figure_offer(reply, user_msg, category_name, model_text), None
     if HARD_TREE_EXCLUSIVE_CHAT:
         result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
         if result.get("used_engine") and not result.get("yielded_to_coach"):
@@ -4688,6 +4888,7 @@ def guided_diagnostics_reply(
     reply = _gdc.ensure_facr_early_pressure_ask(
         reply, history, user_msg, category_name, model_text
     )
+    reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
     return reply, None
 
 
@@ -5595,8 +5796,71 @@ def _retrieve_bay_library_chunks(category_name: str, model_text: str, concern: s
     return chunks or []
 
 
-def _attach_bay_figure_images(proc):
-    """Best-effort shop-library page images for cited figures (R2 + pymupdf)."""
+def _merge_stored_figures(proc, chunks):
+    """Crops already indexed with the manual go on the step they support."""
+    import manual_figures as mf
+
+    try:
+        rows = (
+            session.query(DocAsset, Document)
+            .join(Document, Document.id == DocAsset.document_id)
+            .filter(DocAsset.kind == "figure")
+            .all()
+        )
+    except Exception:
+        return proc
+    if not rows:
+        return proc
+    titles = " ".join(
+        (src.get("title") or "") for src in (proc.sources or [])
+    ).lower()
+    for chunk in chunks or []:
+        titles += " " + (getattr(chunk, "title", None) or (chunk.get("title") if isinstance(chunk, dict) else "") or "")
+    titles = titles.lower()
+    job = f"{proc.brand} {proc.model} {proc.concern}"
+    by_doc = {}
+    for asset, doc in rows:
+        if mf.brands_conflict(job, doc.title or ""):
+            continue
+        if (doc.title or "").lower() not in titles and not any(
+            token in titles for token in ("42109", "34123", "34122") if token in (doc.title or "")
+        ):
+            continue
+        by_doc.setdefault(doc.id, {"doc": doc, "assets": []})
+        by_doc[doc.id]["assets"].append(asset)
+    packets = []
+    for bucket in by_doc.values():
+        doc = bucket["doc"]
+        text = "\n".join(
+            (row.chunk_text or "")
+            for row in session.query(DocChunk).filter_by(document_id=doc.id).all()
+        )
+        figures = []
+        for asset in bucket["assets"]:
+            png = asset.png_blob or b""
+            if not png:
+                continue
+            figures.append({
+                "png": png,
+                "label": asset.label or "",
+                "page": asset.page,
+                "title": doc.title,
+            })
+        if figures:
+            packets.append({
+                "title": doc.title,
+                "page": figures[0]["page"],
+                "excerpt": text[:8000],
+                "figures": figures,
+            })
+    if not packets:
+        return proc
+    return apply_chunk_figures(proc, packets)
+
+
+def _attach_bay_figure_images(proc, chunks=None):
+    """Best-effort shop-library page images for cited figures (stored crops, then R2)."""
+    proc = _merge_stored_figures(proc, chunks)
     if not r2_available() or not PYMUPDF_AVAILABLE:
         return proc
     for fig in proc.figures[:MAX_FIGURES_PER_SHEET]:
@@ -5696,7 +5960,7 @@ with tab_jobs:
                     chunks=hits,
                     include_3c=bool(bay_include_3c),
                 )
-                proc = _attach_bay_figure_images(proc)
+                proc = _attach_bay_figure_images(proc, hits)
                 pdf_bytes = render_bay_procedure_pdf(proc)
             st.session_state["bay_pdf_bytes"] = pdf_bytes
             st.session_state["bay_pdf_name"] = suggested_pdf_filename(proc)
@@ -5970,7 +6234,14 @@ with tab_ask:
                 msg,
                 reply,
             )
-            if wants_library_page_shown(msg):
+            import manual_figures as _mf
+            _asked_image = wants_library_page_shown(msg) or _mf.wants_manual_image(msg)
+            _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
+            if _offers and (_asked_image or _offers):
+                st.session_state["ask_auto_show"] = _offers[:3] if _asked_image else _offers[:1]
+                st.session_state["ask_auto_show_failed"] = False
+                st.session_state.pop("ask_auto_show_fail_note", None)
+            elif _asked_image:
                 # Prefer current reply cites; else fall back to prior coach Source lines
                 coach_for_pages = reply or ""
                 if not parse_cited_pages_from_text(coach_for_pages):
@@ -6365,6 +6636,13 @@ if is_manager and tab_mgr is not None:
                     st.write(f"{'✅' if ok else '⚠️'} {doc.title} - {note}")
                     prog.progress((i + 1) / max(len(docs), 1))
                 st.success(f"Indexed OK: {ok_n} · Skipped/failed: {fail_n}")
+            st.caption(
+                "Page images and figure crops are stored with each manual. "
+                "Backfill adds them to manuals that were indexed before this version."
+            )
+            if st.button("Backfill page images"):
+                n = backfill_missing_page_assets()
+                st.success(f"Backfilled page images for {n} manual(s).")
 
             st.markdown("#### Index status by document")
             for d in session.query(Document).order_by(Document.title).all():
@@ -6403,6 +6681,7 @@ if is_manager and tab_mgr is not None:
                         with c3:
                             if st.button("🗑️ Delete", key=f"del_doc_{d.id}"):
                                 clear_document_chunks(d.id)
+                                clear_document_assets(d.id)
                                 session.delete(d)
                                 session.commit()
                                 st.success("Document deleted from library.")

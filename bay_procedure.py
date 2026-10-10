@@ -118,7 +118,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.39"
+MODULE_REVISION = "v4.19.40"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -131,6 +131,7 @@ def sheet_local_now() -> datetime:
 NAVY = (0.004, 0.078, 0.486)
 GREEN = (0.012, 0.537, 0.282)
 RED = (0.875, 0.122, 0.149)
+CAUTION_FILL = (1.0, 0.96, 0.86)
 CREAM = (1.0, 0.984, 0.941)
 GOLD = (1.0, 0.949, 0.820)
 PALE = (0.941, 0.949, 0.969)
@@ -504,6 +505,10 @@ class BayProcedure:
     flow_tall: bool = False
     full_story: bool = False
     unit_id: bool = False
+    # Parallel to bay_order. Each entry is the cropped manual figures for that step.
+    step_figures: list = field(default_factory=list)
+    # Factory R&R sheets. Diagnosis stays the short lead-in. This is the procedure.
+    procedures: list = field(default_factory=list)
 
     @property
     def model_line(self) -> str:
@@ -4001,6 +4006,8 @@ def chunk_as_dict(ch) -> dict:
             "category": ch.get("category") or ch.get("category_name") or "",
             "document_id": ch.get("document_id"),
             "image_png": ch.get("image_png"),
+            "figures": list(ch.get("figures") or []),
+            "figure_label": ch.get("figure_label") or "",
         }
     else:
         excerpt = getattr(ch, "chunk_text", "") or getattr(ch, "excerpt", "") or ""
@@ -4013,6 +4020,8 @@ def chunk_as_dict(ch) -> dict:
             "category": getattr(ch, "category", "") or getattr(ch, "category_name", "") or "",
             "document_id": getattr(ch, "document_id", None),
             "image_png": getattr(ch, "image_png", None),
+            "figures": list(getattr(ch, "figures", None) or []),
+            "figure_label": getattr(ch, "figure_label", "") or "",
         }
     for name in ("keywords", "brand", "models", "clean_title", "product_line", "doc_number"):
         row[name] = _chunk_meta_value(ch, name)
@@ -6116,6 +6125,164 @@ def bind_primary_sources(proc: "BayProcedure") -> "BayProcedure":
     return proc
 
 
+def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
+    """Which bay step a kit sheet illustrates. Supply and flange stay unpictured."""
+    blob = f"{title} {excerpt[:240]}".lower()
+    if re.search(r"34122|34123|vacuum breaker", blob):
+        for index, step in enumerate(steps):
+            if "vacuum" in step.lower():
+                return index
+    if re.search(r"42109|water valve", blob):
+        for index, step in enumerate(steps):
+            low = step.lower()
+            if "weep" in low or "replace the water valve" in low:
+                return index
+        for index, step in enumerate(steps):
+            if "water valve" in step.lower():
+                return index
+    return None
+
+
+def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
+    """Put each cropped figure on the step it supports, and quote that chunk's how-to.
+
+    Chunks with no figure leave the locked shop line unchanged, so the 15-case
+    sheets stay as they are.
+    """
+    import manual_figures as mf
+
+    packets = []
+    for chunk in chunks or []:
+        data = chunk_as_dict(chunk)
+        figures = list(data.get("figures") or [])
+        if data.get("image_png"):
+            figures.append(
+                {
+                    "png": data["image_png"],
+                    "label": data.get("figure_label") or "Fig.",
+                    "page": data.get("page"),
+                    "title": data.get("title") or "",
+                }
+            )
+        if figures:
+            packets.append({**data, "figures": figures})
+    if not packets:
+        return proc
+    job = " ".join(
+        part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
+    )
+    groups = [[] for _ in proc.bay_order]
+    details = {}
+    for packet in packets:
+        title = packet.get("title") or ""
+        if mf.brands_conflict(job, title):
+            continue
+        page = packet.get("page")
+        slot = _step_slot_for_figure(proc.bay_order, title, packet.get("excerpt") or "")
+        if slot is None:
+            continue
+        detail = mf.procedure_detail(packet.get("excerpt") or "", title, page)
+        if detail and slot not in details:
+            details[slot] = detail
+        for figure in packet["figures"]:
+            fig_title = figure.get("title") or title
+            if mf.brands_conflict(job, fig_title):
+                continue
+            png = figure.get("png") or b""
+            if not png or mf.png_is_blank(png):
+                continue
+            groups[slot].append(
+                BayFigure(
+                    title=fig_title,
+                    page=figure.get("page") or page,
+                    caption=figure.get("label") or "Fig.",
+                    excerpt=(packet.get("excerpt") or "")[:240],
+                    image_png=png,
+                )
+            )
+    order = list(proc.bay_order)
+    for slot, detail in details.items():
+        if detail not in order[slot]:
+            order[slot] = f"{order[slot].rstrip()} {detail}"
+    for index, step in enumerate(order):
+        if re.search(r"\bpage\s+\d+", step, re.I):
+            continue
+        cite = (proc.primary_cite or "").strip()
+        if cite and re.search(r"\bpage\s+\d+", cite, re.I):
+            order[index] = f"{step.rstrip()} ({cite})"
+            continue
+        low = step.lower()
+        if "thetford" in job.lower() and ("flange" in low or "supply line" in low):
+            order[index] = (
+                f"{step.rstrip()} "
+                "(Thetford Style II OM Permanent RV Toilet 42088, page 3)."
+            )
+    proc.bay_order = order
+    proc.step_figures = groups
+    proc.procedures = _plain_kit_procedures(packets, job)
+    owned = set()
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure") or {}
+            png = figure.get("png") if isinstance(figure, dict) else getattr(figure, "image_png", b"")
+            if png:
+                owned.add(png)
+    if owned:
+        proc.step_figures = [
+            [fig for fig in group if fig.image_png not in owned]
+            for group in proc.step_figures
+        ]
+    used = {fig.image_png for group in proc.step_figures for fig in group if fig.image_png}
+    used.update(owned)
+    proc.figures = [fig for fig in proc.figures if fig.image_png not in used]
+    return proc
+
+
+def _plain_kit_procedures(packets, job: str) -> list:
+    """Short R&R from a kit sheet that actually has figures."""
+    import manual_figures as mf
+
+    built = []
+    seen = set()
+    for packet in packets or []:
+        title = packet.get("title") or ""
+        if mf.brands_conflict(job, title):
+            continue
+        key = title.lower()
+        if key in seen:
+            continue
+        figures = []
+        for figure in packet.get("figures") or []:
+            png = figure.get("png") or b""
+            if not png or mf.png_is_blank(png):
+                continue
+            if mf.brands_conflict(job, figure.get("title") or title):
+                continue
+            figures.append(
+                {
+                    "label": figure.get("label") or "Fig.",
+                    "png": png,
+                    "page": figure.get("page") or packet.get("page"),
+                    "title": figure.get("title") or title,
+                }
+            )
+        if not figures:
+            continue
+        layout = mf.procedure_from_sheet(packet.get("excerpt") or "", figures, title)
+        if not layout.get("steps"):
+            continue
+        built.append(layout)
+        seen.add(key)
+    built.sort(
+        key=lambda item: 0
+        if "water" in (item.get("title") or "").lower()
+        else 1
+        if "vacuum" in (item.get("title") or "").lower() or "breaker" in (item.get("title") or "").lower()
+        else 2
+    )
+    return built
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -6457,7 +6624,8 @@ def compile_bay_procedure(
     proc = apply_sheet_standard(proc)
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
-    return bind_primary_sources(apply_shop_channel_wording(proc))
+    proc = bind_primary_sources(apply_shop_channel_wording(proc))
+    return apply_chunk_figures(proc, chunks)
 
 
 def _is_fact12_job(model_text: str) -> bool:
@@ -7778,6 +7946,40 @@ def _add_boxed_text(cur: _SheetFlow, text: str, *, size: float = 9.0, leading: f
         idx += take
 
 
+def _add_manual_figure(cur: _SheetFlow, fig: BayFigure):
+    """Draw one cropped figure in a single block. It never splits across a page."""
+    import manual_figures as mf
+
+    png = fig.image_png or b""
+    if not png:
+        return
+    cap = mf.display_caption(fig.title, fig.page, fig.caption)
+    cap_m = measure_text(cap, _CONTENT_W - 16, 8, bold=True, leading=10)
+    width, height = _png_pixel_size(png)
+    # 180 pt is about 375 px at 150 dpi, above the 250 px floor.
+    dw = min(_CONTENT_W - 24, 250.0)
+    dh = dw * height / max(width, 1)
+    if dh > 230.0:
+        dh = 230.0
+        dw = dh * width / max(height, 1)
+    if dw < 120.0:
+        dw = 120.0
+        dh = dw * height / max(width, 1)
+    need = cap_m.height + dh + 16.0
+    if need > cur.remaining():
+        cur.new_page("Bay order continued")
+        avail = cur.remaining() - cap_m.height - 20.0
+        if dh > avail > 70.0:
+            dh = avail
+            dw = avail * width / max(height, 1)
+    _emit_block(cur, cap_m, x=MARGIN + 8, size=8, bold=True, color=NAVY, gap_after=4, allow_break=False)
+    if cur.y - dh < cur.floor:
+        dh = max(48.0, cur.y - cur.floor - 6.0)
+        dw = dh * width / max(height, 1)
+    cur.page.images.append(DrawnImage(png, MARGIN + 12, cur.y - dh, dw, dh))
+    cur.y -= dh + 10.0
+
+
 def _add_step(cur: _SheetFlow, index: int, step: str):
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
@@ -8072,6 +8274,103 @@ def _paint_unit_id(body: _SheetFlow, proc: BayProcedure) -> None:
     _add_plain_item(body, "Serial: ____________________", size=9, gap=8.0)
 
 
+def _diagnosis_line(step: str) -> str:
+    return re.split(r"\s+How\s*\(", step or "", maxsplit=1)[0].strip()
+
+
+def _paint_diagnosis(body: _SheetFlow, steps: list[str]) -> None:
+    """The short lead-in. The repair procedure is the body that follows."""
+    lines = [_diagnosis_line(step) for step in steps if _diagnosis_line(step)]
+    if not lines:
+        return
+    _add_section(body, "DIAGNOSIS", NAVY, follow_h=28)
+    for index, line in enumerate(lines, 1):
+        _add_step(body, index, line)
+
+
+def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) -> None:
+    block = measure_text(text, width - 10, 7.5, leading=9.5)
+    box_h = block.height + 8.0
+    if box_h + 4 > cur.remaining():
+        cur.new_page("Repair procedure")
+    top = cur.y
+    bottom = top - box_h
+    sid = _next_id("caution")
+    cur.page.shapes.append(
+        DrawnShape(
+            "rect", x, bottom, width, box_h,
+            fill=CAUTION_FILL, stroke=RED, stroke_w=0.9, id=sid, role="box",
+        )
+    )
+    baseline = top - 4.0 - block.ascent
+    cur.page.texts.append(
+        DrawnText(
+            "\n".join(block.lines), x + 5, baseline, w=max(block.width, 12), size=7.5,
+            color=INK, leading=block.leading, lines=list(block.lines), owner=sid, role="body",
+        )
+    )
+    cur.y = bottom - 4.0
+
+
+def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
+    """Numbered Removal and Installation, with the kit figure beside the step."""
+    import manual_figures as mf
+
+    title = procedure.get("title") or "Repair procedure"
+    _add_plain_item(body, "REPAIR PROCEDURE", size=10, gap=2)
+    _add_plain_item(body, title, size=9, gap=4)
+    before = list(procedure.get("before") or [])
+    if before:
+        _add_plain_item(body, "BEFORE YOU START", size=9, gap=2)
+        for item in before:
+            _add_plain_item(body, f"- {item}", size=8, gap=2)
+    steps = list(procedure.get("steps") or [])
+    section = ""
+    fig_w = 132.0
+    for index, step in enumerate(steps, 1):
+        if step.get("section") != section:
+            section = step.get("section") or ""
+            label = "REMOVAL" if section == "removal" else "INSTALLATION"
+            _add_plain_item(body, label, size=9, gap=3)
+        figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+        png = (figure or {}).get("png") or b""
+        has = bool(png) and not mf.png_is_blank(png)
+        text_w = _CONTENT_W - 20.0 - (fig_w + 14.0 if has else 0)
+        sentences = mf.step_sentences(step)
+        block = measure_text(f"{index}. " + " ".join(sentences), text_w, 8, leading=10.2)
+        fig_h = 0.0
+        if has:
+            width, height = _png_pixel_size(png)
+            fig_h = min(120.0, fig_w * height / max(width, 1))
+            fig_h = max(fig_h, 64.0)
+        row = max(block.height + 8.0, fig_h + 6.0)
+        if step.get("caution"):
+            row += 22.0
+        if row + 6 > body.remaining():
+            body.new_page("Repair procedure")
+        top = body.y
+        baseline = top - block.ascent
+        body.page.texts.append(
+            DrawnText(
+                "\n".join(block.lines),
+                MARGIN + 8,
+                baseline,
+                w=max(block.width, 12),
+                size=8,
+                color=INK,
+                leading=block.leading,
+                lines=list(block.lines),
+                role="body",
+            )
+        )
+        if has:
+            img_x = MARGIN + _CONTENT_W - fig_w
+            body.page.images.append(DrawnImage(png, img_x, top - fig_h, fig_w, fig_h))
+        body.y = top - max(block.height, fig_h) - 4.0
+        if step.get("caution"):
+            _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
+
+
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     """Build drawable pages for a human bay sheet.
 
@@ -8113,11 +8412,28 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         _add_section(body, "WHAT THIS PATTERN USUALLY MEANS", NAVY, follow_h=min(means.height + 20, 80))
         _add_boxed_text(body, proc.pattern_means or "-")
     steps = list(proc.bay_order)
-    if steps:
+    shown_figures = set()
+    if proc.procedures:
+        _paint_diagnosis(body, steps)
+        for procedure in proc.procedures:
+            _paint_repair_procedure(body, procedure)
+            for step in procedure.get("steps") or []:
+                figure = step.get("figure") or {}
+                png = figure.get("png") if isinstance(figure, dict) else b""
+                if png:
+                    shown_figures.add(png)
+    elif steps:
         first = measure_text(f"1. {steps[0]}", _CONTENT_W - 32, 8.5, leading=11.2)
         _add_section(body, "BAY ORDER (DO THIS FIRST)", GREEN, follow_h=min(first.height, 48))
         for i, step in enumerate(steps, 1):
+            group = []
+            if i - 1 < len(proc.step_figures or []):
+                group = list(proc.step_figures[i - 1] or [])
             _add_step(body, i, step)
+            for fig in group:
+                if fig and fig.image_png:
+                    _add_manual_figure(body, fig)
+                    shown_figures.add(fig.image_png)
     if proc.do_not:
         first = measure_text(f"- {proc.do_not[0]}", _CONTENT_W - 16, 8.5, leading=11.1)
         if body.remaining() < 16 + 12 + min(first.height, 24):
@@ -8139,7 +8455,9 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
 
     imaged = []
     for fig in proc.figures:
-        if not fig.image_png or figure_is_placeholder(fig) or _figure_is_plenum(fig):
+        if not fig.image_png or fig.image_png in shown_figures:
+            continue
+        if figure_is_placeholder(fig) or _figure_is_plenum(fig):
             continue
         png = crop_page_png_to_figure(fig.image_png)
         if not png or _figure_is_illegible(fig, png):
