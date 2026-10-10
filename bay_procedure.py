@@ -115,7 +115,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.12"
+MODULE_REVISION = "v4.19.13"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -1891,14 +1891,20 @@ def _strip_fig_fragments(text: str) -> str:
     return re.sub(r"\s{2,}", " ", _FIG_FRAG_RE.sub(" ", text or "")).strip()
 
 
-def _normalize_ocr_chars(text: str) -> str:
-    """A dash between digits stays a hyphen. Any other em or en dash becomes a space.
+_DASH_CHARS = "\u2010\u2011\u2012\u2013\u2014\u2212"
 
-    Deleting the dash is what glued 'terminatorleave' and 'OneControlunplug'.
+
+def _normalize_ocr_chars(text: str) -> str:
+    """A dash between digits stays a hyphen. F− and T– stay F- and T-.
+
+    Any other em or en dash becomes a space. Deleting it glued 'terminatorleave'.
     """
     out = text or ""
-    out = re.sub(r"(\d)\s*[\u2010\u2011\u2012\u2013\u2014\u2212]\s*(\d)", r"\1-\2", out)
-    out = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2212]", " ", out)
+    out = re.sub(rf"(\d)\s*[{_DASH_CHARS}]\s*(\d)", r"\1-\2", out)
+    # A terminal label is one capital and a hyphen: F-, T-, C-.
+    out = re.sub(rf"(?<![A-Za-z])([A-Z])\s*[{_DASH_CHARS}]\s*", r"\1- ", out)
+    out = re.sub(r"(?<![A-Za-z])([A-Z])\s+-\s+", r"\1- ", out)
+    out = re.sub(rf"[{_DASH_CHARS}]", " ", out)
     out = out.replace("\uff1f", "?").replace("\u2047", "?")
     out = re.sub(r"[\u2022\u2023\u2043\u2219\u25aa\u25cf\u25e6\u00b7\uf0b7\uf0a7]", " ? ", out)
     return out
@@ -1953,6 +1959,9 @@ def _repair_ocr_text(text: str) -> str:
     out = _collapse_repeated_phrases(out)
     out = _drop_leading_ocr_stub(out)
     out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
+    # Drop 'At the F- terminals…' before the overlap trimmer can cut it out of
+    # the sentence that actually names the measurement.
+    out = _drop_verbless_fragments(out)
     return _drop_repeated_clauses(_dedupe_adjacent_sentences(out))
 
 
@@ -2273,6 +2282,53 @@ def _strip_incomplete_callout(text: str) -> str:
     return re.sub(r"\s*\(\s*(?:Fig\.?|i\.?)\s*$", "", (text or "").strip(), flags=re.I).strip(" ,;:-")
 
 
+_VERB_RE = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|am|"
+    r"has|have|had|do|does|did|can|could|may|might|will|shall|must|"
+    r"inspect|check|checks|measure|measures|replace|replaces|verify|verifies|"
+    r"reset|connect|connects|record|prove|proves|retest|retests|"
+    r"locate|locates|clear|clears|clean|cleans|test|tests|"
+    r"align|aligns|reposition|repositions|resecure|reseats|reseat|"
+    r"enter|enters|leave|leaves|pull|pulls|start|starts|stop|stops|"
+    r"show|shows|mean|means|need|needs|use|uses|turn|turns|run|runs|"
+    r"open|opens|close|closes|hold|holds|sit|sits|go|goes|come|comes|"
+    r"remain|remains|return|returns|light|lights|watch|watches|"
+    r"confirm|confirms|repair|repairs|set|sets|keep|keeps|"
+    r"make|makes|allow|allows|cause|causes|reach|reaches|"
+    r"stand|stands|call|calls|flow|flows)\b",
+    re.I,
+)
+
+
+def _sentence_has_verb(sentence: str) -> bool:
+    """'At the F- terminals on the inverter PCB' is a fragment. It has no verb."""
+    text = sentence or ""
+    if _VERB_RE.search(text):
+        return True
+    return bool(re.search(r"\b[a-z]{4,}(?:ed|ing)\b", text, re.I))
+
+
+# A place phrase with no verb is a fragment. A part name ('Spark-Free Thermostat part G') is not.
+_FRAGMENT_OPEN_RE = re.compile(
+    r"^(?:at|on|in|to|for|with|from|by|of|between|across|before|after|"
+    r"under|over|into|onto|upon|via|without|within|through|during|"
+    r"around|along|beside|near)\b",
+    re.I,
+)
+
+
+def _is_verbless_fragment(sentence: str) -> bool:
+    """Drop 'At the F- terminals on the inverter PCB.' Keep a part-number sentence."""
+    text = (sentence or "").strip()
+    if not text or _sentence_has_verb(text):
+        return False
+    return bool(_FRAGMENT_OPEN_RE.match(text))
+
+
+def _drop_verbless_fragments(text: str) -> str:
+    return " ".join(s for s in _split_sentences(text) if not _is_verbless_fragment(s))
+
+
 def _sentence_is_cut(text: str) -> bool:
     """True when a snippet ends mid-word, on a cut figure callout, or on a stub."""
     sentence = (text or "").strip()
@@ -2416,6 +2472,8 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         if _NO_LIBRARY_STEP_RE.search(sentence):
             continue
         if excerpt_starts_mid_word(sentence):
+            continue
+        if _is_verbless_fragment(sentence):
             continue
         if _is_tiny_heading(sentence):
             continue
@@ -2711,10 +2769,13 @@ def _keep_primary_excerpt(raw: str) -> str:
     cleaned = clean_ocr_prose(raw or "")
     for sentence in _split_sentences(cleaned):
         sentence = _strip_ocr_bullet(sentence).strip()
-        if len(sentence) >= 20 and not _is_header_residue(sentence):
+        if (
+            len(sentence) >= 20
+            and not _is_header_residue(sentence)
+            and not _is_verbless_fragment(sentence)
+        ):
             return _as_sentence(sentence)
-    clipped = _clip(cleaned, 220)
-    return _as_sentence(clipped) if clipped else ""
+    return ""
 
 
 def _strip_ocr_bullet(text: str) -> str:
@@ -3523,10 +3584,9 @@ _OEM_FIGURE_CROP = {
     # The whole drainage-openings row, including the diagram. Not the cut
     # neighbors ("blower is defective" above, "seals are damaged" below).
     # Full drainage row: "Water enters the vehicle" through "openings are clogged".
-    # One whole drainage row, borders included. The rule at 733 is the top of
-    # "Water enters the vehicle". The rule at 816 is its bottom. The blower row
-    # ends at 676; the seals row starts at 816.
-    "ccd7990-p7.png": (36, 732, 1066, 818),
+    # Drainage row, both rules. "vehicle" ends near y=834. The partial line at
+    # 816 does not cross that cell. The next full-width rule is y=872.
+    "ccd7990-p7.png": (36, 732, 1066, 876),
     "ccd8666-p10.png": (28, 520, 728, 824),
 }
 MAX_SHEET_PAGES = 3
