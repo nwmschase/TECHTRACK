@@ -2258,8 +2258,12 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
                 return {"facr_suction": "iced"}
             return {}
         return _mark_facr_asked(asked)
-    if _FACR_SHORT_PASS_RE.search(raw) and not re.search(
-        r"\b(bad|fail|failed|iced|clogged|restricted)\b", raw
+    # A longer report ("fan spins freely with good airflow") is not a yes
+    # to the pressure question. Only a short pass word binds the open ask.
+    if (
+        len(raw.split()) <= 4
+        and _FACR_SHORT_PASS_RE.search(raw)
+        and not re.search(r"\b(bad|fail|failed|iced|clogged|restricted)\b", raw)
     ):
         return _mark_facr_asked(asked)
     facts = {}
@@ -2516,12 +2520,60 @@ def _facr_next_prove_prompt(facts: dict | None) -> str:
     return "Read the refrigerant pressures."
 
 
+def _facr_pending_prompts(facts: dict | None = None, history: list = None) -> list[str]:
+    """Open FACR checks, without a rooftop replacement and without a repeated ask."""
+    facts = facts or {}
+    asked = _norm(_prior_assistant_text(history))
+    pressures_in = facts.get("facr_pressure") == "ok"
+    steps = (
+        ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
+        ("facr_pressure", "ok", "Read the refrigerant pressures."),
+        ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
+        ("facr_fan_filter", "ok", "Check the filter and the fan."),
+        ("facr_suction", "clear", "Say whether the suction line is iced."),
+        ("sensor", "proved", "Read the freeze sensor."),
+        ("facr_thermostat", "good", "What is the cool setpoint on the thermostat?"),
+        ("facr_nozzle", "open", "Are the nozzles open?"),
+        ("facr_ambient", "ok", "What is the ambient temperature?"),
+    )
+    prompts = []
+    for key, val, prompt in steps:
+        if pressures_in and key == "facr_thermostat":
+            continue
+        if key == "sensor":
+            if facr_sensor_proved(facts):
+                continue
+        elif facts.get(key) == val:
+            continue
+        if key == "facr_pressure":
+            continue
+        if _norm(prompt) in asked:
+            continue
+        prompts.append(prompt)
+    if not pressures_in:
+        prompts = [
+            "Check the refrigerant pressures and report the readings.",
+            "Connect gauges and read the suction and discharge pressures. Report both readings.",
+        ] + prompts
+    if prompts:
+        return prompts
+    if not pressures_in:
+        return ["Read the refrigerant pressures."]
+    nxt = _facr_next_prove_prompt(facts)
+    if _norm(nxt).startswith("report the prove"):
+        return ["Read the refrigerant pressures."]
+    return [nxt]
+
+
 _FACR_INTERNAL_GUARD_RE = re.compile(
     r"Stay on the FACR condensate and freeze prove\.?\s*"
     r"|Do not leave this prove[^.]*\.?\s*"
-    r"|Do not ask the tech to supply a procedure excerpt\.?\s*",
+    r"|Do not ask the tech to supply a procedure excerpt\.?\s*"
+    r"|Next check on the CCD-0007990 condensate path:\s*"
+    r"|Report the prove that is still open\.?\s*",
     re.I,
 )
+_EARLY_ROOFTOP_RR_RE = re.compile(r"replace the rooftop assembly", re.I)
 
 
 def _strip_facr_internal_guard(text: str) -> str:
@@ -2609,6 +2661,7 @@ def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str
     # The reported drain / pan / filter / fan / nozzle / sensor path is still open.
     if (
         reply_names_rooftop_assembly_rr(reply)
+        or _EARLY_ROOFTOP_RR_RE.search(reply or "")
         or reply_drifts_facr_off_freeze_path(reply)
         or reply_refuses_facr_library_rr(reply)
     ):
@@ -3623,13 +3676,25 @@ def _gc_plugs_reported(history: list = None) -> bool:
     )
 
 
+def _gc_plugs_already_asked(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if "plugs are seated" in _norm(message.get("content") or ""):
+            return True
+    return False
+
+
 def ensure_ground_control_level_path(reply: str, history: list = None) -> str:
     """
     Ask whether the plugs are seated before the zero-point sequence.
+    Once that ask has shipped, the next turn is the manual-level sequence.
     A later turn does not get that sequence again, and a harness or sensor swap does not replace it.
     """
     cleaned = _drop_gc_drift_sentences(strip_library_no_steps(reply or ""))
     if not _history_has_zero_point_steps(history) and not _gc_plugs_reported(history):
+        if _gc_plugs_already_asked(history):
+            return GROUND_CONTROL_LEVEL_LINE
         return GROUND_CONTROL_PROVE_LINE
     if _history_has_zero_point_steps(history):
         cleaned = _strip_repeated_zero_point(cleaned)
@@ -3969,7 +4034,9 @@ def _repair_from_chat(history: list = None, latest_msg: str = "", prior_text: st
             "If the freeze sensor is loose or off the coil, reseat it and retest. "
             "If it is seated and the code remains, replace the freeze sensor."
         )
-    if "20300427" in prior or "soft-touch user panel" in prior:
+    if ("20300427" in prior or "soft-touch user panel" in prior) and re.search(
+        r"\b0\s*v\b|no 12\s*v", blob
+    ):
         options.append("Replace the soft-touch user panel, part 20300427.")
     if "inverter pcb" in prior:
         options.append("Replace the inverter PCB and the freezer evaporator fan.")
@@ -3999,7 +4066,7 @@ def _alternate_lines(text: str) -> list[str]:
         ("thermocouple", "Put the thermocouple tip back in the flame with the pan on."),
         ("inverter pcb", "Replace the inverter PCB and the freezer evaporator fan."),
         ("inverter pcb", "The inverter PCB and the freezer evaporator fan are the repair."),
-        ("dial", "If heavy frost returns after the overnight wait, replace the cooling unit."),
+        ("dial", "Dry the cabinet and leave it overnight. Report whether heavy frost returns on the rear wall."),
     )
     return [line for needle, line in options if needle in low]
 
@@ -4237,6 +4304,40 @@ def _same_as_last_turn(sentence: str, history: list = None) -> bool:
         return False
     for previous in _split_reply_sentences(_last_assistant_text(history)):
         if _loose_sentence_key(previous) == key:
+            return True
+    return False
+
+
+def _near_copy(left: str, right: str) -> bool:
+    """A sentence that restates the previous turn. Looser overlap is a new step."""
+    words_l = set(_claim_words(left))
+    words_r = set(_claim_words(right))
+    if len(words_l) < 4 or len(words_r) < 4:
+        return _loose_sentence_key(left) == _loose_sentence_key(right) and bool(_loose_sentence_key(left))
+    shorter = words_l if len(words_l) <= len(words_r) else words_r
+    longer = words_r if shorter is words_l else words_l
+    # A longer repair sentence is a new step, not a copy of the short ask inside it.
+    if len(longer) >= len(shorter) * 1.6:
+        return False
+    return len(shorter & longer) / len(shorter) >= 0.75
+
+
+_REPEAT_FAMILY_RE = re.compile(
+    r"peacemaker|heavy frost|overnight|replace the cooling unit|fan-motor stall|run capacitor",
+    re.I,
+)
+
+
+def _echoes_last_turn(sentence: str, history: list = None) -> bool:
+    """True when a Coleman or ice sentence restates the previous turn."""
+    if not sentence or sentence.startswith("📖"):
+        return False
+    if not _REPEAT_FAMILY_RE.search(sentence):
+        return False
+    for previous in _split_reply_sentences(_last_assistant_text(history)):
+        if previous.startswith("📖"):
+            continue
+        if _near_copy(sentence, previous):
             return True
     return False
 
@@ -4918,11 +5019,11 @@ def _conditional_lines(
     job = _job_key(history, latest_msg, category_name, model_text)
     if job == "coleman":
         return [
-            "Do the Peacemaker bypass at the rooftop unit. If the compressor runs and the fan does not rotate, measure the fan-motor stall current. If that current is about 1.9 A and the run capacitor is near its rated value, replace the fan motor and the control board only.",
+            "Do the Peacemaker bypass at the rooftop unit and report whether the compressor runs while the fan stays still.",
+            "Measure the fan-motor stall current and the run capacitor. Report both readings.",
+            "Measure the run capacitor against its rated microfarad value and report that reading.",
             "If the compressor runs, the fan stays locked, the stall current is about 1.9 A, and the run capacitor is near rated, replace the fan motor and the control board only.",
-            "Measure the run capacitor. If it is near its rated value after the fan-motor stall current is about 1.9 A, replace the fan motor and the control board only.",
-            "If the shaft is locked and the capacitor is near rated, replace the fan motor and the control board only.",
-            "If the fan motor stays locked after the capacitor measures near rated, replace the fan motor and the control board only.",
+            "The repair is to replace the fan motor and the control board only.",
         ]
     if job == "facr":
         facr_facts = facr_proves_from_chat(history, latest_msg)
@@ -4930,13 +5031,7 @@ def _conditional_lines(
             return [facr_pressure_rr_line(facr_facts)]
         if facr_facts.get("facr_pressure") == "ok":
             return [_facr_stay_on_prove_line(facr_facts)]
-        return [
-            "Connect gauges and read the suction and discharge pressures. If those pressures are in range and the interior leak remains, replace the rooftop assembly.",
-            "If the suction and discharge pressures are in range and water still leaks inside, replace the rooftop assembly.",
-            "If gauge pressures are in range while the interior leak continues, replace the rooftop assembly.",
-            "Read both gauges with the unit in cooling. If the readings are in range, replace the rooftop assembly.",
-            "If the pressures stay in range on a second gauge check, replace the rooftop assembly.",
-        ]
+        return _facr_pending_prompts(facr_facts, history)
     if job == "fact12":
         if re.search(r"\be\s*3\b", user + " " + prior):
             return [
@@ -4961,9 +5056,9 @@ def _conditional_lines(
         ]
     if job == "ground":
         return [
-            "Confirm the controller, jack, and touch pad plugs are seated. If they are seated, run zero point: manual level, press FRONT five times, press REAR five times, then press ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
-            "If the plugs are seated and one side still lifts, press FRONT five times, then REAR five times, then ENTER. If the coach sits level after that, the zero-point calibration is the repair.",
-            "If the plugs are seated, press FRONT five times, then REAR five times, then ENTER. If the display stores zero point, that calibration is the repair.",
+            "Do a manual level, then set zero point. Press FRONT five times, then REAR five times, then press ENTER.",
+            "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. That calibration is the repair.",
+            "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
         ]
     if job == "stab":
         return [
@@ -4975,17 +5070,12 @@ def _conditional_lines(
             return [ICE_COOLING_UNIT_LINE]
         if re.search(r"gasket", user) and re.search(r"seal", user):
             return [
-                "Leave the cabinet dry after the overnight wait. If heavy frost returns, replace the cooling unit.",
-                "If heavy frost returns after the overnight wait, replace the cooling unit.",
-                "If the rear wall frosts again after the cabinet is dry, replace the cooling unit.",
-                "If frost comes back on the rear wall, replace the cooling unit.",
+                "Dry the cabinet and leave it overnight. Report whether heavy frost returns on the rear wall.",
+                "Replace the cooling unit only after that overnight result is reported.",
             ]
         return [
-            "Check the door gasket, then set the dial for an overnight wait and dry the cabinet. If heavy frost returns after that wait, replace the cooling unit.",
-            "If heavy frost returns after the overnight wait, replace the cooling unit.",
-            "If the rear wall frosts again after the cabinet is dry, replace the cooling unit.",
-            "If frost comes back on the rear wall, replace the cooling unit.",
-            "Dry the cabinet once more. If heavy frost returns, replace the cooling unit.",
+            "Check the door gasket and report whether it seals.",
+            "Check whether the temperature dial is at maximum and report the setting.",
         ]
     if job == "cooktop":
         return [
@@ -5003,9 +5093,16 @@ def _conditional_lines(
             "If both bypasses cool, replace the ceiling thermostat/selector.",
         ]
     if job == "bal":
+        if re.search(r"\b0\s*v\b|no 12\s*v", user):
+            return [
+                "No 12V on the tongue jack output wire. Replace the soft-touch user panel 20300427.",
+            ]
+        if re.search(r"\b12\s*v\b", user) and not re.search(r"\b0\s*v\b|no 12\s*v", user):
+            return [
+                "12V is present on the tongue jack output wire. Repair the tongue pigtail.",
+            ]
         return [
-            "Press tongue extend and measure the tongue jack output wire at the panel. If that wire has no 12V and the other stabilizers and panel lights work, replace the soft-touch user panel 20300427.",
-            "If 12V is present on the tongue jack output wire, repair the tongue pigtail.",
+            "Press tongue extend and check for 12V on the tongue jack output wire at the panel. Report that voltage.",
         ]
     if job == "e2":
         return [
@@ -5038,6 +5135,8 @@ def _pick_fresh_line(lines: list[str], history: list = None) -> str:
         if any(_sentence_key(sentence) in prior for sentence in sentences):
             continue
         if any(_same_as_last_turn(sentence, history) for sentence in sentences):
+            continue
+        if any(_echoes_last_turn(sentence, history) for sentence in sentences):
             continue
         return line
     return ""
@@ -5182,16 +5281,25 @@ def _leadjack_override_out(blob: str) -> bool:
     )
 
 
+def _leadjack_loose_cartridge(text: str) -> bool:
+    """The tech already found a loose cartridge. That fact is the repair."""
+    return bool(
+        re.search(r"\bloose\b.{0,40}\bcartridge\b|\bcartridge\b.{0,40}\bloose\b", _norm(text))
+    )
+
+
 def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
     """coil, then plumbing, then the override screw, then the cartridge.
 
     Answered slots stay answered. A later 'what is the repair?' does not
     open the plumbing question again. Once the cartridge line has shipped,
-    the plumbing question does not return.
+    the plumbing question does not return. A loose cartridge is that repair.
     """
     if _leadjack_cartridge_already_given(history):
         return "cartridge"
     blob = _user_blob(history, latest_msg)
+    if _leadjack_loose_cartridge(blob):
+        return "cartridge"
     slots = _leadjack_answered_slots(history, latest_msg)
     if _leadjack_coil_good(blob):
         slots.add("coil")
@@ -5239,12 +5347,12 @@ THETFORD_SUPPLY_LINE = (
     + THETFORD_CITE_42088
 )
 THETFORD_VALVE_LINE = (
-    "Check whether the water valve weeps at the pedal. "
-    "If it weeps, replace the water valve.\n"
+    "Check whether water valve 42049 weeps at the pedal. "
+    "If it weeps, replace it with water valve kit 42109.\n"
     "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
 )
 THETFORD_VALVE_REPLACE_LINE = (
-    "The water valve weeps at the pedal. Replace the water valve.\n"
+    "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.\n"
     "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
 )
 THETFORD_VACUUM_LINE = (
@@ -5376,16 +5484,81 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     return "flange"
 
 
+_PHOTO_CONFIRM_RE = re.compile(
+    r"\b(?:photo|picture|sent|attached|yes|done|ok|okay|here)\b",
+    re.I,
+)
+
+
+def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> bool:
+    """The tech sent a photo or said yes after this step was shown."""
+    seen = False
+    for message in history or []:
+        role = message.get("role") or ""
+        content = message.get("content") or ""
+        if role == "assistant" and f"Step {number} of" in content:
+            seen = True
+            continue
+        if seen and role == "user" and _PHOTO_CONFIRM_RE.search(content):
+            if re.search(r"\bno\b", content, re.I) and not re.search(r"\b(?:photo|picture)\b", content, re.I):
+                continue
+            return True
+    if seen and _PHOTO_CONFIRM_RE.search(latest_msg or ""):
+        if re.search(r"\bno\b", latest_msg or "", re.I) and not re.search(
+            r"\b(?:photo|picture)\b", latest_msg or "", re.I
+        ):
+            return False
+        return True
+    return False
+
+
+def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
+    """One short step. The next step waits for a photo."""
+    try:
+        import manual_figures as mf
+
+        layout = mf.thetford_kit_layout(kind)
+    except Exception:
+        return ""
+    steps = list(layout.get("steps") or [])
+    if not steps:
+        return ""
+    number = 1
+    while number <= len(steps) and _thetford_step_confirmed(history, latest_msg, number):
+        number += 1
+    if number > len(steps):
+        return (
+            "The repair procedure is done.\n"
+            "Flush the toilet.\n"
+            "Look for leaks."
+        )
+    text = mf.format_one_step(steps[number - 1], number, len(steps))
+    already = any(
+        f"Step {number} of" in (message.get("content") or "")
+        for message in history or []
+        if (message.get("role") or "") == "assistant"
+    )
+    if already:
+        text = f"{text}\n{mf.PHOTO_WAIT}"
+    if kind == "valve":
+        cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
+    else:
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+    if cite not in text:
+        text = f"{text}\n{cite}"
+    return text
+
+
 def _thetford_shop_line(history: list = None, latest_msg: str = "") -> str:
     stage = _thetford_stage(history, latest_msg)
     if stage == "valve":
         return THETFORD_VALVE_LINE
     if stage == "valve_replace":
-        return THETFORD_VALVE_REPLACE_LINE
+        return _thetford_procedure_turn(history, latest_msg, "valve") or THETFORD_VALVE_REPLACE_LINE
     if stage == "vacuum":
         return THETFORD_VACUUM_LINE
     if stage == "vacuum_replace":
-        return THETFORD_VACUUM_REPLACE_LINE
+        return _thetford_procedure_turn(history, latest_msg, "breaker") or THETFORD_VACUUM_REPLACE_LINE
     if stage == "flange":
         return THETFORD_FLANGE_LINE
     return THETFORD_SUPPLY_LINE
@@ -5427,11 +5600,22 @@ def ensure_thetford_flush_reply(
     """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
+    stage = _thetford_stage(history, latest_msg)
+    if stage in ("valve_replace", "vacuum_replace"):
+        kind = "valve" if stage == "valve_replace" else "breaker"
+        turned = _thetford_procedure_turn(history, latest_msg, kind)
+        if turned:
+            return turned
     nxt = _thetford_shop_line(history, latest_msg)
+    stage = _thetford_stage(history, latest_msg)
+    stage_slot = {"valve_replace": "valve", "vacuum_replace": "vacuum"}.get(stage, stage)
+    asked = _thetford_line_slot(reply) or _thetford_line_slot(original)
+    # A vacuum-breaker draft does not ship while the supply or the water valve is still open.
+    if asked and asked != stage_slot:
+        return nxt
     if _thetford_not_checked(latest_msg):
         return nxt
     closed = _thetford_closed_slots(history, latest_msg)
-    asked = _thetford_line_slot(reply)
     if asked and asked in closed:
         return nxt
     if _thetford_source_only(original) or _thetford_source_only(reply):
@@ -5546,8 +5730,16 @@ def _final_shop_line(
     ]
     chosen = _pick_fresh_line(lines, history)
     if not chosen:
+        prior_keys = _prior_sentence_keys(history)
         for line in lines:
-            if line and not _repeats_last_body(line, history) and not _same_as_last_turn(line, history):
+            sentences = _split_reply_sentences(line)
+            if (
+                line
+                and not _repeats_last_body(line, history)
+                and not _same_as_last_turn(line, history)
+                and not any(_sentence_key(sentence) in prior_keys for sentence in sentences)
+                and not any(_echoes_last_turn(sentence, history) for sentence in sentences)
+            ):
                 chosen = line
                 break
     if not chosen:
@@ -5560,14 +5752,22 @@ def _final_shop_line(
                 restated = _as_repair_statement(sentence)
                 if not _repeats_last_body(restated, history) and _line_fits_job(restated, job):
                     return restated if "📖" in restated else _with_cite(restated, job)
+        prior_keys = _prior_sentence_keys(history)
+        already = {
+            _norm(message.get("content") or "")
+            for message in history or []
+            if (message.get("role") or "") == "assistant"
+        }
         for line in _prove_lines(history, latest_msg, category_name, model_text):
-            if (
-                line
-                and _line_fits_job(line, job)
-                and not _sentence_reasks_check(line, answered)
-                and not _repeats_last_body(line, history)
-            ):
-                return _with_cite(line, job)
+            if not line or not _line_fits_job(line, job):
+                continue
+            if _sentence_reasks_check(line, answered) or _repeats_last_body(line, history):
+                continue
+            if _norm(line) in already:
+                continue
+            if any(_sentence_key(sentence) in prior_keys for sentence in _split_reply_sentences(line)):
+                continue
+            return _with_cite(line, job)
         return ""
     return _with_cite(chosen, job)
 
@@ -7607,11 +7807,8 @@ BAL SOFT-TOUCH SS 5.1 TONGUE JACK ONLY DEAD (INS.STA.001):
 BAL_TONGUE_PROVE_SHOP_LINE = (
     "The electric tongue jack is the only jack that is dead. The other stabilizers "
     "and the soft-touch panel lights still work.\n"
-    "1. Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel.\n"
-    "2. No 12V on the tongue output wire means replace the soft-touch user panel 20300427.\n"
-    "3. If that output wire has 12V, check the local tongue pigtail and the panel-to-motor leads and repair that pigtail.\n"
-    "4. Do not lead with the coupler, the shear pin, the 30A fuse, or the remote stabilizer harness.\n"
-    "5. Coupler replacement is only when the manual override will not turn, or the motor fails a direct-12V prove.\n"
+    "1. Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. "
+    "Report that voltage.\n"
     + BAL_TONGUE_SOURCE
 )
 BAL_TONGUE_PANEL_SHOP_LINE = (
@@ -8015,6 +8212,10 @@ def ensure_bal_tongue_only_path(reply: str, facts: dict | None = None) -> str:
     """
     facts = facts or {}
     stage = bal_tongue_stage(facts)
+    if stage == "prove":
+        if reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply):
+            return BAL_TONGUE_PROVE_SHOP_LINE
+        return reply or ""
     lines = {
         "coupler": BAL_TONGUE_COUPLER_SHOP_LINE,
         "panel": BAL_TONGUE_PANEL_SHOP_LINE,
@@ -9008,7 +9209,17 @@ def ensure_fcr_dial_off_compressor_run_path(reply: str, facts: dict | None = Non
     if reply_names_dial_off_ct_prove(cleaned) and reply_names_spark_free_thermostat_part(cleaned):
         if not reply_opens_dial_off_wrong_tree(cleaned):
             return cleaned
+    if _dial_off_prompt_present(cleaned) or _dial_off_prompt_present(reply or ""):
+        return DIAL_OFF_RUN_SHOP_LINE
     return f"{DIAL_OFF_RUN_SHOP_LINE}\n\n{cleaned}".strip()
+
+
+def _dial_off_prompt_present(text: str) -> bool:
+    """The open C/T prompt is already in this draft. Do not paste it again."""
+    t = _norm(text)
+    terminals = any(k in t for k in ("flag terminal", "c and t", "c (blue)", "c/t"))
+    opened = any(k in t for k in ("no jumper", "leave them open", "left open"))
+    return bool(terminals and opened)
 
 
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:

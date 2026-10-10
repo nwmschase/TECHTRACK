@@ -5,6 +5,7 @@ The strings below are the ones that opened the live replies.
 import unittest
 
 from gd_library_coach import (
+    BAL_TONGUE_PANEL_SHOP_LINE,
     BAL_TONGUE_PROVE_SHOP_LINE,
     DIAL_OFF_RUN_SHOP_LINE,
     DOMETIC_NOCOOL_CONFIRM_FAN,
@@ -292,7 +293,9 @@ class TestCooktopPage4(unittest.TestCase):
 class TestTurnOneSteps(unittest.TestCase):
     def test_s03_s09_and_s10_open_as_short_steps(self):
         self.assertIn("\n1. ", BAL_TONGUE_PROVE_SHOP_LINE)
-        self.assertIn("20300427", BAL_TONGUE_PROVE_SHOP_LINE)
+        self.assertNotIn("20300427", BAL_TONGUE_PROVE_SHOP_LINE)
+        self.assertIn("12v", BAL_TONGUE_PROVE_SHOP_LINE.lower())
+        self.assertIn("20300427", BAL_TONGUE_PANEL_SHOP_LINE)
         self.assertIn("confirm the fan runs", DOMETIC_NOCOOL_CONFIRM_FAN.lower())
         self.assertIn("peacemaker", DOMETIC_NOCOOL_OPEN.lower())
         self.assertIn("\n1. ", GROUND_CONTROL_LEVEL_LINE)

@@ -131,6 +131,7 @@ def sheet_local_now() -> datetime:
 NAVY = (0.004, 0.078, 0.486)
 GREEN = (0.012, 0.537, 0.282)
 RED = (0.875, 0.122, 0.149)
+CAUTION_FILL = (1.0, 0.96, 0.86)
 CREAM = (1.0, 0.984, 0.941)
 GOLD = (1.0, 0.949, 0.820)
 PALE = (0.941, 0.949, 0.969)
@@ -506,6 +507,8 @@ class BayProcedure:
     unit_id: bool = False
     # Parallel to bay_order. Each entry is the cropped manual figures for that step.
     step_figures: list = field(default_factory=list)
+    # Factory R&R sheets. Diagnosis stays the short lead-in. This is the procedure.
+    procedures: list = field(default_factory=list)
 
     @property
     def model_line(self) -> str:
@@ -6216,9 +6219,68 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
     proc.bay_order = order
     proc.step_figures = groups
-    used = {fig.image_png for group in groups for fig in group if fig.image_png}
+    proc.procedures = _plain_kit_procedures(packets, job)
+    owned = set()
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure") or {}
+            png = figure.get("png") if isinstance(figure, dict) else getattr(figure, "image_png", b"")
+            if png:
+                owned.add(png)
+    if owned:
+        proc.step_figures = [
+            [fig for fig in group if fig.image_png not in owned]
+            for group in proc.step_figures
+        ]
+    used = {fig.image_png for group in proc.step_figures for fig in group if fig.image_png}
+    used.update(owned)
     proc.figures = [fig for fig in proc.figures if fig.image_png not in used]
     return proc
+
+
+def _plain_kit_procedures(packets, job: str) -> list:
+    """Short R&R from a kit sheet that actually has figures."""
+    import manual_figures as mf
+
+    built = []
+    seen = set()
+    for packet in packets or []:
+        title = packet.get("title") or ""
+        if mf.brands_conflict(job, title):
+            continue
+        low = title.lower()
+        if "42109" in low or "water valve" in low:
+            kind = "valve"
+        elif re.search(r"34122|34123|vacuum breaker", low):
+            kind = "breaker"
+        else:
+            continue
+        if kind in seen:
+            continue
+        figures = []
+        for figure in packet.get("figures") or []:
+            png = figure.get("png") or b""
+            if not png or mf.png_is_blank(png):
+                continue
+            if mf.brands_conflict(job, figure.get("title") or title):
+                continue
+            figures.append(
+                {
+                    "label": figure.get("label") or "Fig.",
+                    "png": png,
+                    "page": figure.get("page") or packet.get("page"),
+                    "title": figure.get("title") or title,
+                }
+            )
+        if not figures:
+            continue
+        layout = mf.thetford_kit_layout(kind, figures)
+        if not layout.get("steps"):
+            continue
+        built.append(layout)
+        seen.add(kind)
+    built.sort(key=lambda item: 0 if item.get("title", "").lower().startswith("water") else 1)
+    return built
 
 
 def compile_bay_procedure(
@@ -8212,6 +8274,103 @@ def _paint_unit_id(body: _SheetFlow, proc: BayProcedure) -> None:
     _add_plain_item(body, "Serial: ____________________", size=9, gap=8.0)
 
 
+def _diagnosis_line(step: str) -> str:
+    return re.split(r"\s+How\s*\(", step or "", maxsplit=1)[0].strip()
+
+
+def _paint_diagnosis(body: _SheetFlow, steps: list[str]) -> None:
+    """The short lead-in. The repair procedure is the body that follows."""
+    lines = [_diagnosis_line(step) for step in steps if _diagnosis_line(step)]
+    if not lines:
+        return
+    _add_section(body, "DIAGNOSIS", NAVY, follow_h=28)
+    for index, line in enumerate(lines, 1):
+        _add_step(body, index, line)
+
+
+def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) -> None:
+    block = measure_text(text, width - 10, 7.5, leading=9.5)
+    box_h = block.height + 8.0
+    if box_h + 4 > cur.remaining():
+        cur.new_page("Repair procedure")
+    top = cur.y
+    bottom = top - box_h
+    sid = _next_id("caution")
+    cur.page.shapes.append(
+        DrawnShape(
+            "rect", x, bottom, width, box_h,
+            fill=CAUTION_FILL, stroke=RED, stroke_w=0.9, id=sid, role="box",
+        )
+    )
+    baseline = top - 4.0 - block.ascent
+    cur.page.texts.append(
+        DrawnText(
+            "\n".join(block.lines), x + 5, baseline, w=max(block.width, 12), size=7.5,
+            color=INK, leading=block.leading, lines=list(block.lines), owner=sid, role="body",
+        )
+    )
+    cur.y = bottom - 4.0
+
+
+def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
+    """Numbered Removal and Installation, with the kit figure beside the step."""
+    import manual_figures as mf
+
+    title = procedure.get("title") or "Repair procedure"
+    _add_plain_item(body, "REPAIR PROCEDURE", size=10, gap=2)
+    _add_plain_item(body, title, size=9, gap=4)
+    before = list(procedure.get("before") or [])
+    if before:
+        _add_plain_item(body, "BEFORE YOU START", size=9, gap=2)
+        for item in before:
+            _add_plain_item(body, f"- {item}", size=8, gap=2)
+    steps = list(procedure.get("steps") or [])
+    section = ""
+    fig_w = 132.0
+    for index, step in enumerate(steps, 1):
+        if step.get("section") != section:
+            section = step.get("section") or ""
+            label = "REMOVAL" if section == "removal" else "INSTALLATION"
+            _add_plain_item(body, label, size=9, gap=3)
+        figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+        png = (figure or {}).get("png") or b""
+        has = bool(png) and not mf.png_is_blank(png)
+        text_w = _CONTENT_W - 20.0 - (fig_w + 14.0 if has else 0)
+        sentences = mf.step_sentences(step)
+        block = measure_text(f"{index}. " + " ".join(sentences), text_w, 8, leading=10.2)
+        fig_h = 0.0
+        if has:
+            width, height = _png_pixel_size(png)
+            fig_h = min(120.0, fig_w * height / max(width, 1))
+            fig_h = max(fig_h, 64.0)
+        row = max(block.height + 8.0, fig_h + 6.0)
+        if step.get("caution"):
+            row += 22.0
+        if row + 6 > body.remaining():
+            body.new_page("Repair procedure")
+        top = body.y
+        baseline = top - block.ascent
+        body.page.texts.append(
+            DrawnText(
+                "\n".join(block.lines),
+                MARGIN + 8,
+                baseline,
+                w=max(block.width, 12),
+                size=8,
+                color=INK,
+                leading=block.leading,
+                lines=list(block.lines),
+                role="body",
+            )
+        )
+        if has:
+            img_x = MARGIN + _CONTENT_W - fig_w
+            body.page.images.append(DrawnImage(png, img_x, top - fig_h, fig_w, fig_h))
+        body.y = top - max(block.height, fig_h) - 4.0
+        if step.get("caution"):
+            _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
+
+
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     """Build drawable pages for a human bay sheet.
 
@@ -8254,7 +8413,16 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         _add_boxed_text(body, proc.pattern_means or "-")
     steps = list(proc.bay_order)
     shown_figures = set()
-    if steps:
+    if proc.procedures:
+        _paint_diagnosis(body, steps)
+        for procedure in proc.procedures:
+            _paint_repair_procedure(body, procedure)
+            for step in procedure.get("steps") or []:
+                figure = step.get("figure") or {}
+                png = figure.get("png") if isinstance(figure, dict) else b""
+                if png:
+                    shown_figures.add(png)
+    elif steps:
         first = measure_text(f"1. {steps[0]}", _CONTENT_W - 32, 8.5, leading=11.2)
         _add_section(body, "BAY ORDER (DO THIS FIRST)", GREEN, follow_h=min(first.height, 48))
         for i, step in enumerate(steps, 1):

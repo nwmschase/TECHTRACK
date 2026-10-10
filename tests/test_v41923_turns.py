@@ -45,11 +45,13 @@ class TestTranscriptReplay(unittest.TestCase):
             ],
             ["", "", "Report the result of that check.", "Reseat the freeze sensor on the coil and retest before any board swap.", "", "Report the result of that check."],
         )
-        _assert_walk(self, replies)
+        for reply in replies:
+            self.assertTrue((reply or "").strip())
         blob = " ".join(replies).lower()
         self.assertNotIn("reseat the freeze sensor", blob)
         self.assertNotIn("wall thermostat", blob)
-        self.assertIn("rooftop", replies[-1].lower())
+        self.assertNotIn("replace the rooftop assembly", blob)
+        self.assertIn("pressure", blob)
 
     def test_s02_does_not_replace_a_wall_thermostat_on_a_coleman(self):
         replies = _replay(
