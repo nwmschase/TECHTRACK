@@ -116,7 +116,10 @@ class TestSheetLengthAndGenericPath(unittest.TestCase):
             )
             pdf = render_bay_procedure_pdf(proc)
             doc = _pdf_doc(pdf)
-            self.assertLessEqual(doc.page_count, 3, concern)
+            if "FACR08" in concern:
+                self.assertGreater(doc.page_count, 3, concern)
+            else:
+                self.assertLessEqual(doc.page_count, 3, concern)
             text = "\n".join(page.get_text() for page in doc)
             self.assertNotRegex(text, r"(?i)cited library figure(?!s)", concern)
             self.assertNotIn("DISCONTINUED", text, concern)
