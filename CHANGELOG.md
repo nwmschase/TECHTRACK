@@ -671,3 +671,12 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Gate stopped at Thetford; S01–S15, S20 not run on v4.19.53
 - Open (do not touch): PR #75 (Coleman 2111-0001 eight-field), PR #85 (v4.19.55 draft)
 - Known-good tags: none
+
+### v4.19.55 — draft PR #85 — not merged — rebased on `a76c68f`
+- Guided Diagnostics replies are plain sentences. The Where / Do this / Good / Bad / Next block and the "Step X of N" counter are off the chat. A manual figure appears only when the tech asks, on the cited page, same brand and model. A photo is asked only when that check is something the tech can see.
+- The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122, water valve 42109, and flange seal 02125. Each branch has Before you start with the safety note once, numbered Removal and Installation, and a verify step with a pass or fail. Figures stay centered under the citing step at 75% of the page width.
+- Mirrored profiles on this base are GD v1.2 and PDF v1.4 (Chase, 2026-10-11). Those files already include the v1.1 reopen/follow-up and testing standard, the v1.2 performance scorecards, the v1.3 past-fail checkpoints, and the v1.4 PF-10 step labels. docs/profiles/PROFILE-CHANGE-LOG.md records those rows. scripts/profile_check.py grades each scorecard line, prints MANUAL where a human must judge, and writes an X/10 result, the automatic-FAIL verdict, and a markdown block for the gate summary.
+- The same checker grades PDF past-fail checkpoints PF-01 through PF-33 from docs/profiles/PDF-PAST-FAILS.md. Each line prints PASS, FAIL, or MANUAL. The Thetford 42070 and S01 sheets pass every automatable check. PF-10 follows the profile step lines (Where, Tools, Do this, Good looks like, Bad looks like, Next), with the safety note once per section.
+- Still in this draft: one action per HOW line, cited-page image (42088 p3), a specific or omitted Bad line, no stray "2.", and per-document backfill counts.
+- Current main remains v4.19.54 until this draft merges.
+- Known-good tags: none

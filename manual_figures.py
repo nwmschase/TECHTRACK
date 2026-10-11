@@ -14,7 +14,7 @@ import sqlite3
 from pathlib import Path
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.54"
+MODULE_REVISION = "v4.19.55"
 
 PAGE_DPI = 150
 _ZOOM = PAGE_DPI / 72.0
@@ -253,7 +253,7 @@ def _upscale_min_width(png: bytes, min_px: int = MIN_CROP_PX) -> bytes:
     return buf.getvalue()
 
 
-def _crop_rendered(png: bytes, page_rect, box, zoom: float) -> bytes:
+def _crop_rendered(png: bytes, page_rect, box, zoom: float, extra_bottom=None) -> bytes:
     from PIL import Image
 
     image = Image.open(io.BytesIO(png)).convert("RGB")
@@ -262,6 +262,10 @@ def _crop_rendered(png: bytes, page_rect, box, zoom: float) -> bytes:
     y0 = max(0, int(box.y0 * zoom) - pad)
     x1 = min(image.width, int(box.x1 * zoom) + pad)
     y1 = min(image.height, int(box.y1 * zoom) + pad)
+    if extra_bottom is not None:
+        # The kit caption sits on the drawing's bottom edge. Include that line.
+        cap_y = min(image.height, int(float(extra_bottom) * zoom) + pad)
+        y1 = max(y1, cap_y)
     if x1 - x0 < 12 or y1 - y0 < 12:
         return b""
     cropped = image.crop((x0, y0, x1, y1))
@@ -359,7 +363,7 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _crop_rendered(page_png, page.rect, box, _ZOOM)
+        png = _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=rect.y1)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -383,7 +387,7 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _crop_rendered(page_png, page.rect, box, _ZOOM)
+        png = _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=rect.y1)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -755,8 +759,8 @@ YES_LINE = "Yes, go to the next step."
 NO_LINE = "No, do this step again."
 PHOTO_STEP = "Take a photo of this step and send it."
 PHOTO_WAIT = "Send the photo before the next step."
-# One chat turn can hold a few sheet actions that share a figure.
-SECTION_ACTION_CAP = 4
+# One shop step is one action. The pedal grab and pull are the only pair.
+SECTION_ACTION_CAP = 1
 
 # One shop step. Every Thetford check and every repair step uses these labels.
 STEP_FIELDS = (
@@ -854,17 +858,377 @@ def shop_field_value(value: str) -> str:
     return re.sub(r"\s+", " ", " ".join(kept)).strip()
 
 
-def format_step_fields(fields: dict) -> str:
-    """The shop template. A field the sheet does not fill in is left off."""
+PHOTO_VISUAL = "Send a photo of what you see."
+_STAY_BAD_RE = re.compile(r"^stay on this step\.?$", re.I)
+_SKIP_PHOTO_START_RE = re.compile(
+    r"^(?:turn|unplug|remove|torque|hoist|wash|dry|meter|set|apply|push|drop|pour|"
+    r"discharge|shim|make|point|clamp|hand|open|wait|run|pull|put|lift|flush|take|"
+    r"tighten|connect|disconnect|lay|rinse|throw|slide|cover|stand|read|move|grab|"
+    r"place|rotate|insert|install|replace|discard|unhook|spread|wrap|secure|"
+    r"activate|align|grasp|hold|lower|press|hit)\b",
+    re.I,
+)
+_LOOK_RE = re.compile(r"\b(?:look(?:\s+for)?|watch|inspect)\b", re.I)
+_VISUAL_RE = re.compile(
+    r"\b(?:leak|leaks|leaking|weep|weeps|weeping|drip|drips|frost|icing)\b",
+    re.I,
+)
+_LABEL_SPLIT_RE = re.compile(
+    r"\b(Safety|Where|Tools|Do this|Good looks like|Bad looks like|Next|If it fails|Figure):\s*"
+)
+_PHOTO_BLOCK_RES = (
+    re.compile(r"\bPHOTO:\s*", re.I),
+    re.compile(re.escape("Take a photo of this step and send it."), re.I),
+    re.compile(re.escape("A photo is optional."), re.I),
+    re.compile(re.escape("You can type what you see."), re.I),
+    re.compile(re.escape(YES_LINE), re.I),
+    re.compile(re.escape(NO_LINE), re.I),
+    re.compile(re.escape(PHOTO_STEP), re.I),
+    re.compile(re.escape(PHOTO_WAIT), re.I),
+    re.compile(re.escape(PHOTO_VISUAL), re.I),
+    re.compile(r"Take a photo of the (?:connector|leak|meter reading|tag|part)\.", re.I),
+)
+
+
+def reply_shows_step(text: str, number: int) -> bool:
+    """True when this turn is repair step N.
+
+    Chat turns carry a hidden ``gd-step`` marker. Older turns say ``Step N of``
+    or ``Here is the repair procedure`` plus ``Step N:``. ``Step 1:`` does not
+    match ``Step 10:``. A proving check has neither marker, so it does not move
+    the repair cursor.
+    """
+    raw = text or ""
+    n = int(number)
+    if re.search(rf"<!--\s*gd-step:{n}\s*-->", raw):
+        return True
+    if re.search(rf"(?<!\d)Step {n} of\b", raw):
+        return True
+    if "Here is the repair procedure." in raw and re.search(rf"(?<!\d)Step {n}:", raw):
+        return True
+    return False
+
+
+def _finish_sentence(text: str) -> str:
+    raw = re.sub(r"\s+", " ", text or "").strip()
+    if not raw:
+        return ""
+    if raw[-1] not in ".!?":
+        raw += "."
+    return raw
+
+
+def step_safety_text(step: dict) -> str:
+    return shop_field_value(((step or {}).get("fields") or {}).get("SAFETY") or "")
+
+
+def show_safety_for(steps: list, number: int) -> bool:
+    """Safety prints on the first step of a section, and again only when it changes."""
+    if number < 1 or number > len(steps or []):
+        return False
+    step = steps[number - 1]
+    safety = step_safety_text(step)
+    if not safety:
+        return False
+    if number == 1:
+        return True
+    prev = steps[number - 2]
+    if (prev.get("section") or "") != (step.get("section") or ""):
+        return True
+    return step_safety_text(prev) != safety
+
+
+def _strip_leading_number(text: str) -> str:
+    """'2. Pull the pedal.' is the action. The renderer supplies 1."""
+    return re.sub(r"^\d+\.\s+", "", (text or "").strip())
+
+
+def step_action_lines(step: dict) -> list[str]:
+    """One sheet action per line. A multi-sentence HOW is split, not glued."""
+    fields = (step or {}).get("fields") or {}
+    pieces = [
+        _strip_leading_number(item)
+        for item in (step.get("actions") or [])
+        if _strip_leading_number(item)
+    ]
+    how = _strip_leading_number(fields.get("HOW") or "")
+    if how:
+        how_key = how.rstrip(".")
+        if not pieces:
+            pieces.append(how)
+        elif pieces[0].rstrip(".") != how_key:
+            pieces.insert(0, how)
+    actions = []
+    for piece in pieces:
+        cleaned = shop_field_value(piece)
+        for sentence in re.split(r"(?<=[.])\s+", cleaned):
+            sentence = _finish_sentence(_strip_leading_number(sentence))
+            if sentence and sentence not in actions:
+                actions.append(sentence)
+    if not actions:
+        text = _finish_sentence(shop_field_value((step or {}).get("text") or ""))
+        if text:
+            actions.append(text)
+    return actions
+
+
+def step_heading(step: dict, number: int) -> str:
+    actions = step_action_lines(step)
+    title = actions[0] if actions else shop_field_value((step or {}).get("text") or "")
+    title = re.sub(r"\s+", " ", title or "").strip().rstrip(".")
+    return f"Step {number}: {title or 'Do this step'}"
+
+
+def _good_bad_bits(value: str) -> tuple[str, str]:
+    text = shop_field_value(value)
+    if not text:
+        return "", ""
+    good_m = re.search(r"\bGood:\s*", text, re.I)
+    bad_m = re.search(r"\bBad:\s*", text, re.I)
+    prefix = ""
+    good = ""
+    bad = ""
+    if good_m and bad_m and bad_m.start() > good_m.start():
+        prefix = text[: good_m.start()].strip(" .")
+        good = text[good_m.end() : bad_m.start()].strip(" .")
+        bad = text[bad_m.end() :].strip(" .")
+    elif good_m:
+        prefix = text[: good_m.start()].strip(" .")
+        good = text[good_m.end() :].strip(" .")
+    elif bad_m:
+        prefix = text[: bad_m.start()].strip(" .")
+        bad = text[bad_m.end() :].strip(" .")
+    else:
+        good = text.strip(" .")
+    if prefix:
+        good = f"{prefix}. {good}".strip() if good else prefix
+    good = shop_field_value(good)
+    bad = shop_field_value(bad)
+    if _STAY_BAD_RE.match(bad):
+        bad = ""
+    return good, bad
+
+
+def _next_lines(value: str) -> list[str]:
+    text = value or ""
+    good_m = re.search(r"On good:\s*(.*?)(?:\s+On bad:|$)", text, re.I | re.S)
+    bad_m = re.search(r"On bad:\s*(.*)$", text, re.I | re.S)
+    good = shop_field_value(good_m.group(1) if good_m else "")
+    bad = shop_field_value(bad_m.group(1) if bad_m else "")
+    if _STAY_BAD_RE.match(bad):
+        bad = ""
+    if not good and not bad:
+        leftover = shop_field_value(re.sub(r"\bOn bad:.*$", "", text, flags=re.I))
+        good = re.sub(r"^On good:\s*", "", leftover, flags=re.I).strip()
+        good = shop_field_value(good)
     lines = []
-    for name in STEP_FIELDS:
-        value = shop_field_value((fields or {}).get(name) or "")
-        if not value:
+    if good:
+        lines.append(f"Next: {_finish_sentence(good)}")
+    if bad and bad.rstrip(".").lower() != (good or "").rstrip(".").lower():
+        lines.append(f"If it fails: {_finish_sentence(bad)}")
+    return lines
+
+
+def _tools_text(value: str) -> str:
+    text = shop_field_value(value)
+    return re.sub(r"^Tools:\s*", "", text, flags=re.I).strip()
+
+
+def step_needs_photo(step: dict) -> bool:
+    """A photo helps when this step confirms something the tech can see.
+
+    Turning a breaker off, pulling a pedal, or torquing a fitting does not.
+    Looking, watching, or checking a leak, weep, drip, or frost does.
+    """
+    actions = step_action_lines(step)
+    how = " ".join(actions)
+    if _LOOK_RE.search(how):
+        return True
+    fields = (step or {}).get("fields") or {}
+    first = (actions[0] if actions else how).strip()
+    verdict = f"{how} {fields.get('GOOD vs BAD') or ''}"
+    if _SKIP_PHOTO_START_RE.match(first):
+        if _VISUAL_RE.search(verdict) and re.search(r"\b(?:water on|flush|leak test)\b", verdict, re.I):
+            return True
+        return False
+    return bool(_VISUAL_RE.search(verdict))
+
+
+def step_body_lines(
+    step: dict,
+    *,
+    show_safety: bool = False,
+    show_photo: bool = False,
+    show_figure: bool = True,
+) -> list[str]:
+    """Where, Tools, Do this, Good looks like, and Next. Empty fields stay off.
+
+    The photo line is for a Guided Diagnostics turn. The Bay PDF never asks.
+    """
+    fields = (step or {}).get("fields") or {}
+    lines = []
+    if show_safety:
+        safety = step_safety_text(step)
+        if safety:
+            lines.append(f"Safety: {_finish_sentence(safety)}")
+    where = shop_field_value(fields.get("WHERE") or "")
+    if where:
+        lines.append(f"Where: {_finish_sentence(where)}")
+    tools = _tools_text(fields.get("TOOLS / METER SETTING") or "")
+    if tools:
+        lines.append(f"Tools: {_finish_sentence(tools)}")
+    actions = step_action_lines(step)
+    if actions:
+        lines.append("Do this:")
+        lines.extend(f"{index}. {action}" for index, action in enumerate(actions, 1))
+    good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
+    if good:
+        lines.append(f"Good looks like: {_finish_sentence(good)}")
+    if bad and not _GENERIC_BAD_RE.match(bad):
+        lines.append(f"Bad looks like: {_finish_sentence(bad)}")
+    lines.extend(_next_lines(fields.get("NEXT") or ""))
+    figure = shop_field_value(fields.get("FIGURE") or "")
+    if show_figure and figure:
+        lines.append(f"Figure: {_finish_sentence(figure)}")
+    if show_photo:
+        lines.append(PHOTO_VISUAL)
+    return lines
+
+
+def _group_body(lines: list[str]) -> list[list[str]]:
+    """Each label is its own block. The Do this list stays together."""
+    groups = []
+    bucket = []
+    for line in lines:
+        if line == "Do this:":
+            if bucket:
+                groups.append(bucket)
+            bucket = [line]
             continue
-        lines.append(f"{name}: {value}")
-    lines.append(YES_LINE)
-    lines.append(NO_LINE)
-    return "\n".join(lines)
+        if bucket and bucket[0] == "Do this:" and re.match(r"^\d+\. ", line):
+            bucket.append(line)
+            continue
+        if bucket:
+            groups.append(bucket)
+            bucket = []
+        groups.append([line])
+    if bucket:
+        groups.append(bucket)
+    return groups
+
+
+def render_step(
+    step: dict,
+    number: int,
+    *,
+    show_safety: bool = False,
+    show_photo: bool = False,
+    markdown: bool = False,
+    intro: bool = False,
+) -> str:
+    """One step. PDF uses plain lines. Guided Diagnostics uses the same lines in markdown."""
+    heading = step_heading(step, number)
+    body = step_body_lines(step, show_safety=show_safety, show_photo=show_photo and markdown)
+    lines = []
+    if intro:
+        lines.extend(["Here is the repair procedure.", ""])
+    lines.append(f"**{heading}**" if markdown else heading)
+    if markdown:
+        for group in _group_body(body):
+            lines.append("")
+            lines.extend(group)
+    else:
+        lines.extend(body)
+    return "\n".join(lines).strip()
+
+
+def _fields_as_step(fields: dict) -> dict:
+    how = (fields or {}).get("HOW") or ""
+    return {"text": how, "actions": [], "fields": fields or {}, "section": "prove"}
+
+
+def format_step_fields(
+    fields: dict,
+    *,
+    number: int = 1,
+    show_safety: bool = False,
+    show_photo: bool = False,
+    markdown: bool = False,
+) -> str:
+    """The shop template. A field the sheet does not fill in is left off."""
+    return render_step(
+        _fields_as_step(fields),
+        number,
+        show_safety=show_safety,
+        show_photo=show_photo,
+        markdown=markdown,
+    )
+
+
+def _plain_heading_and_lines(text: str, number: int) -> tuple[str, list[str]]:
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text or "") if part.strip()]
+    if not sentences:
+        return f"Step {number}: Do this step", []
+    title = sentences[0].rstrip(".")
+    words = title.split()
+    if len(words) > 12:
+        title = " ".join(words[:12])
+    actions = [_finish_sentence(sentence) for sentence in sentences]
+    lines = ["Do this:"] + [f"{index}. {action}" for index, action in enumerate(actions, 1)]
+    return f"Step {number}: {title}", lines
+
+
+def lines_from_shop_text(text: str, number: int) -> tuple[str, list[str]]:
+    """Turn a stored bay-order line into a heading plus labeled lines.
+
+    Sheet standard collapses newlines. The labels are split back apart here,
+    and the canned photo and yes or no script is dropped before paint.
+    """
+    raw = re.sub(r"\s+", " ", text or "").strip()
+    for pattern in _PHOTO_BLOCK_RES:
+        raw = pattern.sub(" ", raw)
+    raw = re.sub(r"\s+", " ", raw).strip(" .")
+    if not raw:
+        return f"Step {number}: Do this step", []
+    heading_m = re.match(r"Step\s+(\d+)\s*:\s*", raw)
+    if not heading_m:
+        return _plain_heading_and_lines(raw, number)
+    rest = raw[heading_m.end() :]
+    label = _LABEL_SPLIT_RE.search(rest)
+    if not label:
+        title = rest.strip(" .")
+        return f"Step {heading_m.group(1)}: {title or 'Do this step'}", []
+    title = rest[: label.start()].strip(" .")
+    heading = f"Step {heading_m.group(1)}: {title or 'Do this step'}"
+    parts = _LABEL_SPLIT_RE.split(rest[label.start() :])
+    lines = []
+    index = 1
+    while index + 1 < len(parts):
+        name = parts[index]
+        value = re.sub(r"\s+", " ", parts[index + 1]).strip()
+        if name == "Do this":
+            lines.append("Do this:")
+            actions = re.findall(r"\d+\.\s*.*?(?=(?:\s+\d+\.\s)|$)", value)
+            bodies = [
+                _strip_leading_number(item)
+                for item in actions
+                if _strip_leading_number(item)
+            ]
+            if not bodies and value:
+                bodies = [_strip_leading_number(value)]
+            for number, body in enumerate(bodies, 1):
+                if body:
+                    lines.append(f"{number}. {_finish_sentence(body)}")
+        elif value:
+            bare = value.strip().rstrip(".")
+            if name == "Bad looks like" and (
+                _GENERIC_BAD_RE.match(bare) or _GENERIC_BAD_RE.match(value.strip())
+            ):
+                pass
+            else:
+                lines.append(f"{name}: {_finish_sentence(value)}")
+        index += 2
+    return heading, lines
 
 
 def _where_field(source: str) -> str:
@@ -985,36 +1349,10 @@ def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> di
     }
 
 
-def step_field_lines(step: dict) -> list[str]:
-    """Eight shop fields, then each extra action in this section, then yes or no."""
-    fields = step.get("fields") or {}
-    actions = []
-    for item in step.get("actions") or []:
-        text = (item or "").strip()
-        if text and text not in actions:
-            actions.append(text)
-    how = (fields.get("HOW") or "").strip()
-    if how and how not in actions:
-        actions.insert(0, how)
-    lines = []
-    for name in STEP_FIELDS:
-        if name == "HOW":
-            how_value = shop_field_value(actions[0] if actions else "")
-            if not how_value:
-                continue
-            lines.append(f"HOW: {how_value}")
-            for extra in actions[1:]:
-                extra_value = shop_field_value(extra)
-                if extra_value:
-                    lines.append(extra_value)
-            continue
-        value = shop_field_value(fields.get(name) or "")
-        if not value:
-            continue
-        lines.append(f"{name}: {value}")
-    lines.append(YES_LINE)
-    lines.append(NO_LINE)
-    return lines
+def step_field_lines(step: dict, *, number: int = 1, show_safety: bool = False) -> list[str]:
+    """Labeled lines for one step. The photo script and the yes or no script stay off."""
+    text = render_step(step, number, show_safety=show_safety, show_photo=False, markdown=False)
+    return [line for line in text.splitlines() if line.strip()]
 
 _ACTION_VERB = (
     r"turn|pull|put|lift|flush|take|set|push|hit|press|tighten|connect|disconnect|"
@@ -1030,9 +1368,9 @@ def _word_count(sentence: str) -> int:
     return len(re.findall(r"[A-Za-z0-9]+", sentence or ""))
 
 
-def step_sentences(step: dict) -> list[str]:
-    """The eight shop fields a tech reads for one step."""
-    return step_field_lines(step)
+def step_sentences(step: dict, *, number: int = 1, show_safety: bool = False) -> list[str]:
+    """Labeled lines a tech reads for one step. No photo ask."""
+    return step_field_lines(step, number=number, show_safety=show_safety)
 
 
 def readability_problems(step: dict) -> list[str]:
@@ -1050,16 +1388,151 @@ def readability_problems(step: dict) -> list[str]:
     return problems
 
 
-def format_one_step(step: dict, number: int, total: int) -> str:
-    """One GD turn: the eight shop fields, then a caution when the sheet has one."""
-    lines = [
-        "Here is the repair procedure.",
-        f"Step {number} of {total}.",
-        *step_field_lines(step),
-    ]
+def format_one_step(step: dict, number: int, total: int, *, show_safety: bool = False) -> str:
+    """Labeled markdown for the Bay sheet standard. Chat uses format_chat_turn."""
+    del total  # The heading is "Step N: title". The count stays off the line.
+    text = render_step(
+        step,
+        number,
+        show_safety=show_safety,
+        show_photo=step_needs_photo(step),
+        markdown=True,
+        intro=True,
+    )
     if step.get("caution"):
-        lines.append(f"Caution: {step['caution']}")
-    return "\n".join(line for line in lines if line).strip()
+        text = f"{text}\n\nCaution: {step['caution']}"
+    return text.strip()
+
+
+def _lower_first(text: str) -> str:
+    raw = (text or "").strip().rstrip(".")
+    if not raw:
+        return ""
+    return raw[0].lower() + raw[1:]
+
+
+def _place_sentence(where: str) -> str:
+    text = shop_field_value(where)
+    if not text or NOT_STATED in text:
+        return ""
+    low = _lower_first(text)
+    if low.startswith(("at the ", "on the ", "in the ", "over the ")):
+        return _finish_sentence(f"Go to {low.split(' ', 1)[1]}")
+    if re.match(r"^(?:at|on|in|over|under|between|behind)\b", low):
+        return _finish_sentence(f"Go {low}")
+    if low.startswith("back of"):
+        return _finish_sentence(f"Go to the {low}")
+    return _finish_sentence(f"Go to {low}")
+
+
+def _tool_sentences(value: str) -> list[str]:
+    raw = shop_field_value(value)
+    if not raw or NOT_STATED in raw:
+        return []
+    meter = ""
+    hit = re.search(r"meter setting:\s*([^.]+)", raw, re.I)
+    if hit and NOT_STATED.lower() not in hit.group(1).lower():
+        meter = hit.group(1).strip(" .")
+    tools = re.sub(r"meter setting:.*", "", raw, flags=re.I)
+    tools = re.sub(r"^tools:\s*", "", tools, flags=re.I).strip(" .")
+    if not tools or NOT_STATED.lower() in tools.lower():
+        tools = ""
+    lines = []
+    if tools:
+        lines.append(_finish_sentence(f"Use {_lower_first(tools)}"))
+    if meter:
+        lines.append(_finish_sentence(f"Set the meter to {_lower_first(meter)}"))
+    return lines
+
+
+def chat_sentences(step: dict, *, show_safety: bool = False, show_photo: bool = False) -> list[str]:
+    """Plain sentences for one check. No field labels and no step counter."""
+    fields = (step or {}).get("fields") or {}
+    lines = []
+    if show_safety:
+        safety = step_safety_text(step)
+        if safety:
+            lines.append(_finish_sentence(safety))
+    place = _place_sentence(fields.get("WHERE") or "")
+    if place:
+        lines.append(place)
+    lines.extend(_tool_sentences(fields.get("TOOLS / METER SETTING") or ""))
+    for action in step_action_lines(step):
+        lines.append(_finish_sentence(action))
+    good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
+    if good and NOT_STATED not in good:
+        lines.append(_finish_sentence(f"A good result is {_lower_first(good)}"))
+    if bad and NOT_STATED not in bad and not _GENERIC_BAD_RE.match(bad):
+        lines.append(_finish_sentence(f"A bad result is {_lower_first(bad)}"))
+    for line in _next_lines(fields.get("NEXT") or ""):
+        name, _, rest = line.partition(":")
+        rest = rest.strip()
+        if not rest:
+            continue
+        if name.lower() == "next":
+            lines.append(_finish_sentence(f"If it is good, {_lower_first(rest)}"))
+        elif name.lower() == "if it fails":
+            lines.append(_finish_sentence(f"If it is bad, {_lower_first(rest)}"))
+    figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+    raw_fig = fields.get("FIGURE") or ""
+    numbers = _figure_numbers((figure or {}).get("label") or "")
+    if not numbers and raw_fig and NOT_STATED not in raw_fig:
+        numbers = _figure_numbers(raw_fig)
+    if numbers:
+        page = (figure or {}).get("page") or ""
+        if not page and raw_fig and NOT_STATED not in raw_fig:
+            hit = re.search(r"\bpage\s+(\d+)", raw_fig, re.I)
+            page = hit.group(1) if hit else ""
+        blob = f"{(figure or {}).get('title') or ''} {raw_fig if NOT_STATED not in raw_fig else ''}"
+        token = re.search(r"\b(42109|34122|34123|42088)\b", blob)
+        shown = f"Fig. {numbers[0]}"
+        if token:
+            shown = f"{shown}. Kit {token.group(1)}"
+            if page:
+                shown = f"{shown}, page {page}"
+        elif page:
+            shown = f"{shown} on page {page}"
+        lines.append(f"The manual shows {shown}.")
+    if step.get("caution"):
+        lines.append(_finish_sentence(f"Caution: {step['caution']}"))
+    lines.append("What do you see?")
+    if show_photo:
+        lines.append(PHOTO_VISUAL)
+    return [line for line in lines if line.strip()]
+
+
+def format_chat_turn(step: dict, number: int, total: int, *, show_safety: bool = False) -> str:
+    """One conversational repair turn. The step marker stays hidden in the shop UI."""
+    del total
+    lines = chat_sentences(
+        step,
+        show_safety=show_safety,
+        show_photo=step_needs_photo(step),
+    )
+    lines.append(f"<!--gd-step:{int(number)}-->")
+    return "\n".join(lines).strip()
+
+
+def procedure_chat_text(layout: dict) -> str:
+    """The full repair as sentences. Section names stay. The step counter stays off."""
+    steps = list((layout or {}).get("steps") or [])
+    lines = []
+    title = (layout or {}).get("title") or ""
+    if title:
+        lines.append(title)
+    section = ""
+    for step in steps:
+        sec = step.get("section") or ""
+        if sec and sec != section:
+            section = sec
+            lines.append(
+                {"removal": "REMOVAL", "installation": "INSTALLATION", "prove": "PROVING CHECKS"}.get(
+                    sec, sec.upper()
+                )
+            )
+        for action in step_action_lines(step):
+            lines.append(_finish_sentence(action))
+    return "\n".join(lines).strip()
 
 
 def _figures_by_number(figures: list) -> dict:
@@ -1270,6 +1743,7 @@ def _polish_sentence(sentence: str, limit: int = 14) -> str:
 def _short_action(raw: str) -> str:
     """Short words for one action. The nouns come from the sheet."""
     text = (raw or "").lower().replace("’", "'")
+    text = re.sub(r"^\d+\.\s+", "", text).strip()
     text = re.sub(r"^(?:style\s+\w+\s*(?:only\s*)?-\s*)", "", text).strip()
     if text.endswith(":"):
         return ""
@@ -1301,12 +1775,100 @@ def _short_action(raw: str) -> str:
     return polished
 
 
+_BAD_FOR_GOOD = {
+    "No water comes out.": "Water still comes out.",
+    "Water is on.": "Water is still off.",
+    "The bowl water goes down.": "The bowl water stays up.",
+    "The seal lip faces down.": "The seal lip faces up.",
+    "It is back on.": "It is still off.",
+    "The towel is under the hose.": "The towel is not under the hose.",
+    "The toilet is on a trash bag.": "The toilet is not on a trash bag.",
+    "You are holding the front of the pedal.": "You are not holding the front of the pedal.",
+    "The hole is open.": "The hole is still covered.",
+    "The towel is off.": "The towel is still on.",
+    "The hose is off the toilet.": "The hose is still on the toilet.",
+    "The hose is on tight.": "The hose is loose.",
+    "The pedal is off.": "The pedal is still on.",
+    "The old part is in the trash.": "The old part is still on the toilet.",
+    "It is in the trash.": "It is still on the toilet.",
+    "The cover is open.": "The cover is still closed.",
+    "The opening sits on the pedal neck.": "The opening is off the pedal neck.",
+    "The cover wraps the back.": "The cover does not wrap the back.",
+    "The pedal is down.": "The pedal is still up.",
+    "The front clip is on.": "The front clip is off.",
+    "Both rings are on.": "A ring is off.",
+    "The toilet is off the floor.": "The toilet is still on the floor.",
+    "The hole is covered.": "The hole is still open.",
+    "The toilet is on its side.": "The toilet is still upright.",
+    "Your thumb is in the low spot.": "Your thumb is not in the low spot.",
+    "Your finger is under the tab.": "Your finger is not under the tab.",
+    "The tab is up.": "The tab is still down.",
+    "It is all the way in.": "It is not all the way in.",
+    "The pedal sits on the pivot.": "The pedal is off the pivot.",
+    "The pin is closed.": "The pin is still open.",
+    "The holes line up on the bolts.": "The holes do not line up.",
+    "The toilet is upright.": "The toilet is still on its side.",
+    "The waste ball opens and closes.": "The waste ball does not open and close.",
+    "The pedal snaps on.": "The pedal does not snap on.",
+    "The clamp has moved.": "The clamp has not moved.",
+    "The clamp is on.": "The clamp is off.",
+    "The clamp is tight.": "The clamp is loose.",
+    "The toilet does not rock.": "The toilet still rocks.",
+    "Toilet does not rock.": "The toilet still rocks.",
+    "The rings are off.": "A ring is still on.",
+    "You have read the steps.": "A step was skipped.",
+    "The toilet is rinsed.": "The toilet is not rinsed.",
+    "The tank is drained.": "The tank is not drained.",
+    "The toilet is clean.": "The toilet is not clean.",
+    "Gloves and glasses are on.": "Gloves or glasses are off.",
+    "The toilet can stay down.": "The toilet was lifted when it could stay.",
+    "It is in.": "It is not in.",
+    "The step is finished.": "The step is not finished.",
+    "It stops.": "It does not stop.",
+    "Tab locks in place.": "The tab does not lock.",
+    "It hits the spring.": "It does not hit the spring.",
+    "The pedal snaps.": "The pedal does not snap.",
+}
+
+
+def _bad_for_see(see: str) -> str:
+    """The failed look for this good look. Never the generic line."""
+    text = _finish_sentence(see)
+    if text in _BAD_FOR_GOOD:
+        return _BAD_FOR_GOOD[text]
+    bare = text.rstrip(".")
+    if re.match(r"^You are ", bare):
+        return f"You are not {bare[len('You are '):]}."
+    match = re.match(r"^(The .+?) (is|are) (.+)$", bare)
+    if match:
+        return f"{match.group(1)} {match.group(2)} not {match.group(3)}."
+    if re.match(r"^It is ", bare, re.I):
+        return f"It is not {bare[6:]}."
+    verb = re.match(r"^It ([a-z]+s)\b(.*)$", bare)
+    if verb:
+        word = verb.group(1)
+        if word.endswith("s") and not word.endswith("ss"):
+            word = word[:-1]
+        rest = (verb.group(2) or "").strip()
+        return f"It does not {word} {rest}.".replace(" .", ".").strip()
+    if bare:
+        return f"Not this: {bare[0].lower()}{bare[1:]}."
+    return "The step is not finished."
+
+
+_GENERIC_BAD_RE = re.compile(
+    r"^(?:it does not look right|not stated(?: in this sheet)?|unconfirmed|"
+    r"do this step again|the step is not finished|not this:.*)\.?$",
+    re.I,
+)
+
+
 def _yes_no(action: str) -> tuple[str, str]:
     low = action.rstrip(".").lower()
     no = low + "."
     if _word_count(f"No, {no}") > 15:
         no = "do this step again."
-    see = "It looks right."
+    see = "The step is finished."
     until = re.search(r"\buntil (.+)$", low)
     if until:
         tail = until.group(1)
@@ -1328,8 +1890,15 @@ def _yes_no(action: str) -> tuple[str, str]:
             (r"^push the water hose\b", "The hose is on tight."),
             (r"^pull the pedal\b", "The pedal is off."),
             (r"^take off the (.+)$", "ARE_OFF"),
+            (r"^throw the old\b", "The old part is in the trash."),
             (r"^throw the (.+) away$", "The {0} is in the trash."),
             (r"^throw it away$", "It is in the trash."),
+            (r"^spread (?:the )?cover open$", "The cover is open."),
+            (r"^lower (?:the )?pedal opening\b", "The opening sits on the pedal neck."),
+            (r"^wrap (?:the )?cover around\b", "The cover wraps the back."),
+            (r"^push (?:the )?pedal down$", "The pedal is down."),
+            (r"^push (?:the )?cover into place\b", "The front clip is on."),
+            (r"^secure (?:the )?back of (?:the )?cover\b", "Both rings are on."),
             (r"^lift the toilet\b", "The toilet is off the floor."),
             (r"^cover the\b", "The hole is covered."),
             (r"^lay the toilet\b", "The toilet is on its side."),
@@ -1376,8 +1945,8 @@ def _yes_no(action: str) -> tuple[str, str]:
             see = re.sub(r"\bpocket ([a-c])\b", lambda m: "pocket " + m.group(1).upper(), see, flags=re.I)
             break
     if _word_count(f"You should see: {see}") > 15:
-        see = "It looks right."
-    return see, no
+        see = "The step is finished."
+    return see, _bad_for_see(see)
 
 
 def _as_figure(figure) -> dict:
@@ -1515,6 +2084,25 @@ def attach_open_kit_crops(steps: list, figures: list, doc: str = "") -> list:
     return steps
 
 
+def _ensure_visible_good_bad(step: dict) -> None:
+    """Every step names a good look and a bad look that belongs to that action."""
+    fields = step.setdefault("fields", {})
+    good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
+    action = (step.get("text") or "").strip()
+    see, bad_sign = _yes_no(action) if action else ("", "")
+    if not good:
+        good = see or shop_field_value(step.get("see") or "") or "The step is finished."
+    if not bad or _GENERIC_BAD_RE.match(bad):
+        bad = bad_sign or ""
+    if bad and _GENERIC_BAD_RE.match(bad):
+        bad = ""
+    good = _finish_sentence(good)
+    if bad:
+        fields["GOOD vs BAD"] = f"Good: {good} Bad: {_finish_sentence(bad)}"
+    else:
+        fields["GOOD vs BAD"] = f"Good: {good}"
+
+
 def _figure_group_key(step: dict):
     figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
     if not figure or not (figure.get("label") or figure.get("png")):
@@ -1576,46 +2164,36 @@ def _group_procedure_steps(steps: list) -> list:
 
 
 def _merge_duplicate_pedal_pull(steps: list) -> list:
-    """A pedal grab and the pull that follows it are one step, not two."""
-    merged = []
-    for step in steps or []:
-        actions = [item.strip() for item in (step.get("actions") or [step.get("text") or ""]) if (item or "").strip()]
-        pedal_only = bool(actions) and all(
-            re.search(r"\b(?:grab|pull)\b.{0,40}\bpedal\b|\bpedal\b.{0,24}\b(?:up and )?off\b", item, re.I)
-            for item in actions
-        )
-        prev = merged[-1] if merged else None
-        prev_actions = list((prev or {}).get("actions") or [])
-        prev_has_pedal = any(re.search(r"\bpedal\b", item, re.I) for item in prev_actions)
-        if (
-            prev
-            and pedal_only
-            and prev_has_pedal
-            and step.get("section") == prev.get("section")
-        ):
-            for action in actions:
-                if action not in prev_actions:
-                    prev_actions.append(action)
-            prev["actions"] = prev_actions
-            prev["text"] = prev_actions[0]
-            prev["source"] = f"{prev.get('source') or ''} {step.get('source') or ''}".strip()
-            fields = dict(prev.get("fields") or {})
-            fields["HOW"] = prev_actions[0]
-            fields["WHERE"] = _where_field(prev["source"])
-            prev["fields"] = fields
-            continue
-        merged.append(step)
-    return merged
+    """Keep the pedal grab and the pedal pull as two steps.
+
+    One HOW line is one action. Gluing 'Grab the front of the pedal' onto
+    'Pull the pedal up and off' put two actions under one step.
+    """
+    return list(steps or [])
 
 
 def _apply_leak_test_step(steps: list) -> None:
-    """The last water-on step is the leak test. Safety matches that water is on."""
+    """The water-on step is the leak test. Safety matches that water is on.
+
+    A following flush is the check inside that step, not a second HOW.
+    """
     if not steps:
         return
-    last = steps[-1]
-    blob = " ".join(last.get("actions") or []) + " " + (last.get("text") or "")
-    if not re.search(r"\bturn the rv water on\b", blob, re.I):
+    index = None
+    for cursor, step in enumerate(steps):
+        blob = " ".join(step.get("actions") or []) + " " + (step.get("text") or "")
+        if re.search(r"\bturn the rv water on\b", blob, re.I):
+            index = cursor
+    if index is None:
         return
+    while len(steps) > index + 1:
+        nxt = steps[index + 1]
+        blob = " ".join(nxt.get("actions") or []) + " " + (nxt.get("text") or "")
+        if re.search(r"\bflush\b", blob, re.I):
+            steps.pop(index + 1)
+            continue
+        break
+    last = steps[index]
     fields = dict(last.get("fields") or {})
     safety = fields.get("SAFETY") or ""
     safety = re.sub(
@@ -1736,6 +2314,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
     for index, step in enumerate(steps):
         nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
         step["fields"]["NEXT"] = _next_field(nxt)
+        _ensure_visible_good_bad(step)
     _apply_leak_test_step(steps)
     attach_open_kit_crops(steps, figures or [], doc)
     removal = [step for step in steps if step["section"] == "removal"]
@@ -1861,6 +2440,22 @@ def part_topic(text: str) -> str:
     return ""
 
 
+def thetford_procedure_show_caption(reply: str) -> str:
+    """Kit label for a numbered valve step. Empty on a proving turn."""
+    raw = reply or ""
+    marked = bool(re.search(r"<!--\s*gd-step:\d+\s*-->", raw))
+    legacy = (
+        ("Here is the repair procedure." in raw or bool(re.search(r"\bStep\s+\d+\s+of\s+\d+", raw)))
+        and bool(re.search(r"\bStep\s+\d+\s*(?:of\s+\d+|:)", raw))
+    )
+    if not marked and not legacy:
+        return ""
+    numbers = _numbers_named(raw)
+    if not numbers or not re.search(r"\b42109\b", raw):
+        return ""
+    return f"42109 Fig. {numbers[0]}"
+
+
 def bundled_thetford_offers(
     reply: str = "",
     user_msg: str = "",
@@ -1934,6 +2529,71 @@ def bundled_thetford_offers(
     return offers
 
 
+def thetford_show_offer(reply: str, user_msg: str = "") -> dict | None:
+    """The kit crop for a Thetford show-me. Empty when this turn is not that toilet."""
+    numbered = thetford_procedure_show_offer(reply)
+    if numbered and numbered.get("png"):
+        return numbered
+    if not job_is_thetford(reply, user_msg):
+        return None
+    crops = [
+        item
+        for item in bundled_thetford_offers(reply, user_msg, "Plumbing / Toilets", "Thetford")
+        if (item.get("label") or "") != "page" and item.get("png")
+    ]
+    if not crops:
+        return None
+    named = _numbers_named(reply or "") or _numbers_named(user_msg or "")
+    chosen = crops[0]
+    if named:
+        for item in crops:
+            if any(number in named for number in _figure_numbers(item.get("label") or "")):
+                chosen = item
+                break
+    shown = dict(chosen)
+    title = shown.get("title") or ""
+    nums = _figure_numbers(shown.get("label") or "")
+    if "42109" in title and nums:
+        caption = f"42109 Fig. {nums[0]}"
+    elif "3412" in title and nums:
+        caption = f"34123 Fig. {nums[0]}"
+    elif nums:
+        caption = f"Fig. {nums[0]}"
+    else:
+        caption = display_caption(title, shown.get("page") or 1, shown.get("label") or "")
+    shown["label"] = caption
+    shown["caption"] = caption
+    shown["bundled"] = False
+    shown["brand"] = "Thetford"
+    shown["category_name"] = "Plumbing / Toilets"
+    return shown
+
+
+def thetford_procedure_show_offer(reply: str) -> dict | None:
+    """The kit crop for this numbered step, captioned with the kit label."""
+    caption = thetford_procedure_show_caption(reply)
+    if not caption:
+        return None
+    number = int(caption.rsplit(" ", 1)[-1])
+    for offer in bundled_thetford_offers(reply, "", "Plumbing / Toilets", "Thetford"):
+        if (offer.get("label") or "") == "page":
+            continue
+        if number not in _figure_numbers(offer.get("label") or ""):
+            continue
+        if "42109" not in (offer.get("title") or ""):
+            continue
+        if not offer.get("png"):
+            continue
+        shown = dict(offer)
+        shown["label"] = caption
+        shown["caption"] = caption
+        shown["bundled"] = False
+        shown["brand"] = "Thetford"
+        shown["category_name"] = "Plumbing / Toilets"
+        return shown
+    return None
+
+
 def _png_from_local_file(path: str, page) -> bytes:
     """Bytes for a real file on disk. An R2 key is not a file and returns nothing."""
     file = Path(path or "")
@@ -1992,12 +2652,16 @@ def png_for_library_offer(src: dict) -> bytes:
     return _png_from_local_file(str(src.get("file_path") or ""), src.get("page") or 1)
 
 
-_PROVING_PHOTO_CONNECTOR = (
-    "Take a photo of the connector. A photo is optional. You can type what you see."
-)
-_PROVING_PHOTO_LEAK = (
-    "Take a photo of the leak. A photo is optional. You can type what you see."
-)
+_PROVING_PHOTO_CONNECTOR = PHOTO_VISUAL
+_PROVING_PHOTO_LEAK = PHOTO_VISUAL
+_PROVING_NUMBER = {
+    "supply": 1,
+    "vacuum": 2,
+    "valve": 3,
+    "flange": 4,
+    "vacuum_replace": 1,
+    "valve_replace": 1,
+}
 _PROVING_SAFETY = (
     f"Water off: {NOT_STATED} Power off: {NOT_STATED} Propane off: {NOT_STATED}"
 )
@@ -2008,13 +2672,10 @@ _THETFORD_PROVING = {
         "WHERE": "Back of the toilet.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": (
-            "Check the water supply line connection at the water valve. "
-            "Secure or tighten it as necessary."
-        ),
+        "HOW": "Check the water supply line connection at the water valve.",
         "GOOD vs BAD": (
-            f"Good: {NOT_STATED} Bad: the leak persists from the water valve. "
-            f"A leak at the back, low, with the lever at rest, is the fitting. {NOT_STATED}"
+            "Good: the connection is dry. Bad: the leak persists from the water valve. "
+            "A leak at the back, low, with the lever at rest, is the fitting."
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -2028,7 +2689,9 @@ _THETFORD_PROVING = {
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Check whether the vacuum breaker leaks while flushing.",
-        "GOOD vs BAD": "Bad: it leaks while flushing. Leaks only while flushing.",
+        "GOOD vs BAD": (
+            "Good: no leak while flushing. Bad: it leaks while flushing. Leaks only while flushing."
+        ),
         "NEXT": (
             "On good: go to the next check. "
             "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
@@ -2043,7 +2706,7 @@ _THETFORD_PROVING = {
         "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Replace the vacuum breaker or the water module, depending on model.",
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it leaks while flushing.",
+        "GOOD vs BAD": "Good: no leak while flushing. Bad: it leaks while flushing.",
         "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1, Thetford Vacuum Breaker Kit 34123/34122, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
@@ -2052,13 +2715,10 @@ _THETFORD_PROVING = {
         "WHERE": "At the pedal.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": (
-            "Pull the pedal off. "
-            "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109."
-        ),
+        "HOW": "Pull the pedal off.",
         "GOOD vs BAD": (
-            f"Good: {NOT_STATED} "
-            f"Bad: a weep at the cartridge, the drive arm, or a cracked housing. {NOT_STATED}"
+            "Good: no weep at the pedal. "
+            "Bad: a weep at the cartridge, the drive arm, or a cracked housing."
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -2074,7 +2734,7 @@ _THETFORD_PROVING = {
         "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.",
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it weeps at the pedal. {NOT_STATED}",
+        "GOOD vs BAD": "Good: no weep at the pedal. Bad: it weeps at the pedal.",
         "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
@@ -2083,12 +2743,8 @@ _THETFORD_PROVING = {
         "WHERE": "Between the closet flange and the toilet.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": (
-            "Between the closet flange and the toilet, check the flange nuts. "
-            "If the leak continues, check the flange height. "
-            "It is 7/16 inch above the floor. Replace the flange seal."
-        ),
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: the leak continues.",
+        "HOW": "Check the flange nuts for a flange 7/16 inch above the floor.",
+        "GOOD vs BAD": "Good: the flange is dry. Bad: the leak continues.",
         "NEXT": (
             "On good: the leak checks are done. "
             "On bad: if the leak continues, replace the flange seal. "
@@ -2109,13 +2765,18 @@ _THETFORD_PROVING_CITE = {
 
 
 def thetford_proving_body(key: str) -> str:
-    """The eight shop fields for one Thetford leak check. No source line."""
-    return hide_internal_marker(format_step_fields(_THETFORD_PROVING[key]))
+    """One leak check for the Bay sheet. No photo ask and no source line."""
+    return hide_internal_marker(
+        format_step_fields(_THETFORD_PROVING[key], number=_PROVING_NUMBER[key], show_photo=False)
+    )
 
 
 def thetford_proving_line(key: str) -> str:
-    """The same check, plus the document cite Guided Diagnostics keeps."""
-    return hide_internal_marker(f"{thetford_proving_body(key)}\n{_THETFORD_PROVING_CITE[key]}")
+    """One leak check in plain sentences. A photo is asked only when it would help."""
+    step = _fields_as_step(_THETFORD_PROVING[key])
+    lines = chat_sentences(step, show_photo=step_needs_photo(step))
+    body = "\n".join(lines)
+    return hide_internal_marker(f"{body}\n\n{_THETFORD_PROVING_CITE[key]}")
 
 
 def procedure_handoff(layout: dict) -> str:
@@ -2123,19 +2784,34 @@ def procedure_handoff(layout: dict) -> str:
     steps = list(layout.get("steps") or [])
     if not steps:
         steps = list(layout.get("removal") or []) + list(layout.get("installation") or [])
-    lines = ["Here is the repair procedure."]
+    lines = ["Here is the repair procedure.", ""]
     if layout.get("title"):
         lines.append(layout["title"])
+        lines.append("")
     if layout.get("before"):
         lines.append("Before you start:")
         lines.extend(f"- {item}" for item in layout["before"])
+        lines.append("")
     section = ""
     for index, step in enumerate(steps, 1):
-        if step.get("section") and step["section"] != section:
-            section = step["section"]
-            lines.append("REMOVAL" if section == "removal" else "INSTALLATION")
-        lines.append(f"{index}.")
-        lines.extend(step_sentences(step))
+        sec = step.get("section") or ""
+        if sec and sec != section:
+            section = sec
+            label = {"removal": "REMOVAL", "installation": "INSTALLATION", "prove": "PROVING CHECKS"}.get(
+                sec, sec.upper()
+            )
+            lines.append(label)
+            lines.append("")
+        lines.append(
+            render_step(
+                step,
+                index,
+                show_safety=show_safety_for(steps, index),
+                show_photo=False,
+                markdown=True,
+            )
+        )
+        lines.append("")
     if layout.get("spec"):
         lines.append(layout["spec"])
     return "\n".join(lines).strip()
@@ -2418,11 +3094,662 @@ def wants_manual_image(text: str) -> bool:
             "diagram",
             "drawing",
             "illustration",
+            "what does it look like",
+            "what it looks like",
+            "what do they look like",
+            "where is it",
+            "where it is",
         )
     ):
         return True
+
+
+def tech_asked_for_manual_figure(text: str) -> bool:
+    """True when the tech asked to see the manual page or figure."""
+    return wants_manual_image(text)
     if re.search(r"\bsource\b", raw) and re.search(
         r"\b(show|see|photo|picture|pull|display|what|where)\b", raw
     ):
         return True
     return False
+
+
+# FACR08 shop sheet. Figures cite the library doc and page. No bundled PNG.
+FACR_8666_DOC = "Furrion Chill FACR CCD-0008666"
+FACR_7990_DOC = "Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+FACR_PART = "2024006031"
+
+
+def _facr_dot(text: str) -> str:
+    raw = re.sub(r"\s+", " ", (text or "")).strip()
+    if not raw:
+        return ""
+    return raw if raw.endswith(".") else raw + "."
+
+
+def _facr_figure(doc: str, page, label: str):
+    """Cite a library page. page None means the sheet names the figure and not a page."""
+    title = FACR_8666_DOC if doc == "8666" else FACR_7990_DOC
+    figure = {"title": title, "label": label, "png": b"", "page": page or None}
+    if page:
+        cite = f"{label}, {title}, page {page}"
+    else:
+        cite = f"{label}, {title}"
+    return figure, cite
+
+
+def _facr_step(
+    how: str,
+    where: str,
+    safety: str,
+    good: str,
+    bad: str,
+    nxt: str,
+    *,
+    section: str = "",
+    tools: str = "",
+    bad_next: str = "Stay on this step.",
+    doc: str = "",
+    page=None,
+    label: str = "",
+    caution: str = "",
+) -> dict:
+    """One action. Empty tools and an uncited figure are left off the step."""
+    fields = {
+        "WHERE": _facr_dot(where),
+        "SAFETY": _facr_dot(safety),
+        "HOW": _facr_dot(how),
+        "GOOD vs BAD": f"Good: {_facr_dot(good)} Bad: {_facr_dot(bad)}",
+        "NEXT": f"On good: {_facr_dot(nxt)} On bad: {_facr_dot(bad_next)}",
+        "PHOTO": PHOTO_STEP,
+    }
+    figure = None
+    if tools:
+        fields["TOOLS / METER SETTING"] = _facr_dot(tools)
+    if doc and label:
+        figure, cite = _facr_figure(doc, page, label)
+        fields["FIGURE"] = cite
+    return {
+        "section": section,
+        "text": _facr_dot(how),
+        "actions": [_facr_dot(how)],
+        "fields": fields,
+        "figure": figure,
+        "caution": caution,
+    }
+
+
+def facr_proving_layout() -> dict:
+    """Numbered proving checks for FACR08HESA2-PS. Condemn waits until these are done."""
+    s = _facr_step
+    steps = [
+        s(
+            "Dry the ceiling inside the coach.",
+            "Inside the coach, on the ceiling.",
+            "Keep people clear of the drip.",
+            "The ceiling is dry.",
+            "Water is still on the ceiling.",
+            "Run COOL with the fan on HIGH.",
+        ),
+        s(
+            "Run COOL with the fan on HIGH.",
+            "At the wall control.",
+            "Leave both filters in the unit.",
+            "The unit is running in COOL.",
+            "The unit is not in COOL.",
+            "Wait 15 minutes.",
+        ),
+        s(
+            "Wait 15 minutes.",
+            "At the rooftop unit.",
+            "Leave the fan on HIGH.",
+            "15 minutes have passed.",
+            "The run was shorter than 15 minutes.",
+            "Look for drip on the coil.",
+        ),
+        s(
+            "Look for drip on the coil.",
+            "On the evaporator coil.",
+            "Do not condemn the unit yet.",
+            "You looked at the coil for drip.",
+            "Drip is still hiding the coil.",
+            "Look for frost on the suction line.",
+            doc="8666",
+            page=20,
+            label="Water enters the vehicle",
+        ),
+        s(
+            "Look for frost on the suction line.",
+            "On the suction line.",
+            "Do not condemn the unit yet.",
+            "The suction line is clear of frost.",
+            "Frost is on the suction line.",
+            "Turn the 115VAC breaker off.",
+            doc="8666",
+            page=20,
+            label="Water enters the vehicle",
+        ),
+        s(
+            "Turn the 115VAC breaker off.",
+            "At the 115VAC breaker.",
+            "Keep 115VAC off for the drain work.",
+            "The breaker is off.",
+            "The breaker is still on.",
+            "Turn the 12VDC supply off.",
+        ),
+        s(
+            "Turn the 12VDC supply off.",
+            "At the 12VDC supply.",
+            "Keep both supplies off.",
+            "12VDC is off.",
+            "12VDC is still on.",
+            "Discharge the capacitors.",
+        ),
+        s(
+            "Discharge the capacitors.",
+            "At the capacitors.",
+            "R32 is flammable.",
+            "The capacitors are discharged.",
+            "The capacitors still hold a charge.",
+            "Remove the shroud.",
+            doc="8666",
+            page=18,
+            label="Capacitor discharge",
+            caution="R32 is flammable.",
+        ),
+        s(
+            "Remove the shroud.",
+            "On the roof, over the unit.",
+            "Keep both supplies off.",
+            "The shroud is off.",
+            "The shroud is still on.",
+            "Clear the drain openings.",
+        ),
+        s(
+            "Clear the drain openings.",
+            "In the drain openings.",
+            "Keep both supplies off.",
+            "The openings are clear.",
+            "Debris still blocks an opening.",
+            "Pour water into the pan.",
+            doc="7990",
+            page=7,
+            label="Drainage openings",
+        ),
+        s(
+            "Pour water into the pan.",
+            "In the evaporator pan.",
+            "Keep both supplies off.",
+            "Water is in the pan.",
+            "Water missed the pan.",
+            "Watch the water leave the pan.",
+        ),
+        s(
+            "Watch the water leave the pan.",
+            "At the evaporator pan.",
+            "Keep both supplies off.",
+            "The pan empties.",
+            "Water stands in the pan.",
+            "Check the unit is within 15 degrees each way.",
+            bad_next="Clear the drain openings.",
+        ),
+        s(
+            "Check the unit is within 15 degrees each way.",
+            "On the rooftop unit.",
+            "Keep both supplies off.",
+            "The unit is within 15 degrees each way.",
+            "The unit is out of level.",
+            "Center the roof gasket.",
+            bad_next="Shim the unit from the outside.",
+            doc="8666",
+            page=6,
+            label="Level note",
+        ),
+        s(
+            "Shim the unit from the outside.",
+            "Outside, under the unit.",
+            "Do not slide the unit.",
+            "The unit is within 15 degrees.",
+            "The unit is still out of level.",
+            "Center the roof gasket.",
+        ),
+        s(
+            "Center the roof gasket.",
+            "On the roof opening.",
+            "Keep both supplies off.",
+            "The gasket is centered.",
+            "The gasket sits off center.",
+            "Torque the bolts until the indicators touch.",
+            doc="8666",
+            page=11,
+            label="Fig. 2",
+        ),
+        s(
+            "Torque the bolts until the indicators touch.",
+            "At the four roof bolts.",
+            "Keep both supplies off.",
+            "White indicators touch the roof. Compression is about 9/16 inch.",
+            "Indicators sit off the roof.",
+            "Push the filter plate tabs.",
+            tools="Torque wrench, 40 to 50 in-lb.",
+            doc="8666",
+            page=12,
+            label="Fig. 5",
+        ),
+        s(
+            "Push the filter plate tabs.",
+            "At the ceiling plate.",
+            "Do not run the unit without filters.",
+            "The tabs are pushed.",
+            "The plate stays up.",
+            "Drop the filter plate.",
+            doc="8666",
+            page=19,
+            label="Fig. 28",
+        ),
+        s(
+            "Drop the filter plate.",
+            "At the ceiling plate.",
+            "Do not run the unit without filters.",
+            "The plate is down.",
+            "The plate is still up.",
+            "Remove both filters.",
+        ),
+        s(
+            "Remove both filters.",
+            "In the ceiling plate.",
+            "Do not run the unit without filters.",
+            "Both filters are out.",
+            "A filter is still in.",
+            "Wash the filters.",
+            doc="8666",
+            page=19,
+            label="Fig. 29",
+        ),
+        s(
+            "Wash the filters.",
+            "At a sink.",
+            "Do not run the unit without filters.",
+            "The filters are clean.",
+            "Dirt remains on a filter.",
+            "Dry the filters.",
+        ),
+        s(
+            "Dry the filters.",
+            "At a sink.",
+            "Do not run the unit without filters.",
+            "The filters are dry.",
+            "A filter is still wet.",
+            "Open all the nozzles.",
+            caution="Do not run the unit without filters.",
+        ),
+        s(
+            "Open all the nozzles.",
+            "At the ceiling nozzles.",
+            "Put both filters back before a run.",
+            "Every nozzle is open.",
+            "A nozzle is closed.",
+            "Confirm the blower spins freely.",
+            doc="8666",
+            page=19,
+            label="Airflow rows",
+        ),
+        s(
+            "Confirm the blower spins freely.",
+            "At the blower.",
+            "Keep both filters in the unit.",
+            "The blower spins freely.",
+            "The blower is stuck.",
+            "Confirm the grilles are clear.",
+        ),
+        s(
+            "Confirm the grilles are clear.",
+            "At the grilles.",
+            "Keep both filters in the unit.",
+            "The grilles are clear.",
+            "A grille is blocked.",
+            "Seat the freeze sensor at the coil center.",
+        ),
+        s(
+            "Seat the freeze sensor at the coil center.",
+            "Center bottom of the evaporator.",
+            "Keep both supplies off.",
+            "The sensor sits at the center bottom.",
+            "The sensor sits off the coil.",
+            "Push the sensor to 1-3/16 inch deep.",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Push the sensor to 1-3/16 inch deep.",
+            "Center bottom of the evaporator, 30 mm.",
+            "Keep both supplies off.",
+            "The sensor is 30 mm deep.",
+            "The sensor is shallow.",
+            "Clamp the freeze sensor in place.",
+        ),
+        s(
+            "Clamp the freeze sensor in place.",
+            "On the freeze sensor.",
+            "Keep both supplies off.",
+            "The clamp holds the sensor.",
+            "The sensor is loose.",
+            "Meter the freeze sensor cold on ohms.",
+        ),
+        s(
+            "Meter the freeze sensor cold on ohms.",
+            "At the freeze sensor leads.",
+            "Keep both supplies off.",
+            "The cold reading is on the meter.",
+            "The meter shows no reading.",
+            "Meter the freeze sensor warm on ohms.",
+            tools="Meter on ohms.",
+        ),
+        s(
+            "Meter the freeze sensor warm on ohms.",
+            "At the freeze sensor leads.",
+            "Keep both supplies off.",
+            "The warm reading is on the meter.",
+            "The meter shows no reading.",
+            "Confirm the ohms reading changes smoothly.",
+            tools="Meter on ohms.",
+        ),
+        s(
+            "Confirm the ohms reading changes smoothly.",
+            "At the freeze sensor leads.",
+            "Keep both supplies off.",
+            "The reading changes smoothly.",
+            "The reading jumps or stays flat.",
+            "Hand refrigerant work to a certified tech.",
+            tools="Meter on ohms.",
+        ),
+        s(
+            "Hand refrigerant work to a certified tech.",
+            "At the sealed system.",
+            "Do not use a halide torch.",
+            "A certified tech has the job.",
+            "Someone else is on the sealed system.",
+            "Read the cooling amps.",
+            doc="8666",
+            page=18,
+            label="No halide torch",
+            caution="Do not use a halide torch.",
+        ),
+        s(
+            "Read the cooling amps.",
+            "At the 115V supply.",
+            "Do not use a halide torch.",
+            "Amps are at or under 8.2.",
+            "Amps are over 8.2.",
+            "Ask for authorization with the photos.",
+            tools="Meter on amps.",
+            doc="8666",
+            page=20,
+            label="Cooling amps",
+        ),
+    ]
+    return {
+        "heading": "PROVING CHECKS",
+        "title": f"FACR08HESA2-PS proving checks, part {FACR_PART}",
+        "before": [
+            "Unit is Furrion FACR08HESA2-PS. Lippert part 2024006031.",
+            "Charge is R32, 9.88 oz. Supply is 115V. Cooling limit is 8.2 A.",
+            "Finish these proving checks before you condemn the unit.",
+            "Do not use CCD-0007990 part numbers.",
+        ],
+        "steps": steps,
+    }
+
+
+def facr_rr_layout() -> dict:
+    """Removal and install after authorization. Guided Diagnostics walks these steps."""
+    s = _facr_step
+    off = "Keep both supplies off."
+    steps = [
+        s(
+            "Turn the 115VAC breaker off.",
+            "At the 115VAC breaker.",
+            off,
+            "The breaker is off.",
+            "The breaker is still on.",
+            "Turn the 12VDC supply off.",
+            section="removal",
+        ),
+        s(
+            "Turn the 12VDC supply off.",
+            "At the 12VDC supply.",
+            off,
+            "12VDC is off.",
+            "12VDC is still on.",
+            "Hoist the unit off the roof.",
+            section="removal",
+        ),
+        s(
+            "Hoist the unit off the roof.",
+            "The unit weighs about 100 lb.",
+            "Do not slide the unit.",
+            "The unit is hanging on the hoist.",
+            "The unit is still on the roof.",
+            "Unplug the freeze sensor.",
+            section="removal",
+            doc="8666",
+            page=11,
+            label="Hoist the unit",
+            caution="Do not slide the unit.",
+        ),
+        s(
+            "Unplug the freeze sensor.",
+            "At the freeze sensor plug.",
+            off,
+            "The freeze sensor is unplugged.",
+            "The freeze sensor is still plugged in.",
+            "Unplug the room sensor.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Unplug the room sensor.",
+            "At the room sensor plug.",
+            off,
+            "The room sensor is unplugged.",
+            "The room sensor is still plugged in.",
+            "Unplug the unit cable.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Unplug the unit cable.",
+            "At the unit cable.",
+            off,
+            "The unit cable is unplugged.",
+            "The unit cable is still plugged in.",
+            "Unplug the 115VAC cord.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Unplug the 115VAC cord.",
+            "At the 115VAC cord.",
+            off,
+            "The 115VAC cord is unplugged.",
+            "The 115VAC cord is still plugged in.",
+            "Unplug the 12VDC cord.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Unplug the 12VDC cord.",
+            "At the 12VDC cord.",
+            off,
+            "The 12VDC cord is unplugged.",
+            "The 12VDC cord is still plugged in.",
+            "Unplug the furnace plug.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Unplug the furnace plug.",
+            "At the furnace plug.",
+            off,
+            "The furnace plug is unplugged.",
+            "The furnace plug is still plugged in.",
+            "Remove the four mounting bolts.",
+            section="removal",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Remove the four mounting bolts.",
+            "At the four roof bolts.",
+            off,
+            "All four bolts are out.",
+            "A bolt is still in.",
+            "Make the roof opening 14-1/4 inch square.",
+            section="removal",
+        ),
+        s(
+            "Make the roof opening 14-1/4 inch square.",
+            "In the roof opening.",
+            off,
+            "The opening is 14-1/4 inch square.",
+            "The opening is the wrong size.",
+            "Point the marked side forward.",
+            section="installation",
+            doc="8666",
+            page=7,
+            label="Roof opening",
+        ),
+        s(
+            "Point the marked side forward.",
+            "On the unit base.",
+            off,
+            "The marked side faces forward.",
+            "The marked side faces another way.",
+            "Center the gasket on the opening.",
+            section="installation",
+            doc="8666",
+            page=None,
+            label="Fig. 1 This side facing forward",
+        ),
+        s(
+            "Center the gasket on the opening.",
+            "On the roof opening.",
+            off,
+            "The gasket is centered.",
+            "The gasket sits off center.",
+            "Torque the bolts until the indicators touch.",
+            section="installation",
+            doc="8666",
+            page=11,
+            label="Fig. 2",
+        ),
+        s(
+            "Torque the bolts until the indicators touch.",
+            "At the four roof bolts.",
+            off,
+            "White indicators touch the roof. Compression is about 9/16 inch.",
+            "Indicators sit off the roof.",
+            "Apply foil tape on the seams.",
+            section="installation",
+            tools="Torque wrench, 40 to 50 in-lb.",
+            doc="8666",
+            page=12,
+            label="Fig. 5",
+        ),
+        s(
+            "Apply foil tape on the seams.",
+            "On the roof seams.",
+            off,
+            "Foil tape covers the seams.",
+            "A seam is still open.",
+            "Seat the freeze sensor with the clamp.",
+            section="installation",
+            doc="8666",
+            page=13,
+            label="Foil tape",
+        ),
+        s(
+            "Seat the freeze sensor with the clamp.",
+            "Center bottom of the evaporator.",
+            off,
+            "The sensor is clamped in place.",
+            "The sensor is loose.",
+            "Set the DIP switches to match the old board.",
+            section="installation",
+            doc="8666",
+            page=16,
+            label="Fig. 22",
+        ),
+        s(
+            "Set the DIP switches to match the old board.",
+            "On the control board.",
+            "Do not change DIP switches with the power on.",
+            "The switches match the old board.",
+            "The switches do not match.",
+            "Confirm there is no drip.",
+            section="installation",
+            doc="8666",
+            page=13,
+            label="DIP switches",
+            caution="Do not change DIP switches with the power on.",
+        ),
+        s(
+            "Confirm there is no drip.",
+            "Inside the coach, on the ceiling.",
+            "Run COOL with the fan on HIGH.",
+            "There is no drip.",
+            "The ceiling still drips.",
+            "Confirm there is no frost.",
+            section="installation",
+            bad_next="Go back to the drain check.",
+        ),
+        s(
+            "Confirm there is no frost.",
+            "On the coil and the suction line.",
+            "Run COOL with the fan on HIGH.",
+            "There is no frost.",
+            "Frost is still on the coil.",
+            "Confirm cooling amps are at or under 8.2.",
+            section="installation",
+        ),
+        s(
+            "Confirm cooling amps are at or under 8.2.",
+            "At the 115V supply.",
+            "Do not use a halide torch.",
+            "Amps are at or under 8.2.",
+            "Amps are over 8.2.",
+            "The install retest is done.",
+            section="installation",
+            tools="Meter on amps.",
+            doc="8666",
+            page=20,
+            label="Cooling amps",
+        ),
+    ]
+    return {
+        "heading": "REPAIR PROCEDURE",
+        "title": f"FACR08HESA2-PS rooftop removal and install, part {FACR_PART}",
+        "before": [
+            "Get authorization with the photos before removal.",
+            "Order part 2024006031 only.",
+            "Filters, the freeze sensor, and the gasket have no part number here.",
+            "The unit weighs about 100 lb. Hoist it.",
+            "Do not slide the unit.",
+            "R32 is flammable. Keep flame away.",
+            "Do not change DIP switches with the power on.",
+            "Do not use CCD-0007990 part numbers.",
+        ],
+        "steps": steps,
+    }
