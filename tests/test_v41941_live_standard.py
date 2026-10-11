@@ -109,7 +109,10 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
         self.assertIn("vacuum", blob)
         pages = compose_sheet(proc)
         images = [image for page in pages for image in page.images]
-        self.assertEqual(images, [])
+        self.assertGreaterEqual(len(images), 2)
+        shown = " ".join(fig.title for group in proc.step_figures for fig in group)
+        self.assertIn("42109", shown)
+        self.assertIn("34123", shown)
         trace = []
         pdf = render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])

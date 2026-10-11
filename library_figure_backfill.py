@@ -849,6 +849,7 @@ _LINE_RES = (
     ("psx1", re.compile(r"\bpsx1\b", re.I)),
     ("schwintek", re.compile(r"\bschwintek\b", re.I)),
     ("ac", re.compile(r"air\s*condition|\brooftop\b|\bhvac\b|\bb57915\b|\bbrisk\b", re.I)),
+    ("plastic_tank", re.compile(r"plastic\s+tank", re.I)),
     ("toilet", re.compile(
         r"\b(?:toilet|thetford|42070|42109|42049|34122|34123|flush\s+lever)\b",
         re.I,
@@ -941,8 +942,12 @@ def fits_case(row, category="", model="", user_msg="", reply="", job_text="") ->
     row_text = _row_text(row or {})
     job_lines = _product_lines(job)
     row_lines = _product_lines(row_text)
-    # The case named a system. The document has to share it.
+    # The case named a system. The document has to share it, and it cannot
+    # name an extra system. A Thetford plastic-tank sheet is not kit 42109
+    # or kit 34123.
     if job_lines and not (job_lines & row_lines):
+        return False
+    if job_lines and (row_lines - job_lines):
         return False
     asked = _asked_brands(category, model, job, user_msg, reply, job_text)
     job_family = _category_family(category) or _category_family(job)
@@ -986,6 +991,8 @@ def off_brand_figure(row, category="", model="", user_msg="", reply="", job_text
     job_lines = _product_lines(job)
     row_lines = _product_lines(row_text)
     if job_lines and row_lines and job_lines.isdisjoint(row_lines):
+        return True
+    if job_lines and (row_lines - job_lines):
         return True
     if row_lines and not job_lines:
         return True

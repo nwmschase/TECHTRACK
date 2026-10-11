@@ -5723,6 +5723,17 @@ def _thetford_message_moves(text: str, pending: str) -> str:
     return "pass"
 
 
+def _thetford_valve_repair_started(history: list = None) -> bool:
+    """The water-valve kit is already the repair. Do not reopen the vacuum breaker."""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        shop = _shop_text_without_how(message.get("content") or "")
+        if re.search(r"Step \d+ of 14\b", shop):
+            return True
+    return False
+
+
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     """Supply, then the vacuum breaker, then the valve body, then the flange.
 
@@ -5730,6 +5741,8 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     A check that already shipped also advances on the next real answer.
     A closed check is not asked again. A weep does not skip the vacuum breaker.
     A proven leak starts that repair only after the earlier checks are closed.
+    Once the water-valve repair has started, a later leak does not go back
+    to the vacuum breaker.
     A mismatched or unclear photo does not close the check.
     """
     import gd_step_photo as _photos
@@ -5739,7 +5752,10 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     slots = set(_thetford_closed_slots(history, latest_msg))
     pending = _thetford_open_slot(history)
     move = _thetford_message_moves(latest_msg, pending)
-    if move == "bad" and pending == "vacuum":
+    on_valve = _thetford_valve_repair_started(history) or (
+        _thetford_valve_bad(blob) and ("vacuum" in slots or _thetford_vacuum_ok(blob))
+    )
+    if move == "bad" and pending == "vacuum" and not on_valve:
         return "vacuum_replace"
     if move == "bad" and pending == "valve":
         return "valve_replace"
@@ -5747,9 +5763,9 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
         slots.add(pending)
     if "supply" not in slots and not _thetford_supply_ok(blob):
         return "supply"
-    if _thetford_vacuum_bad(blob):
+    if not on_valve and _thetford_vacuum_bad(blob):
         return "vacuum_replace"
-    if "vacuum" not in slots and not _thetford_vacuum_ok(blob):
+    if not on_valve and "vacuum" not in slots and not _thetford_vacuum_ok(blob):
         return "vacuum"
     if _thetford_valve_bad(blob):
         return "valve_replace"
