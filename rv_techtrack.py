@@ -5311,9 +5311,9 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
             facts.update(extract_bal_tongue_facts(m.get("content") or ""))
         facts.update(extract_bal_tongue_facts(user_msg))
     facr_freeze_job = is_facr_rooftop_freeze_context(category_name, model_text, search_symptom)
-    if facr_freeze_job:
+    if facr_freeze_job or _gdc._job_key(history, user_msg, category_name, model_text) == "facr":
         facts = dict(facts)
-        facts.update(facr_proves_from_chat(history, user_msg))
+        facts.update(facr_proves_from_chat(history, user_msg, category_name, model_text))
     coleman_job = (not facr_freeze_job) and is_coleman_2111_context(
         category_name, model_text, search_symptom
     )
@@ -6144,6 +6144,7 @@ with tab_jobs:
                     wo_number=bay_wo,
                     chunks=hits,
                     include_3c=bool(bay_include_3c),
+                    history=st.session_state.get("ask_chat"),
                 )
                 proc = _attach_bay_figure_images(proc, hits)
                 pdf_bytes = render_bay_procedure_pdf(proc)

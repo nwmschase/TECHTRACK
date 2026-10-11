@@ -103,7 +103,7 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
                 {"title": "Thetford Water Valve Service Kit 42109", "page": 1, "excerpt": "Disconnect RV water supply from toilet."},
             ],
         )
-        self.assertGreaterEqual(len(proc.procedures), 2)
+        self.assertEqual(len(proc.procedures), 1)
         valve = next(
             procedure
             for procedure in proc.procedures

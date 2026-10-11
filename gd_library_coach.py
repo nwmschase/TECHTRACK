@@ -2123,6 +2123,8 @@ def _facr_gate_words(raw: str) -> dict:
         facts["facr_pan_slope"] = "ok"
     if re.fullmatch(r"fans?[.!]?", raw or ""):
         facts["facr_fan"] = "ok"
+    if re.fullmatch(r"freeze[\s-]*sensors?[.!?]?", raw or ""):
+        facts["facr_sensor_reading"] = "reported"
     if re.search(r"\bpressures?\b", raw or "") and not re.search(
         r"\b(?:not|no|n't|without)\b.{0,24}\bpressures?\b", raw or ""
     ) and not re.search(r"\b(?:read|check|measure|connect)\b|\?", raw or ""):
@@ -2343,7 +2345,23 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
     return facts
 
 
-def facr_proves_from_chat(history: list = None, latest_msg: str = "") -> dict:
+def _facr_prove_context(category_name: str = "", model_text: str = "", blob: str = "") -> bool:
+    """FACR freeze chat. The dropdown can name the unit when the turns are one word."""
+    if is_facr_rooftop_freeze_context(category_name, model_text, blob):
+        return True
+    if looks_like_facr_rooftop(category_name, model_text, blob):
+        cat = _norm(category_name)
+        if "air condition" in cat or cat in {"hvac", "rooftop", "rooftop ac"}:
+            return True
+    return bool(re.search(r"facr\d|interior leak|water leaking|condensate|drain is clear", _norm(blob)))
+
+
+def facr_proves_from_chat(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> dict:
     """
     Merge explicit tech phrases with short answers to the coach's last check.
     FACR freeze context only. Readings alone do not finish the path.
@@ -2356,11 +2374,11 @@ def facr_proves_from_chat(history: list = None, latest_msg: str = "") -> dict:
             turns.append({"role": role, "content": content})
     if (latest_msg or "").strip():
         turns.append({"role": "user", "content": latest_msg})
-    if not turns:
+    if not turns and not _facr_prove_context(category_name, model_text, ""):
         return {}
     blob = " ".join(m["content"] for m in turns)
     facts = {}
-    if not is_facr_rooftop_freeze_context("", "", blob):
+    if not _facr_prove_context(category_name, model_text, blob):
         return facts
     pending = []
     pending_text = ""
@@ -2568,7 +2586,7 @@ def _facr_climax_line(facts: dict | None, history: list = None, latest_msg: str 
         return facr_pressure_rr_line(facts)
     if facr_gate_turn_authorizes(facts, history, latest_msg):
         return facr_reported_assembly_rr_line(facts)
-    return _facr_stay_on_prove_line(facts)
+    return _facr_stay_on_prove_line(facts, history)
 
 
 def reply_drifts_facr_off_freeze_path(reply: str) -> bool:
@@ -2581,9 +2599,10 @@ def reply_refuses_facr_library_rr(reply: str) -> bool:
     return bool(_FACR_LIBRARY_RR_MISS_RE.search(reply or ""))
 
 
-def _facr_next_prove_prompt(facts: dict | None) -> str:
+def _facr_next_prove_prompt(facts: dict | None, history: list = None) -> str:
     facts = facts or {}
     pressures_in = facts.get("facr_pressure") == "ok"
+    pressures_asked = _facr_pressures_already_asked(history)
     steps = (
         ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
         ("facr_pressure", "ok", "Read the refrigerant pressures."),
@@ -2598,13 +2617,15 @@ def _facr_next_prove_prompt(facts: dict | None) -> str:
     for key, val, prompt in steps:
         if pressures_in and key == "facr_thermostat":
             continue
+        if key == "facr_pressure" and not pressures_in and pressures_asked:
+            continue
         if key == "sensor":
             if not facr_sensor_proved(facts):
                 return prompt
             continue
         if facts.get(key) != val:
             return prompt
-    if pressures_in:
+    if pressures_in or pressures_asked:
         return "Report the prove that is still open."
     return "Read the refrigerant pressures."
 
@@ -2616,7 +2637,7 @@ def _facr_pending_prompts(facts: dict | None = None, history: list = None) -> li
     pressures_in = facts.get("facr_pressure") == "ok"
     steps = (
         ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
-        ("facr_pressure", "ok", "Read the refrigerant pressures."),
+        ("facr_pressure", "ok", "Check the refrigerant pressures and report the readings."),
         ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
         ("facr_fan_filter", "ok", "Check the filter and the fan."),
         ("facr_suction", "clear", "Say whether the suction line is iced."),
@@ -2629,28 +2650,27 @@ def _facr_pending_prompts(facts: dict | None = None, history: list = None) -> li
     for key, val, prompt in steps:
         if pressures_in and key == "facr_thermostat":
             continue
+        if key == "facr_pressure" and (
+            pressures_in or _facr_pressures_already_asked(history)
+        ):
+            continue
         if key == "sensor":
             if facr_sensor_proved(facts):
                 continue
-        elif facts.get(key) == val:
-            continue
-        if key == "facr_pressure":
+        elif key != "facr_pressure" and facts.get(key) == val:
             continue
         if _norm(prompt) in asked:
             continue
         prompts.append(prompt)
-    if not pressures_in:
-        prompts = [
-            "Check the refrigerant pressures and report the readings.",
-            "Connect gauges and read the suction and discharge pressures. Report both readings.",
-        ] + prompts
     if prompts:
         return prompts
-    if not pressures_in:
+    if not pressures_in and not _facr_pressures_already_asked(history):
         return ["Read the refrigerant pressures."]
-    nxt = _facr_next_prove_prompt(facts)
+    nxt = _facr_next_prove_prompt(facts, history)
     if _norm(nxt).startswith("report the prove"):
-        return ["Read the refrigerant pressures."]
+        if not pressures_in and not _facr_pressures_already_asked(history):
+            return ["Read the refrigerant pressures."]
+        return ["Say whether the suction line is iced."]
     return [nxt]
 
 
@@ -2671,8 +2691,8 @@ def _strip_facr_internal_guard(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
-def _facr_stay_on_prove_line(facts: dict | None) -> str:
-    prompt = _facr_next_prove_prompt(facts)
+def _facr_stay_on_prove_line(facts: dict | None, history: list = None) -> str:
+    prompt = _facr_next_prove_prompt(facts, history)
     return (
         f"Next check on the CCD-0007990 condensate path: {prompt}\n"
         "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
@@ -2710,10 +2730,16 @@ def ensure_facr_early_pressure_ask(
     """
     if _job_key(history, latest_msg, category_name, model_text) != "facr":
         return reply or ""
-    facts = facr_proves_from_chat(history, latest_msg)
-    if facts.get("facr_pressure") == "ok" or _facr_pressures_already_asked(history):
-        return reply or ""
+    facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
     text = (reply or "").strip()
+    pressures_in = facts.get("facr_pressure") == "ok"
+    already = _facr_pressures_already_asked(history)
+    if pressures_in or already:
+        if _FACR_PRESSURE_ASK_RE.search(text) and not reply_names_rooftop_assembly_rr(text):
+            nxt = _strip_facr_internal_guard(_facr_stay_on_prove_line(facts, history))
+            if nxt and not _FACR_PRESSURE_ASK_RE.search(nxt):
+                return nxt
+        return text
     if _FACR_PRESSURE_ASK_RE.search(text):
         return text
     ask = "Read the refrigerant pressures."
@@ -5023,7 +5049,7 @@ def _proved_shop_reply(
     if job == "leadjack" and _leadjack_stage(history, latest_msg) == "cartridge":
         return LEADJACK_CARTRIDGE_LINE
     if job == "facr":
-        facr_facts = facr_proves_from_chat(history, latest_msg)
+        facr_facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
             return facr_pressure_rr_line(facr_facts)
         if facr_gate_turn_authorizes(facr_facts, history, latest_msg):
@@ -5121,13 +5147,13 @@ def _conditional_lines(
             "The repair is to replace the fan motor and the control board only.",
         ]
     if job == "facr":
-        facr_facts = facr_proves_from_chat(history, latest_msg)
+        facr_facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
             return [facr_pressure_rr_line(facr_facts)]
         if facr_gate_turn_authorizes(facr_facts, history, latest_msg):
             return [facr_reported_assembly_rr_line(facr_facts)]
         if facr_facts.get("facr_pressure") == "ok":
-            return [_facr_stay_on_prove_line(facr_facts)]
+            return [_facr_stay_on_prove_line(facr_facts, history)]
         return _facr_pending_prompts(facr_facts, history)
     if job == "fact12":
         if re.search(r"\be\s*3\b", user + " " + prior):
@@ -6854,13 +6880,13 @@ def _live_close_reply(
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
     if job == "facr":
-        facts = facr_proves_from_chat(history, latest_msg)
+        facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
             return facr_pressure_rr_line(facts)
         if facr_gate_turn_authorizes(facts, history, latest_msg):
             return facr_reported_assembly_rr_line(facts)
         if facts.get("facr_pressure") == "ok":
-            return _facr_stay_on_prove_line(facts)
+            return _facr_stay_on_prove_line(facts, history)
         return ""
     if job == "ice" and _ice_cooling_unit_ready(blob):
         return ICE_COOLING_UNIT_LINE
@@ -6927,7 +6953,7 @@ def _avoid_duplicate_reply_body(
             _job_key(history, latest_msg, category_name, model_text) == "facr"
             and re.search(r"read the freeze sensor", text or "", re.I)
         ):
-            facts = facr_proves_from_chat(history, latest_msg)
+            facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
             if (
                 facr_gate_turn_authorizes(facts, history, latest_msg)
                 or facr_pressure_authorizes_rr(facts)
