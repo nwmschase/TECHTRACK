@@ -118,7 +118,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.52"
+MODULE_REVISION = "v4.19.51"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -956,6 +956,12 @@ def _facr_path() -> dict:
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
+            "Do not condemn the unit on pressures alone.",
+            "Do not run the unit without filters.",
+            "Do not use an open flame near R32.",
+            "Do not slide the unit.",
+            "Do not change DIP switches with the power on.",
+            "Do not use the troubleshooting manual part numbers on this 8K unit.",
         ],
         "sources": [
             {
@@ -1628,8 +1634,10 @@ def _rejoin_ocr_splits(text: str) -> str:
             trail_s = trail.group(0) if trail else ""
             lead = re.match(r"^[^A-Za-z0-9]+", word)
             lead_s = lead.group(0) if lead else ""
+            bare = word[len(lead_s):]
             if (
                 len(core) == 1
+                and bare == core
                 and core.lower() not in _OCR_ARTICLE
                 and 3 <= len(ncore) <= 6
                 and ncore.isalpha()
@@ -6161,7 +6169,6 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
             "Never use automotive antifreeze. Use RV potable antifreeze only.",
             "If ice is in the toilet, do not flush until the ice thaws.",
             "When using air pressure to blow water from the lines, the toilet valve must be open.",
-            "Do not order a part number that is not on the sheet.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6517,9 +6524,11 @@ def cited_figure_count(proc: "BayProcedure") -> int:
 
     for fig in proc.figures or []:
         _add(getattr(fig, "image_png", b"") or b"", fig)
-    for group in proc.step_figures or []:
-        for fig in group or []:
-            _add(getattr(fig, "image_png", b"") or b"", fig)
+    # A numbered repair draws its own figures. Diagnosis crops are not painted.
+    if not proc.procedures:
+        for group in proc.step_figures or []:
+            for fig in group or []:
+                _add(getattr(fig, "image_png", b"") or b"", fig)
     for procedure in proc.procedures or []:
         for step in procedure.get("steps") or []:
             figure = step.get("figure") or {}
@@ -6594,10 +6603,18 @@ def _confirmed_thetford_kind(proc: BayProcedure, history=None) -> str:
     return marks[-1][1]
 
 
+def _procedure_keeps_repeated_figures(procedure: dict) -> bool:
+    """FACR cites the same library page on more than one step. Each cite keeps the image."""
+    title = (procedure or {}).get("title") or ""
+    return bool(re.search(r"FACR08|2024006031", title))
+
+
 def _drop_repeated_procedure_figures(procedures: list) -> None:
     """The first step that uses a crop keeps it. Later steps stay text."""
     seen = set()
     for procedure in procedures or []:
+        if _procedure_keeps_repeated_figures(procedure):
+            continue
         for step in procedure.get("steps") or []:
             figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
             png = (figure or {}).get("png") or b""
@@ -6632,6 +6649,88 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     if layout.get("steps"):
         proc.procedures = [layout]
     _drop_repeated_procedure_figures(proc.procedures)
+    return proc
+
+
+def _facr_doc_token(text: str) -> str:
+    """8666 or 7990 when this title is one of the two FACR library docs."""
+    raw = text or ""
+    low = re.sub(r"[\s_]", "", raw.lower())
+    if "ccd-0008666" in raw.lower() or "ccd0008666" in low:
+        return "8666"
+    if "ccd-0007990" in raw.lower() or "ccd0007990" in low:
+        return "7990"
+    return ""
+
+
+def place_facr_library_figures(proc: BayProcedure, rows) -> BayProcedure:
+    """Copy a library PNG onto the procedure step that cites that doc and page.
+
+    A row for another document or another page is left unused. No bundled crop
+    is read from disk. A step that names a figure without a page stays text.
+    """
+    import manual_figures as mf
+
+    if not proc.procedures or not rows:
+        return proc
+    if not any(_procedure_keeps_repeated_figures(item) for item in proc.procedures):
+        return proc
+    indexed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        png = row.get("png") or row.get("image_png") or b""
+        if not png or mf.png_is_blank(png):
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "file_path", "caption", "label")
+        )
+        doc = _facr_doc_token(blob)
+        if not doc:
+            continue
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if page <= 0:
+            continue
+        indexed.append((doc, page, png))
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            page = figure.get("page")
+            if not page:
+                continue
+            doc = _facr_doc_token(figure.get("title") or "")
+            if not doc:
+                continue
+            try:
+                want = int(page)
+            except (TypeError, ValueError):
+                continue
+            for idoc, ipage, png in indexed:
+                if idoc == doc and ipage == want:
+                    figure["png"] = png
+                    break
+    return proc
+
+
+def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
+    """Proving checks and rooftop R&R. Attached after the sheet scrub so cites stay.
+
+    The short bay order and the flowchart stay the diagnosis. The numbered
+    checks live on the procedure, which the scrub does not rewrite.
+    """
+    import manual_figures as mf
+
+    if not is_facr_rooftop_freeze_context(proc.category, proc.model, proc.concern):
+        return proc
+    proving = mf.facr_proving_layout()
+    repair = mf.facr_rr_layout()
+    proc.procedures = [item for item in (proving, repair) if item.get("steps")]
     return proc
 
 
@@ -6770,7 +6869,7 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
             )
             break
     proc.step_figures = placed
-    return place_thetford_kit_crops(proc)
+    return place_facr_library_figures(place_thetford_kit_crops(proc), rows)
 
 
 def _plain_kit_procedures(packets, job: str) -> list:
@@ -7164,9 +7263,11 @@ def compile_bay_procedure(
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
     return dedupe_sheet_figures(
-        attach_thetford_repair_procedures(
-            place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
-            history=history,
+        attach_facr_procedures(
+            attach_thetford_repair_procedures(
+                place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
+                history=history,
+            )
         )
     )
 
@@ -8524,58 +8625,44 @@ def _add_manual_figure(cur: _SheetFlow, fig: BayFigure):
 
 
 def _add_step(cur: _SheetFlow, index: int, step: str):
+    """One bay-order step: a bold heading, then labeled lines, with space after it."""
+    import manual_figures as mf
+
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
-    block = measure_text(f"{index}. {step}", text_w, 8.5, leading=11.2)
-    gap = 8.0
+    heading, lines = mf.lines_from_shop_text(step, index)
+    head = measure_text(heading, text_w, 9, bold=True, leading=11.6)
+    body = measure_text("\n".join(lines), text_w, 8.5, leading=11.0) if lines else None
+    gap = 10.0
+    block_h = head.height + (3.0 + body.height if body else 0.0)
 
     def continued(flow: _SheetFlow):
         flow.new_page("Bay order continued")
-        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=block.height)
+        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=min(block_h, 48))
 
-    if block.height + gap > cur.remaining():
+    if block_h + gap > cur.remaining():
         fresh = cur.banner_bottom - 8.0 - cur.floor - 40.0
-        if block.height + gap <= fresh:
+        if block_h + gap <= fresh:
             continued(cur)
-        # else the emitter splits the step
-    checkbox = True
 
-    def paint_piece(piece: TextMeasure, with_box: bool):
-        if with_box:
-            baseline = cur.y - piece.ascent
-            mid = baseline + (piece.ascent - piece.descent) / 2.0
-            box = 8.0
-            cur.page.shapes.append(
-                DrawnShape(
-                    "rect", MARGIN + 8, mid - box / 2.0, box, box,
-                    fill=WHITE, stroke=NAVY, stroke_w=0.9,
-                    id=_next_id("check"), role="check",
-                )
+    def paint_check():
+        baseline = cur.y - head.ascent
+        mid = baseline + (head.ascent - head.descent) / 2.0
+        box = 8.0
+        cur.page.shapes.append(
+            DrawnShape(
+                "rect", MARGIN + 8, mid - box / 2.0, box, box,
+                fill=WHITE, stroke=NAVY, stroke_w=0.9,
+                id=_next_id("check"), role="check",
             )
-        _paint_measured(cur, piece, x=text_x, size=8.5, bold=False, color=INK, role="body", owner="", gap_after=gap)
+        )
 
-    if block.height + gap <= cur.remaining():
-        paint_piece(block, True)
-        return
-    idx = 0
-    first = True
-    while idx < len(block.lines):
-        if not first:
-            continued(cur)
-        take = 1
-        while idx + take < len(block.lines):
-            nxt = _chunk_lines(block, block.lines[idx : idx + take + 1])
-            if nxt.height + gap <= cur.remaining():
-                take += 1
-            else:
-                break
-        piece = _chunk_lines(block, block.lines[idx : idx + take])
-        if piece.height + gap > cur.remaining():
-            continued(cur)
-        paint_piece(piece, checkbox and idx == 0)
-        checkbox = False
-        idx += take
-        first = False
+    if block_h + gap > cur.remaining():
+        continued(cur)
+    paint_check()
+    _paint_measured(cur, head, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0)
+    if body:
+        _paint_measured(cur, body, x=text_x, size=8.5, bold=False, color=INK, role="body", owner="", gap_after=gap)
 
 
 def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None, allow_break: bool = True):
@@ -8876,7 +8963,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     import manual_figures as mf
 
     title = procedure.get("title") or "Repair procedure"
-    _add_plain_item(body, "REPAIR PROCEDURE", size=10, gap=2)
+    _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
     if before:
@@ -8885,11 +8972,17 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
     section = ""
+    shown_safety = None
     for index, step in enumerate(steps, 1):
         section_label = ""
         if step.get("section") != section:
             section = step.get("section") or ""
-            section_label = "REMOVAL" if section == "removal" else "INSTALLATION"
+            shown_safety = None
+            section_label = {
+                "removal": "REMOVAL",
+                "installation": "INSTALLATION",
+                "prove": "PROVING CHECKS",
+            }.get(section, "")
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
@@ -8914,17 +9007,37 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
                 )
             cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
         text_w = _CONTENT_W - 20.0 - ((fig_w + 14.0) if has else 0)
-        sentences = mf.step_sentences(step)
-        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
+        safety = mf.step_safety_text(step)
+        safety_line = ""
+        if safety and safety != shown_safety:
+            safety_line = safety if str(safety).endswith((".", "!", "?")) else f"{safety}."
+            safety_line = f"Safety: {safety_line}"
+            shown_safety = safety
+        heading = mf.step_heading(step, index)
+        body_lines = mf.step_body_lines(step, show_safety=False, show_photo=False)
+        if safety_line:
+            body_lines = [safety_line, *body_lines]
+
+        def _measure_step(width: float):
+            head_m = measure_text(heading, width, 9, bold=True, leading=11.6)
+            body_m = (
+                measure_text("\n".join(body_lines), width, 8, leading=10.8)
+                if body_lines
+                else None
+            )
+            text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
+            return head_m, body_m, text_h
+
+        head_m, body_m, text_h = _measure_step(text_w)
         caption_h = (cap_m.height + 6.0) if cap_m else 0.0
         pair_h = (fig_h + caption_h) if has else 0.0
-        row = max(block.height + 8.0, pair_h + 6.0)
+        row = max(text_h + 10.0, pair_h + 6.0)
         if step.get("caution"):
             row += 22.0
         heading_h = 0.0
         if section_label:
-            heading_h = measure_text(section_label, _CONTENT_W - 16.0, 9, leading=11.6).height + 3.0
-        if row + heading_h + 6 > body.remaining():
+            heading_h = measure_text(section_label, _CONTENT_W - 16.0, 9, leading=11.6).height + 6.0
+        if row + heading_h + 8 > body.remaining():
             body.new_page("Repair procedure")
         if has and pair_h + 8.0 > body.remaining():
             width, height = _png_pixel_size(png)
@@ -8938,29 +9051,23 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             caption_h = cap_m.height + 6.0
             pair_h = fig_h + caption_h
             text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
-            block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
-            row = max(block.height + 8.0, pair_h + 6.0)
+            head_m, body_m, text_h = _measure_step(text_w)
+            row = max(text_h + 10.0, pair_h + 6.0)
             if step.get("caution"):
                 row += 22.0
-            if row + heading_h + 6 > body.remaining():
+            if row + heading_h + 8 > body.remaining():
                 body.new_page("Repair procedure")
         if section_label:
-            _add_plain_item(body, section_label, size=9, gap=3, allow_break=False)
+            _add_plain_item(body, section_label, size=9, gap=6, allow_break=False)
         top = body.y
-        baseline = top - block.ascent
-        body.page.texts.append(
-            DrawnText(
-                "\n".join(block.lines),
-                MARGIN + 8,
-                baseline,
-                w=max(block.width, 12),
-                size=8,
-                color=INK,
-                leading=block.leading,
-                lines=list(block.lines),
-                role="body",
-            )
+        body.y = top
+        _paint_measured(
+            body, head_m, x=MARGIN + 8, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0
         )
+        if body_m:
+            _paint_measured(
+                body, body_m, x=MARGIN + 8, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0
+            )
         if has:
             img_x = MARGIN + _CONTENT_W - fig_w
             img_bottom = top - fig_h
@@ -8980,9 +9087,30 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
                     role="caption",
                 )
             )
-        body.y = top - max(block.height, pair_h) - 4.0
+        body.y = top - max(text_h, pair_h) - 10.0
         if step.get("caution"):
             _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
+
+
+def _do_not_block_height(items: list[str]) -> float:
+    """Heading plus every bullet. The list moves as one block."""
+    total = 28.0
+    for item in items:
+        block = measure_text(f"- {item}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+        total += block.height + 6.0
+    return total
+
+
+def _paint_do_not(body: "_SheetFlow", items: list[str]) -> None:
+    """Keep the DO NOT heading and every bullet on the same page."""
+    if not items:
+        return
+    if _do_not_block_height(items) > body.remaining():
+        body.new_page("Do not  ·  Tacoma RV Center")
+    first = measure_text(f"- {items[0]}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+    _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36), allow_break=False)
+    for item in items:
+        _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, allow_break=False)
 
 
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
@@ -9051,17 +9179,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
                     _add_manual_figure(body, fig)
                     shown_figures.add(fig.image_png)
     if proc.do_not:
-        first = measure_text(f"- {proc.do_not[0]}", _CONTENT_W - 16, 8.5, leading=11.1)
-        if body.remaining() < 16 + 12 + min(first.height, 24):
-            body.new_page("Do not  ·  Tacoma RV Center")
-        _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36))
-
-        def _do_break(flow: _SheetFlow):
-            flow.new_page("Do not  ·  Tacoma RV Center")
-            _add_section(flow, "DO NOT", RED, follow_h=20)
-
-        for item in proc.do_not:
-            _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
+        _paint_do_not(body, proc.do_not)
     sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
     _paint_fitting_sources(body, sources)
 
