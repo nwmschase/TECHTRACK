@@ -17,7 +17,7 @@ from sqlalchemy import text
 import manual_figures as mf
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.45"
+MODULE_REVISION = "v4.19.46"
 
 # Measured at 150 dpi from the two kit fixtures (42109 one page, 34123 two
 # pages). Mean page PNG 519584 bytes. Mean of five crops 82040 bytes.
