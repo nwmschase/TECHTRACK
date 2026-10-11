@@ -768,8 +768,7 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         self.assertIn("confirmed correction", facr_order)
         self.assertGreaterEqual(len(compose_sheet(ice)), 2)
         self.assertLessEqual(len(compose_sheet(ice)), 3)
-        self.assertGreaterEqual(len(compose_sheet(facr)), 2)
-        self.assertLessEqual(len(compose_sheet(facr)), 3)
+        self.assertGreaterEqual(len(compose_sheet(facr)), 4)
         for proc in (ice, facr):
             body = procedure_body_text(proc)
             self.assertFalse(body_tells_tech_to_open_manual(body))

@@ -91,7 +91,9 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         self.assertFalse(any("3412" in title for title in titles))
         self.assertEqual(len(proc.procedures), 1)
         valve = proc.procedures[0]
-        self.assertEqual(len(valve["steps"]), 13)
+        self.assertGreater(len(valve["steps"]), 13)
+        for step in valve["steps"]:
+            self.assertLessEqual(len(step.get("actions") or []), 2)
         water = valve["steps"][0]
         pedal = next(
             step for step in valve["steps"]
@@ -183,8 +185,10 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             line = mf.thetford_proving_line(key)
             self.assertNotIn("Not stated in this sheet", line)
             self.assertNotIn("UNCONFIRMED", line)
-            self.assertIn("HOW:", line)
-            self.assertIn("PHOTO:", line)
+            self.assertIn("Do this:", line)
+            self.assertIn(mf.PHOTO_VISUAL, line)
+            self.assertNotIn("PHOTO:", line)
+            self.assertNotIn("A photo is optional.", line)
             self.assertNotIn("SAFETY:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
             self.assertIn("📖 Source:", line)
@@ -202,7 +206,7 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             )
             self.assertNotIn("Not stated in this sheet", reply)
             self.assertNotIn("UNCONFIRMED", reply)
-            self.assertIn("HOW:", reply)
+            self.assertIn("Do this:", reply)
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
             latest = "Not checked yet"
@@ -482,8 +486,10 @@ class TestS20BleedReply(unittest.TestCase):
         from gd_library_coach import LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT
 
         for body in (LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT):
-            self.assertIn("Yes, go to the next step.", body)
-            self.assertIn("No, do this step again.", body)
+            self.assertIn("**Step 1: Bleed and resync the jacks**", body)
+            self.assertIn("Do this:", body)
+            self.assertNotIn("Yes, go to the next step.", body)
+            self.assertNotIn("No, do this step again.", body)
             self.assertNotIn("Part 177094 is the cartridge valve", body)
             self.assertNotIn("177094", body)
 

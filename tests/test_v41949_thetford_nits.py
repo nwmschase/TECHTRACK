@@ -67,7 +67,7 @@ class TestLeakTestStep(unittest.TestCase):
         self.assertIn("dry at the pedal and valve", good)
         self.assertIn("any drip", good)
         self.assertIn("recheck the seal and the nuts", good)
-        self.assertIn("GOOD vs BAD: Flush 3 times.", shown)
+        self.assertIn("Good looks like: Flush 3 times.", shown)
         self.assertIn("At the pedal and the water valve.", shown)
 
     def test_the_done_line_keeps_look_for_leaks(self):
@@ -126,7 +126,9 @@ class TestInstructionTextStaysOffTheReply(unittest.TestCase):
             "Plumbing / Toilets",
             "Thetford 42070",
         )
-        self.assertEqual(offers, [])
+        self.assertTrue(offers)
+        self.assertTrue(offers[0].get("png"))
+        self.assertNotIn("will display the shop", (offers[0].get("caption") or "").lower())
         backfill = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
             "library_figure_backfill.py"
         ).read_text(encoding="utf-8")
@@ -136,7 +138,9 @@ class TestInstructionTextStaysOffTheReply(unittest.TestCase):
 class TestPedalPullIsOneStep(unittest.TestCase):
     def test_the_grab_and_the_pull_share_a_step(self):
         steps = mf.thetford_kit_layout("valve")["steps"]
-        self.assertEqual(len(steps), 13)
+        self.assertGreater(len(steps), 13)
+        for step in steps:
+            self.assertLessEqual(len(step.get("actions") or []), 2)
         hits = [
             step for step in steps
             if "pull the pedal" in " ".join(step.get("actions") or []).lower()
@@ -146,14 +150,16 @@ class TestPedalPullIsOneStep(unittest.TestCase):
         self.assertIn("grab the front of the pedal", actions)
         self.assertIn("pull the pedal up and off", actions)
         breaker = mf.thetford_kit_layout("breaker")["steps"]
-        self.assertEqual(len(breaker), 13)
+        self.assertGreater(len(breaker), 1)
+        for step in breaker:
+            self.assertLessEqual(len(step.get("actions") or []), 1)
 
 
 class TestDiagnosisLines(unittest.TestCase):
     def test_supply_on_bad_tightens_and_the_flange_drops_part_noise(self):
         supply = mf.thetford_proving_body("supply")
         flange = mf.thetford_proving_body("flange")
-        self.assertIn("On bad: fix or tighten the supply connection.", supply)
+        self.assertIn("If it fails: fix or tighten the supply connection.", supply)
         self.assertNotIn("replace the water valve", supply.lower())
         self.assertNotIn("33239", flange)
         self.assertNotIn("42067", flange)
@@ -182,9 +188,9 @@ class TestHeadingsStayWithTheFirstStep(unittest.TestCase):
             tail = page.strip().splitlines()[-1].strip()
             self.assertNotIn(tail, {"REMOVAL", "INSTALLATION"})
             if "\nREMOVAL\n" in f"\n{page}\n" or page.rstrip().endswith("REMOVAL"):
-                self.assertIn("WHERE:", page)
+                self.assertIn("Where:", page)
             if "\nINSTALLATION\n" in f"\n{page}\n" or page.rstrip().endswith("INSTALLATION"):
-                self.assertIn("WHERE:", page)
+                self.assertIn("Where:", page)
         joined = "\n".join(pages)
         self.assertIn("Turn the RV water on for the leak test.", joined)
         self.assertIn("Flush 3 times.", joined)

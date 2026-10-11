@@ -1,4 +1,7 @@
-"""Page images and figure crops for every document in the shop library.
+"""Page images and figure crops for the case manuals a manager selects.
+
+Backfill covers CCD-0008666, CCD-0007990, and the Thetford Style II docs.
+It does not queue the rest of the library.
 
 Rendering uses the same 150 dpi cropper as a single upload. The PNG is stored
 in R2 at image_path. The database row keeps that key, the caption, the page,
@@ -17,7 +20,7 @@ from sqlalchemy import text
 import manual_figures as mf
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.52"
+MODULE_REVISION = "v4.19.53"
 
 # Measured at 150 dpi from the two kit fixtures (42109 one page, 34123 two
 # pages). Mean page PNG 519584 bytes. Mean of five crops 82040 bytes.
@@ -335,7 +338,10 @@ def store_pdf_figures(
 def _pdf_documents(session) -> list[dict]:
     rows = _all(
         session,
-        "SELECT id, title, file_path, file_type FROM documents ORDER BY id",
+        """
+        SELECT id, title, file_path, file_type, brand, clean_title, doc_number, models
+        FROM documents ORDER BY id
+        """,
     )
     kept = []
     for row in rows:
@@ -344,6 +350,32 @@ def _pdf_documents(session) -> list[dict]:
         if kind == "pdf" or path.endswith(".pdf"):
             kept.append(row)
     return kept
+
+
+_CASE_CCD_RE = re.compile(r"CCD-?0*8666|CCD-?0*7990|\b0008666\b|\b0007990\b", re.I)
+_CASE_PART_RE = re.compile(r"\b(?:42088|42109|42049|34122|34123)\b")
+_CASE_STYLE_RE = re.compile(r"style\s*ii", re.I)
+_THETFORD_RE = re.compile(r"thetford", re.I)
+
+
+def case_backfill_document(doc: dict) -> bool:
+    """True for the Furrion FACR manuals and the Thetford Style II docs.
+
+    CCD-0008666, CCD-0007990, the Style II owner manual, the 42109 water
+    valve kit, and the 34123/34122 vacuum breaker. Other manuals stay out.
+    """
+    blob = " ".join(
+        str(doc.get(key) or "")
+        for key in ("title", "clean_title", "file_path", "brand", "doc_number", "models")
+    )
+    if _CASE_CCD_RE.search(blob) or _CASE_PART_RE.search(blob):
+        return True
+    return bool(_THETFORD_RE.search(blob) and _CASE_STYLE_RE.search(blob))
+
+
+def case_backfill_documents(session) -> list[dict]:
+    """PDFs the per-case backfill is allowed to render."""
+    return [doc for doc in _pdf_documents(session) if case_backfill_document(doc)]
 
 
 def estimated_figure_count(pages: int) -> int:
@@ -418,14 +450,15 @@ def format_r2_projection(est: dict) -> str:
 
 
 def estimate_backfill(session) -> dict:
-    """Bytes the backfill would write for the PDFs already in this database.
+    """Bytes the per-case backfill would write.
 
+    Only CCD-0008666, CCD-0007990, and the Thetford Style II docs are counted.
     Page images are one PNG per page (the highest chunk page, or 1). Figure
     crops use the kit-sheet rate from the measured sample, which is higher
     than a text manual. The bytes are the R2 objects only.
     """
     ensure_ready(session)
-    docs = _pdf_documents(session)
+    docs = case_backfill_documents(session)
     pages = 0
     for doc in docs:
         row = _one(
@@ -474,7 +507,7 @@ def estimate_caption(est: dict) -> str:
     rate = float(est.get("crops_per_page") or 0)
     if docs == 0 or pages == 0:
         return (
-            "No manuals are in this database, so the backfill would store 0 bytes in R2. "
+            "No case manual is selected, so the backfill would store 0 bytes in R2. "
             f"A 150 dpi page image is about {page_kb:.0f} KB and a figure crop is about {crop_kb:.0f} KB. "
             "The database stores the key, caption, page, box, and chunk link, not a second copy of the PNG. "
             f"The kit sheets used for that measurement averaged {rate:.1f} crops per page. "
@@ -489,7 +522,7 @@ def estimate_caption(est: dict) -> str:
         "The database stores the key, caption, page, box, and chunk link, not the PNG. "
         f"Measured page image about {page_kb:.0f} KB, crop about {crop_kb:.0f} KB. "
         "A text manual has fewer crops than those kit sheets. "
-        "This count is the manuals in this database."
+        "This count is CCD-0008666, CCD-0007990, and the Thetford Style II docs."
     )
 
 
@@ -540,10 +573,39 @@ def open_job(session):
     return row
 
 
-def ensure_job(session) -> int:
-    """Open a backfill for every PDF, or return the job that still has work."""
+def _job_document_ids(session, job_id: int) -> set[int]:
+    rows = _all(
+        session,
+        "SELECT document_id FROM figure_backfill_items WHERE job_id = :id",
+        {"id": int(job_id)},
+    )
+    return {int(row["document_id"]) for row in rows}
+
+
+def pdf_choices(session) -> list[dict]:
+    """Case manuals a manager can backfill. The rest of the library is not listed."""
+    return [
+        {"id": int(doc["id"]), "title": (doc.get("title") or f"Document {doc['id']}").strip()}
+        for doc in case_backfill_documents(session)
+    ]
+
+
+def ensure_job(session, document_ids=None) -> int:
+    """Open a backfill for the selected case manuals.
+
+    A missing selection does not queue the library. Ids outside CCD-0008666,
+    CCD-0007990, and the Thetford Style II docs are dropped. A new selection
+    does not resume a job for a different set of manuals.
+    """
+    catalog = case_backfill_documents(session)
+    allowed = {int(doc["id"]) for doc in catalog}
+    if not document_ids:
+        return 0
+    wanted = {int(doc_id) for doc_id in document_ids} & allowed
+    if not wanted:
+        return 0
     current = open_job(session)
-    if current:
+    if current and _job_document_ids(session, int(current["id"])) == wanted:
         return int(current["id"])
     now = _now()
     session.execute(
@@ -559,7 +621,9 @@ def ensure_job(session) -> int:
     session.commit()
     job = _one(session, "SELECT id FROM figure_backfill_jobs ORDER BY id DESC LIMIT 1")
     job_id = int(job["id"])
-    for doc in _pdf_documents(session):
+    for doc in catalog:
+        if int(doc["id"]) not in wanted:
+            continue
         session.execute(
             text(
                 """
@@ -1276,12 +1340,22 @@ def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> li
     return groups
 
 
+def _om_page_caption(item: dict) -> bool:
+    """The Style II owner manual page caption is not a kit figure label."""
+    blob = f"{item.get('title') or ''} {item.get('caption') or ''} {item.get('label') or ''}"
+    if re.search(r"\b42088\b", blob) and re.search(r"/\s*page\b", item.get("caption") or "", re.I):
+        return True
+    return (item.get("label") or "") == "page" and bool(re.search(r"\b42088\b", blob))
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
-    A bundled kit sheet is not a caption the tech sees.
+    A bundled kit sheet is not a caption the tech sees. A numbered valve step
+    shows the kit label, not the owner-manual page caption.
     """
     chosen = select_library_figures(rows, reply, user_msg, category, model)
+    kit_caption = mf.thetford_procedure_show_caption(reply)
     visible = []
     for item in chosen or []:
         if item.get("bundled"):
@@ -1289,7 +1363,25 @@ def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) 
         caption = item.get("caption") or ""
         if re.search(r"bundled kit sheet", caption, re.I):
             continue
+        if kit_caption and (_om_page_caption(item) or (item.get("label") or "") == "page"):
+            continue
+        if kit_caption and "42109" not in f"{item.get('title') or ''} {caption} {item.get('label') or ''}":
+            continue
+        if kit_caption:
+            item = dict(item)
+            item["caption"] = kit_caption
+            item["label"] = kit_caption
         visible.append(item)
+    if kit_caption and not visible:
+        offer = mf.thetford_procedure_show_offer(reply)
+        if offer:
+            visible = [offer]
+    asked = mf.wants_manual_image(user_msg) or bool(re.search(r"\bshow\b", user_msg or "", re.I))
+    has_art = any((row or {}).get("png") for row in (rows or []))
+    if not visible and asked and not has_art:
+        offer = mf.thetford_show_offer(reply, user_msg)
+        if offer and offer.get("png"):
+            visible = [offer]
     return visible
 
 

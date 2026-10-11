@@ -36,9 +36,13 @@ def _packet(title, path):
 
 
 def _assert_fields(case, text):
-    """A printed step keeps the action and the photo line, and leaves blanks off."""
-    case.assertIn("HOW:", text)
-    case.assertIn("PHOTO:", text)
+    """A printed step has a heading and a Do this list. Blanks and the photo script stay off."""
+    case.assertRegex(text, r"Step \d+:")
+    case.assertIn("Do this:", text)
+    case.assertNotIn("HOW:", text)
+    case.assertNotIn("PHOTO:", text)
+    case.assertNotIn("Yes, go to the next step.", text)
+    case.assertNotIn("A photo is optional.", text)
     case.assertNotIn("UNCONFIRMED", text)
     case.assertNotIn("Not stated in this sheet", text)
 
@@ -52,11 +56,12 @@ class TestThetfordStepTemplate(unittest.TestCase):
             THETFORD_FLANGE_LINE,
         ):
             _assert_fields(self, line)
-            self.assertIn("WHERE:", line)
+            self.assertIn("Where:", line)
+            self.assertIn("**Step ", line)
             self.assertNotIn("SAFETY:", line)
+            self.assertNotIn("Safety:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
-            self.assertIn("Take a photo", line)
-            self.assertIn("A photo is optional.", line)
+            self.assertEqual(line.count(mf.PHOTO_VISUAL), 1)
 
     def test_gd_walk_keeps_the_fields_on_every_check(self):
         history = []
@@ -110,8 +115,11 @@ class TestThetfordStepTemplate(unittest.TestCase):
         doc = pymupdf.open(stream=render_bay_procedure_pdf(proc), filetype="pdf")
         pdf = "\n".join(page.get_text() for page in doc).lower()
         doc.close()
-        self.assertIn("how:", pdf)
-        self.assertIn("photo:", pdf)
+        self.assertIn("do this:", pdf)
+        self.assertIn("step 1:", pdf)
+        self.assertNotIn("photo:", pdf)
+        self.assertNotIn("a photo is optional", pdf)
+        self.assertNotIn("yes, go to the next step", pdf)
         self.assertNotIn("unconfirmed", pdf)
 
 
