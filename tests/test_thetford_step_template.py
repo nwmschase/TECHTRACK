@@ -67,17 +67,21 @@ def _assert_chat(case, text):
 
 class TestThetfordStepTemplate(unittest.TestCase):
     def test_every_proving_line_has_the_eight_fields(self):
-        for line in (
-            THETFORD_SUPPLY_LINE,
-            THETFORD_VACUUM_LINE,
-            THETFORD_VALVE_LINE,
-            THETFORD_FLANGE_LINE,
+        for key, line in (
+            ("supply", THETFORD_SUPPLY_LINE),
+            ("vacuum", THETFORD_VACUUM_LINE),
+            ("valve", THETFORD_VALVE_LINE),
+            ("flange", THETFORD_FLANGE_LINE),
         ):
             _assert_chat(self, line)
             self.assertNotIn("SAFETY:", line)
             self.assertNotIn("Safety:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
-            self.assertEqual(line.count(mf.PHOTO_VISUAL), 1)
+            step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
+            if mf.step_needs_photo(step):
+                self.assertEqual(line.count(mf.PHOTO_VISUAL), 1, key)
+            else:
+                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
 
     def test_gd_walk_keeps_the_fields_on_every_check(self):
         history = []

@@ -6678,7 +6678,10 @@ def _supply_branch() -> dict:
     return {
         "title": "Supply connection",
         "heading": "REPAIR BRANCH",
-        "before": ["Fix the supply connection before you open a kit."],
+        "before": [
+            "Turn the RV water off before this work.",
+            "Fix the supply connection before you open a kit.",
+        ],
         "steps": [
             _branch_step(
                 "Check the water supply line connection.",
@@ -6686,6 +6689,7 @@ def _supply_branch() -> dict:
                 "The connection is dry.",
                 "The leak persists from the water valve.",
                 "Go to the next branch.",
+                section="removal",
             ),
             _branch_step(
                 "Fix or tighten the supply connection.",
@@ -6693,6 +6697,7 @@ def _supply_branch() -> dict:
                 "The connection is dry.",
                 "The leak persists from the water valve.",
                 "Confirm the connection.",
+                section="installation",
             ),
             _confirm_step("Back of the toilet."),
         ],
@@ -6703,7 +6708,10 @@ def _flange_branch() -> dict:
     return {
         "title": "Flange and seal",
         "heading": "REPAIR BRANCH",
-        "before": ["Use closet flange seal 02125 when the flange is the leak."],
+        "before": [
+            "Turn the RV water off before this work.",
+            "Use closet flange seal 02125 when the flange is the leak.",
+        ],
         "steps": [
             _branch_step(
                 "Check the flange is 7/16 inch above the floor.",
@@ -6711,6 +6719,7 @@ def _flange_branch() -> dict:
                 "The flange is dry.",
                 "The leak continues.",
                 "Replace the seal if it leaks.",
+                section="removal",
             ),
             _branch_step(
                 "Replace flange seal 02125.",
@@ -6718,10 +6727,49 @@ def _flange_branch() -> dict:
                 "The new seal is seated.",
                 "The leak continues.",
                 "Confirm the flange.",
+                section="installation",
             ),
             _confirm_step("At the closet flange, under the toilet."),
         ],
     }
+
+
+def _safety_sentences(text: str) -> list[str]:
+    """Real safety sentences. A not-stated filler is not a note."""
+    out = []
+    for piece in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        sentence = piece.strip()
+        if not sentence or re.search(r"not stated|unconfirmed", sentence, re.I):
+            continue
+        if sentence[-1] not in ".!?":
+            sentence += "."
+        out.append(sentence)
+    return out
+
+
+def hoist_branch_safety(procedure: dict) -> dict:
+    """The safety note used most often lives in Before you start, once."""
+    import manual_figures as mf
+
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for step in procedure.get("steps") or []:
+        for sentence in _safety_sentences(mf.step_safety_text(step)):
+            key = sentence.lower()
+            if key not in counts:
+                order.append(sentence)
+                counts[key] = 0
+            counts[key] += 1
+    if not order:
+        return procedure
+    before = list(procedure.get("before") or [])
+    blob = " ".join(before).lower()
+    pending = [sentence for sentence in order if sentence.rstrip(".").lower() not in blob]
+    if not pending:
+        return procedure
+    note = max(pending, key=lambda sentence: counts[sentence.lower()])
+    procedure["before"] = [note, *before]
+    return procedure
 
 
 def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
@@ -6744,14 +6792,14 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     order = " ".join(proc.bay_order).lower()
     if "vacuum" not in order and "42109" not in order and "water valve" not in order:
         return proc
-    branches = [_supply_branch()]
+    branches = [hoist_branch_safety(_supply_branch())]
     for kind in ("breaker", "valve"):
         layout = mf.thetford_kit_layout(kind)
         if layout.get("steps"):
-            branched = ensure_verify_step(layout)
+            branched = hoist_branch_safety(ensure_verify_step(layout))
             branched["heading"] = "REPAIR BRANCH"
             branches.append(branched)
-    branches.append(_flange_branch())
+    branches.append(hoist_branch_safety(_flange_branch()))
     proc.procedures = branches
     _drop_repeated_procedure_figures(proc.procedures)
     return proc
@@ -6833,9 +6881,9 @@ def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
 
     if not is_facr_rooftop_freeze_context(proc.category, proc.model, proc.concern):
         return proc
-    proving = mf.facr_proving_layout()
-    repair = mf.facr_rr_layout()
-    proc.procedures = [ensure_verify_step(item) for item in (proving, repair) if item.get("steps")]
+    proving = hoist_branch_safety(mf.facr_proving_layout())
+    repair = hoist_branch_safety(ensure_verify_step(mf.facr_rr_layout()))
+    proc.procedures = [item for item in (proving, repair) if item.get("steps")]
     return apply_bay_oem_fallback(proc, None)
 
 
@@ -9194,6 +9242,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     """Numbered Removal and Installation. The figure sits under the step that cites it."""
     import manual_figures as mf
 
+    hoist_branch_safety(procedure)
     title = procedure.get("title") or "Repair procedure"
     _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
@@ -9204,29 +9253,31 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
     section = ""
-    shown_safety = None
+    before_blob = " ".join(before).lower()
+    printed_safety: set[str] = set()
     text_x = MARGIN + 8.0
     text_w = _STEP_TEXT_W
     for index, step in enumerate(steps, 1):
         section_label = ""
         if step.get("section") != section:
             section = step.get("section") or ""
-            shown_safety = None
             section_label = {
                 "removal": "REMOVAL",
                 "installation": "INSTALLATION",
-                "prove": "PROVING CHECKS",
+                "prove": "VERIFY",
             }.get(section, "")
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
         cap = _repair_figure_caption(figure) if has else ""
-        safety = mf.step_safety_text(step)
-        safety_line = ""
-        if safety and safety != shown_safety:
-            safety_line = safety if str(safety).endswith((".", "!", "?")) else f"{safety}."
-            safety_line = f"Safety: {safety_line}"
-            shown_safety = safety
+        fresh = []
+        for sentence in _safety_sentences(mf.step_safety_text(step)):
+            key = sentence.rstrip(".").lower()
+            if key in before_blob or key in printed_safety:
+                continue
+            fresh.append(sentence)
+            printed_safety.add(key)
+        safety_line = f"Safety: {' '.join(fresh)}" if fresh else ""
         heading = mf.step_heading(step, index)
         body_lines = mf.step_body_lines(
             step, show_safety=False, show_photo=False, show_figure=False
