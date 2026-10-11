@@ -1,146 +1,35 @@
 """The headless gate reads a SQLite library and an R2 cache, not the Streamlit app."""
-import json
-import sqlite3
+import os
+import struct
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts.thetford_live_gate import main
+from scripts.thetford_live_gate import _keep_figure_detail, main
 
-FIXTURE = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "thetford_live_retrieval.json"
-OM = "Thetford Style II OM Permanent RV Toilet 42088"
+LIBRARY = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "thetford_live_library"
+DB = LIBRARY / "library.sqlite"
+CACHE = LIBRARY / "cache"
 
 
-def _build(db: Path, cache: Path) -> None:
-    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    conn = sqlite3.connect(db)
-    conn.executescript(
-        """
-        CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT);
-        CREATE TABLE documents (
-            id INTEGER PRIMARY KEY,
-            category_id INTEGER,
-            title TEXT,
-            file_path TEXT,
-            keywords TEXT,
-            brand TEXT,
-            product_line TEXT,
-            models TEXT,
-            clean_title TEXT,
-            doc_number TEXT
-        );
-        CREATE TABLE doc_chunks (
-            id INTEGER PRIMARY KEY,
-            document_id INTEGER,
-            category_id INTEGER,
-            title TEXT,
-            page INTEGER,
-            chunk_text TEXT,
-            keywords TEXT
-        );
-        CREATE TABLE doc_assets (
-            id INTEGER PRIMARY KEY,
-            document_id INTEGER,
-            page INTEGER,
-            kind TEXT,
-            label TEXT,
-            image_path TEXT,
-            width INTEGER,
-            height INTEGER,
-            caption TEXT,
-            bbox TEXT,
-            chunk_id INTEGER
-        );
-        """
-    )
-    conn.execute("INSERT INTO categories (id, name) VALUES (1, 'Plumbing / Toilets')")
-    docs = {}
-    for chunk in payload["chunks"]:
-        docs[int(chunk["document_id"])] = (chunk["title"], chunk.get("file_path") or "", chunk.get("brand") or "")
-    for doc_id, (title, file_path, brand) in docs.items():
-        conn.execute(
-            """
-            INSERT INTO documents (
-                id, category_id, title, file_path, keywords, brand, product_line,
-                models, clean_title, doc_number
-            ) VALUES (?, 1, ?, ?, '', ?, '', '', ?, '')
-            """,
-            (doc_id, title, file_path, brand, title),
-        )
-    for index, chunk in enumerate(payload["chunks"], 1):
-        conn.execute(
-            """
-            INSERT INTO doc_chunks (
-                id, document_id, category_id, title, page, chunk_text, keywords
-            ) VALUES (?, ?, 1, ?, ?, ?, '')
-            """,
-            (index, chunk["document_id"], chunk["title"], chunk["page"], chunk["excerpt"]),
-        )
-    assets = list(payload["figures"])
-    assets.append(
-        {
-            "document_id": 3,
-            "title": OM,
-            "page": 3,
-            "kind": "page",
-            "label": "page",
-            "brand": "Thetford",
-            "file_path": "library/42088.pdf",
-        }
-    )
-    assets.append(
-        {
-            "document_id": 3,
-            "title": OM,
-            "page": 7,
-            "kind": "figure",
-            "label": "Step 1",
-            "brand": "Thetford",
-            "file_path": "library/42088.pdf",
-        }
-    )
-    cache.mkdir(parents=True, exist_ok=True)
-    png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-    for index, fig in enumerate(assets, 1):
-        key = f"library/doc{fig['document_id']}-p{fig['page']}-{index}.png"
-        dest = cache / key
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(png)
-        conn.execute(
-            """
-            INSERT INTO doc_assets (
-                id, document_id, page, kind, label, image_path, width, height,
-                caption, bbox, chunk_id
-            ) VALUES (?, ?, ?, ?, ?, ?, 10, 10, ?, '', NULL)
-            """,
-            (
-                index,
-                fig["document_id"],
-                fig["page"],
-                fig.get("kind") or "figure",
-                fig.get("label") or "",
-                key,
-                fig.get("label") or "",
-            ),
-        )
-    conn.commit()
-    conn.close()
+def _png_size(path: Path) -> tuple[int, int]:
+    data = path.read_bytes()
+    return struct.unpack(">II", data[16:24])
 
 
 class TestThetfordLiveGateCli(unittest.TestCase):
-    def test_db_and_cache_build_the_pdf_and_transcript(self):
+    def test_the_fixture_library_scores_ten(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            db = root / "library.db"
-            cache = root / "cache"
-            out = root / "out"
-            _build(db, cache)
-            code = main(["--db", str(db), "--cache", str(cache), "--out", str(out)])
+            out = Path(tmp)
+            code = main(["--db", str(DB), "--cache", str(CACHE), "--out", str(out)])
             report = (out / "report.txt").read_text(encoding="utf-8")
             transcript = (out / "transcript.txt").read_text(encoding="utf-8")
             self.assertEqual(code, 0, report)
-            self.assertIn("PASS", report)
+            self.assertEqual(report.count("Result: 10/10."), 2)
+            self.assertIn("PF-32 MANUAL", report)
+            self.assertNotIn("PF-08 MANUAL", report)
             self.assertTrue((out / "thetford-bay.pdf").stat().st_size > 1000)
             self.assertIn("T2 Tech: Show me where that connection is", transcript)
             self.assertIn("back of the toilet", transcript.lower())
@@ -149,3 +38,63 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             self.assertNotIn("How (", transcript)
             self.assertNotIn("page 7", transcript.lower())
             self.assertNotRegex(transcript, r"Step 1")
+            page = out / "thetford-bay-p01.png"
+            self.assertTrue(page.is_file())
+            width, height = _png_size(page)
+            self.assertEqual((width, height), (765, 990))
+            self.assertTrue((out / "transcript-profile.txt").is_file())
+
+    def test_live_llm_without_a_key_exits_2(self):
+        saved = os.environ.pop("XAI_API_KEY", None)
+        try:
+            code = main([
+                "--live-llm",
+                "--db", str(DB),
+                "--cache", str(CACHE),
+                "--out", "/tmp/thetford-gate-missing-key",
+            ])
+        finally:
+            if saved is not None:
+                os.environ["XAI_API_KEY"] = saved
+        self.assertEqual(code, 2)
+
+    def test_live_llm_calls_grok_and_drops_the_how_block(self):
+        import tempfile
+
+        calls = []
+
+        def fake_complete(messages, **kwargs):
+            calls.append(kwargs)
+            return "How (Thetford, page 7): Tools: not stated. Meter setting: not stated."
+
+        saved = os.environ.get("XAI_API_KEY")
+        os.environ["XAI_API_KEY"] = "test-key"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                with patch("gd_llm.complete_chat", fake_complete):
+                    code = main([
+                        "--live-llm",
+                        "--db", str(DB),
+                        "--cache", str(CACHE),
+                        "--out", str(out),
+                    ])
+                report = (out / "report.txt").read_text(encoding="utf-8")
+                transcript = (out / "transcript.txt").read_text(encoding="utf-8")
+        finally:
+            if saved is None:
+                os.environ.pop("XAI_API_KEY", None)
+            else:
+                os.environ["XAI_API_KEY"] = saved
+        self.assertEqual(code, 0, report)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[0]["providers"], ["xai"])
+        self.assertEqual(calls[0]["models"], {"xai": ["grok-4.6"]})
+        self.assertNotIn("not stated", transcript.lower())
+        self.assertNotIn("How (", transcript)
+        self.assertEqual(report.count("Result: 10/10."), 2)
+
+    def test_a_how_detail_is_not_appended(self):
+        leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."
+        self.assertEqual(_keep_figure_detail(leaked, "Check the valve."), "")
+        self.assertEqual(_keep_figure_detail("Use a 1/2-inch wrench.", "Check the valve."), "Use a 1/2-inch wrench.")

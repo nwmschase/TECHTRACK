@@ -172,8 +172,10 @@ class TestScorecard(unittest.TestCase):
         ])
         rules = profile_check.check_transcript(text)
         summary = profile_check.gate_summary(rules)
-        for number in (1, 2, 6, 8, 9):
+        for number in (1, 2):
             self.assertIn(f"{number}. MANUAL", summary)
+        for number in (6, 8, 9):
+            self.assertIn(f"{number}. PASS", summary)
         self.assertIn("Result: ", summary)
         self.assertIn("/10.", summary)
         self.assertIn("Automatic FAIL: no.", summary)
@@ -189,7 +191,7 @@ class TestScorecard(unittest.TestCase):
         summary = profile_check.gate_summary(profile_check.check_transcript(text))
         self.assertIn("10. FAIL", summary)
         self.assertIn("Automatic FAIL: yes.", summary)
-        self.assertIn("Lines 10.", summary)
+        self.assertRegex(summary, r"Lines .*\b10\b")
 
     def test_a_blame_on_reopen_fails_the_manual_line(self):
         text = _transcript([
@@ -199,19 +201,69 @@ class TestScorecard(unittest.TestCase):
         self.assertIn("9. FAIL", summary)
         self.assertIn("Automatic FAIL: no.", summary)
 
-    def test_thetford_pdf_scorecard_leaves_human_lines_manual(self):
+    def test_thetford_pdf_scorecard_is_ten_of_ten(self):
         rules = profile_check.check_pdf_bytes(render_bay_procedure_pdf(_thetford()))
         self.assertEqual(_failures(rules), [])
         summary = profile_check.gate_summary(rules)
         self.assertTrue(summary.startswith("## Bay PDF scorecard"))
         self.assertIn("2. PASS", summary)
-        self.assertIn("7. MANUAL", summary)
-        self.assertIn("8. MANUAL", summary)
+        self.assertIn("7. PASS", summary)
+        self.assertIn("8. PASS", summary)
+        self.assertIn("Result: 10/10.", summary)
         self.assertIn("Automatic FAIL: no.", summary)
-        self.assertRegex(summary, r"Result: \d+/10\.")
         report = profile_check.format_report(rules)
         self.assertIn("## Bay PDF scorecard", report)
         self.assertTrue(report.endswith("PASS"))
+        pf = _past_fails(rules)
+        manual = [name for name, rule in pf.items() if rule.status == "MANUAL"]
+        self.assertEqual(manual, ["PF-32"])
+
+    def test_an_invented_caption_fails_line_7(self):
+        text = "\n".join([
+            "CONCERN\nleak\nMODEL\n42070\nPRIMARY\nThetford\nDIAGNOSIS\nYES\nNO\n",
+            "REMOVAL\nStep 1: Pull\nDo this:\n1. Pull.\nGood looks like: It is off.\nNext: Stop.",
+            "DO NOT\n- Stop.\nSOURCES\n- Thetford 42088 page 3",
+            "Fig. sketch of a Norcold board",
+        ])
+        sheet = profile_check.check_sheet_text(text)
+        summary = profile_check.gate_summary(sheet + profile_check.grade_pdf(text, sheet))
+        self.assertIn("7. FAIL", summary)
+
+    def test_a_safety_contradiction_fails_line_8(self):
+        text = "\n".join([
+            "REPAIR PROCEDURE",
+            "Step 14: Open the valve",
+            "Safety: Turn the RV water off.",
+            "Do this:",
+            "1. Turn the RV water on.",
+            "Good looks like: Water is on.",
+            "Next: Stop.",
+        ])
+        rules = profile_check.check_sheet_text(text)
+        summary = profile_check.gate_summary(rules + profile_check.grade_pdf(text, rules))
+        self.assertIn("8. FAIL", summary)
+
+    def test_a_how_block_fails_the_how_line(self):
+        text = _transcript([
+            ("show me", "How (Thetford, page 7): Tools: not stated.\nWhat do you see?"),
+        ])
+        summary = profile_check.gate_summary(profile_check.check_transcript(text))
+        self.assertIn("2. FAIL", summary)
+        self.assertIn("10. FAIL", summary)
+
+    def test_a_photo_on_a_plain_step_fails_line_6(self):
+        text = _transcript([
+            ("yes", "Set the clock.\nSend a photo of what you see.\nWhat do you see?"),
+        ])
+        summary = profile_check.gate_summary(profile_check.check_transcript(text))
+        self.assertIn("6. FAIL", summary)
+
+    def test_a_repair_without_safety_fails_line_8(self):
+        text = _transcript([
+            ("leak", "Remove the water valve.\nA good result is the valve is out.\nA bad result is it stays in.\nWhat do you see?\n📖 Source: Thetford 42109, page 1"),
+        ])
+        summary = profile_check.gate_summary(profile_check.check_transcript(text))
+        self.assertIn("8. FAIL", summary)
 
 
 class TestPastFails(unittest.TestCase):

@@ -6158,7 +6158,7 @@ def ensure_thetford_flush_reply(
         if listed:
             return listed
     if _thetford_show_ask(latest_msg):
-        return _thetford_shop_line(history, latest_msg)
+        return _thetford_show_reply(history, latest_msg)
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)
@@ -6179,11 +6179,40 @@ def ensure_thetford_flush_reply(
     if _thetford_source_only(original) or _thetford_source_only(reply):
         return nxt
     if _is_thetford_miss_line(reply) or _is_thetford_miss_line(original):
+        # A How block is rewritten to the miss line before this guard. That
+        # rewrite is still the leak. The shop check is the reply.
+        leaked = re.search(
+            r"\bhow\s*\(|\bnot stated\b",
+            f"{original or ''}\n{reply or ''}",
+            re.I,
+        )
+        if leaked:
+            return nxt
         kept = reply if _is_thetford_miss_line(reply) else original
         return _thetford_without_template(_thetford_keep(kept), nxt)
     if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
         return _thetford_without_template(_thetford_keep(reply), nxt)
     return nxt
+
+
+def _thetford_show_reply(history: list = None, latest_msg: str = "") -> str:
+    """Answer 'show me where' without repeating the check the tech already has.
+
+    A repair step that is already on screen stays on that step. A proving
+    check that would come back word for word names the cited page as well,
+    so the where-answer is not a second copy of the first turn.
+    """
+    line = _thetford_shop_line(history, latest_msg)
+    prev = _last_assistant_text(history)
+    if not prev or _norm(prev) != _norm(line) or "<!--gd-step:" in (line or ""):
+        return line
+    note = "The cited manual page shows that connection."
+    if note.lower() in (line or "").lower():
+        return line
+    if "📖" in (line or ""):
+        head, _mark, tail = line.partition("📖")
+        return head.rstrip() + "\n" + note + "\n\n📖" + tail
+    return (line or "").rstrip() + "\n" + note
 
 
 def _thetford_without_template(text: str, fallback: str) -> str:

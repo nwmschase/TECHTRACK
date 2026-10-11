@@ -138,8 +138,9 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         named = {rule.name: rule for rule in rules}
         self.assertEqual(named["PF-10"].status, "PASS")
         self.assertEqual(named["PF-15"].status, "PASS")
-        for number in (1, 2, 3):
-            self.assertEqual(named[f"score-{number}"].status, "PASS")
+        self.assertIn("Result: 10/10.", profile_check.gate_summary(rules))
+        manual = [rule.name for rule in rules if rule.name.startswith("PF-") and rule.status == "MANUAL"]
+        self.assertEqual(manual, ["PF-32"])
 
 
 class TestShowMeReply(unittest.TestCase):

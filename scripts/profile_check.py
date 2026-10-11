@@ -44,6 +44,7 @@ GENERIC_BAD = re.compile(
 )
 BANNED = (
     "not stated in this sheet",
+    "not stated",
     "unconfirmed",
     "photo:",
     "a photo is optional",
@@ -552,29 +553,216 @@ def _reopen_blames(text: str) -> bool:
     return False
 
 
+_HOW_LEAK = re.compile(r"\bhow\s*\(|\bnot stated\b", re.I)
+_CITE_RE = re.compile(r"source:|📖", re.I)
+_WHERE_RE = re.compile(
+    r"\b(at the|on the|back of|go to|water valve|pedal|vacuum breaker|flange|water off|water to the)\b",
+    re.I,
+)
+_GOODBAD_RE = re.compile(r"\b(good result|bad result)\b", re.I)
+_LOOK_RE = re.compile(r"\b(check|look|leak|weep|dry|comes out|flush)\b", re.I)
+_HANDS_RE = re.compile(r"\b(remove the|install the|loosen the|reinstall the|put the new)\b", re.I)
+_IF_TAIL_RE = re.compile(r"(?i)^if it is (?:good|bad)\b")
+_SAFETY_GD = re.compile(
+    r"water off|gloves|glasses|supplies off|propane|breaker off|keep people|flame",
+    re.I,
+)
+_VISUAL_RE = re.compile(
+    r"\b(leak|weep|look|see|connection|pedal|dry|wet|crack|flush|valve|breaker)\b",
+    re.I,
+)
+_FIG_LABEL_RE = re.compile(
+    r"(?i)^fig\.?\s*\d+\b|\b(?:42109|34122|34123|42088|CCD-\d+|FACT\d*|FACR)\b"
+)
+_DOC_ID_RE = re.compile(r"\b(?:42109|34122|34123|42088|CCD-\d+|FACT\d*|FACR-\d+)\b", re.I)
+_THETFORD_BRANCHES = (
+    ("supply",),
+    ("vacuum", "3412"),
+    ("42109", "water valve"),
+    ("flange",),
+)
+_CASE_SOURCE_KEYS = {
+    "thetford": ("thetford", "42070", "42088", "42109", "34122", "34123", "toilet", "valve", "flange"),
+    "furrion": ("furrion", "facr", "ccd-0008666", "ccd-0007990", "rooftop", "freeze", "drain"),
+}
+
+
+def _assistant_turns(text: str) -> list[str]:
+    pairs = _pairs(text or "")
+    return [turn for _user, turn in pairs]
+
+
+def _turn_explains_how(turn: str) -> bool:
+    """Plain sentences cover where, what to look for, good and bad, and the report.
+
+    A tool is required only when the reply names one. Printing 'not stated'
+    is a leak, handled before this check. The label block is a different line.
+    """
+    body = turn or ""
+    return bool(
+        _WHERE_RE.search(body)
+        and _GOODBAD_RE.search(body)
+        and _LOOK_RE.search(body)
+        and "?" in body
+    )
+
+
+def _photo_when_unneeded(text: str) -> bool:
+    for user, assistant in _pairs(text or ""):
+        if PHOTO_LINE not in assistant.lower():
+            continue
+        body = re.sub(r"(?i)send a photo of what you see\.?", "", assistant)
+        body = re.sub(r"(?i)what do you see\??", "", body)
+        if ASK_RE.search(user) or _VISUAL_RE.search(user) or _VISUAL_RE.search(body):
+            continue
+        return True
+    return False
+
+
+def _action_without_next(turn: str) -> str:
+    kept = []
+    for line in (turn or "").splitlines():
+        if _IF_TAIL_RE.match(line.strip()):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _safety_missing(text: str) -> bool:
+    """A hands-on repair with no safety note yet. A check, or an if-bad next step, is not one."""
+    seen = False
+    for turn in _assistant_turns(text):
+        if _SAFETY_GD.search(turn):
+            seen = True
+        action = _action_without_next(turn)
+        if _HANDS_RE.search(action) and not seen:
+            return True
+    return False
+
+
+def _reopen_neutral(text: str) -> bool:
+    for user, assistant in _pairs(text or ""):
+        if not _REOPEN_PHRASE.search(user):
+            continue
+        if _BLAME.search(assistant):
+            return False
+        if not re.search(r"\b(check|reading|again|next)\b", assistant, re.I):
+            return False
+    return True
+
+
+def _figure_caption_lines(text: str) -> list[str]:
+    return [line.strip() for line in (text or "").splitlines() if _PF_FIG_LINE.match(line.strip())]
+
+
+def _invented_figure(text: str, rules: dict) -> tuple[str, str]:
+    if not _ok(rules, "banned_strings"):
+        detail = rules["banned_strings"].detail or "invented or off-brand text"
+        return "FAIL", detail
+    captions = _figure_caption_lines(text)
+    blob = "\n".join(captions).lower()
+    low = (text or "").lower()
+    if "bundled kit sheet" in low or any(phrase in blob for phrase in _CAPTION_BAD):
+        return "FAIL", "caption is a sketch or a bundled kit sheet"
+    kind = _case_kind(text)
+    brand_hit = _off_brand(blob, kind) if kind and blob else ""
+    if brand_hit:
+        return "FAIL", f"figure caption names {brand_hit}"
+    bad = [line for line in captions if not _FIG_LABEL_RE.search(line)]
+    if bad:
+        return "FAIL", f"invented figure caption: {bad[0][:80]}"
+    if captions:
+        return "PASS", "figure captions are manual Fig. labels for this case"
+    width = rules.get("figure_width")
+    drawn = bool(width and "figures," in (width.detail or ""))
+    if drawn and _ok(rules, "figure_placement"):
+        return "PASS", "drawn figures are captioned under the citing step"
+    if drawn:
+        return "FAIL", "a drawn figure has no manual Fig. caption"
+    return "PASS", "no figure drawn, and no invented caption"
+
+
+def _safety_status(text: str, rules: dict) -> tuple[str, str]:
+    safety = rules.get("safety_once")
+    if safety and not safety.ok:
+        return "FAIL", safety.detail or "safety note repeated"
+    conflicts = [
+        step.splitlines()[0][:70]
+        for step in _bounded_steps(text or "")
+        if _state_conflict(step)
+    ]
+    if conflicts:
+        return "FAIL", conflicts[0]
+    if safety and safety.ok:
+        return "PASS", "safety is once per section and does not contradict the action"
+    return "MANUAL", "human confirms the safety note is correct"
+
+
 def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
-    """v1.2 Guided Diagnostics scorecard. Lines 1, 2, 6, 8, and 9 stay MANUAL unless a check can fail them."""
+    """v1.2 Guided Diagnostics scorecard.
+
+    A line PASSes when this transcript shows it and FAILs when it breaks.
+    MANUAL stays only when the turns do not show enough to judge.
+    """
     named = _named(rules)
+    raw = text or ""
+    assistants = _assistant_turns(raw)
     photo = named.get("photo_only_when_it_helps")
-    cite = "source:" in (text or "").lower()
+    if _HOW_LEAK.search(raw) or not _ok(named, "banned_strings"):
+        cite_status, cite_detail = "FAIL", "invented filler or a leaked How block"
+    elif assistants and all(_CITE_RE.search(turn) for turn in assistants):
+        kind = _case_kind(raw)
+        brand_hit = _off_brand(raw, kind) if kind else ""
+        if brand_hit:
+            cite_status, cite_detail = "FAIL", f"off-brand {brand_hit}"
+        else:
+            cite_status, cite_detail = "PASS", "each reply cites a shop manual"
+    else:
+        cite_status = "MANUAL"
+        cite_detail = (
+            "shop-manual cite present"
+            if "source:" in raw.lower()
+            else "no Source cite; human confirms the pathway"
+        )
+    if _HOW_LEAK.search(raw):
+        how_status, how_detail = "FAIL", "How block or 'not stated' is not a shop sentence"
+    elif assistants and all(_turn_explains_how(turn) for turn in assistants):
+        how_status, how_detail = "PASS", "each reply says where, what to look for, good and bad, and what to report"
+    else:
+        how_status, how_detail = "MANUAL", "human confirms the how-to detail"
     if photo and not photo.ok:
         photo_status, photo_detail = "FAIL", photo.detail or "photo on every step"
+    elif _photo_when_unneeded(raw):
+        photo_status, photo_detail = "FAIL", "photo asked on a step that is not visual"
+    elif assistants:
+        photo_status = "PASS"
+        photo_detail = photo.detail if photo else "photo only on a visual step"
     else:
-        photo_status = "MANUAL"
-        photo_detail = photo.detail if photo else "human confirms when a photo helps"
-    if _reopen_blames(text):
+        photo_status, photo_detail = "MANUAL", "human confirms when a photo helps"
+    if _safety_missing(raw):
+        safety_status, safety_detail = "FAIL", "a repair step has no safety warning"
+    elif assistants:
+        safety_status, safety_detail = "PASS", "safety is on the step where the work starts, or the turn is only a check"
+    else:
+        safety_status, safety_detail = "MANUAL", "human confirms the safety warnings"
+    if _reopen_blames(raw):
         reopen_status, reopen_detail = "FAIL", "a reopen reply blames the tech or the program"
+    elif _REOPEN_PHRASE.search(raw) and not _reopen_neutral(raw):
+        reopen_status, reopen_detail = "MANUAL", "human confirms a neutral reopen"
+    elif assistants:
+        reopen_status = "PASS"
+        reopen_detail = "reopen re-checks without blame" if _REOPEN_PHRASE.search(raw) else "no reopen in this session"
     else:
         reopen_status, reopen_detail = "MANUAL", "human confirms a neutral reopen"
     rows = [
-        (1, "MANUAL", "shop-manual cite present" if cite else "no Source cite; human confirms the pathway"),
-        (2, "MANUAL", "human confirms the how-to detail"),
+        (1, cite_status, cite_detail),
+        (2, how_status, how_detail),
         (3, "PASS" if _ok(named, "no_repeats") and _ok(named, "follow_up") else "FAIL", "moved forward without a repeated reply"),
         (4, "PASS" if _ok(named, "no_label_block") and _ok(named, "no_step_counter") else "FAIL", "no label block and no step counter"),
         (5, "PASS" if _ok(named, "no_figure_without_ask") else "FAIL", "figures only after the tech asked"),
         (6, photo_status, photo_detail),
-        (7, "PASS" if _gd_web_ok(text) else "FAIL", "web fallback is labeled, or there is no web content"),
-        (8, "MANUAL", "human confirms the safety warnings"),
+        (7, "PASS" if _gd_web_ok(raw) else "FAIL", "web fallback is labeled, or there is no web content"),
+        (8, safety_status, safety_detail),
         (9, reopen_status, reopen_detail),
         (10, "PASS" if _ok(named, "banned_strings") else "FAIL", "no leaked text, filler, or cut-off marker"),
     ]
@@ -582,19 +770,17 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
 
 
 def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
-    """v1.2 Bay PDF scorecard. Lines 7 and 8 stay MANUAL unless a check can fail them."""
+    """v1.2 Bay PDF scorecard.
+
+    Lines 7 and 8 PASS when the sheet shows a real caption and a safety note
+    that does not contradict the action. They FAIL on an invented figure or a
+    contradiction. MANUAL stays when the sheet does not show enough to judge.
+    """
     named = _named(rules)
     inspected = _step_inspection(text)
     banned_ok = _ok(named, "banned_strings")
-    if not banned_ok:
-        invented_status, invented_detail = "FAIL", named["banned_strings"].detail or "invented or off-brand text"
-    else:
-        invented_status, invented_detail = "MANUAL", "human confirms no figure was invented or off-brand"
-    safety = named.get("safety_once")
-    if safety and not safety.ok:
-        safety_status, safety_detail = "FAIL", safety.detail or "safety note repeated"
-    else:
-        safety_status, safety_detail = "MANUAL", "human confirms the safety note is correct"
+    invented_status, invented_detail = _invented_figure(text, named)
+    safety_status, safety_detail = _safety_status(text, named)
     line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
     rows = [
         (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") else "FAIL", "header, flowchart, diagnosis, branches, do not, sources"),
@@ -841,6 +1027,129 @@ def _state_conflict(step: str) -> str:
     return ""
 
 
+def _branch_titles(text: str) -> list[str]:
+    titles = []
+    lines = (text or "").splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped != "REPAIR BRANCH" and not stripped.startswith("REPAIR PROCEDURE"):
+            continue
+        for nxt in lines[index + 1:]:
+            if nxt.strip():
+                titles.append(nxt.strip())
+                break
+    return titles
+
+
+def _thetford_title_gap(titles: list[str]) -> tuple[list[str], set[int]]:
+    extra = []
+    matched: set[int] = set()
+    for title in titles:
+        low = title.lower()
+        hit = None
+        for index, keys in enumerate(_THETFORD_BRANCHES):
+            if any(key in low for key in keys):
+                hit = index
+                break
+        if hit is None:
+            extra.append(title)
+        else:
+            matched.add(hit)
+    return extra, matched
+
+
+def _captions_tied_to_manual(text: str) -> bool:
+    blocks = _blocks(text or "")
+    saw = False
+    for block in blocks:
+        if not _figure_caption_lines(block):
+            continue
+        saw = True
+        if not _DOC_ID_RE.search(block):
+            return False
+    if saw:
+        return True
+    return bool(_DOC_ID_RE.search(text or ""))
+
+
+def _segment_hits_rect(seg, x0: float, y0: float, x1: float, y1: float) -> bool:
+    """True when a connector segment crosses the YES or NO word box."""
+    ax, ay, bx, by = seg
+    inside, left, right, bottom, top = 0, 1, 2, 4, 8
+
+    def code(x: float, y: float) -> int:
+        bits = inside
+        if x < x0:
+            bits |= left
+        elif x > x1:
+            bits |= right
+        if y < y0:
+            bits |= bottom
+        elif y > y1:
+            bits |= top
+        return bits
+
+    c1, c2 = code(ax, ay), code(bx, by)
+    for _ in range(12):
+        if not (c1 | c2):
+            return True
+        if c1 & c2:
+            return False
+        bits = c1 or c2
+        if bits & top:
+            ax, ay, bx, by, c1, c2 = _clip(ax, ay, bx, by, c1, c2, y1, horizontal=False)
+        elif bits & bottom:
+            ax, ay, bx, by, c1, c2 = _clip(ax, ay, bx, by, c1, c2, y0, horizontal=False)
+        elif bits & right:
+            ax, ay, bx, by, c1, c2 = _clip(ax, ay, bx, by, c1, c2, x1, horizontal=True)
+        else:
+            ax, ay, bx, by, c1, c2 = _clip(ax, ay, bx, by, c1, c2, x0, horizontal=True)
+        c1, c2 = code(ax, ay), code(bx, by)
+    return False
+
+
+def _clip(ax, ay, bx, by, c1, c2, edge: float, *, horizontal: bool):
+    if c1:
+        if horizontal:
+            if bx != ax:
+                ay = ay + (by - ay) * (edge - ax) / (bx - ax)
+            ax = edge
+        else:
+            if by != ay:
+                ax = ax + (bx - ax) * (edge - ay) / (by - ay)
+            ay = edge
+    else:
+        if horizontal:
+            if bx != ax:
+                by = ay + (by - ay) * (edge - ax) / (bx - ax)
+            bx = edge
+        else:
+            if by != ay:
+                bx = ax + (bx - ax) * (edge - ay) / (by - ay)
+            by = edge
+    return ax, ay, bx, by, c1, c2
+
+
+def _yes_no_stroke_hits(doc) -> list[str]:
+    problems = []
+    for index, page in enumerate(doc, 1):
+        words = [
+            word for word in (page.get_text("words") or [])
+            if str(word[4]).strip().upper() in {"YES", "NO"}
+        ]
+        segments = []
+        for drawing in page.get_drawings() or []:
+            for item in drawing.get("items") or []:
+                if not item or item[0] != "l":
+                    continue
+                p1, p2 = item[1], item[2]
+                segments.append((float(p1.x), float(p1.y), float(p2.x), float(p2.y)))
+        for word in words:
+            if any(_segment_hits_rect(seg, word[0], word[1], word[2], word[3]) for seg in segments):
+                problems.append(f"page {index} {word[4]} overlaps a connector")
+    return problems
+
+
 def grade_past_fails(doc, text: str) -> list[Rule]:
     """PF-01..PF-33. FAIL only on a definite hit. MANUAL keeps a human remainder."""
     raw = text or ""
@@ -906,6 +1215,15 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
 
     if not steps:
         rules.append(_pf(8, "FAIL", "flowchart only; no numbered repair steps"))
+    elif kind == "thetford":
+        full = len(steps) >= 14 and "REMOVAL" in raw and "INSTALLATION" in raw
+        rules.append(_pf(
+            8,
+            "PASS" if full else "FAIL",
+            f"{len(steps)} numbered steps include removal and installation"
+            if full else
+            f"{len(steps)} steps; the Thetford repair is the full kit, not a short check sheet",
+        ))
     else:
         rules.append(_pf(8, "MANUAL", f"{len(steps)} numbered steps; the expected count is a human compare"))
 
@@ -915,6 +1233,14 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     dupes = [flat[i] for i in range(1, len(flat)) if flat[i] and flat[i] == flat[i - 1]]
     if dupes:
         rules.append(_pf(9, "FAIL", f"repeated action: {dupes[0][:80]}"))
+    elif kind == "thetford":
+        titles = _branch_titles(raw)
+        extra, matched = _thetford_title_gap(titles)
+        if extra or len(matched) < 4 or len(titles) != 4:
+            sample = extra[0] if extra else f"{len(titles)} branch titles"
+            rules.append(_pf(9, "FAIL", f"procedure title is not one of the four asked-for repairs: {sample[:80]}"))
+        else:
+            rules.append(_pf(9, "PASS", "four asked-for branches and no repeated action"))
     else:
         rules.append(_pf(9, "MANUAL", "no adjacent action is repeated; an extra procedure title still needs the asked-for part"))
 
@@ -947,11 +1273,17 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     doubled_label = [line for line in raw.splitlines() if re.search(r"\bYES\s+YES\b|\bNO\s+NO\b", line)]
     has_yes = any(line == "YES" for line in yes_lines)
     has_no = any(line == "NO" for line in yes_lines)
+    yes_count = yes_lines.count("YES")
+    no_count = yes_lines.count("NO")
     if doubled_label or not has_yes or not has_no:
         detail = doubled_label[0].strip() if doubled_label else "flowchart is missing YES or NO"
         rules.append(_pf(11, "FAIL", detail[:80]))
+    elif yes_count != no_count:
+        rules.append(_pf(11, "FAIL", f"YES {yes_count} and NO {no_count} do not pair"))
+    elif doc is not None:
+        rules.append(_pf(11, "PASS", f"YES {yes_count} and NO {no_count}, one pair per diamond"))
     else:
-        rules.append(_pf(11, "MANUAL", f"YES {yes_lines.count('YES')} and NO {yes_lines.count('NO')}; the diamond graph still needs a look"))
+        rules.append(_pf(11, "MANUAL", f"YES {yes_count} and NO {no_count}; the diamond graph still needs the PDF"))
 
     if kind == "thetford":
         tokens_ok = ("42109" in raw or "water valve" in low) and ("vacuum breaker" in low or "34122" in raw or "34123" in raw)
@@ -1066,7 +1398,16 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     if "bundled kit sheet" in low or any(phrase in caption_text for phrase in _CAPTION_BAD):
         rules.append(_pf(18, "FAIL", "caption is a sketch or a bundled kit sheet"))
     else:
-        rules.append(_pf(18, "MANUAL", "no sketch caption; the manual id on the caption is a human check"))
+        captions = _figure_caption_lines(raw)
+        loose = [line for line in captions if not _FIG_LABEL_RE.search(line)]
+        if loose:
+            rules.append(_pf(18, "FAIL", f"caption is not a manual figure id: {loose[0][:80]}"))
+        elif captions and not _captions_tied_to_manual(raw):
+            rules.append(_pf(18, "FAIL", "a Fig. caption sits in a branch that does not cite the manual"))
+        elif captions or not re.search(r"(?m)^(Figure:|Fig\.)", raw):
+            rules.append(_pf(18, "PASS", "each Fig. caption is a manual label in a branch that cites the manual"))
+        else:
+            rules.append(_pf(18, "MANUAL", "no sketch caption; the manual id on the caption is a human check"))
 
     if not kind:
         rules.append(_pf(19, "MANUAL", "figure brand needs a known case"))
@@ -1078,7 +1419,15 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
             f"caption names {brand_hit}" if brand_hit else "figure captions match the case brand",
         ))
 
-    rules.append(_pf(20, "MANUAL", "YES and NO spacing against the arrows is a 90 dpi check"))
+    if doc is None:
+        rules.append(_pf(20, "MANUAL", "YES and NO spacing against the arrows is a 90 dpi check"))
+    else:
+        crowded = _yes_no_stroke_hits(doc)
+        rules.append(_pf(
+            20,
+            "FAIL" if crowded else "PASS",
+            crowded[0] if crowded else "YES and NO labels do not sit on a connector",
+        ))
 
     if doc is None:
         rules.append(_pf(21, "MANUAL", "bar overlap needs the PDF"))
@@ -1152,7 +1501,12 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
         hit = next(line for line in sources if _off_brand(line, kind))
         rules.append(_pf(26, "FAIL", f"off-brand source: {hit[:80]}"))
     elif kind:
-        rules.append(_pf(26, "MANUAL", "source lines name this case; snippet overlap is a human check"))
+        keys = _CASE_SOURCE_KEYS.get(kind) or ()
+        off_topic = [line for line in sources if not any(key in line.lower() for key in keys)]
+        if off_topic:
+            rules.append(_pf(26, "FAIL", f"source line does not overlap this case: {off_topic[0][:80]}"))
+        else:
+            rules.append(_pf(26, "PASS", "each source line overlaps this case"))
     else:
         rules.append(_pf(26, "MANUAL", "off-topic snippets need the case brand"))
 

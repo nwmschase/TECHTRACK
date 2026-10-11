@@ -3,11 +3,19 @@
 Does not import the Streamlit app. It reads the shop SQLite file, loads figure
 PNGs from an R2 cache directory, then runs the same compile and figure-attach
 steps Bay procedure PDF uses. It also plays Guided Diagnostics turns T1-T4
-with no model call.
+with no model call. ``--live-llm`` sends each turn to grok-4.6 first
+(XAI_API_KEY from the environment), then through the same shop guards.
+That is the path that can still paste a How block. No-model mode never
+builds one, so it cannot catch that leak.
 
 From the repo root:
 
     python3 scripts/thetford_live_gate.py \\
+        --db tests/fixtures/thetford_live_library/library.sqlite \\
+        --cache tests/fixtures/thetford_live_library/cache \\
+        --out /tmp/thetford-gate
+
+    python3 scripts/thetford_live_gate.py --live-llm \\
         --db /path/to/rv_techtrack_v4.db \\
         --cache /path/to/r2-cache \\
         --out /tmp/thetford-gate
@@ -16,13 +24,17 @@ From the repo root:
 ``library/figures/42088-p3.png`` is read from ``{cache}/library/figures/42088-p3.png``.
 The database is opened read-only.
 
-Writes ``thetford-bay.pdf``, ``transcript.txt``, and ``report.txt`` under
-``--out``. Exit 0 when the sheet and the transcript pass. Exit 1 when a check
-fails. Exit 2 when the database or the cache directory cannot be used.
+Writes ``thetford-bay.pdf``, ``transcript.txt``, ``transcript-profile.txt``,
+``report.txt``, and 90 dpi page PNGs under ``--out``. The report includes
+profile_check for the PDF and for the transcript. Exit 0 when the sheet and
+the transcript pass, including 10/10 on both scorecards. Exit 1 when a check
+fails. Exit 2 when the database, the cache, or (with ``--live-llm``) the
+xAI key cannot be used.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -207,23 +219,148 @@ def _sheet_problems(proc, pdf: bytes) -> list[str]:
         problems.append("Do Not list has a winterizing item")
     if "scouring" not in do_not:
         problems.append("Do Not list dropped the cleaner line")
-    rules = profile_check.check_pdf_bytes(pdf)
-    failed = [rule for rule in rules if rule.status == "FAIL"]
-    for rule in failed:
-        problems.append(f"profile_check {rule.name} FAIL: {rule.detail}")
     return problems
 
 
-def _play(rows) -> tuple[str, list[str]]:
-    from gd_library_coach import ensure_thetford_flush_reply
+def _keep_figure_detail(detail: str, reply: str) -> str:
+    """The shop figure offer. A How block or a 'not stated' filler stays off the reply."""
+    text = (detail or "").strip()
+    if not text or text in (reply or ""):
+        return ""
+    if re.match(r"how\s*\(", text, re.I) or re.search(r"\bnot stated\b", text, re.I):
+        return ""
+    return text
+
+
+def _append_figure_detail(reply: str, user_msg: str, rows, chunks) -> str:
+    """Headless stand-in for the stored-figure offer that runs after the coach."""
+    physical = bool(re.search(
+        r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
+        reply or "",
+        re.I,
+    ))
+    asked = mf.wants_manual_image(user_msg) or mf.tech_asked_for_manual_figure(user_msg)
+    if not physical and not asked:
+        return reply
+    chosen = fb.select_library_figures(rows, reply, user_msg, CATEGORY, f"{BRAND} {MODEL}") or []
+    if not chosen:
+        return reply
+    first = chosen[0]
+    page = int(first.get("page") or 0)
+    doc_id = int(first.get("document_id") or 0)
+    page_text = "\n".join(
+        (chunk.get("excerpt") or "")
+        for chunk in chunks or []
+        if int(chunk.get("document_id") or 0) == doc_id and int(chunk.get("page") or 0) == page
+    )
+    detail = _keep_figure_detail(
+        fb.procedure_how(
+            first,
+            page_text,
+            first.get("title") or "",
+            first.get("page"),
+            CATEGORY,
+            f"{BRAND} {MODEL}",
+            user_msg,
+            reply,
+        ),
+        reply,
+    )
+    if not detail:
+        return reply
+    return ((reply or "").rstrip() + "\n\n" + detail).strip()
+
+
+def _live_draft(message: str, history: list, chunks) -> str:
+    import gd_llm
+
+    excerpts = []
+    for chunk in (chunks or [])[:8]:
+        excerpts.append(
+            f"Manual: {chunk.get('title') or 'manual'} Page: {chunk.get('page')}\n"
+            f"{(chunk.get('excerpt') or '')[:500]}"
+        )
+    system = (
+        "You are the shop Guided Diagnostics coach. Use only the manual excerpts. "
+        "Cite a manual as a Source line with its page. Write plain sentences. "
+        "Do not use Where, Do this, Good, Bad, or Next labels. "
+        "Do not print a How (...) block and do not print the words not stated. "
+        "If the manual does not give a tool or a setting, leave it out. "
+        "Say where the part is, what to look for, what good and bad look like, "
+        "and ask what the tech sees.\n\n"
+        "MANUAL EXCERPTS:\n" + "\n\n".join(excerpts)
+    )
+    messages = [{"role": "system", "content": system}]
+    for item in history or []:
+        messages.append({
+            "role": item.get("role") or "user",
+            "content": item.get("content") or "",
+        })
+    messages.append({"role": "user", "content": message})
+    return gd_llm.complete_chat(
+        messages,
+        temperature=0.2,
+        max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
+        reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
+        providers=["xai"],
+        models={"xai": ["grok-4.6"]},
+    )
+
+
+def _profile_text(pairs: list[tuple[str, str]]) -> str:
+    return "\n\n".join(
+        f"USER: {user}\nASSISTANT:\n{assistant}" for user, assistant in pairs
+    ) + "\n"
+
+
+def _score_gap(rules, label: str) -> list[str]:
+    cards = [rule for rule in rules if rule.scorecard]
+    passed = sum(1 for rule in cards if rule.status == "PASS")
+    problems = []
+    if len(cards) == 10 and passed < 10:
+        missed = [f"{rule.number} {rule.status}" for rule in cards if rule.status != "PASS"]
+        problems.append(f"{label} scorecard {passed}/10 ({', '.join(missed)})")
+    for rule in rules:
+        if rule.status == "FAIL":
+            problems.append(f"profile_check {rule.name} FAIL: {rule.detail}")
+        elif rule.name.startswith("PF-") and rule.status != "PASS" and rule.name != "PF-32":
+            problems.append(f"profile_check {rule.name} {rule.status}: {rule.detail}")
+    return problems
+
+
+def _render_pages(pdf: bytes, out: Path) -> None:
+    import pymupdf
+
+    doc = pymupdf.open(stream=pdf, filetype="pdf")
+    try:
+        for index, page in enumerate(doc, 1):
+            page.get_pixmap(dpi=90).save(out / f"thetford-bay-p{index:02d}.png")
+    finally:
+        doc.close()
+
+
+def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str]]:
+    from gd_library_coach import avoid_duplicate_reply, ensure_thetford_flush_reply
 
     history = []
     lines = []
+    pairs = []
     problems = []
     for label, message in TURNS:
-        reply = ensure_thetford_flush_reply(
-            "", history, message, CATEGORY, f"{BRAND} {MODEL}"
-        )
+        if live:
+            try:
+                draft = _live_draft(message, history, chunks)
+            except Exception as exc:
+                problems.append(f"{label} model call failed: {exc}")
+                draft = ""
+            reply = avoid_duplicate_reply(
+                draft, history, message, CATEGORY, f"{BRAND} {MODEL}"
+            )
+            reply = _append_figure_detail(reply, message, rows, chunks)
+        else:
+            reply = ensure_thetford_flush_reply(
+                "", history, message, CATEGORY, f"{BRAND} {MODEL}"
+            )
         offers = fb.offers_for_turn(rows, reply, message, CATEGORY, f"{BRAND} {MODEL}") or []
         captions = []
         for offer in offers:
@@ -248,10 +385,14 @@ def _play(rows) -> tuple[str, list[str]]:
                 problems.append("T2 figure caption is page 7 / Step 1")
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": reply})
-    return "\n".join(lines).strip() + "\n", problems
+        pairs.append((message, reply))
+    return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems
 
 
-def run(db: Path, cache: Path, out: Path) -> int:
+def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
+    if live and not (os.environ.get("XAI_API_KEY") or "").strip():
+        print("XAI_API_KEY is not set. --live-llm needs it for grok-4.6.", file=sys.stderr)
+        return 2
     if not db.is_file():
         print(f"database not found: {db}", file=sys.stderr)
         return 2
@@ -286,10 +427,19 @@ def run(db: Path, cache: Path, out: Path) -> int:
     if packets:
         proc = apply_chunk_figures(proc, packets)
     pdf = render_bay_procedure_pdf(proc)
-    transcript, gd_problems = _play(rows)
-    problems = _sheet_problems(proc, pdf) + gd_problems
+    transcript, profile, gd_problems = _play(rows, chunks, live=live)
+    pdf_rules = profile_check.check_pdf_bytes(pdf)
+    gd_rules = profile_check.check_transcript(profile)
+    problems = (
+        _sheet_problems(proc, pdf)
+        + gd_problems
+        + _score_gap(pdf_rules, "PDF")
+        + _score_gap(gd_rules, "GD")
+    )
+    _render_pages(pdf, out)
     (out / "thetford-bay.pdf").write_bytes(pdf)
     (out / "transcript.txt").write_text(transcript, encoding="utf-8")
+    (out / "transcript-profile.txt").write_text(profile, encoding="utf-8")
     report = [
         f"chunks {len(chunks)}",
         f"documents {len(doc_ids)}",
@@ -297,6 +447,11 @@ def run(db: Path, cache: Path, out: Path) -> int:
         f"pngs from cache {loaded}",
         f"branches {len(proc.procedures or [])}",
         f"pdf bytes {len(pdf)}",
+        "live-llm grok-4.6" if live else "no-model",
+        "",
+        profile_check.format_report(pdf_rules),
+        "",
+        profile_check.format_report(gd_rules),
     ]
     if problems:
         report.append("FAIL")
@@ -314,8 +469,13 @@ def main(argv=None) -> int:
     parser.add_argument("--db", required=True, type=Path, help="Shop SQLite database (read-only)")
     parser.add_argument("--cache", required=True, type=Path, help="Directory of R2 object keys")
     parser.add_argument("--out", required=True, type=Path, help="Directory for the PDF, transcript, and report")
+    parser.add_argument(
+        "--live-llm",
+        action="store_true",
+        help="Run T1-T4 through grok-4.6 using XAI_API_KEY, then the shop guards",
+    )
     args = parser.parse_args(argv)
-    return run(args.db, args.cache, args.out)
+    return run(args.db, args.cache, args.out, live=args.live_llm)
 
 
 if __name__ == "__main__":
