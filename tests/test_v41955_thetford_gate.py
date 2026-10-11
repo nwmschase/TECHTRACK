@@ -232,17 +232,26 @@ class TestBackfillCountsMatchStorage(FigureCase):
         fb.PAGES_PER_STEP = 1
         try:
             job = fb.ensure_job(self.session, [doc_id, other])
+            uploaded = []
             result = fb.process_backfill_batch(
                 self.session,
                 job,
                 download_pdf=lambda path: _pdf(2),
-                upload_png=lambda data, key, content_type="image/png": True,
+                upload_png=lambda data, key, content_type="image/png": uploaded.append(
+                    (data, key, content_type)
+                ) or True,
                 batch_size=1,
             )
         finally:
             fb.PAGES_PER_STEP = original
         self.assertEqual(result["done"], 0)
         self.assertGreaterEqual(result["pages_stored"], 1)
+        self.assertGreaterEqual(len(uploaded), 1)
+        for data, key, content_type in uploaded:
+            self.assertTrue(data.startswith(b"\x89PNG"), key)
+            self.assertGreater(len(data), 8)
+            self.assertTrue(key)
+            self.assertEqual(content_type, "image/png")
         self.assertGreaterEqual(result["pending"], 1)
         message = fb.backfill_batch_message(result)
         self.assertIn("page images stored", message)
@@ -266,6 +275,135 @@ class TestBackfillCountsMatchStorage(FigureCase):
         )
         self.assertIn(f"{counts[doc_id]['pages']} page images", shown)
         self.assertIn(f"{counts[doc_id]['figures']} figures", shown)
+
+
+class TestGenericBadIsOmitted(unittest.TestCase):
+    def test_a_generic_bad_line_is_left_off(self):
+        generic = {
+            "text": "Look at the seal.",
+            "fields": {"GOOD vs BAD": "Good: The seal is seated. Bad: It does not look right."},
+        }
+        lines = mf.step_body_lines(generic, show_figure=False, show_photo=False)
+        self.assertTrue(any(line.startswith("Good looks like:") for line in lines))
+        self.assertFalse(any("Bad looks like" in line for line in lines))
+        self.assertFalse(any("does not look right" in line.lower() for line in lines))
+        specific = {
+            "text": "Look at the seal.",
+            "fields": {"GOOD vs BAD": "Good: The seal is seated. Bad: The seal is folded."},
+        }
+        shown = mf.step_body_lines(specific, show_figure=False, show_photo=False)
+        self.assertTrue(any(line.startswith("Bad looks like: The seal is folded") for line in shown))
+        _heading, shop = mf.lines_from_shop_text(
+            "Step 2: Look at the seal. Good looks like: The seal is seated. "
+            "Bad looks like: It does not look right. Next: Go on.",
+            2,
+        )
+        self.assertFalse(any(line.startswith("Bad looks like") for line in shop))
+        self.assertTrue(any(line.startswith("Good looks like") for line in shop))
+
+
+class TestFigureUnderTheStep(unittest.TestCase):
+    def _assert_figures(self, proc, name):
+        from bay_procedure import (
+            MARGIN,
+            _CONTENT_W,
+            _FIGURE_WIDTH,
+            layout_problems,
+            render_bay_procedure_pdf,
+        )
+
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [], name)
+        images = [mark for mark in trace if mark.kind == "image"]
+        self.assertGreaterEqual(len(images), 1, name)
+        center = MARGIN + _CONTENT_W / 2.0
+        widths = []
+        for image in images:
+            width = image.x1 - image.x0
+            widths.append(width)
+            self.assertGreaterEqual(width, _FIGURE_WIDTH - 1.0, (name, width))
+            self.assertLess(image.x0, MARGIN + _CONTENT_W * 0.5, name)
+            self.assertAlmostEqual((image.x0 + image.x1) / 2.0, center, delta=2.0, msg=name)
+            captions = [
+                cap
+                for cap in trace
+                if cap.role == "caption"
+                and cap.page == image.page
+                and cap.x0 >= image.x0 - 2
+                and cap.y1 <= image.y0 + 2
+                and cap.y0 >= image.y0 - 36
+            ]
+            self.assertTrue(captions, (name, image.page))
+            above = [
+                text
+                for text in trace
+                if text.kind == "text"
+                and text.page == image.page
+                and text.y0 >= image.y1 - 2
+                and text.text.startswith("Step ")
+            ]
+            self.assertTrue(above, (name, image.page))
+        self.assertAlmostEqual(min(widths), max(widths), delta=1.0, msg=name)
+
+    def test_thetford_and_s01_use_one_large_centered_width(self):
+        from tests.test_s01_facr_standard import _sheet
+        from tests.test_step_format import _thetford
+
+        self._assert_figures(_thetford(), "thetford")
+        self._assert_figures(_sheet(), "s01")
+
+    def test_a_short_page_keeps_the_step_with_its_figure(self):
+        import io
+
+        from PIL import Image
+
+        from bay_procedure import MARGIN, _CONTENT_W, _FIGURE_WIDTH, _SheetFlow, _paint_repair_procedure
+
+        image = Image.new("RGB", (400, 280), (20, 40, 80))
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        pages = []
+        flow = _SheetFlow(pages, "Repair procedure")
+        flow.y = flow.floor + 70
+        _paint_repair_procedure(
+            flow,
+            {
+                "heading": "REPAIR PROCEDURE",
+                "title": "Pedal",
+                "steps": [
+                    {
+                        "text": "Pull the pedal off.",
+                        "section": "removal",
+                        "fields": {
+                            "WHERE": "At the pedal.",
+                            "HOW": "Pull the pedal off.",
+                            "GOOD vs BAD": "Good: The pedal is off. Bad: The pedal stays on.",
+                            "NEXT": "On good: Install the new seal.",
+                        },
+                        "figure": {
+                            "png": buf.getvalue(),
+                            "label": "Fig. 1 PEDAL REMOVED",
+                            "title": "42109",
+                            "page": 1,
+                        },
+                    }
+                ],
+            },
+        )
+        self.assertGreater(len(pages), 1)
+        self.assertFalse(pages[0].images)
+        later = pages[-1]
+        self.assertEqual(len(later.images), 1)
+        drawn = later.images[0]
+        headings = [item for item in later.texts if str(item.text).startswith("Step ")]
+        self.assertTrue(headings)
+        self.assertGreater(headings[0].y, drawn.y + drawn.h)
+        self.assertGreaterEqual(drawn.w, _FIGURE_WIDTH - 1.0)
+        self.assertAlmostEqual(drawn.x + drawn.w / 2.0, MARGIN + _CONTENT_W / 2.0, delta=2.0)
+        captions = [item for item in later.texts if item.role == "caption"]
+        self.assertTrue(captions)
+        self.assertLess(captions[0].y, drawn.y)
 
 
 if __name__ == "__main__":
