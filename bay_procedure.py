@@ -6626,14 +6626,114 @@ def _drop_repeated_procedure_figures(procedures: list) -> None:
             seen.add(png)
 
 
-def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
-    """The flush-leak sheet carries only the confirmed kit repair.
+def _branch_step(how: str, where: str, good: str, bad: str, nxt: str, section: str = "removal") -> dict:
+    """One repair-branch action. The sentence stays under 12 words."""
+    bare = how.rstrip(".")
+    return {
+        "section": section,
+        "text": bare,
+        "actions": [f"{bare}."],
+        "source": bare,
+        "fields": {
+            "WHERE": where,
+            "SAFETY": "",
+            "TOOLS / METER SETTING": "",
+            "HOW": bare,
+            "GOOD vs BAD": f"Good: {good} Bad: {bad}",
+            "NEXT": f"On good: {nxt} On bad: {bad}",
+            "FIGURE": "",
+            "PHOTO": "",
+        },
+        "figure": None,
+    }
 
-    A water-valve finding does not also print the 13-step vacuum-breaker repair.
-    The four checks stay the diagnosis. A crop is drawn on the first step that uses it.
+
+def _confirm_step(where: str) -> dict:
+    return _branch_step(
+        "Confirm the repair is dry.",
+        where or "At the finished repair.",
+        "The repair is dry.",
+        "The leak is still there.",
+        "This branch is complete.",
+        section="prove",
+    )
+
+
+def ensure_verify_step(procedure: dict) -> dict:
+    """Each repair branch ends on a confirm step. A branch that already confirms stays."""
+    steps = list((procedure or {}).get("steps") or [])
+    if not steps:
+        return procedure
+    if (steps[-1].get("text") or "").lower().startswith("confirm "):
+        return procedure
+    where = ((steps[-1].get("fields") or {}).get("WHERE") or "").strip() or "At the finished repair."
+    cloned = dict(procedure)
+    cloned["steps"] = steps + [_confirm_step(where)]
+    if not cloned.get("heading"):
+        cloned["heading"] = "REPAIR BRANCH"
+    return cloned
+
+
+def _supply_branch() -> dict:
+    return {
+        "title": "Supply connection",
+        "heading": "REPAIR BRANCH",
+        "before": ["Fix the supply connection before you open a kit."],
+        "steps": [
+            _branch_step(
+                "Check the water supply line connection.",
+                "Back of the toilet.",
+                "The connection is dry.",
+                "The leak persists from the water valve.",
+                "Go to the next branch.",
+            ),
+            _branch_step(
+                "Fix or tighten the supply connection.",
+                "Back of the toilet.",
+                "The connection is dry.",
+                "The leak persists from the water valve.",
+                "Confirm the connection.",
+            ),
+            _confirm_step("Back of the toilet."),
+        ],
+    }
+
+
+def _flange_branch() -> dict:
+    return {
+        "title": "Flange and seal",
+        "heading": "REPAIR BRANCH",
+        "before": ["Use closet flange seal 02125 when the flange is the leak."],
+        "steps": [
+            _branch_step(
+                "Check the flange is 7/16 inch above the floor.",
+                "At the closet flange, under the toilet.",
+                "The flange is dry.",
+                "The leak continues.",
+                "Replace the seal if it leaks.",
+            ),
+            _branch_step(
+                "Replace flange seal 02125.",
+                "At the closet flange, under the toilet.",
+                "The new seal is seated.",
+                "The leak continues.",
+                "Confirm the flange.",
+            ),
+            _confirm_step("At the closet flange, under the toilet."),
+        ],
+    }
+
+
+def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
+    """Diagnosis stays in the flowchart. Every supported repair is its own branch.
+
+    Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122,
+    water valve 42109, and the flange seal. Each branch numbers its own steps and
+    ends on a confirm. A crop is drawn on the first step that uses it.
     """
     import manual_figures as mf
 
+    del history
     if not proc.bay_order:
         return proc
     blob = " ".join(
@@ -6644,10 +6744,15 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     order = " ".join(proc.bay_order).lower()
     if "vacuum" not in order and "42109" not in order and "water valve" not in order:
         return proc
-    kind = _confirmed_thetford_kind(proc, history)
-    layout = mf.thetford_kit_layout(kind)
-    if layout.get("steps"):
-        proc.procedures = [layout]
+    branches = [_supply_branch()]
+    for kind in ("breaker", "valve"):
+        layout = mf.thetford_kit_layout(kind)
+        if layout.get("steps"):
+            branched = ensure_verify_step(layout)
+            branched["heading"] = "REPAIR BRANCH"
+            branches.append(branched)
+    branches.append(_flange_branch())
+    proc.procedures = branches
     _drop_repeated_procedure_figures(proc.procedures)
     return proc
 
@@ -6730,7 +6835,7 @@ def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
         return proc
     proving = mf.facr_proving_layout()
     repair = mf.facr_rr_layout()
-    proc.procedures = [item for item in (proving, repair) if item.get("steps")]
+    proc.procedures = [ensure_verify_step(item) for item in (proving, repair) if item.get("steps")]
     return apply_bay_oem_fallback(proc, None)
 
 
@@ -6967,7 +7072,7 @@ def _plain_kit_procedures(packets, job: str) -> list:
         layout = mf.procedure_from_sheet(packet.get("excerpt") or "", figures, title)
         if not layout.get("steps"):
             continue
-        built.append(layout)
+        built.append(ensure_verify_step(layout))
         seen.add(key)
     built.sort(
         key=lambda item: 0

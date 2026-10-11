@@ -100,7 +100,7 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
                 {"title": "Thetford Water Valve Service Kit 42109", "page": 1, "excerpt": "Disconnect RV water supply from toilet."},
             ],
         )
-        self.assertEqual(len(proc.procedures), 1)
+        self.assertGreaterEqual(len(proc.procedures), 4)
         valve = next(
             procedure
             for procedure in proc.procedures
@@ -143,36 +143,40 @@ class TestOptionalPhotoAndProcedureList(unittest.TestCase):
         self.history = _procedure_history(first)
 
     def test_typed_yes_no_and_a_short_answer_advance_once(self):
-        self.assertIn("**Step 1:", self.first)
-        self.assertIn("Do this:", self.first)
+        self.assertIn("<!--gd-step:1-->", self.first)
+        self.assertNotIn("Do this:", self.first)
+        self.assertNotIn("Where:", self.first)
+        self.assertNotIn("Good looks like:", self.first)
+        self.assertNotRegex(self.first, r"Step \d+ of")
         self.assertNotIn("Yes, go to the next step.", self.first)
         self.assertNotIn("No, do this step again.", self.first)
-        self.assertRegex(self.first, r"\*\*Step 1: \S+")
+        self.assertIn("What do you see?", self.first)
         for answer in ("Yes.", "No.", "Water is off."):
             reply = _turn(answer, self.history)
-            self.assertIn("**Step 2:", reply, answer)
+            self.assertIn("<!--gd-step:2-->", reply, answer)
             self.assertNotRegex(reply, r"(?<!\d)Step 1:", answer)
             self.assertNotIn("Send the photo before the next step.", reply, answer)
         held = _turn("Not yet.", self.history)
-        self.assertIn("**Step 1:", held)
+        self.assertIn("<!--gd-step:1-->", held)
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         again = _turn("Not yet.", self.history + [
             {"role": "user", "content": "Not yet."},
             {"role": "assistant", "content": held},
         ])
-        self.assertIn("**Step 2:", again)
+        self.assertIn("<!--gd-step:2-->", again)
         self.assertNotIn("Send the photo before the next step.", again)
         shown = _turn("show me the figure", self.history)
-        self.assertIn("**Step 1:", shown)
+        self.assertIn("<!--gd-step:1-->", shown)
         self.assertNotRegex(shown, r"(?<!\d)Step 2:")
 
     def test_repair_procedure_is_the_numbered_list(self):
         reply = _turn("What is the repair procedure?", self.history)
         self.assertIn("REMOVAL", reply)
         self.assertIn("INSTALLATION", reply)
-        self.assertIn("\n1.", reply)
-        self.assertIn("**Step 1:", reply)
+        self.assertNotIn("Do this:", reply)
+        self.assertNotIn("Where:", reply)
+        self.assertNotIn("**Step 1:", reply)
         self.assertNotIn("Step 1 of", reply)
         self.assertLess(reply.lower().find("removal"), reply.lower().find("installation"))
         low = reply.lower()

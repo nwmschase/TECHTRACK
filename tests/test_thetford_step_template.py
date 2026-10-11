@@ -36,7 +36,7 @@ def _packet(title, path):
 
 
 def _assert_fields(case, text):
-    """A printed step has a heading and a Do this list. Blanks and the photo script stay off."""
+    """A printed Bay step has a heading and a Do this list. Blanks and the photo script stay off."""
     case.assertRegex(text, r"Step \d+:")
     case.assertIn("Do this:", text)
     case.assertNotIn("HOW:", text)
@@ -47,6 +47,24 @@ def _assert_fields(case, text):
     case.assertNotIn("Not stated in this sheet", text)
 
 
+def _assert_chat(case, text):
+    """A Guided Diagnostics reply is sentences. The label block and the counter stay off."""
+    case.assertNotIn("Where:", text)
+    case.assertNotIn("Do this:", text)
+    case.assertNotIn("Good looks like:", text)
+    case.assertNotIn("Bad looks like:", text)
+    case.assertNotIn("Next:", text)
+    case.assertNotRegex(text, r"Step \d+ of")
+    case.assertNotIn("**Step ", text)
+    case.assertNotIn("HOW:", text)
+    case.assertNotIn("PHOTO:", text)
+    case.assertNotIn("Yes, go to the next step.", text)
+    case.assertNotIn("A photo is optional.", text)
+    case.assertNotIn("UNCONFIRMED", text)
+    case.assertNotIn("Not stated in this sheet", text)
+    case.assertIn("What do you see?", text)
+
+
 class TestThetfordStepTemplate(unittest.TestCase):
     def test_every_proving_line_has_the_eight_fields(self):
         for line in (
@@ -55,9 +73,7 @@ class TestThetfordStepTemplate(unittest.TestCase):
             THETFORD_VALVE_LINE,
             THETFORD_FLANGE_LINE,
         ):
-            _assert_fields(self, line)
-            self.assertIn("Where:", line)
-            self.assertIn("**Step ", line)
+            _assert_chat(self, line)
             self.assertNotIn("SAFETY:", line)
             self.assertNotIn("Safety:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
@@ -71,7 +87,7 @@ class TestThetfordStepTemplate(unittest.TestCase):
             reply = avoid_duplicate_reply(
                 draft, history, latest, "Plumbing / Toilets", "Style II 42070"
             )
-            _assert_fields(self, reply)
+            _assert_chat(self, reply)
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
             latest = "Not checked yet"

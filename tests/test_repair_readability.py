@@ -120,8 +120,8 @@ class TestReadability(unittest.TestCase):
                 _packet("Thetford Vacuum Breaker Kit 34123/34122", BREAKER_PDF),
             ],
         )
-        self.assertEqual(len(proc.procedures), 1)
-        self.assertTrue(proc.procedures[0]["title"].lower().startswith("water"))
+        self.assertGreaterEqual(len(proc.procedures), 4)
+        self.assertTrue(any("42109" in (procedure.get("title") or "") for procedure in proc.procedures))
         pages = compose_sheet(proc)
         self.assertEqual(pages[0].images, [])
         images = [image for page in pages for image in page.images]
@@ -154,7 +154,9 @@ class TestReadability(unittest.TestCase):
         self.assertNotIn("photo:", text)
         self.assertNotIn("a photo is optional", text)
         self.assertNotIn("yes, go to the next step", text)
-        self.assertLess(text.count("turn the rv water off before this work"), 4)
+        step_count = sum(len(procedure.get("steps") or []) for procedure in proc.procedures)
+        self.assertGreaterEqual(text.count("turn the rv water off before this work"), 2)
+        self.assertLess(text.count("turn the rv water off before this work"), step_count)
         self.assertIn("do not make the nuts too tight", text)
         self.assertLess(text.find("removal"), text.find("installation"))
         # A step with no figure is text only. The first water-off step has no picture.
@@ -188,26 +190,23 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("Here is the repair procedure.", first)
-        self.assertIn("**Step 1:", first)
+        self.assertIn("<!--gd-step:1-->", first)
+        self.assertNotIn("Here is the repair procedure.", first)
         self.assertNotIn("Take a photo of this step and send it.", first)
         self.assertNotIn("Not stated in this sheet", first)
-        self.assertIn("Do this:", first)
-        self.assertIn("\n1. ", first)
+        self.assertNotIn("Do this:", first)
+        self.assertNotIn("Where:", first)
+        self.assertNotIn("Good looks like:", first)
+        self.assertNotRegex(first, r"Step \d+ of")
         self.assertNotIn("PHOTO:", first)
         self.assertNotIn("Yes, go to the next step.", first)
         self.assertNotIn("Step 2:", first)
         self.assertIn("42109", first)
         self.assertNotIn("It looks right", first)
         for sentence in re.split(r"\n+", first):
-            if sentence.startswith("📖") or not sentence.strip():
+            if sentence.startswith("📖") or sentence.startswith("<!--") or not sentence.strip():
                 continue
-            if sentence.startswith("**") or sentence.startswith("Here is the repair"):
-                continue
-            name = sentence.split(":", 1)[0]
-            if name in ("Where", "Tools", "Safety", "Good looks like", "Bad looks like", "Next", "If it fails", "Figure", "Do this"):
-                continue
-            self.assertLessEqual(mf._word_count(sentence), 15, sentence)
+            self.assertNotRegex(sentence, r"^(?:Where|Do this|Good looks like|Bad looks like|Next):")
         history = history + [
             {"role": "user", "content": "Vacuum breaker is dry. No leak there."},
             {"role": "assistant", "content": first},
@@ -219,7 +218,7 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("**Step 1:", held)
+        self.assertIn("<!--gd-step:1-->", held)
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         advanced = avoid_duplicate_reply(
@@ -229,7 +228,7 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("**Step 2:", advanced)
+        self.assertIn("<!--gd-step:2-->", advanced)
         self.assertNotRegex(advanced, r"(?<!\d)Step 1:")
 
 

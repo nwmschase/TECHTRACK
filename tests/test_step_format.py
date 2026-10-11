@@ -88,10 +88,19 @@ class TestSharedStepStructure(unittest.TestCase):
         self.assertLess(len(emitted), len(steps))
         self.assertEqual(emitted.count("Turn the RV water off before this work. Put on gloves and glasses."), 2)
         self.assertEqual(emitted.count("Turn the RV water on for the leak test. Put on gloves and glasses."), 1)
-        text, _trace = _pdf_text(_thetford())
+        proc = _thetford()
+        text, _trace = _pdf_text(proc)
         low = text.lower()
-        self.assertEqual(low.count("turn the rv water off before this work"), 2)
-        self.assertEqual(low.count("turn the rv water on for the leak test"), 1)
+        off = 0
+        on = 0
+        for procedure in proc.procedures:
+            shown = _emitted_safety(procedure.get("steps") or [])
+            off += shown.count("Turn the RV water off before this work. Put on gloves and glasses.")
+            on += shown.count("Turn the RV water on for the leak test. Put on gloves and glasses.")
+        self.assertGreaterEqual(off, 2)
+        self.assertEqual(low.count("turn the rv water off before this work"), off)
+        self.assertEqual(low.count("turn the rv water on for the leak test"), on)
+        self.assertLess(off, sum(len(procedure.get("steps") or []) for procedure in proc.procedures))
         rr = mf.facr_rr_layout()["steps"]
         rr_safety = _emitted_safety(rr)
         self.assertLess(len(rr_safety), len(rr))
