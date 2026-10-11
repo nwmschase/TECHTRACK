@@ -2349,10 +2349,11 @@ def _facr_prove_context(category_name: str = "", model_text: str = "", blob: str
     """FACR freeze chat. The dropdown can name the unit when the turns are one word."""
     if is_facr_rooftop_freeze_context(category_name, model_text, blob):
         return True
-    if not looks_like_facr_rooftop(category_name, model_text, blob):
-        return False
-    cat = _norm(category_name)
-    return "air condition" in cat or cat in {"hvac", "rooftop", "rooftop ac"}
+    if looks_like_facr_rooftop(category_name, model_text, blob):
+        cat = _norm(category_name)
+        if "air condition" in cat or cat in {"hvac", "rooftop", "rooftop ac"}:
+            return True
+    return bool(re.search(r"facr\d|interior leak|water leaking|condensate|drain is clear", _norm(blob)))
 
 
 def facr_proves_from_chat(
@@ -2636,7 +2637,7 @@ def _facr_pending_prompts(facts: dict | None = None, history: list = None) -> li
     pressures_in = facts.get("facr_pressure") == "ok"
     steps = (
         ("facr_drain", "clear", "Inspect the condensate drain and say whether it is clear."),
-        ("facr_pressure", "ok", "Read the refrigerant pressures."),
+        ("facr_pressure", "ok", "Check the refrigerant pressures and report the readings."),
         ("facr_pan_slope", "ok", "Inspect the evaporator pan and the base-pan slope."),
         ("facr_fan_filter", "ok", "Check the filter and the fan."),
         ("facr_suction", "clear", "Say whether the suction line is iced."),
