@@ -1503,6 +1503,22 @@ def _offers_for_cited_pages(rows, cites: dict[str, set[int]]) -> list[dict]:
     return offers
 
 
+def _offer_matches_cited_page(item: dict, cites: dict[str, set[int]]) -> bool:
+    """A cited manual may only show a page the reply named."""
+    blob = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "caption", "label", "doc_number", "clean_title", "file_path")
+    )
+    tokens = _doc_tokens(blob) & set(cites)
+    if not tokens:
+        return True
+    try:
+        page = int(item.get("page") or 0)
+    except (TypeError, ValueError):
+        return False
+    return any(page in cites[token] for token in tokens)
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
@@ -1512,18 +1528,13 @@ def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) 
     """
     asked = mf.wants_manual_image(user_msg) or bool(re.search(r"\bshow\b", user_msg or "", re.I))
     cites = _cited_doc_pages(reply) if asked else {}
-    if cites:
-        chosen = _offers_for_cited_pages(rows, cites)
-        if not chosen:
-            has_art = any((row or {}).get("png") or (row or {}).get("image_path") for row in (rows or []))
-            if has_art:
-                return []
-            offer = mf.thetford_show_offer(reply, user_msg)
-            if offer and offer.get("png"):
-                return [offer]
-            return []
+    cited = _offers_for_cited_pages(rows, cites) if cites else []
+    if cited:
+        chosen = cited
     else:
         chosen = select_library_figures(rows, reply, user_msg, category, model)
+        if cites:
+            chosen = [item for item in chosen or [] if _offer_matches_cited_page(item, cites)]
     kit_caption = mf.thetford_procedure_show_caption(reply)
     visible = []
     for item in chosen or []:
