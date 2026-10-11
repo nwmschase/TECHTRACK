@@ -4956,6 +4956,11 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("dataline")
     if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
         found.add("ceiling")
+    if re.search(r"\bpeacemaker\b", low) and re.search(
+        r"\bcompressor\b|\bshaft\b|\blocked\b|\bcool|\b\d+(?:\.\d+)?\s*a\b",
+        low,
+    ):
+        found.add("peacemaker")
     if _levelup_firefly_confirmed(low):
         found.add("can")
     return found
@@ -4994,6 +4999,12 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "pressure" in answered and re.search(
         r"read the refrigerant|connect gauges|check refrigerant pressures|read both gauges",
+        low,
+    ):
+        return True
+    if "peacemaker" in answered and re.search(
+        r"\b(?:do|run|repeat|perform)\b.{0,48}\b(?:peacemaker|bypass)\b"
+        r"|\b(?:peacemaker|bypass)\b.{0,48}\b(?:report|again)\b",
         low,
     ):
         return True
@@ -6271,6 +6282,13 @@ def _final_shop_line(
     return _with_cite(chosen, job)
 
 
+def _restore_look_for_leaks(text: str) -> str:
+    """The filler trim eats a trailing period. The closing leak line stays whole."""
+    if (text or "").rstrip().endswith("Look for leaks"):
+        return text.rstrip() + "."
+    return text
+
+
 def without_reading_filler(
     reply: str,
     history: list = None,
@@ -6283,14 +6301,14 @@ def without_reading_filler(
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n *", "\n", text).strip(" \n.")
     if text and not _FILLER_RE.search(text):
-        return text
+        return _restore_look_for_leaks(text)
     miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
     if miss and not _FILLER_RE.search(miss):
-        return miss
+        return _restore_look_for_leaks(miss)
     fallback = _final_shop_line(history, latest_msg, category_name, model_text)
     fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
     if fallback and not _FILLER_RE.search(fallback):
-        return fallback
+        return _restore_look_for_leaks(fallback)
     return ""
 
 
