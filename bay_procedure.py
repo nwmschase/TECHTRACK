@@ -2098,7 +2098,7 @@ _PATH_CLIMAX = {
     "ground_control": ("zero-point", "zero point", "manual level", "enter"),
     "dometic_ceiling": ("ceiling thermostat", "3311071", "peacemaker"),
     "fact12_freeze": ("freeze sensor", "resecure"),
-    "girard_e8": ("petit tube",),
+    "girard_e8": ("petit tube", "pressure switch", "pressure switch hose"),
     "stabilizer": ("front stabilizer", "psx1", "jack assembly"),
     "cooktop_tip": ("thermocouple", "reposition"),
     "thetford_leak": ("water valve", "vacuum breaker", "flange", "water supply", "supply connection"),
@@ -3001,7 +3001,7 @@ def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind:
             and re.search(r"range|cooktop", title or "", re.I)
         )
     if path_kind == "bal_tongue" and re.search(r"\bbal\b", blob) and re.search(
-        r"jack|tongue|stabil", blob
+        r"jack|tongue|stabil|troubleshoot|ss\s*5\.1|\b5\.1\b", blob
     ):
         return True
     if excerpt and sentence_is_on_procedure(excerpt, topic_text, path_kind):
@@ -3216,6 +3216,63 @@ def _first_verbatim_sentence(raw: str, excerpt: str) -> str:
     return ""
 
 
+_QUOTE_PREFER = {
+    "bal_tongue": (
+        re.compile(r"remove the \d+ screws", re.I),
+        re.compile(r"ensure a good connection", re.I),
+    ),
+    "girard_e8": (
+        re.compile(r"pressure switch hose", re.I),
+        re.compile(r"integrity and connections", re.I),
+    ),
+}
+
+
+def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> str:
+    """One on-page sentence for this procedure.
+
+    A later sentence can win when the first line is about a different prove.
+    The BAL troubleshooting screw sentence and the Girard pressure-switch hose
+    sentence are the ones those sheets have to keep.
+    """
+    raw = chunk_text or ""
+    cleaned = clean_ocr_prose(raw)
+    kept = []
+    seen = set()
+    for sentence in _split_sentences(cleaned):
+        sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence)).strip()
+        sentence = _LEADING_FIG_RE.sub("", sentence).strip()
+        if not sentence:
+            continue
+        if any(re.search(pattern, sentence, re.I) for pattern in _PATH_OFF.get(path_kind or "", ())):
+            continue
+        one = clean_source_excerpt(sentence, locked=False)
+        if not one:
+            continue
+        one = _drop_path_off_sentences(one, path_kind)
+        one = _drop_sheet_contradictions(one, topic_text)
+        if path_kind == "cooktop_tip":
+            one = _cooktop_excerpt(one)
+        one = (one or "").strip()
+        if not one or _source_quote_rejected(one) or not source_sentence_is_printable(one):
+            continue
+        if not _quote_is_verbatim(raw, one):
+            continue
+        preferred = any(pattern.search(one) for pattern in _QUOTE_PREFER.get(path_kind or "", ()))
+        if not preferred and not sentence_is_on_procedure(one, topic_text, path_kind):
+            continue
+        one = _as_sentence(one)
+        key = re.sub(r"\s+", " ", one.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(one)
+    for sentence in kept:
+        if any(pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())):
+            return sentence
+    return kept[0] if kept else ""
+
+
 def _source_doc_key(src: dict) -> str:
     """Same manual, not the same page number on a different book."""
     title = (src.get("title") or "").strip().lower()
@@ -3263,25 +3320,8 @@ def polish_bay_sources(
         if not chunk_text:
             excerpt = ""
         else:
-            excerpt = clean_source_excerpt(chunk_text, locked=False)
+            excerpt = _best_verbatim_quote(chunk_text, path_kind, topic_text)
             excerpt = _strip_internal_notes(excerpt)
-            excerpt = _drop_path_off_sentences(excerpt, path_kind)
-            excerpt = _drop_sheet_contradictions(excerpt, topic_text)
-            if path_kind == "cooktop_tip":
-                excerpt = _cooktop_excerpt(excerpt)
-            kept_sentences = [
-                sentence
-                for sentence in _split_sentences(excerpt)
-                if source_sentence_is_printable(sentence)
-                and not _source_quote_rejected(sentence)
-                and sentence_is_on_procedure(sentence, topic_text, path_kind)
-                and _quote_is_verbatim(chunk_text, sentence)
-            ]
-            excerpt = kept_sentences[0] if kept_sentences else ""
-            if excerpt and ":" in excerpt:
-                head = excerpt.split(":", 1)[0].strip()
-                if head and _quote_is_verbatim(chunk_text, head) and source_sentence_is_printable(head):
-                    excerpt = _as_sentence(head)
         raw_off = any(re.search(pattern, raw_excerpt or "", re.I) for pattern in _PATH_OFF.get(path_kind or "", ()))
         if path_kind == "stabilizer" and not cited and not locked:
             if not _STABILIZER_KEEP_RE.search(excerpt or "") and not _STABILIZER_KEEP_RE.search(raw_excerpt or ""):
@@ -5125,6 +5165,8 @@ def _ground_control_path(concern: str) -> dict:
         ),
         "flowchart": Flowchart(
             readable=True,
+            # Room under the last diamond so its NO label clears both nodes.
+            row_pad={"d_side": 36.0},
             nodes=[
                 FlowNode(
                     "s",

@@ -246,6 +246,26 @@ def _paragraph_is_guard_echo(head: str) -> bool:
     return bool(head and _GUARD_ECHO_RE.search(head))
 
 
+_EXCERPT_GUARD_RE = re.compile(
+    r"[^.?!\n]*document library excerpts[^.?!\n]*do not include[^.?!\n]*[.?!]?",
+    re.I,
+)
+_GLUED_IMPERATIVE_RE = re.compile(
+    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set)\b)"
+)
+
+
+def _strip_excerpt_guard(text: str) -> str:
+    """Drop a prompt sentence that says the library excerpts do not include a fact."""
+    cleaned = _EXCERPT_GUARD_RE.sub(" ", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+def repair_glued_sentence(text: str) -> str:
+    """Put a period before an imperative that was glued onto the previous clause."""
+    return _GLUED_IMPERATIVE_RE.sub(". ", text or "")
+
+
 def strip_leaked_prompt(text: str) -> str:
     """Drop a prompt echo or a guard paragraph that landed in front of the answer.
 
@@ -262,6 +282,7 @@ def strip_leaked_prompt(text: str) -> str:
     while len(paragraphs) > 1 and _paragraph_is_guard_echo(paragraphs[0]):
         paragraphs.pop(0)
     cleaned = "\n\n".join(paragraphs).strip()
+    cleaned = _strip_excerpt_guard(cleaned)
     return cleaned or raw
 
 
@@ -3802,7 +3823,7 @@ def ensure_dometic_ceiling_thermostat(
     ceiling thermostat/selector. A later turn keeps a real follow-up.
     """
     facts = facts or {}
-    text = reply or ""
+    text = repair_glued_sentence(reply or "")
     open_line = dometic_nocoool_open_line(facts)
     if (
         facts.get("dometic_unit_bypass") == "cools"
@@ -5081,8 +5102,8 @@ def _conditional_lines(
     if job == "ground":
         return [
             "Do a manual level, then set zero point. Press FRONT five times, then REAR five times, then press ENTER.",
-            "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. That calibration is the repair.",
-            "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
+            "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. Zero-point calibration is the repair.",
+            "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, zero-point calibration is the repair.",
         ]
     if job == "stab":
         return [
@@ -5196,6 +5217,16 @@ LEADJACK_CARTRIDGE_LINE = (
     + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
+LEADJACK_CARTRIDGE_FOLLOW = (
+    "The repair is to replace the front lead-jack cartridge valve, part 177094. "
+    "The parts list calls 177094 the Cartridge Valve, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+_LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
 
 
 def _leadjack_coil_good(blob: str) -> bool:
@@ -5273,8 +5304,8 @@ def _leadjack_answered_slots(history: list = None, latest_msg: str = "") -> set[
             slots.add("plumb")
         if _leadjack_override_out(user_text):
             slots.add("override")
-        if pending_ask == "plumb" and _leadjack_affirmed(user_text):
-            slots.add("plumb")
+        if pending_ask and _leadjack_affirmed(user_text):
+            slots.add(pending_ask)
         if re.search(r"\b177094\b|cartridge valve", _norm(user_text)):
             slots.add("plumb")
         if pending_ask and re.search(r"\bnot checked yet\b", _norm(user_text)):
@@ -5340,8 +5371,7 @@ def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
     return "cartridge"
 
 
-def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
-    stage = _leadjack_stage(history, latest_msg)
+def _leadjack_line_for(stage: str) -> str:
     if stage == "plumb":
         return LEADJACK_PLUMB_LINE
     if stage == "override":
@@ -5349,6 +5379,65 @@ def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
     if stage == "cartridge":
         return LEADJACK_CARTRIDGE_LINE
     return LEADJACK_COIL_LINE
+
+
+def _leadjack_rank(stage: str) -> int:
+    try:
+        return _LEADJACK_STAGES.index(stage)
+    except ValueError:
+        return -1
+
+
+def _leadjack_shipped_stage(history: list = None) -> str:
+    """The furthest lead-jack line already given. Later turns do not walk back."""
+    best = ""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        normed = _norm(content)
+        if "177094" in content:
+            stage = "cartridge"
+        elif normed == _norm(LEADJACK_OVERRIDE_LINE):
+            stage = "override"
+        elif normed == _norm(LEADJACK_PLUMB_LINE):
+            stage = "plumb"
+        elif normed == _norm(LEADJACK_COIL_LINE):
+            stage = "coil"
+        else:
+            continue
+        if _leadjack_rank(stage) > _leadjack_rank(best):
+            best = stage
+    return best
+
+
+def _leadjack_pushes_forward(latest_msg: str) -> bool:
+    """A repair ask, or a short yes, must not reprint the line just sent."""
+    low = _norm(latest_msg)
+    if re.search(r"\bwhat(?:'s| is) the repair\b", low):
+        return True
+    words = low.split()
+    return bool(words) and len(words) <= 4 and _leadjack_affirmed(latest_msg)
+
+
+def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
+    """The next lead-jack step. A repeated ask moves one stage forward."""
+    stage = _leadjack_stage(history, latest_msg)
+    shipped = _leadjack_shipped_stage(history)
+    if _leadjack_rank(shipped) > _leadjack_rank(stage):
+        stage = shipped
+    line = _leadjack_line_for(stage)
+    last_raw = _last_assistant_text(history)
+    last = _norm(last_raw)
+    if last == _norm(LEADJACK_CARTRIDGE_FOLLOW):
+        return LEADJACK_CARTRIDGE_FOLLOW
+    if last and last == _norm(line) and _leadjack_pushes_forward(latest_msg):
+        index = _leadjack_rank(stage)
+        if index + 1 < len(_LEADJACK_STAGES):
+            line = _leadjack_line_for(_LEADJACK_STAGES[index + 1])
+        else:
+            line = LEADJACK_CARTRIDGE_FOLLOW
+    return line
 
 
 def ensure_level_up_lead_jack_reply(
@@ -6258,6 +6347,7 @@ def polish_shop_reply(
     model_text: str = "",
 ) -> str:
     """Shop text only: no model instructions, no invented facts, no repeated block."""
+    reply = repair_glued_sentence(_strip_excerpt_guard(reply or ""))
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         if "📖" not in locked:
@@ -7836,7 +7926,7 @@ def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list 
     A low tip that the pan pushes gets that repair and cites SDN2U page 4, Figs. 3-4.
     A sentence that says the library does not cover tip position does not ship with the repair.
     """
-    cleaned = _strip_cooktop_contradiction(reply or "")
+    cleaned = _strip_excerpt_guard(_strip_cooktop_contradiction(reply or ""))
     repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
         complaint or ""
     )

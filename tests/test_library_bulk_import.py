@@ -187,6 +187,8 @@ class TestAutoContinue(unittest.TestCase):
         panel = (ROOT / "library_bulk_import.py").read_text(encoding="utf-8")
         self.assertIn('st.checkbox(\n        "Auto-continue"', panel)
         self.assertIn('st.button("Stop", key="bulk_stop")', panel)
+        self.assertIn("while True:", panel)
+        self.assertIn("Keep importing the next batch", panel)
 
 
 class TestStagingZipCleanup(BulkCase):
