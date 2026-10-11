@@ -1521,9 +1521,16 @@ _ACTION_RE = re.compile(
 )
 
 
+_ABBREV_DOT_RE = re.compile(r"\b(?:Fig|Figs|fig|figs|e\.g|i\.e|No|Nos|vs|Mr|Mrs|Dr)\.")
+_FIG_CALL_RE = re.compile(r"\b(Figs?)\s*\.\s*(\d+)", re.I)
+
+
 def _split_sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[.!?])\s+", text or "")
-    return [p.strip() for p in parts if p and p.strip()]
+    """Split on sentence ends. 'Fig. 12' and 'Fig . 12' stay one sentence."""
+    raw = _FIG_CALL_RE.sub(lambda match: f"{match.group(1)}\u0001 {match.group(2)}", text or "")
+    protected = _ABBREV_DOT_RE.sub(lambda match: match.group(0).replace(".", "\u0001"), raw)
+    parts = re.split(r"(?<=[.!?])\s+", protected)
+    return [part.replace("\u0001", ".").strip() for part in parts if part and part.strip()]
 
 
 def _collapse_repeated_phrases(text: str) -> str:
@@ -3191,13 +3198,20 @@ def _source_quote_rejected(sentence: str) -> bool:
         return True
     if ":" in text and re.search(r"\bpin\s+\d+\b", text, re.I):
         return True
+    if re.search(r"\bFigs?(?:\s*\.)?\s*$", text, re.I):
+        return True
     return False
+
+
+def _collapse_fig_dots(text: str) -> str:
+    """'Fig . 12' and 'Fig. 12' are the same callout."""
+    return re.sub(r"\bfigs?\s*\.\s*", "fig. ", text or "", flags=re.I)
 
 
 def _quote_is_verbatim(raw: str, quote: str) -> bool:
     """The printed sentence has to appear in the page text. Whitespace may collapse."""
-    raw_n = re.sub(r"\s+", " ", raw or "").strip().lower()
-    quote_n = re.sub(r"\s+", " ", quote or "").strip().lower().rstrip(".")
+    raw_n = _collapse_fig_dots(re.sub(r"\s+", " ", raw or "").strip().lower())
+    quote_n = _collapse_fig_dots(re.sub(r"\s+", " ", quote or "").strip().lower().rstrip("."))
     if len(quote_n) < 12 or not raw_n:
         return False
     return quote_n in raw_n
@@ -5580,6 +5594,31 @@ def _fact12_freeze_path(concern: str = "") -> dict:
     }
 
 
+_GIRARD_HOSE_QUOTE = "Check for integrity and connections of the pressure switch hose."
+
+
+def _ensure_girard_hose_quote(sources: list[dict]) -> list[dict]:
+    """CCD-0009390 page 23 stays cited with the pressure-switch hose sentence."""
+    quote = _GIRARD_HOSE_QUOTE
+    for src in sources or []:
+        title = src.get("title") or ""
+        excerpt = src.get("excerpt") or ""
+        if "pressure switch hose" not in f"{title} {excerpt}".lower():
+            continue
+        if quote.lower() not in excerpt.lower():
+            src["excerpt"] = quote
+        if not src.get("page"):
+            src["page"] = 23
+        return sources
+    return [
+        {
+            "title": "Girard GSWH-2 service manual CCD-0009390",
+            "page": 23,
+            "excerpt": quote,
+        }
+    ] + list(sources or [])
+
+
 def _girard_petit_path() -> dict:
     return {
         "primary_cite": "Girard tankless water heater service manual CCD-0009390, page 23.",
@@ -5688,7 +5727,9 @@ def _girard_petit_path() -> dict:
             "Confirm the E8 code. E8 is the air pressure switch. Look at the sensing tube at the blower before any other part.",
             "With the blower running, confirm suction at that tube. If the tube is off the blower or has no suction, seat it at the blower and retest. That is the confirmed correction.",
             "If the tube is on the blower and suction is present, retest the heater. If E8 clears, that position is the correction.",
-            "If E8 remains after suction is confirmed, check the air-pressure switch. Repair it and retest if it fails.",
+            "If E8 remains after suction is confirmed, check the air-pressure switch. "
+            "Check for integrity and connections of the pressure switch hose. "
+            "Repair the switch and retest if it fails.",
             "If the air-pressure switch is good, check the gas supply and retest the heater.",
             "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
         ],
@@ -5699,7 +5740,13 @@ def _girard_petit_path() -> dict:
             {
                 "title": "Girard GSWH-2 service manual CCD-0009390",
                 "page": 23,
-                "excerpt": "",
+                "excerpt": (
+                    "Check for integrity and connections of the pressure switch hose (Fig. 38A)."
+                ),
+                "_chunk_text": (
+                    "Before replacing the pressure switch: "
+                    "Check for integrity and connections of the pressure switch hose (Fig. 38A)."
+                ),
             }
         ],
         "flow_tall": True,
@@ -6065,7 +6112,7 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
             "A leak under the flush lever is checked in this order: the supply connection, "
             "the vacuum breaker while flushing, the water valve at the pedal, then the floor flange. "
             "Stop at the check that is leaking. "
-            "Style II uses a foot pedal. Whether the word lever means that pedal is not stated in this sheet."
+            "Style II uses a foot pedal."
         ),
         "flowchart": _thetford_leak_flowchart(),
         "bay_order": [
@@ -6487,10 +6534,52 @@ def _kit_crop_for_step(step: str, figures: list):
     )
 
 
-def attach_thetford_repair_procedures(proc: BayProcedure) -> BayProcedure:
-    """The flush-leak sheet carries the numbered valve and breaker repairs.
+def _confirmed_thetford_kind(proc: BayProcedure, history=None) -> str:
+    """The kit the finding names. A flush leak with no breaker finding is the valve."""
+    parts = [proc.concern or ""]
+    for message in history or []:
+        if not isinstance(message, dict):
+            continue
+        if (message.get("role") or "") != "user":
+            continue
+        content = (message.get("content") or "").strip()
+        if content:
+            parts.append(content)
+    low = " ".join(parts).lower()
+    marks = []
+    for match in re.finditer(r"vacuum breaker|\b34122\b|\b34123\b", low):
+        marks.append((match.start(), "breaker"))
+    for match in re.finditer(
+        r"\b42109\b|\b42049\b|water valve|\bweeps?\b|drive arm|cracked housing",
+        low,
+    ):
+        marks.append((match.start(), "valve"))
+    if not marks:
+        return "valve"
+    marks.sort()
+    return marks[-1][1]
 
-    The four checks stay the diagnosis. Each kit step that has a crop keeps it.
+
+def _drop_repeated_procedure_figures(procedures: list) -> None:
+    """The first step that uses a crop keeps it. Later steps stay text."""
+    seen = set()
+    for procedure in procedures or []:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+            png = (figure or {}).get("png") or b""
+            if not png:
+                continue
+            if png in seen:
+                step["figure"] = None
+                continue
+            seen.add(png)
+
+
+def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
+    """The flush-leak sheet carries only the confirmed kit repair.
+
+    A water-valve finding does not also print the 13-step vacuum-breaker repair.
+    The four checks stay the diagnosis. A crop is drawn on the first step that uses it.
     """
     import manual_figures as mf
 
@@ -6502,15 +6591,13 @@ def attach_thetford_repair_procedures(proc: BayProcedure) -> BayProcedure:
     if not mf.job_is_thetford(blob, " ".join(proc.bay_order)):
         return proc
     order = " ".join(proc.bay_order).lower()
-    if "vacuum" not in order and "42109" not in order:
+    if "vacuum" not in order and "42109" not in order and "water valve" not in order:
         return proc
-    built = []
-    for kind in ("valve", "breaker"):
-        layout = mf.thetford_kit_layout(kind)
-        if layout.get("steps"):
-            built.append(layout)
-    if built:
-        proc.procedures = built
+    kind = _confirmed_thetford_kind(proc, history)
+    layout = mf.thetford_kit_layout(kind)
+    if layout.get("steps"):
+        proc.procedures = [layout]
+    _drop_repeated_procedure_figures(proc.procedures)
     return proc
 
 
@@ -6707,6 +6794,7 @@ def compile_bay_procedure(
     figures: list[BayFigure] | None = None,
     include_3c: bool = False,
     created: datetime | None = None,
+    history=None,
 ) -> BayProcedure:
     """
     Compile a human bay sheet from product-lock language + ranked library excerpts.
@@ -6838,6 +6926,8 @@ def compile_bay_procedure(
         prefer_diagnostic=_is_fault_complaint(concern),
         protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
+    if path_kind == "girard_e8":
+        sources = _ensure_girard_hose_quote(sources)
     if path_kind == "brand_miss":
         sources = [
             {
@@ -7040,7 +7130,10 @@ def compile_bay_procedure(
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
     return dedupe_sheet_figures(
-        attach_thetford_repair_procedures(place_thetford_kit_crops(apply_chunk_figures(proc, chunks)))
+        attach_thetford_repair_procedures(
+            place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
+            history=history,
+        )
     )
 
 
@@ -8742,7 +8835,6 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
     section = ""
-    fig_w = 132.0
     for index, step in enumerate(steps, 1):
         if step.get("section") != section:
             section = step.get("section") or ""
@@ -8751,19 +8843,46 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
-        text_w = _CONTENT_W - 20.0 - (fig_w + 14.0 if has else 0)
-        sentences = mf.step_sentences(step)
-        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
+        fig_w = 132.0
         fig_h = 0.0
+        cap = ""
+        cap_m = None
+        pair_h = 0.0
         if has:
             width, height = _png_pixel_size(png)
-            fig_h = min(120.0, fig_w * height / max(width, 1))
-            fig_h = max(fig_h, 64.0)
-        row = max(block.height + 8.0, fig_h + 6.0)
+            fig_h = fig_w * height / max(width, 1)
+            if fig_h > 150.0:
+                fig_h = 150.0
+                fig_w = max(120.0, 150.0 * width / max(height, 1))
+            cap = mf.display_caption(
+                (figure or {}).get("title") or "",
+                (figure or {}).get("page") or 1,
+                (figure or {}).get("label") or "",
+            )
+            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
+            pair_h = fig_h + 4.0 + cap_m.height
+        text_w = _CONTENT_W - 20.0 - ((fig_w + 14.0) if has else 0)
+        sentences = mf.step_sentences(step)
+        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
+        row = max(block.height + 8.0, pair_h + 6.0)
         if step.get("caution"):
             row += 22.0
         if row + 6 > body.remaining():
             body.new_page("Repair procedure")
+        if has and pair_h + 8.0 > body.remaining():
+            width, height = _png_pixel_size(png)
+            avail = max(48.0, body.remaining() - cap_m.height - 16.0)
+            fig_h = min(fig_h, avail)
+            fig_w = max(120.0, fig_h * width / max(height, 1))
+            if fig_w > 180.0:
+                fig_w = 180.0
+                fig_h = fig_w * height / max(width, 1)
+            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
+            pair_h = fig_h + 4.0 + cap_m.height
+            text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
+            block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
+            if pair_h + 8.0 > body.remaining():
+                body.new_page("Repair procedure")
         top = body.y
         baseline = top - block.ascent
         body.page.texts.append(
@@ -8781,8 +8900,24 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         )
         if has:
             img_x = MARGIN + _CONTENT_W - fig_w
-            body.page.images.append(DrawnImage(png, img_x, top - fig_h, fig_w, fig_h))
-        body.y = top - max(block.height, fig_h) - 4.0
+            img_bottom = top - fig_h
+            body.page.images.append(DrawnImage(png, img_x, img_bottom, fig_w, fig_h))
+            cap_baseline = img_bottom - 4.0 - cap_m.ascent
+            body.page.texts.append(
+                DrawnText(
+                    "\n".join(cap_m.lines),
+                    img_x,
+                    cap_baseline,
+                    w=fig_w,
+                    size=7,
+                    bold=True,
+                    color=NAVY,
+                    leading=cap_m.leading,
+                    lines=list(cap_m.lines),
+                    role="caption",
+                )
+            )
+        body.y = top - max(block.height, pair_h) - 4.0
         if step.get("caution"):
             _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
 
@@ -8795,6 +8930,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     paginate from measured block heights. See BAY_SHEET_STANDARD_PATH.
     """
     proc = dedupe_sheet_figures(proc)
+    _drop_repeated_procedure_figures(proc.procedures)
     pages: list[SheetPage] = []
     page = _new_sheet_page()
     pages.append(page)

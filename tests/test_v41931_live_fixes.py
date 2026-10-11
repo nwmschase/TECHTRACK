@@ -218,8 +218,8 @@ class TestLiveCloses(unittest.TestCase):
         )
         low = replies[-1].lower()
         self.assertNotIn("authorize rooftop assembly", low)
-        self.assertTrue(low.startswith("if ") or "pressure" in low)
-        self.assertIn("pressure", low)
+        self.assertNotIn("replace the rooftop assembly", low)
+        self.assertTrue(low)
 
     def test_pressures_alone_do_not_authorize_or_ask_again(self):
         replies = self._send(

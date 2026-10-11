@@ -825,10 +825,18 @@ _LABEL_ONLY_RE = re.compile(
     r"^(?:Water off|Power off|Propane off|Tools|Meter setting|Good|Bad|On good|On bad)\s*:?$",
     re.I,
 )
+_DANGLING_END_RE = re.compile(
+    r"(?:\b(?:is|are|was|were|be|been|being|the|a|an|of|to|for|that|this|and|or|with|at|on|in)|:)\s*$",
+    re.I,
+)
 
 
 def shop_field_value(value: str) -> str:
-    """The words a field actually states. An unfilled field is blank."""
+    """The words a field actually states. An unfilled field is blank.
+
+    Dropping the blank-field marker must not leave a cut sentence such as
+    'That limit is'.
+    """
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     if not text:
         return ""
@@ -836,7 +844,7 @@ def shop_field_value(value: str) -> str:
     for part in re.split(r"(?<=[.])\s+", text):
         if NOT_STATED in part:
             rest = re.sub(re.escape(NOT_STATED), " ", part).strip(" .;")
-            if not rest or _LABEL_ONLY_RE.match(rest):
+            if not rest or _LABEL_ONLY_RE.match(rest) or _DANGLING_END_RE.search(rest):
                 continue
             part = rest
         part = part.strip()

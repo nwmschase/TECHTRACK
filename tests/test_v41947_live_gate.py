@@ -20,7 +20,7 @@ from bay_procedure import (
     paint_library_step_figures,
     render_bay_procedure_pdf,
 )
-from gd_library_coach import avoid_duplicate_reply
+from gd_library_coach import avoid_duplicate_reply, ensure_facr_early_pressure_ask
 
 HOSE = "Check for integrity and connections of the pressure switch hose."
 S01 = [
@@ -64,6 +64,7 @@ def _walk(turns, category, model, draft="Read the freeze sensor."):
     replies = []
     for latest in turns:
         reply = avoid_duplicate_reply(draft, history, latest, category, model)
+        reply = ensure_facr_early_pressure_ask(reply, history, latest, category, model)
         replies.append(reply or "")
         history.append({"role": "user", "content": latest})
         history.append({"role": "assistant", "content": reply})
@@ -87,11 +88,10 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         )
         titles = [procedure.get("title") or "" for procedure in proc.procedures]
         self.assertTrue(any("42109" in title for title in titles))
-        self.assertTrue(any("3412" in title for title in titles))
-        valve = next(procedure for procedure in proc.procedures if "42109" in (procedure.get("title") or ""))
-        breaker = next(procedure for procedure in proc.procedures if "3412" in (procedure.get("title") or ""))
+        self.assertFalse(any("3412" in title for title in titles))
+        self.assertEqual(len(proc.procedures), 1)
+        valve = proc.procedures[0]
         self.assertEqual(len(valve["steps"]), 14)
-        self.assertEqual(len(breaker["steps"]), 13)
         water = valve["steps"][0]
         pedal = valve["steps"][3]
         thumb = next(step for step in valve["steps"] if "thumb" in (step.get("text") or "").lower())
@@ -117,7 +117,15 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
                     self.assertTrue(figure.get("label"))
                 else:
                     self.assertFalse(figure)
-        self.assertGreaterEqual(figured, 5)
+        self.assertGreaterEqual(figured, 4)
+        pngs = []
+        for procedure in proc.procedures:
+            for step in procedure["steps"]:
+                figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+                png = (figure or {}).get("png") or b""
+                if png:
+                    pngs.append(png)
+        self.assertEqual(len(pngs), len(set(pngs)))
         trace = []
         pdf = render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])
@@ -420,7 +428,14 @@ class TestS10FigureDedupe(unittest.TestCase):
 
 class TestS01RepairByTurnFive(unittest.TestCase):
     def test_the_gate_replay_authorizes_on_the_fifth_turn(self):
-        replies = _walk(S01, "Air Conditioning", "FACR08HESA2-PS")
+        """Live gate cases.json: drain, pan, fan, pressures, freeze sensor."""
+        turns = ["drain", "pan", "fan", "pressures", "freeze sensor"]
+        replies = _walk(
+            turns,
+            "Air Conditioning",
+            "FACR08HESA2-PS",
+            draft="Read the refrigerant pressures.",
+        )
         for reply in replies[:4]:
             low = reply.lower()
             self.assertNotIn("replace the rooftop assembly", low)
@@ -428,14 +443,16 @@ class TestS01RepairByTurnFive(unittest.TestCase):
             self.assertNotIn("sail switch", low)
             self.assertNotIn("stay on the facr", low)
             self.assertNotIn("next check on the", low)
+        pressure_asks = [
+            reply for reply in replies[1:3]
+            if "pressure" in reply.lower()
+        ]
+        self.assertLess(len(pressure_asks), 2, replies[1:3])
         fifth = replies[4].lower()
         self.assertIn("authorize rooftop assembly", fifth)
         self.assertIn("replace the rooftop assembly", fifth)
         self.assertIn("ccd-0007990", fifth)
         self.assertNotIn("read the freeze sensor", fifth)
-        sixth = replies[5].lower()
-        self.assertIn("authorize rooftop assembly", sixth)
-        self.assertIn("replace the rooftop assembly", sixth)
 
     def test_four_turns_without_pressures_do_not_authorize(self):
         replies = _walk(
