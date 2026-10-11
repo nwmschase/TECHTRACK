@@ -6221,17 +6221,43 @@ def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
                 return index
     words = _content_words(blob)
     nums = set(re.findall(r"\b\d{4,}\b", blob))
+    identity_ids = set(re.findall(r"\b\d{4,}\b", title or ""))
     best_index = None
     best_score = 0
     for index, step in enumerate(steps):
+        step_ids = set(re.findall(r"\b\d{4,}\b", step))
+        if identity_ids and step_ids and identity_ids.isdisjoint(step_ids):
+            continue
         score = len(words & _content_words(step))
-        score += 5 * len(nums & set(re.findall(r"\b\d{4,}\b", step)))
+        score += 5 * len(nums & step_ids)
         if score > best_score:
             best_score = score
             best_index = index
     if best_score >= 2:
         return best_index
     return None
+
+
+def _drop_off_brand_sheet_figures(proc: BayProcedure, job: str) -> None:
+    """A cited figure from another brand or system does not stay on the sheet."""
+    import library_figure_backfill as fb
+
+    kept = []
+    for fig in proc.figures or []:
+        if fb.off_brand_figure(
+            {
+                "title": fig.title,
+                "caption": fig.caption,
+                "keywords": fig.excerpt,
+            },
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        ):
+            continue
+        kept.append(fig)
+    proc.figures = kept
 
 
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
@@ -6257,17 +6283,28 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
         if figures:
             packets.append({**data, "figures": figures})
-    if not packets:
-        return proc
     job = " ".join(
         part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
     )
+    if not packets:
+        _drop_off_brand_sheet_figures(proc, job)
+        return proc
     groups = [[] for _ in proc.bay_order]
     details = {}
+    import library_figure_backfill as fb
+
+    fitting = []
     for packet in packets:
         title = packet.get("title") or ""
-        if mf.brands_conflict(job, title):
+        if not fb.fits_case(
+            packet,
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        ):
             continue
+        fitting.append(packet)
         page = packet.get("page")
         labels = " ".join(
             f"{figure.get('label') or ''} {figure.get('caption') or ''}"
@@ -6278,12 +6315,29 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         )
         if slot is None:
             continue
-        detail = mf.procedure_detail(packet.get("excerpt") or "", title, page)
+        detail = fb.procedure_how(
+            packet,
+            packet.get("excerpt") or "",
+            title,
+            page,
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        )
         if detail and slot not in details:
             details[slot] = detail
         for figure in packet["figures"]:
             fig_title = figure.get("title") or title
             if mf.brands_conflict(job, fig_title):
+                continue
+            if fb.off_brand_figure(
+                {**packet, "title": fig_title, "label": figure.get("label") or "", "caption": figure.get("caption") or ""},
+                category=proc.category or "",
+                model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+                user_msg=proc.concern or "",
+                reply=job,
+            ):
                 continue
             png = figure.get("png") or b""
             if not png or mf.png_is_blank(png):
@@ -6316,7 +6370,7 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
     proc.bay_order = order
     proc.step_figures = groups
-    proc.procedures = _plain_kit_procedures(packets, job)
+    proc.procedures = _plain_kit_procedures(fitting, job)
     owned = set()
     for procedure in proc.procedures:
         for step in procedure.get("steps") or []:
@@ -6331,7 +6385,109 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         ]
     used = {fig.image_png for group in proc.step_figures for fig in group if fig.image_png}
     used.update(owned)
-    proc.figures = [fig for fig in proc.figures if fig.image_png not in used]
+    proc.figures = [fig for fig in proc.figures or [] if not (fig.image_png and fig.image_png in used)]
+    _drop_off_brand_sheet_figures(proc, job)
+    return proc
+
+
+def cited_figure_count(proc: "BayProcedure") -> int:
+    """How many figures the sheet actually shows.
+
+    Images beside a step count. The trailing figure list does too.
+    A step image is not counted twice.
+    """
+    total = 0
+    seen = set()
+
+    def _add(png: bytes, always: bool = False) -> None:
+        nonlocal total
+        if png:
+            if png in seen:
+                return
+            seen.add(png)
+            total += 1
+            return
+        if always:
+            total += 1
+
+    for fig in proc.figures or []:
+        _add(getattr(fig, "image_png", b"") or b"", always=True)
+    for group in proc.step_figures or []:
+        for fig in group or []:
+            _add(getattr(fig, "image_png", b"") or b"")
+    for procedure in proc.procedures or []:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure") or {}
+            png = figure.get("png") if isinstance(figure, dict) else b""
+            if png:
+                _add(png)
+    return total
+
+
+def _kit_topic_for_step(step: str) -> str:
+    """The kit crop this bay step can show. A supply mention of the water valve is not the kit."""
+    low = step or ""
+    if re.search(r"vacuum breaker|\b34122\b|\b34123\b", low, re.I):
+        return "breaker"
+    if re.search(r"\b42109\b|\bweep", low, re.I):
+        return "valve"
+    return ""
+
+
+def place_thetford_kit_crops(proc: BayProcedure) -> BayProcedure:
+    """Real 42109 and 34123 crops beside those steps.
+
+    The eight-field FIGURE line is text. The sheet still draws the kit crop.
+    A library crop already on the step is left in place.
+    """
+    import manual_figures as mf
+
+    if not proc.bay_order:
+        return proc
+    if not mf.job_is_thetford(proc.category, proc.brand, proc.model, proc.concern, proc.primary_cite):
+        return proc
+    packets = {}
+    for packet in mf.thetford_demo_packets():
+        title = (packet.get("title") or "").lower()
+        if "3412" in title or "breaker" in title:
+            packets["breaker"] = packet
+        if "42109" in title or "valve" in title:
+            packets["valve"] = packet
+    placed = [list(group) for group in (proc.step_figures or [])]
+    while len(placed) < len(proc.bay_order):
+        placed.append([])
+    for index, step in enumerate(proc.bay_order):
+        if any(
+            (fig.image_png or b"")
+            and not mf.png_is_blank(fig.image_png or b"")
+            and (fig.excerpt or "") != "bundled kit crop"
+            for fig in placed[index]
+        ):
+            continue
+        topic = _kit_topic_for_step(step)
+        packet = packets.get(topic)
+        if not packet:
+            continue
+        figure = next(
+            (
+                item
+                for item in packet.get("figures") or []
+                if item.get("png") and not mf.png_is_blank(item.get("png") or b"")
+            ),
+            None,
+        )
+        if not figure:
+            continue
+        placed[index] = [
+            BayFigure(
+                title=packet.get("title") or "",
+                page=figure.get("page") or 1,
+                caption=figure.get("label") or "Fig. 1",
+                excerpt="bundled kit crop",
+                image_png=figure.get("png") or b"",
+            )
+        ]
+    proc.step_figures = placed
     return proc
 
 
@@ -6349,13 +6505,26 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
     if groups is None:
         if not rows:
             return proc
-        groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category or "", proc.model or "")
+        groups = fb.figures_beside_steps(
+            rows,
+            proc.bay_order,
+            proc.category or "",
+            f"{proc.brand or ''} {proc.model or ''}".strip(),
+        )
     placed = [list(group) for group in (proc.step_figures or [])]
     while len(placed) < len(proc.bay_order):
         placed.append([])
     for index, offers in enumerate(groups):
-        if any(getattr(fig, "image_png", b"") for fig in placed[index]):
+        library_already = any(
+            (getattr(fig, "image_png", b"") or b"")
+            and (getattr(fig, "excerpt", "") or "") != "bundled kit crop"
+            for fig in placed[index]
+        )
+        if library_already:
             continue
+        placed[index] = [
+            fig for fig in placed[index] if (getattr(fig, "excerpt", "") or "") != "bundled kit crop"
+        ]
         for offer in offers:
             png = offer.get("png") or b""
             if not png or mf.png_is_blank(png):
@@ -6371,7 +6540,7 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
             )
             break
     proc.step_figures = placed
-    return proc
+    return place_thetford_kit_crops(proc)
 
 
 def _plain_kit_procedures(packets, job: str) -> list:
@@ -6761,7 +6930,7 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
-    return apply_chunk_figures(proc, chunks)
+    return place_thetford_kit_crops(apply_chunk_figures(proc, chunks))
 
 
 def _is_fact12_job(model_text: str) -> bool:
