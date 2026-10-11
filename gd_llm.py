@@ -18,7 +18,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.41"
+MODULE_REVISION = "v4.19.42"
 
 # Guided Diagnostics ask turns. A lower token cap and a low xAI reasoning
 # effort keep a shop turn from sitting on a long reasoning pass.

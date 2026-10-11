@@ -118,7 +118,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.41"
+MODULE_REVISION = "v4.19.42"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
