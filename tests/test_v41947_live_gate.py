@@ -110,12 +110,12 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
             sum("pull the pedal" in " ".join(step.get("actions") or []).lower() for step in valve["steps"]),
             1,
         )
-        self.assertIsNone(pedal.get("figure"))
-        self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
+        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        self.assertIsNone(thumb.get("figure"))
         self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((thumb.get("figure") or {}).get("png") or b""))
         figured = 0
         for procedure in proc.procedures:
             for step in procedure["steps"]:

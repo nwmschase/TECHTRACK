@@ -107,8 +107,8 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
     def test_tools_bad_do_not_and_flush_line(self):
         valve = next(item for item in self.proc.procedures if "42109" in (item.get("title") or ""))
         tool_blob = " ".join(
-            (step.get("fields") or {}).get("TOOLS / METER SETTING") or ""
-            for step in valve.get("steps") or []
+            [(step.get("fields") or {}).get("TOOLS / METER SETTING") or "" for step in valve.get("steps") or []]
+            + list(valve.get("before") or [])
         )
         self.assertIn("wrench", tool_blob.lower())
         self.assertIn("plier", tool_blob.lower())

@@ -6917,10 +6917,36 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
             if figure:
                 blob += f"\n{figure.get('label') or ''} {figure.get('title') or ''} page {figure.get('page') or ''}"
     rows = []
+    prior = list(proc.sources or [])
+
+    def _kept_excerpt(title: str, page: int) -> str:
+        for src in prior:
+            if (src.get("title") or "") == title and src.get("page") == page:
+                excerpt = src.get("excerpt") or ""
+                if excerpt and not _THETFORD_INSTALL_STEP_RE.search(excerpt):
+                    return excerpt
+        blob = "\n".join(proc.bay_order or [])
+        if re.search(r"\b42088\b", title):
+            needles = ("water valve", "vacuum breaker", "flange")
+        elif re.search(r"\b3412[23]\b", title):
+            needles = ("vacuum breaker", "34123", "34122")
+        else:
+            needles = ("42109", "pedal", "water valve")
+        for line in blob.splitlines():
+            match = re.match(r"^\d+\.\s+(.+)$", line.strip())
+            if not match:
+                continue
+            sentence = match.group(1).strip()
+            low = sentence.lower()
+            if "step " in low or _THETFORD_INSTALL_STEP_RE.search(sentence):
+                continue
+            if any(needle in low for needle in needles):
+                return sentence
+        return ""
 
     def add(title: str, page: int):
         if page and not any(row["title"] == title and row["page"] == page for row in rows):
-            rows.append({"title": title, "page": page, "excerpt": ""})
+            rows.append({"title": title, "page": page, "excerpt": _kept_excerpt(title, page)})
 
     if re.search(r"\b42088\b", blob):
         pages = [int(n) for n in re.findall(r"42088\D{0,40}page\s+(\d+)", blob, re.I)]

@@ -3113,8 +3113,8 @@ _THETFORD_PROVING = {
         "WHERE": "At the vacuum breaker on the flush hose.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": "Check whether the vacuum breaker leaks only while flushing.",
-        "GOOD vs BAD": "Good: no leak while flushing. Bad: it leaks while flushing.",
+        "HOW": "Check whether the vacuum breaker leaks while flushing.",
+        "GOOD vs BAD": "Good: no leak while flushing. Bad: it leaks only while flushing.",
         "NEXT": (
             "On good: go to the next check. "
             "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
