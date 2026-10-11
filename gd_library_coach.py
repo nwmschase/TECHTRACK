@@ -251,7 +251,15 @@ _EXCERPT_GUARD_RE = re.compile(
     re.I,
 )
 _GLUED_IMPERATIVE_RE = re.compile(
-    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set)\b)"
+    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set|Next)\b)"
+)
+_INSTRUCTION_LEAK_RE = re.compile(
+    r"if a page image appears below"
+    r"|not a chat photo embed"
+    r"|use download pdf"
+    r"|say so and use download pdf"
+    r"|bundled kit sheet",
+    re.I,
 )
 
 
@@ -281,8 +289,11 @@ def strip_leaked_prompt(text: str) -> str:
         paragraphs.pop(0)
     while len(paragraphs) > 1 and _paragraph_is_guard_echo(paragraphs[0]):
         paragraphs.pop(0)
+    paragraphs = [part for part in paragraphs if not _INSTRUCTION_LEAK_RE.search(part)]
     cleaned = "\n\n".join(paragraphs).strip()
     cleaned = _strip_excerpt_guard(cleaned)
+    if not cleaned and _INSTRUCTION_LEAK_RE.search(raw):
+        return ""
     return cleaned or raw
 
 
@@ -2030,6 +2041,10 @@ FACR_FREEZE_NEXT_SHOP_LINE = (
     "Rooftop assembly replacement waits until those pressures are reported.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
 )
+FACR_PRESSURE_HOLD_LINE = (
+    "Read the refrigerant pressures.\n"
+    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+)
 _SEARCHING_MANUALS_RE = re.compile(
     r"searching (?:the )?(?:manuals|library|documents|service manuals)|"
     r"let me search|still searching|looking through (?:the )?manuals",
@@ -2415,9 +2430,9 @@ def facr_sensor_proved(facts: dict | None) -> bool:
 
 def facr_reported_path_supports_rr(facts: dict | None) -> bool:
     """
-    Drain, pan/slope, filter, fan, and a reported freeze sensor authorize
-    rooftop assembly R&R. Nozzles and refrigerant pressures are not required.
-    An iced suction line is not this path.
+    Drain, pan/slope, filter, fan, and a reported freeze sensor are in.
+    This is not the authorization. Refrigerant pressures still have to be
+    reported before rooftop assembly R&R. An iced suction line is not this path.
     """
     facts = facts or {}
     if facts.get("facr_suction") == "iced":
@@ -2469,13 +2484,16 @@ def facr_gate_turn_authorizes(
     history: list = None,
     latest_msg: str = "",
 ) -> bool:
-    """The five-turn gate closes when drain, pan, fan, and the sensor are in.
+    """The five-turn gate closes when drain, pan, fan, the sensor, and pressures are in.
 
-    A shorter walk that never reports pressures does not authorize.
+    A walk that never reports pressures does not authorize.
     """
     if _facr_user_turns(history, latest_msg) < 5:
         return False
-    if (facts or {}).get("facr_suction") == "iced":
+    facts = facts or {}
+    if facts.get("facr_suction") == "iced":
+        return False
+    if facts.get("facr_pressure") != "ok":
         return False
     return facr_reported_path_supports_rr(facts)
 
@@ -2601,6 +2619,8 @@ def reply_refuses_facr_library_rr(reply: str) -> bool:
 
 def _facr_next_prove_prompt(facts: dict | None, history: list = None) -> str:
     facts = facts or {}
+    if facr_reported_path_supports_rr(facts) and facts.get("facr_pressure") != "ok":
+        return "Read the refrigerant pressures."
     pressures_in = facts.get("facr_pressure") == "ok"
     pressures_asked = _facr_pressures_already_asked(history)
     steps = (
@@ -2633,6 +2653,8 @@ def _facr_next_prove_prompt(facts: dict | None, history: list = None) -> str:
 def _facr_pending_prompts(facts: dict | None = None, history: list = None) -> list[str]:
     """Open FACR checks, without a rooftop replacement and without a repeated ask."""
     facts = facts or {}
+    if facr_reported_path_supports_rr(facts) and facts.get("facr_pressure") != "ok":
+        return ["Read the refrigerant pressures."]
     asked = _norm(_prior_assistant_text(history))
     pressures_in = facts.get("facr_pressure") == "ok"
     steps = (
@@ -2734,6 +2756,12 @@ def ensure_facr_early_pressure_ask(
     text = (reply or "").strip()
     pressures_in = facts.get("facr_pressure") == "ok"
     already = _facr_pressures_already_asked(history)
+    if facr_reported_path_supports_rr(facts) and not pressures_in:
+        if _FACR_PRESSURE_ASK_RE.search(text) and "📖" in text and not (
+            reply_names_rooftop_assembly_rr(text) or _EARLY_ROOFTOP_RR_RE.search(text)
+        ):
+            return text
+        return FACR_PRESSURE_HOLD_LINE
     if pressures_in or already:
         if _FACR_PRESSURE_ASK_RE.search(text) and not reply_names_rooftop_assembly_rr(text):
             nxt = _strip_facr_internal_guard(_facr_stay_on_prove_line(facts, history))
@@ -6803,9 +6831,13 @@ def polish_shop_reply(
     )
     text = _strip_facr_internal_guard(text)
     text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
-    return without_reading_filler(
+    text = without_reading_filler(
         _strip_facr_internal_guard(text), history, latest_msg, category_name, model_text
     )
+    # The filler trim strips a trailing period. The closing leak line stays whole.
+    if (text or "").rstrip().endswith("Look for leaks"):
+        text = text.rstrip() + "."
+    return text
 
 
 def _ice_cooling_unit_ready(blob: str) -> bool:
@@ -6870,6 +6902,48 @@ def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
     return _has_pan_on_flameout_marker(blob or "")
 
 
+def _facr_rr_already_sent(history: list = None) -> bool:
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if reply_names_rooftop_assembly_rr(message.get("content") or ""):
+            return True
+    return False
+
+
+def _facr_follow_after_authorization(
+    history: list = None,
+    latest_msg: str = "",
+) -> str:
+    """After the authorization card, a new fact moves on to the R&R or the verify."""
+    if not _facr_rr_already_sent(history):
+        return ""
+    raw = latest_msg or ""
+    if asks_what_is_the_repair(raw) or _FACR_AUTH_ASK_RE.search(raw):
+        return ""
+    low = _facr_prep(raw)
+    noted = []
+    if re.search(r"\bsuction\b", low):
+        noted.append("Suction line is clear")
+    if re.search(r"\bfrost", low):
+        noted.append("it is still frosting")
+    if not noted and re.search(r"\b68\s*/\s*235\b|\bpressures?\b", low):
+        noted.append("Refrigerant pressures are in")
+    if not noted:
+        return ""
+    if len(noted) == 1:
+        lead = noted[0]
+    elif len(noted) == 2:
+        lead = f"{noted[0]} and {noted[1]}"
+    else:
+        lead = ", ".join(noted[:-1]) + f", and {noted[-1]}"
+    return (
+        f"{lead}. Do the rooftop assembly R&R, then verify the evaporator is dry "
+        "and the interior leak is gone.\n"
+        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
+    )
+
+
 def _live_close_reply(
     history: list = None,
     latest_msg: str = "",
@@ -6882,9 +6956,14 @@ def _live_close_reply(
     if job == "facr":
         facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
+            follow = _facr_follow_after_authorization(history, latest_msg)
+            if follow:
+                return follow
             return facr_pressure_rr_line(facts)
         if facr_gate_turn_authorizes(facts, history, latest_msg):
             return facr_reported_assembly_rr_line(facts)
+        if facr_reported_path_supports_rr(facts) and facts.get("facr_pressure") != "ok":
+            return FACR_PRESSURE_HOLD_LINE
         if facts.get("facr_pressure") == "ok":
             return _facr_stay_on_prove_line(facts, history)
         return ""

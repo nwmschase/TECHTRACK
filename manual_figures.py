@@ -1575,6 +1575,66 @@ def _group_procedure_steps(steps: list) -> list:
     return merged
 
 
+def _merge_duplicate_pedal_pull(steps: list) -> list:
+    """A pedal grab and the pull that follows it are one step, not two."""
+    merged = []
+    for step in steps or []:
+        actions = [item.strip() for item in (step.get("actions") or [step.get("text") or ""]) if (item or "").strip()]
+        pedal_only = bool(actions) and all(
+            re.search(r"\b(?:grab|pull)\b.{0,40}\bpedal\b|\bpedal\b.{0,24}\b(?:up and )?off\b", item, re.I)
+            for item in actions
+        )
+        prev = merged[-1] if merged else None
+        prev_actions = list((prev or {}).get("actions") or [])
+        prev_has_pedal = any(re.search(r"\bpedal\b", item, re.I) for item in prev_actions)
+        if (
+            prev
+            and pedal_only
+            and prev_has_pedal
+            and step.get("section") == prev.get("section")
+        ):
+            for action in actions:
+                if action not in prev_actions:
+                    prev_actions.append(action)
+            prev["actions"] = prev_actions
+            prev["text"] = prev_actions[0]
+            prev["source"] = f"{prev.get('source') or ''} {step.get('source') or ''}".strip()
+            fields = dict(prev.get("fields") or {})
+            fields["HOW"] = prev_actions[0]
+            fields["WHERE"] = _where_field(prev["source"])
+            prev["fields"] = fields
+            continue
+        merged.append(step)
+    return merged
+
+
+def _apply_leak_test_step(steps: list) -> None:
+    """The last water-on step is the leak test. Safety matches that water is on."""
+    if not steps:
+        return
+    last = steps[-1]
+    blob = " ".join(last.get("actions") or []) + " " + (last.get("text") or "")
+    if not re.search(r"\bturn the rv water on\b", blob, re.I):
+        return
+    fields = dict(last.get("fields") or {})
+    safety = fields.get("SAFETY") or ""
+    safety = re.sub(
+        r"Turn the RV water off before this work\.",
+        "Turn the RV water on for the leak test.",
+        safety,
+        count=1,
+    )
+    if "Turn the RV water on for the leak test." not in safety:
+        safety = f"Turn the RV water on for the leak test. {safety}".strip()
+    fields["SAFETY"] = safety
+    fields["WHERE"] = "At the pedal and the water valve."
+    fields["GOOD vs BAD"] = (
+        "Flush 3 times. Good: dry at the pedal and valve. "
+        "Bad: any drip, so recheck the seal and the nuts."
+    )
+    last["fields"] = fields
+
+
 def procedure_from_sheet(text: str, figures: list | None = None, title: str = "") -> dict:
     """Turn one library sheet into short steps. Nothing is stored for one model."""
     parsed = factory_procedure(text or "", figures)
@@ -1670,12 +1730,13 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
         if readability_problems(step):
             continue
         kept.append(step)
-    steps = _group_procedure_steps(kept)
+    steps = _merge_duplicate_pedal_pull(_group_procedure_steps(kept))
     if not steps:
         return {}
     for index, step in enumerate(steps):
         nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
         step["fields"]["NEXT"] = _next_field(nxt)
+    _apply_leak_test_step(steps)
     attach_open_kit_crops(steps, figures or [], doc)
     removal = [step for step in steps if step["section"] == "removal"]
     installation = [step for step in steps if step["section"] == "installation"]
@@ -1957,7 +2018,7 @@ _THETFORD_PROVING = {
         ),
         "NEXT": (
             "On good: go to the next check. "
-            "On bad: if the leak persists from the water valve, replace the water valve."
+            "On bad: fix or tighten the supply connection."
         ),
         "FIGURE": _OM_FIGURE,
         "PHOTO": _PROVING_PHOTO_CONNECTOR,
@@ -2031,8 +2092,7 @@ _THETFORD_PROVING = {
         "NEXT": (
             "On good: the leak checks are done. "
             "On bad: if the leak continues, replace the flange seal. "
-            "Closet flange seal 02125 is on the kits. "
-            "Flange seal 33239 is not on this sheet. Pedal part 42067 is not on this sheet."
+            "Closet flange seal 02125 is on the kits."
         ),
         "FIGURE": _OM_FIGURE,
         "PHOTO": _PROVING_PHOTO_LEAK,

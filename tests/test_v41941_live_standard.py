@@ -61,14 +61,9 @@ class TestBundledThetfordFigures(unittest.TestCase):
             CAT,
             MODEL,
         )
-        self.assertTrue(offers)
-        self.assertTrue(offers[0]["bundled"])
-        self.assertTrue(offers[0]["png"])
-        self.assertFalse(mf.png_is_blank(offers[0]["png"]))
-        self.assertTrue(offers[0]["caption"].startswith("Bundled kit sheet, not from the shop library."))
+        self.assertEqual(offers, [])
         note = figure_render_honesty_note("Thetford Water Valve Kit 42109", True)
         self.assertIn("could not load", note.lower())
-        self.assertNotIn("could not load", offers[0]["caption"].lower())
         miss = fb.offers_for_turn(
             [],
             "No document in the shop library for this unit.",
@@ -87,8 +82,7 @@ class TestBundledThetfordFigures(unittest.TestCase):
         self.assertNotIn('st.button("Backfill page images")', source)
         self.assertIn("st.file_uploader(", source)
         self.assertIn("Photo (optional)", source)
-        self.assertIn("bundled_thetford_offers", backfill)
-        self.assertIn("Bundled kit sheet, not from the shop library.", backfill)
+        self.assertNotIn("Bundled kit sheet", backfill)
 
 
 class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
@@ -109,7 +103,7 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
             for procedure in proc.procedures
             if "42109" in (procedure.get("title") or "")
         )
-        self.assertEqual(len(valve["steps"]), 14)
+        self.assertEqual(len(valve["steps"]), 13)
         blob = " ".join(proc.bay_order).lower()
         self.assertIn("supply", blob)
         self.assertIn("vacuum", blob)

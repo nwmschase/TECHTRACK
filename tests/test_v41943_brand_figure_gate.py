@@ -253,7 +253,7 @@ class TestOffBrandFiguresStayOff(unittest.TestCase):
         self.assertNotIn("power gear", blob)
         self.assertNotIn("tip sheet", blob)
 
-    def test_library_with_only_power_gear_falls_back_to_the_thetford_kit(self):
+    def test_library_with_only_power_gear_shows_no_bundled_sheet(self):
         foreign = [row for row in self.rows if "thetford" not in row["title"].lower()]
         offers = fb.offers_for_turn(
             foreign,
@@ -262,12 +262,8 @@ class TestOffBrandFiguresStayOff(unittest.TestCase):
             CAT,
             MODEL,
         )
-        self.assertTrue(offers)
-        blob = _blob(offers)
-        self.assertIn("pedal", blob)
-        self.assertTrue(offers[0].get("bundled"))
-        self.assertNotIn("tip sheet", blob)
-        self.assertNotIn("power gear", blob)
+        self.assertEqual(offers, [])
+        self.assertNotIn("bundled kit sheet", _blob(offers))
 
     def test_level_up_ground_control_and_psx1_do_not_share_power_gear_figures(self):
         cases = (
@@ -346,7 +342,7 @@ class TestThetfordCursorIgnoresAppendedHow(unittest.TestCase):
 
     def test_real_answers_advance_the_procedure_past_step_1(self):
         first = _turn("No leak while flushing.", self._vacuum_history())
-        self.assertIn("Step 1 of 14", first)
+        self.assertIn("Step 1 of 13", first)
         history = self._vacuum_history() + [
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": first + HOW},
@@ -545,16 +541,16 @@ class TestThetfordCursorWalksAllFourteen(unittest.TestCase):
             {"role": "assistant", "content": vacuum + HOW},
         ]
         nxt = _turn("No leak while flushing.", history)
-        self.assertIn("Step 1 of 14", nxt)
+        self.assertIn("Step 1 of 13", nxt)
         self.assertNotIn("Tip Sheet", nxt)
         history = history + [
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": nxt + HOW},
         ]
-        for number in range(2, 15):
+        for number in range(2, 14):
             nxt = _turn("Yes.", history)
-            self.assertIn(f"Step {number} of 14", nxt)
-            self.assertNotRegex(nxt, rf"Step {number - 1} of 14")
+            self.assertIn(f"Step {number} of 13", nxt)
+            self.assertNotRegex(nxt, rf"Step {number - 1} of 13")
             self.assertNotIn("Tip Sheet", nxt)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt)
             history = history + [
@@ -563,8 +559,9 @@ class TestThetfordCursorWalksAllFourteen(unittest.TestCase):
             ]
         done = _turn("Yes.", history)
         self.assertIn("The repair procedure is done.", done)
+        self.assertIn("Look for leaks.", done)
         self.assertNotIn("Step 1 of", done)
-        self.assertNotIn("Step 14 of", done)
+        self.assertNotIn("Step 13 of", done)
         self.assertNotIn("Tip Sheet", done)
 
 
@@ -708,7 +705,7 @@ class TestValveFindingDoesNotReturnToVacuum(unittest.TestCase):
             {"role": "assistant", "content": vacuum + HOW},
         ]
         step1 = _turn("No leak while flushing.", history)
-        self.assertIn("Step 1 of 14", step1)
+        self.assertIn("Step 1 of 13", step1)
         history = history + [
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": step1 + HOW},
@@ -719,11 +716,10 @@ class TestValveFindingDoesNotReturnToVacuum(unittest.TestCase):
         history = self._on_step_1()
         for answer in ("It still leaks.", "Leak at the pedal.", "The water valve still weeps."):
             nxt = _turn(answer, history)
-            self.assertIn("Step 2 of 14", nxt, answer)
-            self.assertNotIn("of 13", nxt, answer)
+            self.assertIn("Step 2 of 13", nxt, answer)
+            self.assertNotIn("34123", nxt, answer)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt, answer)
             self.assertIn("42109", nxt, answer)
-            self.assertNotIn("34123", nxt, answer)
 
 
 class TestBayPdfShowsKitCrops(unittest.TestCase):
@@ -845,7 +841,7 @@ class TestLiveThetfordTranscript(unittest.TestCase):
             {"role": "assistant", "content": mf.thetford_proving_line("vacuum") + how},
         ]
         step = _turn("water valve body weeps at the drive arm", history)
-        self.assertIn("Step 1 of 14", step)
+        self.assertIn("Step 1 of 13", step)
         self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step)
         self.assertNotIn("Step 2 of", step)
         seen = [1]
@@ -854,11 +850,11 @@ class TestLiveThetfordTranscript(unittest.TestCase):
             {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 3 WATER")},
         ]
         # Each real answer leaves the step that already shipped and opens the next one.
+        # The pedal pull shares the floor-seal step, so it is not its own answer.
         facts = (
             "Water is off.",
             "The bolt covers are off.",
             "The floor seal is off.",
-            "Pedal is off.",
             "Thumb is in the low spot.",
             "The retainer is held.",
             "The inlet seal is out.",
@@ -871,19 +867,20 @@ class TestLiveThetfordTranscript(unittest.TestCase):
         )
         for number, answer in enumerate(facts, start=2):
             step = _turn(answer, history)
-            self.assertIn(f"Step {number} of 14", step, answer)
-            self.assertNotRegex(step, rf"Step {number - 1} of 14", answer)
+            self.assertIn(f"Step {number} of 13", step, answer)
+            self.assertNotRegex(step, rf"Step {number - 1} of 13", answer)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step, answer)
-            self.assertNotIn("of 13", step, answer)
+            self.assertNotIn("34123", step, answer)
             seen.append(number)
             history = history + [
                 {"role": "user", "content": answer},
                 {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 1")},
             ]
-        self.assertEqual(seen, list(range(1, 15)))
+        self.assertEqual(seen, list(range(1, 14)))
         done = _turn("The water is on.", history)
         self.assertIn("The repair procedure is done.", done)
-        self.assertNotIn("Step 14 of", done)
+        self.assertIn("Look for leaks.", done)
+        self.assertNotIn("Step 13 of", done)
         self.assertNotIn("Step 1 of", done)
         self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", done)
 
@@ -1068,7 +1065,10 @@ class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
                 steps = procedure["steps"]
         self.assertTrue(steps)
         water = next(step for step in steps if "turn off the water" in (step.get("text") or "").lower())
-        pedal = next(step for step in steps if "pull the pedal" in (step.get("text") or "").lower())
+        pedal = next(
+            step for step in steps
+            if "pull the pedal" in " ".join(step.get("actions") or [step.get("text") or ""]).lower()
+        )
         thumb = next(step for step in steps if "thumb" in (step.get("text") or "").lower())
         inlet = next(step for step in steps if "inlet seal in" in (step.get("text") or "").lower())
         drive = next(step for step in steps if "drive pin" in (step.get("text") or "").lower())
@@ -1081,4 +1081,4 @@ class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
         self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
         self.assertEqual(steps.index(water) + 1, 1)
-        self.assertEqual(steps.index(pedal) + 1, 4)
+        self.assertEqual(steps.index(pedal) + 1, 3)

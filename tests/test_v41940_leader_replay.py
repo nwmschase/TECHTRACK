@@ -90,14 +90,12 @@ class TestLeaderReplay(unittest.TestCase):
             self.assertNotIn("do not leave this prove", low)
             self.assertNotIn("report the prove that is still open", low)
             self.assertNotIn("sail switch", low)
-            if index < 4:
-                self.assertNotIn("replace the rooftop assembly", low)
-                self.assertNotIn("authorize rooftop assembly", low)
-                self.assertNotIn("interior leak remains", low)
-                continue
-            self.assertIn("authorize rooftop assembly", low)
-            self.assertIn("replace the rooftop assembly", low)
-            self.assertIn("ccd-0007990", low)
+            self.assertNotIn("replace the rooftop assembly", low)
+            self.assertNotIn("authorize rooftop assembly", low)
+            self.assertNotIn("interior leak remains", low)
+            if index >= 4:
+                self.assertIn("read the refrigerant pressures", low)
+                self.assertIn("ccd-0007990", low)
 
     def test_s02_does_not_repeat_the_peacemaker_ask(self):
         replies = _walk(

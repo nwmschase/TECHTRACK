@@ -1692,7 +1692,7 @@ _RUNON_NEXT = {
     "disconnect", "connect", "open", "close", "clean", "measure", "verify",
     "confirm", "press", "turn", "set", "align", "reposition", "resecure",
     "the", "if", "when", "after", "before", "refer", "ensure", "cycle",
-    "attach", "finally", "rotate",
+    "attach", "finally", "rotate", "next",
 }
 # "and Replace" is one phrase. "knob Loosen" is two sentences.
 _NO_SPLIT_LEFT = frozenset({
@@ -2761,6 +2761,8 @@ def _has_real_verb(sentence: str) -> bool:
         return False
     if words[0].lower() in _IMPERATIVE:
         return True
+    if words[0].lower() == "next" and len(words) > 1 and words[1].lower() in _IMPERATIVE:
+        return True
     if _AUX_RE.search(sentence or ""):
         return True
     for match in _VERB_RE.finditer(sentence or ""):
@@ -3324,8 +3326,8 @@ def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> st
         kept.append(one)
     for sentence in kept:
         if any(pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())):
-            return sentence
-    return kept[0] if kept else ""
+            return _with_following_next(kept, sentence)
+    return _with_following_next(kept, kept[0]) if kept else ""
 
 
 def _source_doc_key(src: dict) -> str:
@@ -3498,6 +3500,19 @@ def _cited_pages(primary_cite: str) -> set[int]:
     return pages
 
 
+def _with_following_next(sentences: list[str], chosen: str) -> str:
+    """Keep a Next sentence that was glued onto the cited line."""
+    text = _as_sentence(chosen)
+    for index, sentence in enumerate(sentences):
+        if sentence.strip().rstrip(".") != (chosen or "").strip().rstrip("."):
+            continue
+        follow = sentences[index + 1].strip() if index + 1 < len(sentences) else ""
+        if re.match(r"next\b", follow, re.I):
+            return f"{text.rstrip()} {_as_sentence(follow)}"
+        break
+    return text
+
+
 def _keep_primary_excerpt(raw: str) -> str:
     """A cited page still needs a sentence when the scrub would otherwise empty it."""
     cleaned = clean_ocr_prose(raw or "")
@@ -3520,14 +3535,14 @@ def _keep_primary_excerpt(raw: str) -> str:
             and not _is_scanned_fragment(sentence)
             and not sheet_has_internal_note(sentence)
         ):
-            return _as_sentence(sentence)
+            return _with_following_next(sentences, sentence)
     for sentence in reversed(sentences):
         if (
             _sentence_has_verb(sentence)
             and not _is_scanned_fragment(sentence)
             and not sheet_has_internal_note(sentence)
         ):
-            return _as_sentence(sentence)
+            return _with_following_next(sentences, sentence)
     return ""
 
 
@@ -6481,30 +6496,30 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
 
 
 def cited_figure_count(proc: "BayProcedure") -> int:
-    """How many figures the sheet actually shows.
+    """How many figures the sheet actually draws.
 
-    Images beside a step count. The trailing figure list does too.
-    A step image is not counted twice.
+    A placeholder, a plenum, an illegible crop, and an empty image do not count.
+    The same image is not counted twice.
     """
     total = 0
     seen = set()
 
-    def _add(png: bytes, always: bool = False) -> None:
+    def _add(png: bytes, fig: "BayFigure | None" = None) -> None:
         nonlocal total
-        if png:
-            if png in seen:
-                return
-            seen.add(png)
-            total += 1
+        if not png or png in seen:
             return
-        if always:
-            total += 1
+        if fig is not None and (
+            figure_is_placeholder(fig) or _figure_is_plenum(fig) or _figure_is_illegible(fig, png)
+        ):
+            return
+        seen.add(png)
+        total += 1
 
     for fig in proc.figures or []:
-        _add(getattr(fig, "image_png", b"") or b"", always=True)
+        _add(getattr(fig, "image_png", b"") or b"", fig)
     for group in proc.step_figures or []:
         for fig in group or []:
-            _add(getattr(fig, "image_png", b"") or b"")
+            _add(getattr(fig, "image_png", b"") or b"", fig)
     for procedure in proc.procedures or []:
         for step in procedure.get("steps") or []:
             figure = step.get("figure") or {}
@@ -8758,6 +8773,22 @@ def _sources_that_fit(remaining: float, sources: list[dict]) -> list[tuple[str, 
     return None
 
 
+def _paint_fitting_sources(body: _SheetFlow, sources: list[dict]) -> None:
+    """Keep cites with the procedure. A sources-only page is not opened."""
+    if not sources:
+        return
+    fitted = _sources_that_fit(body.remaining(), sources)
+    if fitted is not None:
+        _paint_source_rows(body, fitted, allow_break=False)
+        return
+    for title, _excerpt in _source_rows(sources[:4], mode="none"):
+        line = "Sources: " + title.lstrip("- ").strip()
+        block = measure_text(line, _CONTENT_W - 16.0, 8, leading=10.6)
+        if block.height + 4 > body.remaining():
+            break
+        _add_plain_item(body, line, size=8, gap=2.0, allow_break=False)
+
+
 def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_break: bool) -> None:
     if not rows:
         return
@@ -8855,10 +8886,10 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     steps = list(procedure.get("steps") or [])
     section = ""
     for index, step in enumerate(steps, 1):
+        section_label = ""
         if step.get("section") != section:
             section = step.get("section") or ""
-            label = "REMOVAL" if section == "removal" else "INSTALLATION"
-            _add_plain_item(body, label, size=9, gap=3)
+            section_label = "REMOVAL" if section == "removal" else "INSTALLATION"
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
@@ -8890,7 +8921,10 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         row = max(block.height + 8.0, pair_h + 6.0)
         if step.get("caution"):
             row += 22.0
-        if row + 6 > body.remaining():
+        heading_h = 0.0
+        if section_label:
+            heading_h = measure_text(section_label, _CONTENT_W - 16.0, 9, leading=11.6).height + 3.0
+        if row + heading_h + 6 > body.remaining():
             body.new_page("Repair procedure")
         if has and pair_h + 8.0 > body.remaining():
             width, height = _png_pixel_size(png)
@@ -8908,8 +8942,10 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             row = max(block.height + 8.0, pair_h + 6.0)
             if step.get("caution"):
                 row += 22.0
-            if row + 6 > body.remaining():
+            if row + heading_h + 6 > body.remaining():
                 body.new_page("Repair procedure")
+        if section_label:
+            _add_plain_item(body, section_label, size=9, gap=3, allow_break=False)
         top = body.y
         baseline = top - block.ascent
         body.page.texts.append(
@@ -9027,11 +9063,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         for item in proc.do_not:
             _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
     sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
-    fitted = _sources_that_fit(body.remaining(), sources)
-    if fitted is not None:
-        _paint_source_rows(body, fitted, allow_break=False)
-    else:
-        _paint_source_rows(body, _source_rows(sources, mode="one"), allow_break=True)
+    _paint_fitting_sources(body, sources)
 
     imaged = []
     for fig in proc.figures:

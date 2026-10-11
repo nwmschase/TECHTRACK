@@ -64,7 +64,7 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         titles = " ".join(procedure.get("title") or "" for procedure in proc.procedures)
         self.assertIn("42109", titles)
         self.assertNotIn("3412", titles)
-        self.assertEqual(len(proc.procedures[0]["steps"]), 14)
+        self.assertEqual(len(proc.procedures[0]["steps"]), 13)
         pngs = []
         for step in proc.procedures[0]["steps"]:
             png = ((step.get("figure") or {}) if isinstance(step.get("figure"), dict) else {}).get("png") or b""

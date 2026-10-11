@@ -34,7 +34,6 @@ DECIMAL_GB = 1_000_000_000
 R2_USD_PER_GB_MONTH = 0.015
 R2_FREE_GB = 10.0
 
-BUNDLED_NOTE = "Bundled kit sheet, not from the shop library."
 # Read-through cache. The durable copy is the R2 object. This folder is gitignored.
 CACHE_DIR = Path("library_pages")
 _LOCK_SECONDS = 180
@@ -835,11 +834,6 @@ def _row_part_topic(row: dict) -> str:
     return mf.part_topic(blob)
 
 
-def _library_miss(*parts) -> bool:
-    blob = " ".join(str(part or "") for part in parts).lower()
-    return "document in the shop library for this unit" in blob
-
-
 # Product lines are narrower than the maker. Power Gear is not Level Up,
 # and a pump-seal tip sheet is not a toilet kit or a rooftop air conditioner.
 _LINE_RES = (
@@ -1283,23 +1277,20 @@ def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> li
 
 
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
-    """Library figures for any brand. A bundled Thetford sheet is the last resort.
+    """Library figures for this turn. A missing library figure shows nothing.
 
-    The last resort is labeled, and a library-miss reply does not get one.
+    A bundled kit sheet is not a caption the tech sees.
     """
     chosen = select_library_figures(rows, reply, user_msg, category, model)
-    if chosen:
-        return chosen
-    if _library_miss(reply, user_msg, category, model):
-        return []
-    fallback = mf.bundled_thetford_offers(reply, user_msg, category, model)
-    labeled = []
-    for item in fallback:
+    visible = []
+    for item in chosen or []:
+        if item.get("bundled"):
+            continue
         caption = item.get("caption") or ""
-        if not caption.startswith(BUNDLED_NOTE):
-            caption = f"{BUNDLED_NOTE} {caption}".strip()
-        labeled.append({**item, "caption": caption, "bundled": True, "bbox": item.get("bbox") or ""})
-    return labeled
+        if re.search(r"bundled kit sheet", caption, re.I):
+            continue
+        visible.append(item)
+    return visible
 
 
 def _chunk_dict(chunk) -> dict:
