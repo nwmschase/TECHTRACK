@@ -253,7 +253,7 @@ def _upscale_min_width(png: bytes, min_px: int = MIN_CROP_PX) -> bytes:
     return buf.getvalue()
 
 
-def _crop_rendered(png: bytes, page_rect, box, zoom: float) -> bytes:
+def _crop_rendered(png: bytes, page_rect, box, zoom: float, extra_bottom=None) -> bytes:
     from PIL import Image
 
     image = Image.open(io.BytesIO(png)).convert("RGB")
@@ -262,6 +262,10 @@ def _crop_rendered(png: bytes, page_rect, box, zoom: float) -> bytes:
     y0 = max(0, int(box.y0 * zoom) - pad)
     x1 = min(image.width, int(box.x1 * zoom) + pad)
     y1 = min(image.height, int(box.y1 * zoom) + pad)
+    if extra_bottom is not None:
+        # The kit caption sits on the drawing's bottom edge. Include that line.
+        cap_y = min(image.height, int(float(extra_bottom) * zoom) + pad)
+        y1 = max(y1, cap_y)
     if x1 - x0 < 12 or y1 - y0 < 12:
         return b""
     cropped = image.crop((x0, y0, x1, y1))
@@ -359,7 +363,7 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _crop_rendered(page_png, page.rect, box, _ZOOM)
+        png = _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=rect.y1)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -383,7 +387,7 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _crop_rendered(page_png, page.rect, box, _ZOOM)
+        png = _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=rect.y1)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -1861,6 +1865,17 @@ def part_topic(text: str) -> str:
     return ""
 
 
+def thetford_procedure_show_caption(reply: str) -> str:
+    """Kit label for a numbered valve step. Empty on a proving turn."""
+    raw = reply or ""
+    if not re.search(r"\bStep\s+\d+\s+of\s+\d+", raw):
+        return ""
+    numbers = _numbers_named(raw)
+    if not numbers or not re.search(r"\b42109\b", raw):
+        return ""
+    return f"42109 Fig. {numbers[0]}"
+
+
 def bundled_thetford_offers(
     reply: str = "",
     user_msg: str = "",
@@ -1932,6 +1947,31 @@ def bundled_thetford_offers(
             )
             break
     return offers
+
+
+def thetford_procedure_show_offer(reply: str) -> dict | None:
+    """The kit crop for this numbered step, captioned with the kit label."""
+    caption = thetford_procedure_show_caption(reply)
+    if not caption:
+        return None
+    number = int(caption.rsplit(" ", 1)[-1])
+    for offer in bundled_thetford_offers(reply, "", "Plumbing / Toilets", "Thetford"):
+        if (offer.get("label") or "") == "page":
+            continue
+        if number not in _figure_numbers(offer.get("label") or ""):
+            continue
+        if "42109" not in (offer.get("title") or ""):
+            continue
+        if not offer.get("png"):
+            continue
+        shown = dict(offer)
+        shown["label"] = caption
+        shown["caption"] = caption
+        shown["bundled"] = False
+        shown["brand"] = "Thetford"
+        shown["category_name"] = "Plumbing / Toilets"
+        return shown
+    return None
 
 
 def _png_from_local_file(path: str, page) -> bytes:

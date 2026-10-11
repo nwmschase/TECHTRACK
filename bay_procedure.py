@@ -1628,8 +1628,10 @@ def _rejoin_ocr_splits(text: str) -> str:
             trail_s = trail.group(0) if trail else ""
             lead = re.match(r"^[^A-Za-z0-9]+", word)
             lead_s = lead.group(0) if lead else ""
+            bare = word[len(lead_s):]
             if (
                 len(core) == 1
+                and bare == core
                 and core.lower() not in _OCR_ARTICLE
                 and 3 <= len(ncore) <= 6
                 and ncore.isalpha()
@@ -6161,7 +6163,6 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
             "Never use automotive antifreeze. Use RV potable antifreeze only.",
             "If ice is in the toilet, do not flush until the ice thaws.",
             "When using air pressure to blow water from the lines, the toilet valve must be open.",
-            "Do not order a part number that is not on the sheet.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6517,9 +6518,11 @@ def cited_figure_count(proc: "BayProcedure") -> int:
 
     for fig in proc.figures or []:
         _add(getattr(fig, "image_png", b"") or b"", fig)
-    for group in proc.step_figures or []:
-        for fig in group or []:
-            _add(getattr(fig, "image_png", b"") or b"", fig)
+    # A numbered repair draws its own figures. Diagnosis crops are not painted.
+    if not proc.procedures:
+        for group in proc.step_figures or []:
+            for fig in group or []:
+                _add(getattr(fig, "image_png", b"") or b"", fig)
     for procedure in proc.procedures or []:
         for step in procedure.get("steps") or []:
             figure = step.get("figure") or {}
@@ -8985,6 +8988,27 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
 
 
+def _do_not_block_height(items: list[str]) -> float:
+    """Heading plus every bullet. The list moves as one block."""
+    total = 28.0
+    for item in items:
+        block = measure_text(f"- {item}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+        total += block.height + 6.0
+    return total
+
+
+def _paint_do_not(body: "_SheetFlow", items: list[str]) -> None:
+    """Keep the DO NOT heading and every bullet on the same page."""
+    if not items:
+        return
+    if _do_not_block_height(items) > body.remaining():
+        body.new_page("Do not  ·  Tacoma RV Center")
+    first = measure_text(f"- {items[0]}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+    _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36), allow_break=False)
+    for item in items:
+        _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, allow_break=False)
+
+
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     """Build drawable pages for a human bay sheet.
 
@@ -9051,17 +9075,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
                     _add_manual_figure(body, fig)
                     shown_figures.add(fig.image_png)
     if proc.do_not:
-        first = measure_text(f"- {proc.do_not[0]}", _CONTENT_W - 16, 8.5, leading=11.1)
-        if body.remaining() < 16 + 12 + min(first.height, 24):
-            body.new_page("Do not  ·  Tacoma RV Center")
-        _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36))
-
-        def _do_break(flow: _SheetFlow):
-            flow.new_page("Do not  ·  Tacoma RV Center")
-            _add_section(flow, "DO NOT", RED, follow_h=20)
-
-        for item in proc.do_not:
-            _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
+        _paint_do_not(body, proc.do_not)
     sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
     _paint_fitting_sources(body, sources)
 

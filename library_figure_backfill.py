@@ -1276,12 +1276,22 @@ def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> li
     return groups
 
 
+def _om_page_caption(item: dict) -> bool:
+    """The Style II owner manual page caption is not a kit figure label."""
+    blob = f"{item.get('title') or ''} {item.get('caption') or ''} {item.get('label') or ''}"
+    if re.search(r"\b42088\b", blob) and re.search(r"/\s*page\b", item.get("caption") or "", re.I):
+        return True
+    return (item.get("label") or "") == "page" and bool(re.search(r"\b42088\b", blob))
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
-    A bundled kit sheet is not a caption the tech sees.
+    A bundled kit sheet is not a caption the tech sees. A numbered valve step
+    shows the kit label, not the owner-manual page caption.
     """
     chosen = select_library_figures(rows, reply, user_msg, category, model)
+    kit_caption = mf.thetford_procedure_show_caption(reply)
     visible = []
     for item in chosen or []:
         if item.get("bundled"):
@@ -1289,7 +1299,19 @@ def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) 
         caption = item.get("caption") or ""
         if re.search(r"bundled kit sheet", caption, re.I):
             continue
+        if kit_caption and (_om_page_caption(item) or (item.get("label") or "") == "page"):
+            continue
+        if kit_caption and "42109" not in f"{item.get('title') or ''} {caption} {item.get('label') or ''}":
+            continue
+        if kit_caption:
+            item = dict(item)
+            item["caption"] = kit_caption
+            item["label"] = kit_caption
         visible.append(item)
+    if kit_caption and not visible:
+        offer = mf.thetford_procedure_show_offer(reply)
+        if offer:
+            visible = [offer]
     return visible
 
 
