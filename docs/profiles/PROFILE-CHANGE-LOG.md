@@ -9,3 +9,4 @@ Format: date and time PT | profile and version | what changed | why | approved b
 | 2026-10-11 10:39 AM | Process | - | Added this log and the ask-first rule | Chase request | t48u |
 | 2026-10-11 10:42 AM | GD + PDF | 1.2 | Added performance scorecards (10 PASS/FAIL lines each, with automatic-fail lines) | Judge performance against the standard | t50s2 (yes) |
 | 2026-10-11 10:50 AM | PDF | 1.3 | Added 33 past-fail regression checkpoints (PDF-PAST-FAILS.md) | Past PDF failures become permanent checks | t52s3 (yes) |
+| 2026-10-11 12:11 PM | PDF | 1.4 | PF-10 reworded to the new step labels (Where/Tools/Do this/Good/Bad/Next, safety once per section) | Match the approved format | t52s7 (yes) |

@@ -1,5 +1,5 @@
 # PDF Builder (Bay Procedure): Established Profile
-Version 1.3. Established by Chase on 2026-10-11. Owner: Leader.
+Version 1.4. Established by Chase on 2026-10-11. Owner: Leader.
 
 ## What it is
 A strict, complete repair document in the ALLDATA / factory-manual style. Someone with no experience and limited reading must be able to follow it.
@@ -63,3 +63,4 @@ Every PDF must PASS all 33 checks in PDF-PAST-FAILS.md (PF-01 to PF-33), on top 
 - 1.1 (2026-10-11 10:34 AM): Added the testing standard (strict pass/fail, Leader 90 dpi review, Chase final approval) and PDF regeneration after a GD reopen.
 - 1.2 (2026-10-11 10:42 AM): Added a performance scorecard. Every rule is now a graded PASS/FAIL line.
 - 1.3 (2026-10-11 10:50 AM): Added 33 past-fail regression checkpoints (PDF-PAST-FAILS.md).
+- 1.4 (2026-10-11 12:11 PM): PF-10 reworded to match the approved step labels.
