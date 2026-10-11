@@ -421,7 +421,9 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _render_figure_png(page, page_png, box, bottom)
+        # The caption is drawn as text under the figure. Baking it into a
+        # narrow crop makes that caption fill the page when the crop is scaled.
+        png = _render_figure_png(page, page_png, box, float(box.y1))
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -2584,13 +2586,23 @@ def _english_prefix(text: str) -> str:
 
 
 def _plain_sheet_line(raw: str) -> str:
-    """Bullets, ligatures, and marks become plain English letters."""
+    """Bullets, ligatures, and marks become plain English letters.
+
+    A soft hyphen is a wrapped word, not a foreign letter. An en dash is a
+    hyphen. Either one used to drop the whole line, and the next line then
+    kept only the tail of the sentence.
+    """
     text = unicodedata.normalize("NFKC", raw or "")
+    text = text.replace("\u00ad", "")
     text = text.replace("\u00ae", "").replace("\u2122", "").replace("\u00a9", "")
     text = re.sub(r"[■•●▪▸]", " ", text)
     text = (
         text.replace("\u2019", "'")
         .replace("\u2018", "'")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .replace("\u2212", "-")
+        .replace("\u2011", "-")
         .replace("\u201c", '"')
         .replace("\u201d", '"')
     )
@@ -2613,16 +2625,30 @@ def _line_is_english(raw: str) -> bool:
 
 
 def _english_body(text: str) -> str:
-    """English column of one chunk. The French and Spanish columns stay out."""
+    """English column of one chunk. The French and Spanish columns stay out.
+
+    A line that ends in a soft hyphen is the start of a word. The next English
+    line continues it, with no space, so "Cov-" plus "ers" stays "Covers".
+    """
     lines = []
+    join_next = False
     for raw_line in (text or "").splitlines():
+        hyphen_break = "\u00ad" in (raw_line or "")
         raw = _plain_sheet_line(raw_line)
+        if hyphen_break:
+            raw = raw.rstrip("-").rstrip()
         if not raw:
             continue
         cut = _LANG_HEADER_RE.split(raw, maxsplit=1)[0]
         cut = re.sub(r"\bENGLISH\b", "", cut, flags=re.I).strip()
-        if cut and _line_is_english(cut):
+        if not cut or not _line_is_english(cut):
+            join_next = False
+            continue
+        if join_next and lines:
+            lines[-1] = lines[-1] + cut
+        else:
             lines.append(cut)
+        join_next = hyphen_break
     return "\n".join(lines)
 
 

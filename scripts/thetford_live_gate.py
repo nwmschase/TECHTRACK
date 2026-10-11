@@ -25,8 +25,11 @@ From the repo root:
 The database is opened read-only.
 
 Writes ``thetford-bay.pdf``, ``transcript.txt``, ``transcript-profile.txt``,
-``report.txt``, and 90 dpi page PNGs under ``--out``. The report includes
-profile_check for the PDF and for the transcript. Exit 0 when the sheet and
+``report.txt``, and 90 dpi page PNGs under ``--out``. ``--live-llm`` also
+writes ``transcript-raw.txt``, the model's reply before the shop guards, and
+the report says how many turns the guards rewrote. The report includes
+profile_check for the PDF, the guarded transcript, and the raw transcript.
+Exit 0 when the sheet and
 the transcript pass, including 10/10 on both scorecards. Exit 1 when a check
 fails. Exit 2 when the database, the cache, or (with ``--live-llm``) the
 xAI key cannot be used.
@@ -390,13 +393,22 @@ def _render_pages(pdf: bytes, out: Path) -> None:
         doc.close()
 
 
-def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str]]:
+def _same_reply(left: str, right: str) -> bool:
+    def norm(text: str) -> str:
+        return re.sub(r"\s+", " ", text or "").strip()
+
+    return norm(left) == norm(right)
+
+
+def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str], str, int]:
     from gd_library_coach import avoid_duplicate_reply, ensure_thetford_flush_reply
 
     history = []
     lines = []
     pairs = []
+    raw_pairs = []
     problems = []
+    rewrites = 0
     for label, message in TURNS:
         if live:
             try:
@@ -408,6 +420,9 @@ def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str]]:
                 draft, history, message, CATEGORY, f"{BRAND} {MODEL}"
             )
             reply = _append_figure_detail(reply, message, rows, chunks)
+            if not _same_reply(draft, reply):
+                rewrites += 1
+            raw_pairs.append((message, draft or ""))
         else:
             reply = ensure_thetford_flush_reply(
                 "", history, message, CATEGORY, f"{BRAND} {MODEL}"
@@ -437,7 +452,8 @@ def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str]]:
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": reply})
         pairs.append((message, reply))
-    return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems
+    raw_text = _profile_text(raw_pairs) if raw_pairs else ""
+    return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems, raw_text, rewrites
 
 
 def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
@@ -510,7 +526,7 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     if packets:
         proc = apply_chunk_figures(proc, packets)
     pdf = render_bay_procedure_pdf(proc)
-    transcript, profile, gd_problems = _play(rows, chunks, live=live)
+    transcript, profile, gd_problems, raw_profile, rewrites = _play(rows, chunks, live=live)
     pdf_rules = profile_check.check_pdf_bytes(pdf)
     gd_rules = profile_check.check_transcript(profile)
     problems = (
@@ -523,6 +539,10 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     (out / "thetford-bay.pdf").write_bytes(pdf)
     (out / "transcript.txt").write_text(transcript, encoding="utf-8")
     (out / "transcript-profile.txt").write_text(profile, encoding="utf-8")
+    raw_rules = []
+    if live:
+        (out / "transcript-raw.txt").write_text(raw_profile, encoding="utf-8")
+        raw_rules = profile_check.check_transcript(raw_profile)
     report = [
         f"chunks {len(chunks)} ranked of {len(found)}",
         f"documents {len(doc_ids)}",
@@ -536,6 +556,13 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
         "",
         profile_check.format_report(gd_rules),
     ]
+    if live:
+        report.extend([
+            "",
+            f"guards rewrote {rewrites} of {len(TURNS)} turns",
+            "RAW model reply, before the shop guards:",
+            profile_check.format_report(raw_rules),
+        ])
     if problems:
         report.append("FAIL")
         report.extend(f"- {item}" for item in problems)

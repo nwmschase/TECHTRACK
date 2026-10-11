@@ -6786,9 +6786,36 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The nuts are off.",
                 "A nut is still on.",
-                "Measure the flange height.",
+                "Lift the toilet.",
                 fail="Turn the nut the other way.",
                 tools="wrench",
+                section="removal",
+            ),
+            _branch_step(
+                "Lift the toilet off the floor.",
+                "At the closet flange, under the toilet.",
+                "The toilet is off the floor.",
+                "The toilet is still bolted down.",
+                "Take off the old seal.",
+                fail="Take the nuts off, then lift again.",
+                section="removal",
+            ),
+            _branch_step(
+                "Take off the old floor seal.",
+                "At the closet flange, under the toilet.",
+                "The old seal is off.",
+                "The old seal is still on.",
+                "Cover the tank hole.",
+                fail="Pull the old seal off.",
+                section="removal",
+            ),
+            _branch_step(
+                "Cover the tank hole with a towel.",
+                "Over the tank hole in the floor.",
+                "The hole is covered.",
+                "The hole is still open.",
+                "Check the flange height.",
+                fail="Lay the towel over the hole.",
                 section="removal",
             ),
             _branch_step(
@@ -6799,6 +6826,15 @@ def _flange_branch() -> dict:
                 "Put seal 02125 on.",
                 fail="Add a spacer until the flange is 7/16 inch up.",
                 tools="ruler",
+                section="removal",
+            ),
+            _branch_step(
+                "Take the towel off the tank hole.",
+                "Over the tank hole in the floor.",
+                "The hole is open.",
+                "The towel is still on.",
+                "Put seal 02125 on.",
+                fail="Pull the towel out of the hole.",
                 section="installation",
             ),
             _branch_step(
@@ -6806,8 +6842,26 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The new seal is seated.",
                 "The leak continues.",
+                "Set the toilet on the bolts.",
+                fail="Seat the seal again.",
+                section="installation",
+            ),
+            _branch_step(
+                "Set the toilet on the floor bolts.",
+                "At the closet flange, under the toilet.",
+                "The holes line up on the bolts.",
+                "The holes do not line up.",
+                "Tighten the nuts.",
+                fail="Set the toilet on the bolts again.",
+                section="installation",
+            ),
+            _branch_step(
+                "Tighten the nuts until the toilet does not rock.",
+                "At the closet flange, under the toilet.",
+                "The toilet does not rock.",
+                "The toilet still rocks.",
                 "Confirm the flange.",
-                fail="Seat the seal again and tighten the nuts.",
+                fail="Turn the nuts until the toilet does not rock.",
                 tools="wrench",
                 section="installation",
             ),
@@ -6919,19 +6973,42 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
     rows = []
     prior = list(proc.sources or [])
 
+    def _quote_from_procedure(token: str, needles: tuple[str, ...]) -> str:
+        """A sentence from this document's own steps, not another manual's line."""
+        for procedure in proc.procedures or []:
+            blob = f"{procedure.get('title') or ''} {procedure.get('doc') or ''}"
+            if not re.search(token, blob, re.I):
+                continue
+            for step in procedure.get("steps") or []:
+                sentence = re.sub(r"\s+", " ", (step.get("text") or "")).strip().rstrip(".")
+                low = sentence.lower()
+                if "supply line" in low or "supply connection" in low:
+                    continue
+                if _THETFORD_INSTALL_STEP_RE.search(sentence):
+                    continue
+                if any(needle in low for needle in needles):
+                    return sentence + "."
+        return ""
+
     def _kept_excerpt(title: str, page: int) -> str:
         for src in prior:
             if (src.get("title") or "") == title and src.get("page") == page:
                 excerpt = src.get("excerpt") or ""
                 if excerpt and not _THETFORD_INSTALL_STEP_RE.search(excerpt):
-                    return excerpt
+                    if "42109" in title and re.search(r"supply line|supply connection", excerpt, re.I):
+                        excerpt = ""
+                    elif excerpt:
+                        return excerpt
+        if re.search(r"\b3412[23]\b", title):
+            found = _quote_from_procedure(r"3412|vacuum breaker", ("vacuum breaker", "flush hose", "inlet tube"))
+            if found:
+                return found
+        elif re.search(r"\b42109\b", title):
+            found = _quote_from_procedure(r"42109|water valve", ("water valve", "pedal", "inlet"))
+            if found:
+                return found
         blob = "\n".join(proc.bay_order or [])
-        if re.search(r"\b42088\b", title):
-            needles = ("water valve", "vacuum breaker", "flange")
-        elif re.search(r"\b3412[23]\b", title):
-            needles = ("vacuum breaker", "34123", "34122")
-        else:
-            needles = ("42109", "pedal", "water valve")
+        needles = ("water valve", "vacuum breaker", "flange")
         for line in blob.splitlines():
             match = re.match(r"^\d+\.\s+(.+)$", line.strip())
             if not match:
@@ -6939,6 +7016,8 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
             sentence = match.group(1).strip()
             low = sentence.lower()
             if "step " in low or _THETFORD_INSTALL_STEP_RE.search(sentence):
+                continue
+            if "supply line" in low and not re.search(r"\b42088\b", title):
                 continue
             if any(needle in low for needle in needles):
                 return sentence
@@ -9352,14 +9431,22 @@ def _sources_that_fit(remaining: float, sources: list[dict]) -> list[tuple[str, 
 
 
 def _paint_fitting_sources(body: _SheetFlow, sources: list[dict]) -> None:
-    """Keep cites with the procedure. A cited page is not dropped to save a line."""
+    """Keep cites with the procedure. A cited page is not dropped to save a line.
+
+    A quote that does not fit in the leftover space still prints, on the next
+    page. Dropping it used to repeat a neighbor's line by leaving the wrong
+    excerpt, or to hide the quote entirely.
+    """
     if not sources:
         return
-    rows = _source_rows(sources, mode="none")
+    quoted = _source_rows(sources, mode="one")
+    has_quote = any(excerpt for _title, excerpt in quoted)
     fitted = _sources_that_fit(body.remaining(), sources)
-    if fitted is not None and len(fitted) >= len(sources):
+    keeps_quote = bool(fitted) and any(excerpt for _title, excerpt in fitted)
+    if fitted is not None and len(fitted) >= len(sources) and (keeps_quote or not has_quote):
         _paint_source_rows(body, fitted, allow_break=False)
         return
+    rows = quoted if has_quote else _source_rows(sources, mode="none")
     _paint_source_rows(body, rows, allow_break=True)
 
 

@@ -110,6 +110,9 @@ def check_sheet_text(text: str) -> list[Rule]:
         _sentence_length(raw),
         _safety_once(raw),
         _web_content(raw),
+        _fastener_sequence(raw),
+        _source_doc_quotes(raw),
+        _mid_phrase_gap(raw),
     ]
     return rules
 
@@ -778,6 +781,8 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
         how_status, how_detail = "FAIL", "How block or 'not stated' is not a shop sentence"
     elif _bare_vacuum_turn(_pairs(raw)):
         how_status, how_detail = "FAIL", "the vacuum-breaker turn has no bad line, no question, or cites 42088 instead of kit 34123"
+    elif _valve_start_bare(_pairs(raw)):
+        how_status, how_detail = "FAIL", "the water-valve turn names no place and no tool"
     elif assistants and all(_turn_explains_how(turn) for turn in assistants):
         how_status, how_detail = "PASS", "each reply says where, what to look for, good and bad, and what to report"
     else:
@@ -998,6 +1003,232 @@ def _sentence_values(text: str) -> list[str]:
             continue
         index += 1
     return values
+
+
+def _fastener_sequence(text: str) -> Rule:
+    """A toilet is not lifted while it is still bolted down, and a removed part goes back.
+
+    The vacuum-breaker sheet used to pull the hose and then lift the toilet,
+    with the bolt covers never taken off and never put back. The flange height
+    check belongs in Removal, after the toilet is off the bolts.
+    """
+    if not re.search(r"\b(42070|42109|34123|34122|thetford)\b", text or "", re.I):
+        return _rule("fastener_sequence", True, "this sheet does not lift a toilet")
+    problems = []
+    for block in _branch_chunks(text or ""):
+        actions = []
+        for step in _bounded_steps(block):
+            actions.extend(_step_actions(step))
+        if not actions:
+            continue
+        lift_at = next((i for i, action in enumerate(actions) if re.search(r"\blift the toilet\b", action)), -1)
+        fastener_at = next(
+            (
+                i
+                for i, action in enumerate(actions)
+                if re.search(r"\btake (?:off )?the (?:bolt covers|nuts)\b|\btake off the bolt covers\b|\bnuts off\b", action)
+            ),
+            -1,
+        )
+        if lift_at >= 0 and (fastener_at < 0 or fastener_at > lift_at):
+            problems.append("the toilet is lifted before the nuts or bolt covers come off")
+        if any(re.search(r"\btake off the bolt covers\b", action) for action in actions) and not any(
+            re.search(r"\bbolt covers back\b|\bput the bolt covers\b", action) for action in actions
+        ):
+            problems.append("the bolt covers come off and are not put back")
+        if any(re.search(r"\btake the nuts off\b|\btake off the nuts\b", action) for action in actions) and not any(
+            re.search(r"\btighten the nuts\b|\bput the nuts\b", action) for action in actions
+        ):
+            problems.append("the nuts come off and are not tightened")
+        if lift_at >= 0 and not any(re.search(r"\bset the toilet\b|\bplace the toilet\b", action) for action in actions):
+            problems.append("the toilet is lifted and not set back")
+        if any(re.search(r"\btake off the old floor seal\b|\btake off the old seal\b", action) for action in actions):
+            if not any(re.search(r"\bfloor seal\b|\bflange seal\b", action) and re.search(r"\bput\b", action) for action in actions):
+                problems.append("the old seal comes off and no seal is put on")
+        if any(re.search(r"\bcover the tank hole\b", action) for action in actions) and not any(
+            re.search(r"\btake the towel off\b", action) for action in actions
+        ):
+            problems.append("a towel covers the tank hole and is not taken off")
+        if re.search(r"\bflange\b", block, re.I) and re.search(r"\b7/16\b", block):
+            inst = block.upper().find("\nINSTALLATION")
+            height = block.lower().find("7/16")
+            if inst >= 0 and height > inst:
+                problems.append("the flange height check sits under Installation")
+    if problems:
+        return _rule("fastener_sequence", False, problems[0])
+    return _rule("fastener_sequence", True, "fasteners come off before the toilet is lifted, and removed parts go back")
+
+
+def _source_quote_rows(text: str) -> list[tuple[str, str]]:
+    match = re.search(r"SOURCES \(SHOP DOCUMENT LIBRARY\)(.*)\Z", text or "", re.S)
+    if not match:
+        return []
+    rows = []
+    title = ""
+    quote: list[str] = []
+
+    def flush():
+        if title:
+            rows.append((title, " ".join(quote).strip()))
+
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if not stripped or re.match(r"^(?:UNIT ID|Brand:|Model:|Serial:)", stripped):
+            continue
+        if stripped.startswith("-") and re.search(r"\bpage\s+\d+\b", stripped, re.I):
+            flush()
+            title = stripped
+            quote = []
+            continue
+        if title:
+            quote.append(stripped)
+    flush()
+    return rows
+
+
+def _source_doc_quotes(text: str) -> Rule:
+    """Each Sources quote comes from that document, not from a neighbor's line."""
+    if not re.search(r"\b42109\b", text or ""):
+        return _rule("source_quotes", True, "no kit source quote on this sheet")
+    found = {}
+    titled = set()
+    for title, quote in _source_quote_rows(text):
+        doc = ""
+        if "42109" in title:
+            doc = "42109"
+        elif re.search(r"\b3412[23]\b", title):
+            doc = "34123"
+        elif "42088" in title:
+            doc = "42088"
+        if not doc:
+            continue
+        titled.add(doc)
+        if quote:
+            found[doc] = quote
+    if "42109" not in found:
+        if "42109" in titled:
+            return _rule("source_quotes", False, "42109 has no quote from the water valve kit")
+        return _rule("source_quotes", True, "the water-valve source has no separate quote")
+    valve = found["42109"].lower()
+    owner = (found.get("42088") or "").lower()
+    if owner and valve == owner:
+        return _rule("source_quotes", False, "42109 repeats the 42088 quote")
+    if re.search(r"supply line|supply connection", valve):
+        return _rule("source_quotes", False, "42109 quote is the owner-manual supply line")
+    if not re.search(r"water valve|pedal|inlet|retainer", valve):
+        return _rule("source_quotes", False, "42109 quote does not come from the water valve kit")
+    return _rule("source_quotes", True, "each source quote comes from that document")
+
+
+def _kit_source_sentences() -> list[str]:
+    """English lines from the bundled kit sheets, for the mid-phrase check."""
+    root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+    paths = (
+        root / "34123-34122-VacBrkr-1.pdf",
+        root / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf",
+    )
+    sentences = []
+    try:
+        import pymupdf
+    except Exception:
+        return []
+    for path in paths:
+        if not path.is_file():
+            continue
+        doc = pymupdf.open(path)
+        try:
+            raw = "\n".join(page.get_text() for page in doc)
+        finally:
+            doc.close()
+        raw = raw.replace("\u00ad", "").replace("\u2013", "-").replace("\u2014", "-")
+        # A kit sentence wraps across lines. "Secure back of Shroud" continues
+        # as "with two O-rings - larger" and "on top and smaller on bottom."
+        buf = ""
+        for line in raw.splitlines():
+            line = re.sub(r"\s+", " ", line).strip()
+            if not line:
+                continue
+            starts = bool(re.match(r"^(?:\d+[\.\)]|[a-c]\.)\s+\S", line))
+            if buf and starts:
+                if len(buf) >= 12:
+                    sentences.append(buf)
+                buf = line
+            elif buf:
+                buf = f"{buf} {line}"
+            else:
+                buf = line
+            if re.search(r"[.!?]$", buf):
+                if len(buf) >= 12:
+                    sentences.append(buf)
+                buf = ""
+        if len(buf) >= 12:
+            sentences.append(buf)
+    return sentences
+
+
+def _word_tokens(text: str) -> list[str]:
+    text = (text or "").lower().replace("shroud", "cover").replace("o-ring", "ring")
+    text = text.replace("-", " ")
+    return re.findall(r"[a-z0-9]+", text)
+
+
+def _find_seq(words: list[str], seq: list[str], start: int = 0) -> int:
+    if not seq:
+        return -1
+    limit = len(words) - len(seq) + 1
+    for index in range(start, max(start, limit)):
+        if words[index : index + len(seq)] == seq:
+            return index
+    return -1
+
+
+def _mid_phrase_gap(text: str) -> Rule:
+    """A step that keeps the start and the end of a source sentence, and drops the middle."""
+    if not re.search(r"\b(34123|42109)\b", text or ""):
+        return _rule("mid_phrase", True, "no kit sentence to compare")
+    sentences = _kit_source_sentences()
+    if not sentences:
+        return _rule("mid_phrase", True, "kit source text is not in this checkout")
+    skip = {"the", "a", "of", "and", "on", "to", "in"}
+    for step in _bounded_steps(text or ""):
+        actions = _step_actions(step)
+        if not actions:
+            heading = re.sub(r"^Step\s+\d+\s*:\s*", "", step.splitlines()[0], flags=re.I)
+            actions = [heading]
+        for action in actions:
+            words = _word_tokens(action)
+            if len(words) < 6:
+                continue
+            head, tail = words[:3], words[-3:]
+            for sentence in sentences:
+                source = _word_tokens(sentence)
+                head_at = _find_seq(source, head)
+                if head_at < 0:
+                    continue
+                tail_at = _find_seq(source, tail, head_at + 3)
+                if tail_at < 0:
+                    continue
+                have = set(words)
+                missing = [word for word in source[head_at + 3 : tail_at] if word not in have and word not in skip]
+                if len(missing) >= 3:
+                    return _rule("mid_phrase", False, f"quote drops {' '.join(missing[:6])} from: {action[:70]}")
+    return _rule("mid_phrase", True, "kit quotes keep the source phrase")
+
+
+def _valve_start_bare(pairs: list[tuple[str, str]]) -> bool:
+    """The water-valve repair turn names a place and a tool in plain words."""
+    for user, assistant in pairs:
+        if "42109" not in (assistant or ""):
+            continue
+        if not re.search(r"water valve|weeps at the pedal|no leak while flushing", user or "", re.I):
+            continue
+        low = assistant.lower()
+        has_place = bool(re.search(r"\bgo to the water valve\b|\bat the water valve\b|\bat the pedal\b", low))
+        has_tool = bool(re.search(r"\b(wrench|plier|screwdriver|towel)\b", low))
+        if has_place and has_tool:
+            continue
+        return True
+    return False
 
 
 def _source_lines(text: str) -> list[str] | None:
@@ -1399,6 +1630,11 @@ def _soft_or_cut_figures(doc) -> list[str]:
             shown = float(bbox[2]) - float(bbox[0])
             if width < 220 and shown > 280:
                 problems.append(f"page {index} figure is {width}px drawn at {shown:.0f}pt")
+            height = int(info.get("height") or 0)
+            if width >= 220 and height > width * 1.35 and shown > 280:
+                problems.append(
+                    f"page {index} figure is {width}x{height}px, so its caption fills the page"
+                )
     return problems
 
 

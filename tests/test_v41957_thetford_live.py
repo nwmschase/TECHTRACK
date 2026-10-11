@@ -131,6 +131,47 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         self.assertNotIn("scouring", do_not)
         self.assertFalse(any("How (" in line for line in self.proc.bay_order))
 
+    def test_review_sequence_quotes_and_figure_crop(self):
+        breaker = next(item for item in self.proc.procedures if "3412" in (item.get("title") or ""))
+        actions = [step.get("text") or "" for step in breaker.get("steps") or []]
+        lift = next(i for i, action in enumerate(actions) if "Lift the toilet" in action)
+        covers = next(i for i, action in enumerate(actions) if "bolt covers" in action and "Take off" in action)
+        back = next(i for i, action in enumerate(actions) if "bolt covers back" in action)
+        self.assertLess(covers, lift)
+        self.assertLess(lift, back)
+        self.assertTrue(any("two rings" in action and "larger" in action for action in actions))
+        flange = next(item for item in self.proc.procedures if "Flange" in (item.get("title") or ""))
+        flange_actions = [
+            (step.get("section"), (step.get("text") or "").rstrip("."))
+            for step in flange.get("steps") or []
+        ]
+        self.assertIn(("removal", "Lift the toilet off the floor"), flange_actions)
+        self.assertIn(("removal", "Take off the old floor seal"), flange_actions)
+        self.assertIn(("removal", "Cover the tank hole with a towel"), flange_actions)
+        height = next(i for i, (section, action) in enumerate(flange_actions) if "7/16" in action)
+        install = next(i for i, (section, _action) in enumerate(flange_actions) if section == "installation")
+        self.assertLess(height, install)
+        quotes = {src.get("title") or "": src.get("excerpt") or "" for src in self.proc.sources}
+        valve_quote = next(quote for title, quote in quotes.items() if "42109" in title)
+        owner_quote = next(quote for title, quote in quotes.items() if "42088" in title)
+        self.assertNotEqual(valve_quote, owner_quote)
+        self.assertNotIn("supply line", valve_quote.lower())
+        self.assertRegex(valve_quote.lower(), r"water valve|pedal|inlet|retainer")
+        import io
+
+        from PIL import Image
+
+        indexed = mf.index_pdf_bytes((ROOT / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf").read_bytes())
+        fig3 = next(fig for fig in indexed["figures"] if (fig.get("label") or "").startswith("Fig. 3"))
+        self.assertIn("WATER VALVE CLOSED POSITION", fig3["label"])
+        image = Image.open(io.BytesIO(fig3["png"]))
+        try:
+            self.assertLessEqual(image.size[1], image.size[0] * 1.35, image.size)
+            with Image.open(ROOT / "thetford_live_library" / "cache" / "library" / "doc1-p1-4.png") as cached:
+                self.assertEqual(cached.size, image.size)
+        finally:
+            image.close()
+
     def test_profile_check_has_no_fail(self):
         rules = profile_check.check_pdf_bytes(self.pdf)
         failed = [rule for rule in rules if rule.status == "FAIL"]
@@ -194,6 +235,25 @@ class TestShowMeReply(unittest.TestCase):
         self.assertNotIn("page 7", caption)
         self.assertNotIn("Step 1", caption)
 
+    def test_the_valve_turn_names_the_place_and_the_tools(self):
+        history = [
+            {"role": "user", "content": CONCERN},
+            {"role": "assistant", "content": "Check the supply connection."},
+            {"role": "user", "content": "The supply connection is dry."},
+            {"role": "assistant", "content": "Check the vacuum breaker."},
+        ]
+        reply = ensure_thetford_flush_reply(
+            "",
+            history,
+            "No leak while flushing. The water valve weeps at the pedal.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+        )
+        self.assertIn("Go to the water valve.", reply)
+        self.assertIn("Use a 1/2-inch wrench and pliers.", reply)
+        self.assertNotIn("Where:", reply)
+        self.assertNotIn("Tools:", reply)
+
 
 class TestBayTabCopy(unittest.TestCase):
     def test_the_form_describes_branches(self):
@@ -255,3 +315,97 @@ class TestReviewDefectsFail(unittest.TestCase):
             if rule.name == "banned_strings"
         ]
         self.assertEqual(banned[0].status, "FAIL")
+
+    def test_lift_before_fasteners_and_a_cut_quote_fail(self):
+        lifted = (
+            "Thetford 34123\nREPAIR BRANCH\nVacuum breaker\nREMOVAL\n"
+            "Step 7: Pull the water hose off the toilet\nDo this:\n"
+            "1. Pull the water hose off the toilet.\n"
+            "Step 8: Lift the toilet off the floor\nDo this:\n"
+            "1. Lift the toilet off the floor.\n"
+        )
+        rule = profile_check._fastener_sequence(lifted)
+        self.assertFalse(rule.ok, rule.detail)
+        self.assertIn("lifted", rule.detail)
+        high = (
+            "Thetford 42070\nREPAIR BRANCH\nFlange\nREMOVAL\n"
+            "Step 1: Take the nuts off the floor bolts\nDo this:\n"
+            "1. Take the nuts off the floor bolts.\n"
+            "INSTALLATION\n"
+            "Step 2: Tighten the nuts until the toilet does not rock\nDo this:\n"
+            "1. Tighten the nuts until the toilet does not rock.\n"
+            "Step 3: Check the flange is 7/16 inch above the floor\nDo this:\n"
+            "1. Check the flange is 7/16 inch above the floor.\n"
+        )
+        rule = profile_check._fastener_sequence(high)
+        self.assertFalse(rule.ok, rule.detail)
+        self.assertIn("Installation", rule.detail)
+        cut = (
+            "Thetford 34123\n"
+            "Step 39: Secure back of cover on top and smaller on bottom\n"
+            "Do this:\n1. Secure back of cover on top and smaller on bottom.\n"
+        )
+        rule = profile_check._mid_phrase_gap(cut)
+        self.assertFalse(rule.ok, rule.detail)
+        kept = (
+            "Thetford 34123\n"
+            "Step 42: Secure back of cover with two rings - larger on top and smaller on bottom\n"
+            "Do this:\n"
+            "1. Secure back of cover with two rings - larger on top and smaller on bottom.\n"
+        )
+        rule = profile_check._mid_phrase_gap(kept)
+        self.assertTrue(rule.ok, rule.detail)
+
+    def test_a_copied_or_missing_valve_quote_fails(self):
+        copied = (
+            "42109\nSOURCES (SHOP DOCUMENT LIBRARY)\n"
+            "- Thetford Style II OM Permanent RV Toilet 42088 page 3\n"
+            "Check the water supply line connection at the water valve.\n"
+            "- Thetford Water Valve Kit 42109 page 1\n"
+            "Check the water supply line connection at the water valve.\n"
+        )
+        rule = profile_check._source_doc_quotes(copied)
+        self.assertFalse(rule.ok, rule.detail)
+        missing = (
+            "42109\nSOURCES (SHOP DOCUMENT LIBRARY)\n"
+            "- Thetford Water Valve Kit 42109 page 1\n"
+        )
+        rule = profile_check._source_doc_quotes(missing)
+        self.assertFalse(rule.ok, rule.detail)
+        own = (
+            "42109\nSOURCES (SHOP DOCUMENT LIBRARY)\n"
+            "- Thetford Style II OM Permanent RV Toilet 42088 page 3\n"
+            "Check the water supply line connection at the water valve.\n"
+            "- Thetford Water Valve Kit 42109 page 1\n"
+            "Lay the toilet on its side with the pedal up.\n"
+        )
+        rule = profile_check._source_doc_quotes(own)
+        self.assertTrue(rule.ok, rule.detail)
+
+    def test_a_bare_valve_start_fails_and_a_tall_crop_fails(self):
+        bare = (
+            "USER: No leak while flushing. The water valve weeps at the pedal.\n"
+            "ASSISTANT:\nTurn off the water to the RV.\nWhat do you see?\n"
+            "📖 Source: Thetford Water Valve Kit 42109, page 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(bare)}
+        self.assertEqual(named["score-2"].status, "FAIL")
+        named_place = (
+            "USER: No leak while flushing. The water valve weeps at the pedal.\n"
+            "ASSISTANT:\nGo to the water valve.\nUse a 1/2-inch wrench and pliers.\n"
+            "Turn off the water to the RV.\nA bad result is water still comes out.\n"
+            "What do you see?\n"
+            "📖 Source: Thetford Water Valve Kit 42109, page 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(named_place)}
+        self.assertNotEqual(named["score-2"].status, "FAIL")
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 400, 700), 0)
+        pix.clear_with(255)
+        page.insert_image(pymupdf.Rect(36, 80, 441, 700), pixmap=pix)
+        problems = profile_check._soft_or_cut_figures(doc)
+        self.assertTrue(any("caption fills" in item for item in problems), problems)
+        doc.close()

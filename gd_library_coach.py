@@ -6045,8 +6045,22 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
             "Flush the toilet.\n"
             "Look for leaks."
         )
+    step = dict(steps[number - 1])
+    fields = dict(step.get("fields") or {})
+    if number == 1:
+        where = fields.get("WHERE") or ""
+        if not where or "not stated" in where.lower():
+            fields["WHERE"] = (
+                "At the water valve."
+                if kind == "valve"
+                else "At the vacuum breaker on the flush hose."
+            )
+        tools = fields.get("TOOLS / METER SETTING") or ""
+        if not re.search(r"wrench|plier|screwdriver|towel", tools, re.I):
+            fields["TOOLS / METER SETTING"] = "Tools: a 1/2-inch wrench and pliers."
+        step["fields"] = fields
     text = mf.format_chat_turn(
-        steps[number - 1],
+        step,
         number,
         len(steps),
         show_safety=mf.show_safety_for(steps, number),

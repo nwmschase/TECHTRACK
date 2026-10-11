@@ -81,6 +81,7 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                     ])
                 report = (out / "report.txt").read_text(encoding="utf-8")
                 transcript = (out / "transcript.txt").read_text(encoding="utf-8")
+                raw = (out / "transcript-raw.txt").read_text(encoding="utf-8")
         finally:
             if saved is None:
                 os.environ.pop("XAI_API_KEY", None)
@@ -93,6 +94,9 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("not stated", transcript.lower())
         self.assertNotIn("How (", transcript)
         self.assertEqual(report.count("Result: 10/10."), 2)
+        self.assertIn("How (", raw)
+        self.assertIn("guards rewrote 4 of 4 turns", report)
+        self.assertIn("RAW model reply", report)
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."
