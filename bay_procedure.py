@@ -6221,11 +6221,15 @@ def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
                 return index
     words = _content_words(blob)
     nums = set(re.findall(r"\b\d{4,}\b", blob))
+    identity_ids = set(re.findall(r"\b\d{4,}\b", title or ""))
     best_index = None
     best_score = 0
     for index, step in enumerate(steps):
+        step_ids = set(re.findall(r"\b\d{4,}\b", step))
+        if identity_ids and step_ids and identity_ids.isdisjoint(step_ids):
+            continue
         score = len(words & _content_words(step))
-        score += 5 * len(nums & set(re.findall(r"\b\d{4,}\b", step)))
+        score += 5 * len(nums & step_ids)
         if score > best_score:
             best_score = score
             best_index = index
@@ -6264,9 +6268,17 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     )
     groups = [[] for _ in proc.bay_order]
     details = {}
+    import library_figure_backfill as fb
+
     for packet in packets:
         title = packet.get("title") or ""
-        if mf.brands_conflict(job, title):
+        if not fb.fits_case(
+            packet,
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        ):
             continue
         page = packet.get("page")
         labels = " ".join(
@@ -6335,6 +6347,40 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     return proc
 
 
+def cited_figure_count(proc: "BayProcedure") -> int:
+    """How many figures the sheet actually shows.
+
+    Images beside a step count. The trailing figure list does too.
+    A step image is not counted twice.
+    """
+    total = 0
+    seen = set()
+
+    def _add(png: bytes, always: bool = False) -> None:
+        nonlocal total
+        if png:
+            if png in seen:
+                return
+            seen.add(png)
+            total += 1
+            return
+        if always:
+            total += 1
+
+    for fig in proc.figures or []:
+        _add(getattr(fig, "image_png", b"") or b"", always=True)
+    for group in proc.step_figures or []:
+        for fig in group or []:
+            _add(getattr(fig, "image_png", b"") or b"")
+    for procedure in proc.procedures or []:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure") or {}
+            png = figure.get("png") if isinstance(figure, dict) else b""
+            if png:
+                _add(png)
+    return total
+
+
 def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProcedure:
     """Put the same library figure rows Guided Diagnostics loads beside each step.
 
@@ -6349,7 +6395,12 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
     if groups is None:
         if not rows:
             return proc
-        groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category or "", proc.model or "")
+        groups = fb.figures_beside_steps(
+            rows,
+            proc.bay_order,
+            proc.category or "",
+            f"{proc.brand or ''} {proc.model or ''}".strip(),
+        )
     placed = [list(group) for group in (proc.step_figures or [])]
     while len(placed) < len(proc.bay_order):
         placed.append([])

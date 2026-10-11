@@ -8,6 +8,7 @@ up the next read. This module does not import Streamlit.
 from __future__ import annotations
 
 import gc
+import re
 import time
 from pathlib import Path
 
@@ -779,9 +780,13 @@ def meta_rows(session) -> list[dict]:
         """
         SELECT a.id, a.document_id, a.page, a.kind, a.label, a.caption, a.bbox,
                a.chunk_id, a.image_path, a.width, a.height,
-               d.title AS title, d.file_path AS file_path, d.brand AS brand
+               d.title AS title, d.file_path AS file_path, d.brand AS brand,
+               d.product_line AS product_line, d.models AS models,
+               d.keywords AS keywords, d.clean_title AS clean_title,
+               d.doc_number AS doc_number, c.name AS category_name
         FROM doc_assets a
         JOIN documents d ON d.id = a.document_id
+        LEFT JOIN categories c ON c.id = d.category_id
         """,
     )
 
@@ -832,17 +837,142 @@ def _library_miss(*parts) -> bool:
     return "document in the shop library for this unit" in blob
 
 
-def select_library_figures(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
-    """Pick figure crops for this job from any brand. Zero means no library match.
+# Product lines are narrower than the maker. Power Gear is not Level Up,
+# and a pump-seal tip sheet is not a toilet kit or a rooftop air conditioner.
+_LINE_RES = (
+    ("power_gear", re.compile(
+        r"power\s*gear|tip\s*sheet\s*#?\s*216|\bmotor\s*brake\b|\bpump\s*seal\b|\bpump\s+replacement\b",
+        re.I,
+    )),
+    ("level_up", re.compile(r"level[\s-]*up|\b807662\b", re.I)),
+    ("ground_control", re.compile(r"ground\s*control|\b343633\b", re.I)),
+    ("psx1", re.compile(r"\bpsx1\b", re.I)),
+    ("schwintek", re.compile(r"\bschwintek\b", re.I)),
+    ("ac", re.compile(r"air\s*condition|\brooftop\b|\bhvac\b|\bb57915\b|\bbrisk\b", re.I)),
+    ("toilet", re.compile(
+        r"\b(?:toilet|thetford|42070|42109|42049|34122|34123|flush\s+lever)\b",
+        re.I,
+    )),
+)
 
-    A document scores on its title and brand. A figure scores on its caption.
-    Another brand's crop is left out once the winning brand is known.
+
+def _without_how(text: str) -> str:
+    """Shop text only. An appended How block is not the case identity."""
+    return re.split(r"\bHow\s*\([^)\n]{0,180}\):", text or "", maxsplit=1, flags=re.I)[0]
+
+
+def _product_lines(text: str) -> set[str]:
+    blob = text or ""
+    return {name for name, pattern in _LINE_RES if pattern.search(blob)}
+
+
+def _category_family(text: str) -> str:
+    low = text or ""
+    if re.search(r"air\s*condition", low, re.I):
+        return "ac"
+    if re.search(r"toilet", low, re.I):
+        return "toilet"
+    if re.search(r"\bleveling\b", low, re.I):
+        return "leveling"
+    if re.search(r"\bfurnace", low, re.I):
+        return "furnace"
+    if re.search(r"water\s*heat", low, re.I):
+        return "water"
+    if re.search(r"refrigerat", low, re.I):
+        return "fridge"
+    return ""
+
+
+def _part_ids(text: str) -> set[str]:
+    return set(re.findall(r"\b\d{4,}\b", text or ""))
+
+
+def _row_text(row: dict) -> str:
+    return " ".join(
+        str(row.get(key) or "")
+        for key in (
+            "title",
+            "brand",
+            "product_line",
+            "models",
+            "keywords",
+            "clean_title",
+            "doc_number",
+            "file_path",
+            "label",
+            "caption",
+            "category",
+            "category_name",
+        )
+    )
+
+
+def fits_case(row, category="", model="", user_msg="", reply="", job_text="") -> bool:
+    """True when this figure is the same brand, model, and product line as the case.
+
+    Citations already drop another maker and an unlabeled page. A How block
+    and a figure use that same rule. Power Gear does not illustrate Level Up,
+    Ground Control, a stabilizer, a toilet, or a rooftop air conditioner.
+    """
+    import gd_library_coach as gdc
+
+    job = _without_how(
+        " ".join(
+            part
+            for part in (category, model, user_msg, reply, job_text)
+            if part
+        )
+    )
+    row_text = _row_text(row or {})
+    job_lines = _product_lines(job)
+    row_lines = _product_lines(row_text)
+    if job_lines and row_lines and job_lines.isdisjoint(row_lines):
+        return False
+    symptom = _without_how(f"{user_msg or ''} {reply or ''} {job_text or ''}")
+    asked = set(gdc.asked_brands_for_lookup(category or "", model or "", symptom))
+    if re.search(r"\bb57915\b", job, re.I):
+        asked.add("dometic")
+    if not gdc.chunk_matches_asked_brand(
+        (row or {}).get("title") or "",
+        (row or {}).get("keywords") or "",
+        "",
+        asked,
+        coleman_job=gdc.is_coleman_2111_context(category or "", model or "", job),
+        file_path=(row or {}).get("file_path") or "",
+        brand=(row or {}).get("brand") or "",
+        models=(row or {}).get("models") or "",
+        clean_title=(row or {}).get("clean_title") or "",
+        product_line=(row or {}).get("product_line") or "",
+        doc_number=(row or {}).get("doc_number") or "",
+    ):
+        return False
+    if not gdc.model_list_allows((row or {}).get("models") or "", model or ""):
+        return False
+    job_family = _category_family(category) or _category_family(job)
+    row_family = _category_family(
+        (row or {}).get("category") or (row or {}).get("category_name") or ""
+    )
+    if job_family and row_family and job_family != row_family:
+        return False
+    return True
+
+
+def select_library_figures(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
+    """Pick figure crops for this case. Zero means no brand, model, or topic match.
+
+    A document has to be the same brand and product line as the case. A figure
+    then has to match the step's topic and part number. Nothing else is shown.
     """
     import re
 
     job = " ".join(part for part in (category, model, user_msg, reply) if part)
-    figures = [row for row in rows or [] if (row.get("kind") or "figure") == "figure"]
-    topic = mf.part_topic(reply)
+    figures = [
+        row
+        for row in rows or []
+        if (row.get("kind") or "figure") == "figure"
+        and fits_case(row, category, model, user_msg, reply)
+    ]
+    topic = mf.part_topic(_without_how(reply))
     if topic:
         figures = [
             row
@@ -899,11 +1029,18 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
                 figure_score += 6
             if named and any(number in named for number in nums):
                 figure_score += 8
+            step_ids = _part_ids(reply or "") or _part_ids(user_msg or "")
+            row_ids = _part_ids(f"{row.get('title') or ''} {label}")
+            if row_ids and step_ids and row_ids.isdisjoint(step_ids):
+                continue
+            if row_ids and step_ids & row_ids:
+                figure_score += 8
             chosen.append((figure_score, bucket["score"], row))
     if not chosen:
         return []
-    positive = [item for item in chosen if item[0] > 0]
-    pool = positive or chosen
+    pool = [item for item in chosen if item[0] > 0]
+    if not pool:
+        return []
     pool.sort(key=lambda item: (item[0], item[1]), reverse=True)
     offers = []
     seen = set()
@@ -930,6 +1067,12 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
                 "image_path": row.get("image_path") or "",
                 "bundled": False,
                 "brand": row.get("brand") or "",
+                "product_line": row.get("product_line") or "",
+                "models": row.get("models") or "",
+                "keywords": row.get("keywords") or "",
+                "category_name": row.get("category_name") or "",
+                "clean_title": row.get("clean_title") or "",
+                "doc_number": row.get("doc_number") or "",
             }
         )
         if figure_score <= 0 and len(offers) >= 3:
@@ -1018,7 +1161,7 @@ def _chunk_dict(chunk) -> dict:
 
 
 def figure_packets(rows, chunks, job_text: str) -> list[dict]:
-    """Figure packets for the retrieved chunks. Any brand. No bundled kit."""
+    """Figure packets for retrieved chunks that are this case. No bundled kit."""
     bits = [_chunk_dict(chunk) for chunk in chunks or []]
     doc_ids = {int(bit["document_id"]) for bit in bits if bit.get("document_id")}
     titles = [(bit.get("title") or "").strip().lower() for bit in bits if bit.get("title")]
@@ -1027,7 +1170,7 @@ def figure_packets(rows, chunks, job_text: str) -> list[dict]:
         if (row.get("kind") or "figure") != "figure":
             continue
         title = row.get("title") or ""
-        if mf.brands_conflict(job_text, f"{title} {row.get('brand') or ''}"):
+        if not fits_case(row, job_text=job_text):
             continue
         doc_id = int(row.get("document_id") or 0)
         title_l = title.lower()
@@ -1041,7 +1184,19 @@ def figure_packets(rows, chunks, job_text: str) -> list[dict]:
             continue
         bucket = grouped.setdefault(
             doc_id,
-            {"title": title, "page": row.get("page"), "excerpt": "", "figures": [], "document_id": doc_id},
+            {
+                "title": title,
+                "page": row.get("page"),
+                "excerpt": "",
+                "figures": [],
+                "document_id": doc_id,
+                "brand": row.get("brand") or "",
+                "product_line": row.get("product_line") or "",
+                "models": row.get("models") or "",
+                "keywords": row.get("keywords") or "",
+                "file_path": row.get("file_path") or "",
+                "category_name": row.get("category_name") or "",
+            },
         )
         bucket["figures"].append(
             {
