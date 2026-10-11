@@ -1,4 +1,7 @@
-"""Page images and figure crops for every document in the shop library.
+"""Page images and figure crops for the case manuals a manager selects.
+
+Backfill covers CCD-0008666, CCD-0007990, and the Thetford Style II docs.
+It does not queue the rest of the library.
 
 Rendering uses the same 150 dpi cropper as a single upload. The PNG is stored
 in R2 at image_path. The database row keeps that key, the caption, the page,
@@ -335,7 +338,10 @@ def store_pdf_figures(
 def _pdf_documents(session) -> list[dict]:
     rows = _all(
         session,
-        "SELECT id, title, file_path, file_type FROM documents ORDER BY id",
+        """
+        SELECT id, title, file_path, file_type, brand, clean_title, doc_number, models
+        FROM documents ORDER BY id
+        """,
     )
     kept = []
     for row in rows:
@@ -344,6 +350,32 @@ def _pdf_documents(session) -> list[dict]:
         if kind == "pdf" or path.endswith(".pdf"):
             kept.append(row)
     return kept
+
+
+_CASE_CCD_RE = re.compile(r"CCD-?0*8666|CCD-?0*7990|\b0008666\b|\b0007990\b", re.I)
+_CASE_PART_RE = re.compile(r"\b(?:42088|42109|42049|34122|34123)\b")
+_CASE_STYLE_RE = re.compile(r"style\s*ii", re.I)
+_THETFORD_RE = re.compile(r"thetford", re.I)
+
+
+def case_backfill_document(doc: dict) -> bool:
+    """True for the Furrion FACR manuals and the Thetford Style II docs.
+
+    CCD-0008666, CCD-0007990, the Style II owner manual, the 42109 water
+    valve kit, and the 34123/34122 vacuum breaker. Other manuals stay out.
+    """
+    blob = " ".join(
+        str(doc.get(key) or "")
+        for key in ("title", "clean_title", "file_path", "brand", "doc_number", "models")
+    )
+    if _CASE_CCD_RE.search(blob) or _CASE_PART_RE.search(blob):
+        return True
+    return bool(_THETFORD_RE.search(blob) and _CASE_STYLE_RE.search(blob))
+
+
+def case_backfill_documents(session) -> list[dict]:
+    """PDFs the per-case backfill is allowed to render."""
+    return [doc for doc in _pdf_documents(session) if case_backfill_document(doc)]
 
 
 def estimated_figure_count(pages: int) -> int:
@@ -418,14 +450,15 @@ def format_r2_projection(est: dict) -> str:
 
 
 def estimate_backfill(session) -> dict:
-    """Bytes the backfill would write for the PDFs already in this database.
+    """Bytes the per-case backfill would write.
 
+    Only CCD-0008666, CCD-0007990, and the Thetford Style II docs are counted.
     Page images are one PNG per page (the highest chunk page, or 1). Figure
     crops use the kit-sheet rate from the measured sample, which is higher
     than a text manual. The bytes are the R2 objects only.
     """
     ensure_ready(session)
-    docs = _pdf_documents(session)
+    docs = case_backfill_documents(session)
     pages = 0
     for doc in docs:
         row = _one(
@@ -474,7 +507,7 @@ def estimate_caption(est: dict) -> str:
     rate = float(est.get("crops_per_page") or 0)
     if docs == 0 or pages == 0:
         return (
-            "No manuals are in this database, so the backfill would store 0 bytes in R2. "
+            "No case manual is selected, so the backfill would store 0 bytes in R2. "
             f"A 150 dpi page image is about {page_kb:.0f} KB and a figure crop is about {crop_kb:.0f} KB. "
             "The database stores the key, caption, page, box, and chunk link, not a second copy of the PNG. "
             f"The kit sheets used for that measurement averaged {rate:.1f} crops per page. "
@@ -489,7 +522,7 @@ def estimate_caption(est: dict) -> str:
         "The database stores the key, caption, page, box, and chunk link, not the PNG. "
         f"Measured page image about {page_kb:.0f} KB, crop about {crop_kb:.0f} KB. "
         "A text manual has fewer crops than those kit sheets. "
-        "This count is the manuals in this database."
+        "This count is CCD-0008666, CCD-0007990, and the Thetford Style II docs."
     )
 
 
@@ -550,27 +583,27 @@ def _job_document_ids(session, job_id: int) -> set[int]:
 
 
 def pdf_choices(session) -> list[dict]:
-    """Manuals a manager can backfill one at a time."""
+    """Case manuals a manager can backfill. The rest of the library is not listed."""
     return [
         {"id": int(doc["id"]), "title": (doc.get("title") or f"Document {doc['id']}").strip()}
-        for doc in _pdf_documents(session)
+        for doc in case_backfill_documents(session)
     ]
 
 
 def ensure_job(session, document_ids=None) -> int:
-    """Open a backfill for every PDF, or only the manuals the manager selected.
+    """Open a backfill for the selected case manuals.
 
-    A selected job does not resume the whole-library job, and the whole-library
-    button does not resume a one-manual job.
+    A missing selection does not queue the library. Ids outside CCD-0008666,
+    CCD-0007990, and the Thetford Style II docs are dropped. A new selection
+    does not resume a job for a different set of manuals.
     """
-    catalog = _pdf_documents(session)
-    all_ids = {int(doc["id"]) for doc in catalog}
-    if document_ids is None:
-        wanted = set(all_ids)
-    else:
-        wanted = {int(doc_id) for doc_id in document_ids} & all_ids
-        if not wanted:
-            return 0
+    catalog = case_backfill_documents(session)
+    allowed = {int(doc["id"]) for doc in catalog}
+    if not document_ids:
+        return 0
+    wanted = {int(doc_id) for doc_id in document_ids} & allowed
+    if not wanted:
+        return 0
     current = open_job(session)
     if current and _job_document_ids(session, int(current["id"])) == wanted:
         return int(current["id"])

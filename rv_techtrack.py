@@ -1836,13 +1836,16 @@ def _store_pdf_assets(doc: Document, file_bytes: bytes):
 
 
 def backfill_missing_page_assets() -> int:
-    """Render page images and figure crops for every PDF already in the library.
+    """Render page images for the Thetford Style II docs and the two Furrion FACR manuals.
 
-    The Manager Tools button runs the same job a few manuals at a time.
+    Other library manuals are not queued.
     """
     import library_figure_backfill as fb
 
-    job_id = fb.ensure_job(session)
+    ids = [int(doc["id"]) for doc in fb.case_backfill_documents(session)]
+    job_id = fb.ensure_job(session, ids)
+    if not job_id:
+        return 0
     done = 0
     while True:
         result = fb.process_backfill_batch(
@@ -6854,9 +6857,9 @@ if is_manager and tab_mgr is not None:
                     prog.progress((i + 1) / max(len(docs), 1))
                 st.success(f"Indexed OK: {ok_n} · Skipped/failed: {fail_n}")
             st.caption(
-                "Page images and figure crops are stored for every manual, with the caption, "
-                "page, and box linked to the chunk. "
-                "The backfill renders manuals already in the library, including a Lippert bulk import. "
+                "Backfill is per case. It renders page images and figure crops for "
+                "CCD-0008666, CCD-0007990, and the Thetford Style II docs. "
+                "Select those manuals below. Other library manuals are not queued. "
                 "Each click does a few manuals and saves progress, so you can leave and continue."
             )
             import library_figure_backfill as _fb
@@ -6873,23 +6876,19 @@ if is_manager and tab_mgr is not None:
                     )
             except Exception as exc:
                 st.error(f"Could not read the figure backfill: {exc}")
-            _backfill_label = (
-                "Continue figure backfill" if _open else "Backfill page images and figures"
-            )
-            if st.button(_backfill_label):
-                _job_id = _fb.ensure_job(session)
+            if _open and st.button("Continue figure backfill"):
                 _bar = st.progress(0.0)
 
-                def _tick(index, total, title):
+                def _tick_open(index, total, title):
                     _bar.progress(min(1.0, index / max(total, 1)), text=title or "Rendering")
 
                 _result = _fb.process_backfill_batch(
                     session,
-                    _job_id,
+                    int(_open["id"]),
                     download_pdf=_download_library_pdf,
                     upload_png=r2_put_bytes,
                     batch_size=2,
-                    progress=_tick,
+                    progress=_tick_open,
                 )
                 if _result.get("busy"):
                     st.warning("This backfill is already running.")
@@ -6911,7 +6910,7 @@ if is_manager and tab_mgr is not None:
                     options=list(_choice_labels),
                     format_func=lambda doc_id: _choice_labels.get(int(doc_id), str(doc_id)),
                     key="figure_backfill_docs",
-                    help="CCD-0008666, CCD-0007990, and the Thetford kits can run alone. The whole library stays on the button above.",
+                    help="CCD-0008666, CCD-0007990, and the Thetford Style II docs. Other manuals are not listed.",
                 )
                 if st.button("Backfill selected manuals"):
                     if not _picked:

@@ -242,10 +242,13 @@ class TestBackfillJob(FigureCase):
         good = Path(self.tmp.name) / "level-up.pdf"
         good.write_bytes(_lippert_pdf())
         missing = "library/missing.pdf"
-        self.add_document(LIPPERT_TITLE, "Lippert", str(good))
-        self.add_document("Lippert second manual", "Lippert", missing, page_text="Page two only.")
+        self.add_document("Furrion Chill FACR CCD-0008666", "Furrion", str(good))
+        self.add_document(
+            "Furrion Rooftop HVAC CCD-0007990", "Furrion", missing, page_text="Page two only."
+        )
+        self.add_document(LIPPERT_TITLE, "Lippert", "library/level-up.pdf")
         self.session.execute(
-            text("UPDATE doc_chunks SET page = 4 WHERE title = 'Lippert second manual'")
+            text("UPDATE doc_chunks SET page = 4 WHERE title = 'Furrion Rooftop HVAC CCD-0007990'")
         )
         self.session.commit()
         estimate = fb.estimate_backfill(self.session)
@@ -285,7 +288,13 @@ class TestBackfillJob(FigureCase):
                 return local.read_bytes()
             return None
 
-        job_id = fb.ensure_job(self.session)
+        self.assertEqual(fb.ensure_job(self.session), 0)
+        choices = fb.pdf_choices(self.session)
+        self.assertEqual(
+            {row["title"] for row in choices},
+            {"Furrion Chill FACR CCD-0008666", "Furrion Rooftop HVAC CCD-0007990"},
+        )
+        job_id = fb.ensure_job(self.session, [row["id"] for row in choices])
         ticks = []
         first = fb.process_backfill_batch(
             self.session,
@@ -337,20 +346,35 @@ class TestBackfillJob(FigureCase):
         app = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
         self.assertIn("Backfill selected manuals", app)
         self.assertIn("pdf_choices", app)
+        self.assertNotIn("Backfill page images and figures", app)
+        self.assertIn("case_backfill_document", module)
 
     def test_selected_manuals_do_not_queue_the_whole_library(self):
         first = self.add_document("Furrion Chill FACR CCD-0008666", "Furrion", "library/8666.pdf")
         second = self.add_document(
             "Furrion Rooftop HVAC CCD-0007990", "Furrion", "library/7990.pdf"
         )
-        third = self.add_document("Thetford Water Valve Kit 42109", "Thetford", "library/valve.pdf")
-        whole = fb.ensure_job(self.session)
-        self.assertEqual(fb._job_document_ids(self.session, whole), {first, second, third})
-        picked = fb.ensure_job(self.session, [first, second])
-        self.assertNotEqual(picked, whole)
+        third = self.add_document("Thetford Style II OM Permanent RV Toilet 42088", "Thetford", "library/om.pdf")
+        valve = self.add_document("Thetford Water Valve Kit 42109", "Thetford", "library/valve.pdf")
+        breaker = self.add_document(
+            "Thetford Vacuum Breaker Kit 34123/34122", "Thetford", "library/breaker.pdf"
+        )
+        other = self.add_document(LIPPERT_TITLE, "Lippert", "library/level-up.pdf")
+        tank = self.add_document("Thetford Plastic Tank", "Thetford", "library/tank.pdf")
+        self.assertEqual(fb.ensure_job(self.session), 0)
+        self.assertFalse(fb.case_backfill_document({"title": LIPPERT_TITLE, "brand": "Lippert"}))
+        self.assertFalse(fb.case_backfill_document({"title": "Thetford Plastic Tank", "brand": "Thetford"}))
+        choices = {int(row["id"]) for row in fb.pdf_choices(self.session)}
+        self.assertEqual(choices, {first, second, third, valve, breaker})
+        refused = fb.ensure_job(self.session, [other, tank])
+        self.assertEqual(refused, 0)
+        picked = fb.ensure_job(self.session, [first, second, other])
         self.assertEqual(fb._job_document_ids(self.session, picked), {first, second})
         again = fb.ensure_job(self.session, [first, second])
         self.assertEqual(again, picked)
+        both = fb.ensure_job(self.session, [first, second, third, valve, breaker, other, tank])
+        self.assertNotEqual(both, picked)
+        self.assertEqual(fb._job_document_ids(self.session, both), {first, second, third, valve, breaker})
 
 
 class TestBulkImportFigures(unittest.TestCase):
