@@ -33,7 +33,7 @@ def _assert_walk(test, replies):
 
 
 class TestTranscriptReplay(unittest.TestCase):
-    def test_s01_reaches_a_rooftop_conditional_without_a_freeze_reseat(self):
+    def test_s01_asks_for_pressures_before_rooftop_rr(self):
         replies = _replay(
             [
                 "Furrion FACR08HESA2-PS rooftop AC; water leaking from forward AC inside while running.",
@@ -54,9 +54,10 @@ class TestTranscriptReplay(unittest.TestCase):
             self.assertNotIn("replace the rooftop assembly", reply.lower())
             self.assertNotIn("authorize rooftop assembly", reply.lower())
         closing = replies[4].lower()
-        self.assertIn("authorize rooftop assembly", closing)
-        self.assertIn("replace the rooftop assembly", closing)
+        self.assertIn("read the refrigerant pressures", closing)
         self.assertIn("ccd-0007990", closing)
+        self.assertNotIn("authorize rooftop assembly", closing)
+        self.assertNotIn("replace the rooftop assembly", closing)
 
     def test_s02_does_not_replace_a_wall_thermostat_on_a_coleman(self):
         replies = _replay(

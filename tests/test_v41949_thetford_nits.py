@@ -14,6 +14,7 @@ from bay_procedure import (
 )
 from gd_library_coach import (
     avoid_duplicate_reply,
+    ensure_facr_early_pressure_ask,
     repair_glued_sentence,
     strip_leaked_prompt,
 )
@@ -268,6 +269,63 @@ class TestSmallNits(unittest.TestCase):
         self.assertLessEqual(len(pages), 3)
         self.assertFalse(any(_sources_only(page) for page in pages))
         self.assertIn("PSX1", "\n".join(pages))
+
+
+S01_LIVE = [
+    "Furrion FACR08HESA2-PS rooftop AC; water leaking from forward AC inside while running, not raining.",
+    "Drain is clear, pan is clean and draining, base-pan slope is fine.",
+    "Filter is clean.",
+    "Evaporator fan spins freely with good airflow.",
+    "Freeze sensor reads 2 kΩ at 25°C.",
+    "Pressures 68 / 235 psig.",
+    "Suction line clear / not iced; still frosting after drain, pan, filter and fan checks.",
+]
+_AUTH_SENTENCE = "authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path."
+
+
+def _s01_walk(turns):
+    history = []
+    replies = []
+    for latest in turns:
+        reply = avoid_duplicate_reply(
+            "Check the filter and the fan.",
+            history,
+            latest,
+            "Air Conditioning",
+            "FACR08HESA2-PS",
+        )
+        reply = ensure_facr_early_pressure_ask(
+            reply, history, latest, "Air Conditioning", "FACR08HESA2-PS"
+        )
+        replies.append(reply or "")
+        history.append({"role": "user", "content": latest})
+        history.append({"role": "assistant", "content": reply})
+    return replies
+
+
+class TestS01PressuresBeforeRooftopRr(unittest.TestCase):
+    def test_freeze_sensor_before_pressures_asks_then_advances(self):
+        replies = _s01_walk(S01_LIVE)
+        self.assertIn("refrigerant pressure", replies[0].lower())
+        for reply in replies[:5]:
+            low = reply.lower()
+            self.assertNotIn("replace the rooftop assembly", low)
+            self.assertNotIn("authorize rooftop assembly", low)
+        sensor = replies[4].lower()
+        self.assertIn("read the refrigerant pressures", sensor)
+        pressures = replies[5].lower()
+        self.assertIn("authorize rooftop assembly", pressures)
+        self.assertIn("replace the rooftop assembly", pressures)
+        self.assertIn("ccd-0007990", pressures)
+        self.assertIn("pressure", pressures)
+        later = replies[6].lower()
+        self.assertNotEqual(later, pressures)
+        self.assertNotIn(_AUTH_SENTENCE, later)
+        self.assertIn("suction line is clear", later)
+        self.assertIn("still frosting", later)
+        self.assertIn("verify", later)
+        self.assertIn("rooftop assembly", later)
+        self.assertIn("ccd-0007990", later)
 
 
 if __name__ == "__main__":
