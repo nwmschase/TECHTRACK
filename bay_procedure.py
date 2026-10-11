@@ -6238,6 +6238,28 @@ def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
     return None
 
 
+def _drop_off_brand_sheet_figures(proc: BayProcedure, job: str) -> None:
+    """A cited figure from another brand or system does not stay on the sheet."""
+    import library_figure_backfill as fb
+
+    kept = []
+    for fig in proc.figures or []:
+        if fb.off_brand_figure(
+            {
+                "title": fig.title,
+                "caption": fig.caption,
+                "keywords": fig.excerpt,
+            },
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        ):
+            continue
+        kept.append(fig)
+    proc.figures = kept
+
+
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     """Put each cropped figure on the step it supports, and quote that chunk's how-to.
 
@@ -6261,15 +6283,17 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
         if figures:
             packets.append({**data, "figures": figures})
-    if not packets:
-        return proc
     job = " ".join(
         part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite) if part
     )
+    if not packets:
+        _drop_off_brand_sheet_figures(proc, job)
+        return proc
     groups = [[] for _ in proc.bay_order]
     details = {}
     import library_figure_backfill as fb
 
+    fitting = []
     for packet in packets:
         title = packet.get("title") or ""
         if not fb.fits_case(
@@ -6280,6 +6304,7 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             reply=job,
         ):
             continue
+        fitting.append(packet)
         page = packet.get("page")
         labels = " ".join(
             f"{figure.get('label') or ''} {figure.get('caption') or ''}"
@@ -6290,12 +6315,29 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         )
         if slot is None:
             continue
-        detail = mf.procedure_detail(packet.get("excerpt") or "", title, page)
+        detail = fb.procedure_how(
+            packet,
+            packet.get("excerpt") or "",
+            title,
+            page,
+            category=proc.category or "",
+            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+            user_msg=proc.concern or "",
+            reply=job,
+        )
         if detail and slot not in details:
             details[slot] = detail
         for figure in packet["figures"]:
             fig_title = figure.get("title") or title
             if mf.brands_conflict(job, fig_title):
+                continue
+            if fb.off_brand_figure(
+                {**packet, "title": fig_title, "label": figure.get("label") or "", "caption": figure.get("caption") or ""},
+                category=proc.category or "",
+                model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+                user_msg=proc.concern or "",
+                reply=job,
+            ):
                 continue
             png = figure.get("png") or b""
             if not png or mf.png_is_blank(png):
@@ -6328,7 +6370,7 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
     proc.bay_order = order
     proc.step_figures = groups
-    proc.procedures = _plain_kit_procedures(packets, job)
+    proc.procedures = _plain_kit_procedures(fitting, job)
     owned = set()
     for procedure in proc.procedures:
         for step in procedure.get("steps") or []:
@@ -6343,7 +6385,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         ]
     used = {fig.image_png for group in proc.step_figures for fig in group if fig.image_png}
     used.update(owned)
-    proc.figures = [fig for fig in proc.figures if fig.image_png not in used]
+    proc.figures = [fig for fig in proc.figures or [] if not (fig.image_png and fig.image_png in used)]
+    _drop_off_brand_sheet_figures(proc, job)
     return proc
 
 

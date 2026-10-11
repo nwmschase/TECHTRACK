@@ -4889,7 +4889,16 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
             )
         except Exception:
             chunk_text = ""
-        detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
+        detail = fb.procedure_how(
+            first,
+            chunk_text,
+            first.get("title") or "",
+            first.get("page"),
+            category_name,
+            model_text,
+            user_msg,
+            reply,
+        )
         if detail and detail not in (reply or ""):
             extra.append(detail)
     for item in chosen[:limit]:
@@ -5913,36 +5922,37 @@ def _merge_stored_figures(proc, chunks):
         return proc
     job = f"{proc.category or ''} {proc.brand or ''} {proc.model or ''} {proc.concern or ''}"
     packets = fb.figure_packets(rows, chunks, job)
-    if not packets:
-        return proc
-    packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
-    load_rows = [
-        row for row in rows
-        if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
-    ]
-    try:
-        fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
-    except Exception:
-        load_rows = []
-    by_key = {
-        (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
-        for row in load_rows
-    }
-    for packet in packets:
-        kept = []
-        for figure in packet.get("figures") or []:
-            png = by_key.get(
-                (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
-                b"",
-            )
-            if not png:
-                continue
-            figure["png"] = png
-            kept.append(figure)
-        packet["figures"] = kept
-    packets = [packet for packet in packets if packet.get("figures")]
+    # An off-brand retrieval still leaves the matching library document to paint.
+    # Stopping here was why a Bay sheet said Cited figures: 0.
     if packets:
-        proc = apply_chunk_figures(proc, packets)
+        packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
+        load_rows = [
+            row for row in rows
+            if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
+        ]
+        try:
+            fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
+        except Exception:
+            load_rows = []
+        by_key = {
+            (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
+            for row in load_rows
+        }
+        for packet in packets:
+            kept = []
+            for figure in packet.get("figures") or []:
+                png = by_key.get(
+                    (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
+                    b"",
+                )
+                if not png:
+                    continue
+                figure["png"] = png
+                kept.append(figure)
+            packet["figures"] = kept
+        packets = [packet for packet in packets if packet.get("figures")]
+        if packets:
+            proc = apply_chunk_figures(proc, packets)
     groups = fb.figures_beside_steps(
         rows,
         proc.bay_order,
