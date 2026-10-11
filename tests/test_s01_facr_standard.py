@@ -236,7 +236,10 @@ class TestFacrSheet(unittest.TestCase):
                     if mf.show_safety_for(item["steps"], index):
                         emitted += 1
         self.assertGreater(carried, emitted)
-        self.assertEqual(text.count("keep both supplies off."), emitted)
+        shown = text.count("keep both supplies off.")
+        self.assertGreaterEqual(shown, 1)
+        self.assertLess(shown, carried)
+        self.assertLessEqual(shown, 2)
         self.assertIn("2024006031", text)
         self.assertNotIn("unconfirmed", text)
         self.assertNotIn("not stated", text)

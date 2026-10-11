@@ -672,8 +672,9 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Open (do not touch): PR #75 (Coleman 2111-0001 eight-field), PR #85 (v4.19.55 draft)
 - Known-good tags: none
 
-### v4.19.55 — draft PR #85 — not merged — head `3f6333d`
-- Guided Diagnostics replies are plain sentences. The Where / Do this / Good / Bad / Next block and the "Step X of N" counter are off the chat. A manual figure appears only when the tech asks, on the cited page, same brand and model.
-- The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122, water valve 42109, and flange seal 02125. Each branch ends on a confirm step. Figures stay centered under the citing step at 75% of the page width.
+### v4.19.55 — draft PR #85 — not merged — rebased on `568ece6`
+- Guided Diagnostics replies are plain sentences. The Where / Do this / Good / Bad / Next block and the "Step X of N" counter are off the chat. A manual figure appears only when the tech asks, on the cited page, same brand and model. A photo is asked only when that check is something the tech can see.
+- The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122, water valve 42109, and flange seal 02125. Each branch has Before you start with the safety note once, numbered Removal and Installation, and a verify step with a pass or fail. Figures stay centered under the citing step at 75% of the page width.
+- Established profiles v1.0 (2026-10-11) are the standard in docs/profiles. scripts/profile_check.py scores a gate PDF or transcript PASS or FAIL per rule.
 - Still in this draft: one action per HOW line, cited-page image (42088 p3), a specific or omitted Bad line, no stray "2.", and per-document backfill counts.
 - Current main remains v4.19.54 until this draft merges.

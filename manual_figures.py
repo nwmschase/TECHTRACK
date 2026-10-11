@@ -1037,7 +1037,7 @@ def _tools_text(value: str) -> str:
 def step_needs_photo(step: dict) -> bool:
     """A photo helps when this step confirms something the tech can see.
 
-    Turning a breaker off, unplugging a sensor, or torquing a fitting does not.
+    Turning a breaker off, pulling a pedal, or torquing a fitting does not.
     Looking, watching, or checking a leak, weep, drip, or frost does.
     """
     actions = step_action_lines(step)
@@ -1046,12 +1046,12 @@ def step_needs_photo(step: dict) -> bool:
         return True
     fields = (step or {}).get("fields") or {}
     first = (actions[0] if actions else how).strip()
+    verdict = f"{how} {fields.get('GOOD vs BAD') or ''}"
     if _SKIP_PHOTO_START_RE.match(first):
-        verdict = f"{how} {fields.get('GOOD vs BAD') or ''} {fields.get('SAFETY') or ''}"
         if _VISUAL_RE.search(verdict) and re.search(r"\b(?:water on|flush|leak test)\b", verdict, re.I):
             return True
         return False
-    return bool(_VISUAL_RE.search(how))
+    return bool(_VISUAL_RE.search(verdict))
 
 
 def step_body_lines(
@@ -2772,8 +2772,9 @@ def thetford_proving_body(key: str) -> str:
 
 
 def thetford_proving_line(key: str) -> str:
-    """One leak check in plain sentences, plus one photo line and the document cite."""
-    lines = chat_sentences(_fields_as_step(_THETFORD_PROVING[key]), show_photo=True)
+    """One leak check in plain sentences. A photo is asked only when it would help."""
+    step = _fields_as_step(_THETFORD_PROVING[key])
+    lines = chat_sentences(step, show_photo=step_needs_photo(step))
     body = "\n".join(lines)
     return hide_internal_marker(f"{body}\n\n{_THETFORD_PROVING_CITE[key]}")
 
