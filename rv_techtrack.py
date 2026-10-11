@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.46
+RV TechTrack v4.19.47
+- v4.19.47: A Thetford water-valve answer walks Step 1 through Step 14. A missing page image shows no download-failure caption. Version stamp so this deploy is distinct from v4.19.46.
 - v4.19.46: Reload every Guided Diagnostics and Bay PDF module and log its revision. Version stamp so this deploy is distinct from v4.19.45.
 - v4.19.45: Shop behavior is the pre-#76 release again. Version stamp so this deploy is distinct from v4.19.44.
 - v4.19.44: Version stamp so this deploy is distinct from v4.19.43.
@@ -220,7 +221,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.46"
+_GDC_REQUIRED_REVISION = "v4.19.47"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
