@@ -907,31 +907,48 @@ def _row_text(row: dict) -> str:
     )
 
 
-def fits_case(row, category="", model="", user_msg="", reply="", job_text="") -> bool:
-    """True when this figure is the same brand, model, and product line as the case.
-
-    Citations already drop another maker and an unlabeled page. A How block
-    and a figure use that same rule. Power Gear does not illustrate Level Up,
-    Ground Control, a stabilizer, a toilet, or a rooftop air conditioner.
-    """
-    import gd_library_coach as gdc
-
-    job = _without_how(
+def _case_job(category="", model="", user_msg="", reply="", job_text="") -> str:
+    return _without_how(
         " ".join(
             part
             for part in (category, model, user_msg, reply, job_text)
             if part
         )
     )
+
+
+def _asked_brands(category, model, job, user_msg="", reply="", job_text="") -> set:
+    import gd_library_coach as gdc
+
+    symptom = _without_how(f"{user_msg or ''} {reply or ''} {job_text or ''}")
+    asked = set(gdc.asked_brands_for_lookup(category or "", model or "", symptom))
+    # S09 often types the rooftop code and not the word Dometic.
+    if re.search(r"\bb57915\b", job or "", re.I):
+        asked.add("dometic")
+    return asked
+
+
+def fits_case(row, category="", model="", user_msg="", reply="", job_text="") -> bool:
+    """True only when this document is the case brand, model, and system.
+
+    Every case uses this gate, not only Thetford. A named system has to be
+    on the document. A document that names a different system does not
+    illustrate the case. No match means no figure and no How block.
+    """
+    import gd_library_coach as gdc
+
+    job = _case_job(category, model, user_msg, reply, job_text)
     row_text = _row_text(row or {})
     job_lines = _product_lines(job)
     row_lines = _product_lines(row_text)
-    if job_lines and row_lines and job_lines.isdisjoint(row_lines):
+    # The case named a system. The document has to share it.
+    if job_lines and not (job_lines & row_lines):
         return False
-    symptom = _without_how(f"{user_msg or ''} {reply or ''} {job_text or ''}")
-    asked = set(gdc.asked_brands_for_lookup(category or "", model or "", symptom))
-    if re.search(r"\bb57915\b", job, re.I):
-        asked.add("dometic")
+    asked = _asked_brands(category, model, job, user_msg, reply, job_text)
+    job_family = _category_family(category) or _category_family(job)
+    # The document named a system the case did not. That is a different product.
+    if row_lines and not job_lines and (asked or job_family):
+        return False
     if not gdc.chunk_matches_asked_brand(
         (row or {}).get("title") or "",
         (row or {}).get("keywords") or "",
@@ -948,13 +965,59 @@ def fits_case(row, category="", model="", user_msg="", reply="", job_text="") ->
         return False
     if not gdc.model_list_allows((row or {}).get("models") or "", model or ""):
         return False
-    job_family = _category_family(category) or _category_family(job)
     row_family = _category_family(
         (row or {}).get("category") or (row or {}).get("category_name") or ""
     )
     if job_family and row_family and job_family != row_family:
         return False
     return True
+
+
+def off_brand_figure(row, category="", model="", user_msg="", reply="", job_text="") -> bool:
+    """True when this figure names a different brand, model, or system.
+
+    A shop seed that names no other product stays. A Tip Sheet, a Power Gear
+    page, or another maker does not.
+    """
+    import gd_library_coach as gdc
+
+    job = _case_job(category, model, user_msg, reply, job_text)
+    row_text = _row_text(row or {})
+    job_lines = _product_lines(job)
+    row_lines = _product_lines(row_text)
+    if job_lines and row_lines and job_lines.isdisjoint(row_lines):
+        return True
+    if row_lines and not job_lines:
+        return True
+    asked = _asked_brands(category, model, job, user_msg, reply, job_text)
+    declared = gdc.canonical_shop_brands((row or {}).get("brand") or "")
+    if not declared:
+        declared = gdc.canonical_shop_brands(
+            (row or {}).get("title") or "",
+            (row or {}).get("product_line") or "",
+            (row or {}).get("clean_title") or "",
+        )
+    if asked and declared and asked.isdisjoint(declared):
+        return True
+    if not gdc.model_list_allows((row or {}).get("models") or "", model or ""):
+        return True
+    job_family = _category_family(category) or _category_family(job)
+    row_family = _category_family(
+        (row or {}).get("category") or (row or {}).get("category_name") or ""
+    )
+    if job_family and row_family and job_family != row_family:
+        return True
+    return False
+
+
+def procedure_how(row, text, doc_title, page, category="", model="", user_msg="", reply="", job_text="") -> str:
+    """The How block for this document, or nothing when it is not this case."""
+    identity = dict(row or {})
+    if doc_title and not identity.get("title"):
+        identity["title"] = doc_title
+    if not fits_case(identity, category, model, user_msg, reply, job_text):
+        return ""
+    return mf.procedure_detail(text or "", doc_title, page)
 
 
 def select_library_figures(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
