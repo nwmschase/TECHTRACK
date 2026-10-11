@@ -6471,9 +6471,9 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                 user_msg=proc.concern or "",
                 reply=job,
             )
-        # The How (doc) template is not a tech sentence. A locked Thetford sheet
-        # already names the step, so that block stays off the bay order.
-        if detail and slot not in details and not locked and not re.match(r"how\s*\(", detail.strip(), re.I):
+        # A locked Thetford sheet already names the step. The How template
+        # stays off that bay order. Other sheets still quote the chunk.
+        if detail and slot not in details and not locked:
             details[slot] = detail
         for figure in packet["figures"]:
             fig_title = figure.get("title") or title
@@ -6508,6 +6508,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                 )
             )
     order = list(proc.bay_order)
+    if locked:
+        order = [re.split(r"\s+How\s*\(", step or "", maxsplit=1)[0].strip() for step in order]
     for slot, detail in details.items():
         if detail not in order[slot]:
             order[slot] = f"{order[slot].rstrip()} {detail}"

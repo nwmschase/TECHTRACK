@@ -2237,8 +2237,8 @@ def _apply_leak_test_step(steps: list) -> None:
     fields["SAFETY"] = safety
     fields["WHERE"] = "At the pedal and the water valve."
     fields["GOOD vs BAD"] = (
-        "Good: Dry at the pedal and the valve after 3 flushes. "
-        "Bad: A drip at the pedal or the valve."
+        "Flush 3 times. Good: Dry at the pedal and the valve. "
+        "Bad: any drip, so recheck the seal and the nuts."
     )
     last["fields"] = fields
 

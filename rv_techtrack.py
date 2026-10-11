@@ -6114,6 +6114,8 @@ with tab_jobs:
         "and a confirm step. A manual figure is drawn under the step that cites it. "
         "The Do Not list and the sources stay case-relevant. "
         "Optional blank 3C is a small footer only. "
+        "Short paths stay short but complete. Long appliance paths are full A to Z, "
+        "not hint cards. Checks, thresholds, and pass or fail stay on the page. "
         "Guided Diagnostics chat is separate. This does not write a warranty story."
     )
 

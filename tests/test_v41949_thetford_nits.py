@@ -64,7 +64,7 @@ class TestLeakTestStep(unittest.TestCase):
         self.assertIn("valve", fields["WHERE"].lower())
         good = fields["GOOD vs BAD"]
         self.assertIn("Flush 3 times.", good)
-        self.assertIn("dry at the pedal and valve", good)
+        self.assertIn("Dry at the pedal and the valve", good)
         self.assertIn("any drip", good)
         self.assertIn("recheck the seal and the nuts", good)
         self.assertIn("Good looks like: Flush 3 times.", shown)
@@ -197,7 +197,7 @@ class TestHeadingsStayWithTheFirstStep(unittest.TestCase):
         joined = "\n".join(pages)
         self.assertIn("Turn the RV water on for the leak test.", joined)
         self.assertIn("Flush 3 times.", joined)
-        self.assertIn("dry at the pedal and valve", joined)
+        self.assertIn("Dry at the pedal and the valve", joined)
         self.assertNotIn("33239", joined)
         self.assertNotIn("42067", joined)
 
