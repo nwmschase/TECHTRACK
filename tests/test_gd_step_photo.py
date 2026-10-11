@@ -111,7 +111,7 @@ class TestThetfordPhotoTurns(unittest.TestCase):
             {"verdict": "confirm", "sees": "The pedal is off."},
         )
         self.assertIn("I see: The pedal is off.", reply)
-        self.assertIn("**Step 2:", reply)
+        self.assertIn("<!--gd-step:2-->", reply)
         self.assertNotRegex(reply, r"(?<!\d)Step 1:")
 
     def test_mismatch_asks_for_another_and_stays(self):
@@ -122,7 +122,7 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("I see: a dry towel on the floor.", reply)
         self.assertIn("This photo does not match the finding.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("**Step 1:", reply)
+        self.assertIn("<!--gd-step:1-->", reply)
         self.assertNotRegex(reply, r"(?<!\d)Step 2:")
 
     def test_unclear_does_not_invent_a_scene(self):
@@ -135,12 +135,12 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("This photo is not clear enough.", reply)
         self.assertIn("I will not guess what it shows.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("**Step 1:", reply)
+        self.assertIn("<!--gd-step:1-->", reply)
         self.assertNotRegex(reply, r"(?<!\d)Step 2:")
 
     def test_no_photo_typed_yes_still_moves_on(self):
         reply = _turn("Photo sent. Yes.", None)
-        self.assertIn("**Step 2:", reply)
+        self.assertIn("<!--gd-step:2-->", reply)
         self.assertNotRegex(reply, r"(?<!\d)Step 1:")
         self.assertNotIn("I see:", reply)
 

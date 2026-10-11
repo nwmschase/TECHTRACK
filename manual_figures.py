@@ -893,12 +893,15 @@ _PHOTO_BLOCK_RES = (
 def reply_shows_step(text: str, number: int) -> bool:
     """True when this turn is repair step N.
 
-    New replies say ``Step N:``. Older turns say ``Step N of``. ``Step 1:`` does
-    not match ``Step 10:``. A proving check uses the colon form without the
-    repair intro, so it does not move the repair cursor.
+    Chat turns carry a hidden ``gd-step`` marker. Older turns say ``Step N of``
+    or ``Here is the repair procedure`` plus ``Step N:``. ``Step 1:`` does not
+    match ``Step 10:``. A proving check has neither marker, so it does not move
+    the repair cursor.
     """
     raw = text or ""
     n = int(number)
+    if re.search(rf"<!--\s*gd-step:{n}\s*-->", raw):
+        return True
     if re.search(rf"(?<!\d)Step {n} of\b", raw):
         return True
     if "Here is the repair procedure." in raw and re.search(rf"(?<!\d)Step {n}:", raw):
@@ -1386,7 +1389,7 @@ def readability_problems(step: dict) -> list[str]:
 
 
 def format_one_step(step: dict, number: int, total: int, *, show_safety: bool = False) -> str:
-    """One GD turn in markdown. A photo line is added only when the finding is visual."""
+    """Labeled markdown for the Bay sheet standard. Chat uses format_chat_turn."""
     del total  # The heading is "Step N: title". The count stays off the line.
     text = render_step(
         step,
@@ -1399,6 +1402,137 @@ def format_one_step(step: dict, number: int, total: int, *, show_safety: bool = 
     if step.get("caution"):
         text = f"{text}\n\nCaution: {step['caution']}"
     return text.strip()
+
+
+def _lower_first(text: str) -> str:
+    raw = (text or "").strip().rstrip(".")
+    if not raw:
+        return ""
+    return raw[0].lower() + raw[1:]
+
+
+def _place_sentence(where: str) -> str:
+    text = shop_field_value(where)
+    if not text or NOT_STATED in text:
+        return ""
+    low = _lower_first(text)
+    if low.startswith(("at the ", "on the ", "in the ", "over the ")):
+        return _finish_sentence(f"Go to {low.split(' ', 1)[1]}")
+    if re.match(r"^(?:at|on|in|over|under|between|behind)\b", low):
+        return _finish_sentence(f"Go {low}")
+    if low.startswith("back of"):
+        return _finish_sentence(f"Go to the {low}")
+    return _finish_sentence(f"Go to {low}")
+
+
+def _tool_sentences(value: str) -> list[str]:
+    raw = shop_field_value(value)
+    if not raw or NOT_STATED in raw:
+        return []
+    meter = ""
+    hit = re.search(r"meter setting:\s*([^.]+)", raw, re.I)
+    if hit and NOT_STATED.lower() not in hit.group(1).lower():
+        meter = hit.group(1).strip(" .")
+    tools = re.sub(r"meter setting:.*", "", raw, flags=re.I)
+    tools = re.sub(r"^tools:\s*", "", tools, flags=re.I).strip(" .")
+    if not tools or NOT_STATED.lower() in tools.lower():
+        tools = ""
+    lines = []
+    if tools:
+        lines.append(_finish_sentence(f"Use {_lower_first(tools)}"))
+    if meter:
+        lines.append(_finish_sentence(f"Set the meter to {_lower_first(meter)}"))
+    return lines
+
+
+def chat_sentences(step: dict, *, show_safety: bool = False, show_photo: bool = False) -> list[str]:
+    """Plain sentences for one check. No field labels and no step counter."""
+    fields = (step or {}).get("fields") or {}
+    lines = []
+    if show_safety:
+        safety = step_safety_text(step)
+        if safety:
+            lines.append(_finish_sentence(safety))
+    place = _place_sentence(fields.get("WHERE") or "")
+    if place:
+        lines.append(place)
+    lines.extend(_tool_sentences(fields.get("TOOLS / METER SETTING") or ""))
+    for action in step_action_lines(step):
+        lines.append(_finish_sentence(action))
+    good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
+    if good and NOT_STATED not in good:
+        lines.append(_finish_sentence(f"A good result is {_lower_first(good)}"))
+    if bad and NOT_STATED not in bad and not _GENERIC_BAD_RE.match(bad):
+        lines.append(_finish_sentence(f"A bad result is {_lower_first(bad)}"))
+    for line in _next_lines(fields.get("NEXT") or ""):
+        name, _, rest = line.partition(":")
+        rest = rest.strip()
+        if not rest:
+            continue
+        if name.lower() == "next":
+            lines.append(_finish_sentence(f"If it is good, {_lower_first(rest)}"))
+        elif name.lower() == "if it fails":
+            lines.append(_finish_sentence(f"If it is bad, {_lower_first(rest)}"))
+    figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+    raw_fig = fields.get("FIGURE") or ""
+    numbers = _figure_numbers((figure or {}).get("label") or "")
+    if not numbers and raw_fig and NOT_STATED not in raw_fig:
+        numbers = _figure_numbers(raw_fig)
+    if numbers:
+        page = (figure or {}).get("page") or ""
+        if not page and raw_fig and NOT_STATED not in raw_fig:
+            hit = re.search(r"\bpage\s+(\d+)", raw_fig, re.I)
+            page = hit.group(1) if hit else ""
+        blob = f"{(figure or {}).get('title') or ''} {raw_fig if NOT_STATED not in raw_fig else ''}"
+        token = re.search(r"\b(42109|34122|34123|42088)\b", blob)
+        shown = f"Fig. {numbers[0]}"
+        if token:
+            shown = f"{shown}. Kit {token.group(1)}"
+            if page:
+                shown = f"{shown}, page {page}"
+        elif page:
+            shown = f"{shown} on page {page}"
+        lines.append(f"The manual shows {shown}.")
+    if step.get("caution"):
+        lines.append(_finish_sentence(f"Caution: {step['caution']}"))
+    lines.append("What do you see?")
+    if show_photo:
+        lines.append(PHOTO_VISUAL)
+    return [line for line in lines if line.strip()]
+
+
+def format_chat_turn(step: dict, number: int, total: int, *, show_safety: bool = False) -> str:
+    """One conversational repair turn. The step marker stays hidden in the shop UI."""
+    del total
+    lines = chat_sentences(
+        step,
+        show_safety=show_safety,
+        show_photo=step_needs_photo(step),
+    )
+    lines.append(f"<!--gd-step:{int(number)}-->")
+    return "\n".join(lines).strip()
+
+
+def procedure_chat_text(layout: dict) -> str:
+    """The full repair as sentences. Section names stay. The step counter stays off."""
+    steps = list((layout or {}).get("steps") or [])
+    lines = []
+    title = (layout or {}).get("title") or ""
+    if title:
+        lines.append(title)
+    section = ""
+    for step in steps:
+        sec = step.get("section") or ""
+        if sec and sec != section:
+            section = sec
+            lines.append(
+                {"removal": "REMOVAL", "installation": "INSTALLATION", "prove": "PROVING CHECKS"}.get(
+                    sec, sec.upper()
+                )
+            )
+        for action in step_action_lines(step):
+            lines.append(_finish_sentence(action))
+    return "\n".join(lines).strip()
 
 
 def _figures_by_number(figures: list) -> dict:
@@ -2309,9 +2443,12 @@ def part_topic(text: str) -> str:
 def thetford_procedure_show_caption(reply: str) -> str:
     """Kit label for a numbered valve step. Empty on a proving turn."""
     raw = reply or ""
-    if "Here is the repair procedure." not in raw and not re.search(r"\bStep\s+\d+\s+of\s+\d+", raw):
-        return ""
-    if not re.search(r"\bStep\s+\d+\s*(?:of\s+\d+|:)", raw):
+    marked = bool(re.search(r"<!--\s*gd-step:\d+\s*-->", raw))
+    legacy = (
+        ("Here is the repair procedure." in raw or bool(re.search(r"\bStep\s+\d+\s+of\s+\d+", raw)))
+        and bool(re.search(r"\bStep\s+\d+\s*(?:of\s+\d+|:)", raw))
+    )
+    if not marked and not legacy:
         return ""
     numbers = _numbers_named(raw)
     if not numbers or not re.search(r"\b42109\b", raw):
@@ -2635,13 +2772,9 @@ def thetford_proving_body(key: str) -> str:
 
 
 def thetford_proving_line(key: str) -> str:
-    """The same check in markdown, plus one photo line and the document cite."""
-    body = format_step_fields(
-        _THETFORD_PROVING[key],
-        number=_PROVING_NUMBER[key],
-        show_photo=True,
-        markdown=True,
-    )
+    """One leak check in plain sentences, plus one photo line and the document cite."""
+    lines = chat_sentences(_fields_as_step(_THETFORD_PROVING[key]), show_photo=True)
+    body = "\n".join(lines)
     return hide_internal_marker(f"{body}\n\n{_THETFORD_PROVING_CITE[key]}")
 
 
@@ -2960,9 +3093,19 @@ def wants_manual_image(text: str) -> bool:
             "diagram",
             "drawing",
             "illustration",
+            "what does it look like",
+            "what it looks like",
+            "what do they look like",
+            "where is it",
+            "where it is",
         )
     ):
         return True
+
+
+def tech_asked_for_manual_figure(text: str) -> bool:
+    """True when the tech asked to see the manual page or figure."""
+    return wants_manual_image(text)
     if re.search(r"\bsource\b", raw) and re.search(
         r"\b(show|see|photo|picture|pull|display|what|where)\b", raw
     ):

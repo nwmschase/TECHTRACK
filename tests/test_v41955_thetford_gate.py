@@ -419,45 +419,70 @@ _LABEL_ORDER = (
 
 
 class TestGdStepLayout(unittest.TestCase):
-    def test_every_step_uses_the_same_label_order(self):
+    def test_chat_replies_have_no_label_block_or_step_counter(self):
         groups = (
             mf.thetford_kit_layout("valve")["steps"],
             mf.thetford_kit_layout("breaker")["steps"],
             mf.facr_proving_layout()["steps"],
             mf.facr_rr_layout()["steps"],
         )
+        banned = (
+            "Where:",
+            "Do this:",
+            "Good looks like:",
+            "Bad looks like:",
+            "Next:",
+            "Here is the repair procedure.",
+        )
         for steps in groups:
             self.assertGreater(len(steps), 1)
             for index, step in enumerate(steps, 1):
-                text = mf.format_one_step(
+                text = mf.format_chat_turn(
                     step, index, len(steps), show_safety=mf.show_safety_for(steps, index)
                 )
-                heading = text.find(f"**Step {index}:")
-                self.assertGreaterEqual(heading, 0, text[:80])
-                spots = [text.find(label) for label in _LABEL_ORDER if text.find(label) >= 0]
-                self.assertEqual(spots, sorted(spots), text)
-                self.assertLess(heading, spots[0])
-                do_this = text.find("Do this:")
-                action = text.find("\n1. ")
-                good = text.find("Good looks like:")
-                self.assertGreater(action, do_this)
-                self.assertGreater(good, action)
-                self.assertEqual(len(re.findall(r"(?m)^\d+\. ", text)), 1)
-                if "Bad looks like:" in text:
-                    self.assertLess(text.find("Good looks like:"), text.find("Bad looks like:"))
-                    self.assertLess(text.find("Bad looks like:"), text.find("Next:"))
+                for label in banned:
+                    self.assertNotIn(label, text)
+                self.assertNotRegex(text, r"Step \d+ of \d+")
+                self.assertNotRegex(text, r"\*\*Step \d+:")
+                self.assertIn(f"<!--gd-step:{index}-->", text)
+                self.assertIn("What do you see?", text)
+                self.assertTrue(mf.step_action_lines(step)[0].rstrip(".") in text)
+        for key in ("supply", "vacuum", "valve", "flange"):
+            line = mf.thetford_proving_line(key)
+            for label in banned:
+                self.assertNotIn(label, line, key)
+            self.assertNotRegex(line, r"Step \d+ of \d+")
+            self.assertNotIn("<!--gd-step:", line)
+            self.assertIn("What do you see?", line)
 
-    def test_the_chat_draws_figures_under_the_step_text(self):
+    def test_pdf_steps_keep_the_label_order(self):
+        steps = mf.thetford_kit_layout("valve")["steps"]
+        for index, step in enumerate(steps, 1):
+            text = "\n".join(mf.step_body_lines(step, show_safety=mf.show_safety_for(steps, index)))
+            spots = [text.find(label) for label in _LABEL_ORDER if text.find(label) >= 0]
+            self.assertEqual(spots, sorted(spots), text)
+            self.assertIn("Do this:", text)
+            self.assertIn("Good looks like:", text)
+
+    def test_the_chat_draws_figures_only_when_asked(self):
         source = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
             "rv_techtrack.py"
         ).read_text(encoding="utf-8")
         loop = source.split("for index, m in enumerate(history):", 1)[1].split(
             "Describe the symptom", 1
         )[0]
-        self.assertLess(loop.find("st.markdown(content)"), loop.find("_render_gd_figures_under_step"))
+        self.assertLess(loop.find("st.markdown"), loop.find("_render_gd_figures_under_step"))
+        self.assertNotIn("fb.gd_figures_under_step", loop)
+        send = source.split("if _asked_image:", 1)[1].split("history.append", 1)[0]
+        self.assertIn("gd_figures_under_step", send)
+        self.assertIn("tech_asked_for_manual_figure", source)
         image = source.split("def render_library_page_image", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("use_container_width=True", image)
         self.assertIn("gd_caption", image)
+        self.assertFalse(mf.tech_asked_for_manual_figure("Yes. The pedal is off."))
+        self.assertTrue(mf.tech_asked_for_manual_figure("show me"))
+        self.assertTrue(mf.tech_asked_for_manual_figure("where is it"))
+        self.assertTrue(mf.tech_asked_for_manual_figure("what does it look like"))
 
 
 def _gd_row(doc_id, title, brand, page, label, *, kind="figure", models="", category="Plumbing / Toilets"):
@@ -555,6 +580,66 @@ class TestGdFigureSelection(unittest.TestCase):
             fb.gd_figures_under_step(broken, "Source: Thetford 42109, page 1", "yes", "Plumbing / Toilets", "42070"),
             [],
         )
+
+
+class TestRepairBranches(unittest.TestCase):
+    def test_thetford_sheet_branches_into_each_repair(self):
+        from bay_procedure import (
+            _FIGURE_WIDTH,
+            MARGIN,
+            _CONTENT_W,
+            compile_bay_procedure,
+            compose_sheet,
+            layout_problems,
+            render_bay_procedure_pdf,
+        )
+
+        proc = compile_bay_procedure(
+            concern="Thetford 42070 leaks under the flush lever",
+            brand="Thetford",
+            model="42070",
+            category="Plumbing / Toilets",
+            chunks=[
+                {
+                    "title": "Thetford Style II OM Permanent RV Toilet 42088",
+                    "page": 3,
+                    "excerpt": "Check the water supply line connection.",
+                }
+            ],
+        )
+        titles = [procedure.get("title") or "" for procedure in proc.procedures]
+        blob = " ".join(titles)
+        self.assertIn("Supply connection", blob)
+        self.assertRegex(blob, r"3412")
+        self.assertIn("42109", blob)
+        self.assertIn("Flange", blob)
+        self.assertGreaterEqual(len(proc.procedures), 4)
+        for procedure in proc.procedures:
+            steps = procedure.get("steps") or []
+            self.assertGreaterEqual(len(steps), 2, procedure.get("title"))
+            self.assertTrue((steps[-1].get("text") or "").lower().startswith("confirm "), procedure.get("title"))
+            self.assertEqual(procedure.get("heading"), "REPAIR BRANCH")
+            for step in steps:
+                self.assertLessEqual(mf._word_count(step.get("text") or ""), 15, step.get("text"))
+                self.assertEqual(len(mf.step_action_lines(step)), 1, step.get("text"))
+        self.assertTrue(any(node.kind == "decision" for node in proc.flowchart.nodes))
+        pages = compose_sheet(proc)
+        self.assertFalse(pages[0].images)
+        trace = []
+        render_bay_procedure_pdf(proc, trace=trace)
+        self.assertEqual(layout_problems(trace), [])
+        images = [mark for mark in trace if mark.kind == "image"]
+        self.assertGreaterEqual(len(images), 4)
+        for image in images:
+            self.assertGreaterEqual(image.x1 - image.x0, _FIGURE_WIDTH - 1.0)
+            self.assertAlmostEqual((image.x0 + image.x1) / 2.0, MARGIN + _CONTENT_W / 2.0, delta=2.0)
+        captions = [mark for mark in trace if mark.role == "caption"]
+        for image in images:
+            under = [
+                cap for cap in captions
+                if cap.page == image.page and cap.y1 <= image.y0 + 2 and cap.y0 >= image.y0 - 36
+            ]
+            self.assertTrue(under, image)
 
 
 if __name__ == "__main__":

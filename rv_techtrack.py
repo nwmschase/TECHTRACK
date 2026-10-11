@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.55
-- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Each Guided Diagnostics step shows the cited manual figure under the step text, full chat width, same brand and model only. Version stamp so this deploy is distinct from v4.19.54.
+- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Guided Diagnostics replies are plain sentences with no label block and no step counter, and a manual figure appears only when the tech asks. The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Version stamp so this deploy is distinct from v4.19.54.
 - v4.19.54: Live v4.19.53 is reverted. Shop behavior is known-good-v41952 again. Version stamp so this deploy is distinct from v4.19.53.
 - v4.19.53: Every Bay step and Guided Diagnostics reply uses one short layout. Backfill is per case for CCD-0008666, CCD-0007990, and the Thetford Style II docs. Version stamp so this deploy is distinct from v4.19.52.
 - v4.19.52: Live v4.19.51 is reverted. Shop behavior is known-good-v41950 again. Version stamp so this deploy is distinct from v4.19.51.
@@ -6338,36 +6338,18 @@ with tab_ask:
     history = st.session_state.get("ask_chat") or []
     if history:
         st.markdown("#### Conversation")
-        _gd_rows = None
         for index, m in enumerate(history):
             role = m.get("role") or "user"
             content = m.get("content") or ""
             label = "You" if role == "user" else "Guided Diagnostics"
             with st.container(border=True):
                 st.caption(label)
-                st.markdown(content)
+                st.markdown(re.sub(r"<!--\s*gd-step:\d+\s*-->", "", content).strip())
                 if role == "user":
                     continue
-                if isinstance(m, dict) and "figures" in m:
-                    step_figs = m.get("figures") or []
-                elif re.search(r"Step\s+\d+\s*:", content or ""):
-                    if _gd_rows is None:
-                        try:
-                            import library_figure_backfill as fb
-
-                            _gd_rows = fb.meta_rows(session)
-                        except Exception:
-                            _gd_rows = []
-                    try:
-                        import library_figure_backfill as fb
-
-                        step_figs = fb.gd_figures_under_step(
-                            _gd_rows, content, "", category_name, ask_model or ""
-                        )
-                    except Exception:
-                        step_figs = []
-                else:
-                    step_figs = []
+                # Figures render only when this turn stored them. A step reply
+                # does not pull a manual image until the tech asks.
+                step_figs = (m.get("figures") or []) if isinstance(m, dict) else []
                 _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
@@ -6485,14 +6467,18 @@ with tab_ask:
             history = list(history)
             stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
             history.append({"role": "user", "content": stored_msg})
-            try:
-                import library_figure_backfill as fb
+            import manual_figures as _mf
+            _asked_image = wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg)
+            _step_figs = []
+            if _asked_image:
+                try:
+                    import library_figure_backfill as fb
 
-                _step_figs = fb.gd_figures_under_step(
-                    fb.meta_rows(session), reply, msg, category_name, ask_model or ""
-                )
-            except Exception:
-                _step_figs = []
+                    _step_figs = fb.gd_figures_under_step(
+                        fb.meta_rows(session), reply, msg, category_name, ask_model or ""
+                    )
+                except Exception:
+                    _step_figs = []
             history.append({
                 "role": "assistant",
                 "content": reply,
@@ -6508,14 +6494,12 @@ with tab_ask:
                 stored_msg,
                 reply,
             )
-            import manual_figures as _mf
-            _asked_image = wants_library_page_shown(msg) or _mf.wants_manual_image(msg)
             _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
             if _step_figs:
                 st.session_state.pop("ask_auto_show", None)
                 st.session_state["ask_auto_show_failed"] = False
                 st.session_state.pop("ask_auto_show_fail_note", None)
-            elif _offers and (_asked_image or _offers):
+            elif _asked_image and _offers:
                 st.session_state["ask_auto_show"] = _figures_for_session(
                     _offers[:3] if _asked_image else _offers[:1]
                 )

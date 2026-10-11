@@ -266,8 +266,11 @@ class TestFacrRepairWalk(unittest.TestCase):
         self.assertIn("rooftop assembly", low)
         self.assertIn("ccd-0007990", low)
         self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", low)
-        self.assertIn("Here is the repair procedure.", later)
-        self.assertIn("**Step 1: Turn the 115VAC breaker off**", later)
+        self.assertIn("<!--gd-step:1-->", later)
+        self.assertIn("Turn the 115VAC breaker off", later)
+        self.assertNotIn("Do this:", later)
+        self.assertNotIn("Here is the repair procedure.", later)
+        self.assertNotRegex(later, r"Step \d+ of")
         self.assertNotIn("Take a photo of this step and send it.", later)
         self.assertNotIn("Yes, go to the next step.", later)
         self.assertNotIn("No, do this step again.", later)
@@ -284,7 +287,7 @@ class TestFacrRepairWalk(unittest.TestCase):
             "Air Conditioning",
             "FACR08HESA2-PS",
         )
-        self.assertIn("**Step 1:", held)
+        self.assertIn("<!--gd-step:1-->", held)
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         advanced = avoid_duplicate_reply(
@@ -294,7 +297,7 @@ class TestFacrRepairWalk(unittest.TestCase):
             "Air Conditioning",
             "FACR08HESA2-PS",
         )
-        self.assertIn("**Step 2:", advanced)
+        self.assertIn("<!--gd-step:2-->", advanced)
         self.assertNotRegex(advanced, r"(?<!\d)Step 1:")
         self.assertIn("12VDC", advanced)
         self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", advanced.lower())

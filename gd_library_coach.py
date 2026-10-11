@@ -5375,21 +5375,14 @@ LEADJACK_RR_BODY = (
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_BODY = (
-    "**Step 1: Bleed and resync the jacks**\n"
-    "\n"
-    "Do this:\n"
-    "1. Bleed and resync the jacks.\n"
-    "\n"
-    "Good looks like: The drift stopped.\n"
-    "\n"
+    "Bleed and resync the jacks. "
+    "A good result is the drift stopped. "
+    "What do you see?\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_WAIT = (
-    "**Step 1: Bleed and resync the jacks**\n"
-    "\n"
-    "Do this:\n"
-    "1. Report whether the drift stopped after the bleed and resync.\n"
-    "\n"
+    "Bleed and resync the jacks. "
+    "Tell me whether the drift stopped after the bleed and resync.\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
@@ -6052,7 +6045,7 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
             "Flush the toilet.\n"
             "Look for leaks."
         )
-    text = mf.format_one_step(
+    text = mf.format_chat_turn(
         steps[number - 1],
         number,
         len(steps),
@@ -6135,7 +6128,7 @@ def _thetford_procedure_catalog(stage: str) -> str:
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
     parts = []
     for kind in kinds:
-        text = mf.procedure_handoff(mf.thetford_kit_layout(kind))
+        text = mf.procedure_chat_text(mf.thetford_kit_layout(kind))
         if text:
             parts.append(text)
     if not parts:
@@ -6979,10 +6972,12 @@ def _facr_walk_started(history: list = None) -> bool:
         if (message.get("role") or "") != "assistant":
             continue
         content = message.get("content") or ""
-        if (
-            "Here is the repair procedure." in content
-            and "2024006031" in content
-            and re.search(r"Step \d+(?::| of\b)", content)
+        if "2024006031" in content and (
+            re.search(r"<!--\s*gd-step:\d+\s*-->", content)
+            or (
+                "Here is the repair procedure." in content
+                and re.search(r"Step \d+(?::| of\b)", content)
+            )
         ):
             return True
     return False
@@ -7012,7 +7007,7 @@ def _facr_procedure_turn(history: list = None, latest_msg: str = "", prefix: str
     lead = ""
     if number == 1 and prefix and not shown:
         lead = prefix.strip() + "\n"
-    text = lead + mf.format_one_step(
+    text = lead + mf.format_chat_turn(
         steps[number - 1],
         number,
         len(steps),
