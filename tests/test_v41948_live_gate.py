@@ -10,6 +10,7 @@ from bay_procedure import (
     MARGIN,
     _best_verbatim_quote,
     _split_sentences,
+    clean_source_excerpt,
     compile_bay_procedure,
     layout_problems,
     render_bay_procedure_pdf,
@@ -64,6 +65,14 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         self.assertIn("42109", titles)
         self.assertNotIn("3412", titles)
         self.assertEqual(len(proc.procedures[0]["steps"]), 14)
+        pngs = []
+        for step in proc.procedures[0]["steps"]:
+            png = ((step.get("figure") or {}) if isinstance(step.get("figure"), dict) else {}).get("png") or b""
+            if not png:
+                continue
+            self.assertNotIn(png, pngs)
+            pngs.append(png)
+        self.assertGreaterEqual(len(pngs), 4)
 
     def test_a_breaker_finding_omits_the_valve_repair(self):
         proc = self._sheet("The vacuum breaker leaks while flushing. Kit 34123.")
@@ -81,20 +90,31 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         captions = [mark for mark in trace if mark.role == "caption"]
         self.assertGreaterEqual(len(images), 4)
         self.assertGreaterEqual(len(captions), len(images))
+        floor = MARGIN + 36
         for image in images:
-            self.assertGreaterEqual(image.y0, MARGIN - 1)
+            self.assertGreaterEqual(image.y0, floor - 1)
             self.assertLessEqual(image.y1, 792)
-            same = [
+            lines = [
                 cap for cap in captions
-                if cap.page == image.page and cap.x0 >= image.x0 - 2 and cap.y1 <= image.y0 + 2
+                if cap.page == image.page
+                and cap.x0 >= image.x0 - 2
+                and cap.y1 <= image.y0 + 2
+                and cap.y0 >= image.y0 - 36
             ]
-            self.assertTrue(same, image)
-            for cap in same:
-                self.assertGreaterEqual(cap.y0, MARGIN - 1)
-                self.assertEqual(cap.page, image.page)
+            self.assertTrue(lines, image)
+            self.assertGreaterEqual(min(cap.y0 for cap in lines), floor - 1)
+            words = " ".join(cap.text for cap in lines)
+            self.assertRegex(words, r"Fig\.\s*\d+")
+            self.assertNotRegex(words, r"(?:^|\s)/\s*Fig")
+        joined = " ".join(cap.text for cap in captions)
+        self.assertIn("Fig. 2", joined)
+        self.assertIn("INSERTING", joined)
+        self.assertNotIn("/ Fig.", joined)
         text = _pdf_text(pdf)
         self.assertNotIn("Not stated in this sheet", text)
         self.assertNotIn("That limit is", text)
+        self.assertNotIn("Slide clamp A", text)
+        self.assertNotIn("Throw the old vacuum breaker", text)
         self.assertEqual(text.lower().count("before you start"), 1)
         self.assertIn("42109", text)
 
@@ -171,6 +191,31 @@ class TestS04FigureCallout(unittest.TestCase):
         text = _pdf_text(render_bay_procedure_pdf(proc))
         self.assertIn("Fig. 12", text)
         self.assertNotIn("Fig .", text)
+
+    def test_a_quote_cut_at_fig_is_not_published(self):
+        cut = "Open flag terminals C (blue) and T (black) with no jumper as shown in Fig ."
+        cleaned = clean_source_excerpt(cut)
+        self.assertIn("flag terminals", cleaned.lower())
+        self.assertNotIn("Fig .", cleaned)
+        self.assertNotRegex(cleaned, r"Fig\s*\.?\s*$")
+        quote = _best_verbatim_quote(cut, "dial_off", "thermostat compressor dial jumper")
+        self.assertNotIn("Fig .", quote)
+        self.assertNotRegex(quote, r"Fig\s*\.?\s*$")
+        longer = (
+            "Leave the dial fully OFF. "
+            "Open flag terminals C (blue) and T (black) with no jumper as shown in Fig . 12."
+        )
+        kept = _best_verbatim_quote(longer, "dial_off", "thermostat compressor dial jumper")
+        self.assertIn("Fig. 12", kept)
+        self.assertNotIn("Fig .", kept)
+        padded = (
+            "Open flag terminals C (blue) and T (black) with no jumper "
+            + ("and the compressor is still running past the detent " * 4)
+            + "as shown in Fig . 12."
+        )
+        clipped = clean_source_excerpt(padded)
+        self.assertIn("Fig. 12", clipped)
+        self.assertNotRegex(clipped, r"Fig\s*\.?\s*$")
 
 
 if __name__ == "__main__":

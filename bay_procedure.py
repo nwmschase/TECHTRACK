@@ -2425,8 +2425,17 @@ def _is_brochure_text_companion(title: str = "", excerpt: str = "", file_path: s
 
 
 def _strip_incomplete_callout(text: str) -> str:
-    """Drop a snippet that was cut off at '(Fig.' or '(i.'."""
-    return re.sub(r"\s*\(\s*(?:Fig\.?|i\.?)\s*$", "", (text or "").strip(), flags=re.I).strip(" ,;:-")
+    """Drop a snippet that was cut off at '(Fig.', '(i.', or a bare 'Fig .'."""
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"\s*\(\s*(?:Fig\.?|i\.?)\s*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+\bFigs?(?:\s*\.)?\s*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(
+        r"\s+(?:as shown in|as shown|shown in|see|refer to)\s*$",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    return cleaned.strip(" ,;:-")
 
 
 _VERB_RE = re.compile(
@@ -2498,6 +2507,8 @@ def _sentence_is_cut(text: str) -> bool:
     if not sentence:
         return True
     if _FIG_CUT_RE.search(sentence) or re.search(r"\(\s*Fig\.(?!\s*\d)", sentence, re.I):
+        return True
+    if re.search(r"\bFigs?(?:\s*\.)?\s*$", sentence, re.I):
         return True
     if re.search(r"\(\s*i\.\s*$", sentence, re.I):
         return True
@@ -2969,7 +2980,15 @@ def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
         kept.pop()
     out = " ".join(kept)
     if len(out) > cap:
-        out = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        clipped = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        call = _FIG_CALL_RE.search(out)
+        if call and call.start() < cap and call.end() > len(clipped):
+            # Keep 'Fig. 12' whole. A cap cut must not stop on 'Fig .'.
+            if call.end() <= cap + 16:
+                clipped = out[: call.end()].rstrip(" ,;:-")
+            else:
+                clipped = _strip_incomplete_callout(out[: call.start()])
+        out = clipped
     out = _strip_incomplete_callout(out)
     out = _as_sentence(out)
     if _sentence_is_cut(out):
@@ -8847,23 +8866,27 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         fig_h = 0.0
         cap = ""
         cap_m = None
-        pair_h = 0.0
         if has:
             width, height = _png_pixel_size(png)
             fig_h = fig_w * height / max(width, 1)
             if fig_h > 150.0:
                 fig_h = 150.0
                 fig_w = max(120.0, 150.0 * width / max(height, 1))
-            cap = mf.display_caption(
-                (figure or {}).get("title") or "",
-                (figure or {}).get("page") or 1,
-                (figure or {}).get("label") or "",
-            )
+            label = re.sub(r"\s+", " ", ((figure or {}).get("label") or "")).strip()
+            if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
+                cap = label
+            else:
+                cap = mf.display_caption(
+                    (figure or {}).get("title") or "",
+                    (figure or {}).get("page") or 1,
+                    label,
+                )
             cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-            pair_h = fig_h + 4.0 + cap_m.height
         text_w = _CONTENT_W - 20.0 - ((fig_w + 14.0) if has else 0)
         sentences = mf.step_sentences(step)
         block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
+        caption_h = (cap_m.height + 6.0) if cap_m else 0.0
+        pair_h = (fig_h + caption_h) if has else 0.0
         row = max(block.height + 8.0, pair_h + 6.0)
         if step.get("caution"):
             row += 22.0
@@ -8871,17 +8894,21 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             body.new_page("Repair procedure")
         if has and pair_h + 8.0 > body.remaining():
             width, height = _png_pixel_size(png)
-            avail = max(48.0, body.remaining() - cap_m.height - 16.0)
+            avail = max(48.0, body.remaining() - caption_h - 16.0)
             fig_h = min(fig_h, avail)
             fig_w = max(120.0, fig_h * width / max(height, 1))
             if fig_w > 180.0:
                 fig_w = 180.0
                 fig_h = fig_w * height / max(width, 1)
             cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-            pair_h = fig_h + 4.0 + cap_m.height
+            caption_h = cap_m.height + 6.0
+            pair_h = fig_h + caption_h
             text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
             block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
-            if pair_h + 8.0 > body.remaining():
+            row = max(block.height + 8.0, pair_h + 6.0)
+            if step.get("caution"):
+                row += 22.0
+            if row + 6 > body.remaining():
                 body.new_page("Repair procedure")
         top = body.y
         baseline = top - block.ascent

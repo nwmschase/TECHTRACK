@@ -1967,10 +1967,7 @@ _THETFORD_PROVING = {
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Check whether the vacuum breaker leaks while flushing.",
-        "GOOD vs BAD": (
-            f"Good: {NOT_STATED} Bad: it leaks while flushing. "
-            f"Leaks only while flushing. That limit is {NOT_STATED}"
-        ),
+        "GOOD vs BAD": "Bad: it leaks while flushing. Leaks only while flushing.",
         "NEXT": (
             "On good: go to the next check. "
             "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
