@@ -215,12 +215,15 @@ def _png_size(png: bytes) -> tuple[int, int]:
 
 
 def png_is_blank(png: bytes) -> bool:
-    """True when the crop is empty or nearly all white."""
+    """True when the crop is empty, unreadable, or nearly all white."""
     if not png:
         return True
     from PIL import Image
 
-    image = Image.open(io.BytesIO(png)).convert("L")
+    try:
+        image = Image.open(io.BytesIO(png)).convert("L")
+    except Exception:
+        return True
     width, height = image.size
     if width < 8 or height < 8:
         return True
@@ -1419,6 +1422,69 @@ def _display_title(doc_title: str, text: str) -> str:
     return " ".join(words[:6]) or "Repair"
 
 
+def _crop_label(figure) -> str:
+    if isinstance(figure, dict):
+        return figure.get("label") or ""
+    return getattr(figure, "caption", "") or ""
+
+
+def _matching_kit_crop(figures: list, pattern: str):
+    """The first non-blank crop whose label matches. None when the sheet has no such crop."""
+    found = None
+    for figure in figures or []:
+        item = _as_figure(figure) if not isinstance(figure, dict) else figure
+        label = _crop_label(item)
+        png = item.get("png") or b"" if isinstance(item, dict) else b""
+        if not png or png_is_blank(png):
+            continue
+        if re.search(pattern, label or "", re.I):
+            found = item
+            break
+    return found
+
+
+def attach_open_kit_crops(steps: list, figures: list, doc: str = "") -> list:
+    """Put the kit crop on a step that names that action and does not already have one.
+
+    Water-off uses Fig. 3 WATER. Pulling the pedal off uses Fig. 1 PEDAL REMOVED.
+    A step that already names a figure keeps that crop.
+    """
+    water = _matching_kit_crop(figures, r"fig\.?\s*3\b.*\bwater\b|\bfig\.?\s*3\b")
+    pedal = _matching_kit_crop(figures, r"pedal\s+removed")
+    for step in steps or []:
+        current = step.get("figure") if isinstance(step.get("figure"), dict) else None
+        if current and (current.get("png") or b"") and not png_is_blank(current.get("png") or b""):
+            continue
+        fields = step.get("fields") or {}
+        if re.search(r"fig(?:ure)?\.?\s*\d+", fields.get("FIGURE") or "", re.I):
+            continue
+        blob = " ".join(
+            part
+            for part in (
+                step.get("text") or "",
+                fields.get("HOW") or "",
+                fields.get("WHERE") or "",
+            )
+            if part
+        )
+        chosen = None
+        if pedal and re.search(r"pull the pedal (?:up and )?off", blob, re.I):
+            chosen = pedal
+        elif water and re.search(r"turn off the water|under the water hose", blob, re.I):
+            if not re.search(r"pedal", water.get("label") or "", re.I):
+                chosen = water
+        if not chosen:
+            continue
+        step["figure"] = chosen
+        nums = _figure_numbers(chosen.get("label") or "")
+        if nums:
+            step["fig"] = nums[0]
+        updated = dict(fields)
+        updated["FIGURE"] = _figure_field(step, chosen.get("title") or doc or "")
+        step["fields"] = updated
+    return steps
+
+
 def _figure_group_key(step: dict):
     figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
     if not figure or not (figure.get("label") or figure.get("png")):
@@ -1580,6 +1646,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
     for index, step in enumerate(steps):
         nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
         step["fields"]["NEXT"] = _next_field(nxt)
+    attach_open_kit_crops(steps, figures or [], doc)
     removal = [step for step in steps if step["section"] == "removal"]
     installation = [step for step in steps if step["section"] == "installation"]
     spec = "Torque is not stated in this sheet."
@@ -1774,6 +1841,64 @@ def bundled_thetford_offers(
             )
             break
     return offers
+
+
+def _png_from_local_file(path: str, page) -> bytes:
+    """Bytes for a real file on disk. An R2 key is not a file and returns nothing."""
+    file = Path(path or "")
+    if not path or not file.is_file():
+        return b""
+    try:
+        data = file.read_bytes()
+    except Exception:
+        return b""
+    if data.startswith(b"\x89PNG") or data[:3] == b"\xff\xd8\xff":
+        return data
+    if not data.startswith(b"%PDF"):
+        return b""
+    fitz = _fitz()
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        try:
+            index = max(0, int(page or 1) - 1)
+        except (TypeError, ValueError):
+            index = 0
+        if index >= doc.page_count:
+            index = 0
+        return render_page_png(doc[index])
+    except Exception:
+        return b""
+    finally:
+        _release_document(doc)
+
+
+def png_for_library_offer(src: dict) -> bytes:
+    """A figure to show when the R2 object is missing.
+
+    A bundled Thetford crop is preferred. A real local file is next.
+    An empty result means show nothing. Callers do not tell the tech the
+    download failed.
+    """
+    src = src or {}
+    title = str(src.get("title") or "")
+    label = str(src.get("label") or "")
+    caption = str(src.get("caption") or "")
+    if src.get("bundled") or job_is_thetford(title, label, caption):
+        offers = bundled_thetford_offers(f"{title}\n{caption}", label or caption)
+        wanted = _figure_numbers(f"{label} {caption}")
+        chosen = b""
+        for offer in offers:
+            png = offer.get("png") or b""
+            if not png or png_is_blank(png):
+                continue
+            nums = _figure_numbers(offer.get("label") or "")
+            if wanted and any(number in wanted for number in nums):
+                return png
+            if not chosen and (offer.get("label") or "") != "page":
+                chosen = png
+        if chosen:
+            return chosen
+    return _png_from_local_file(str(src.get("file_path") or ""), src.get("page") or 1)
 
 
 _PROVING_PHOTO_CONNECTOR = (

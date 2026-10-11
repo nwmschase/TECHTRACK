@@ -851,6 +851,10 @@ _LINE_RES = (
     ("ground_control", re.compile(r"ground\s*control|\b343633\b", re.I)),
     ("psx1", re.compile(r"\bpsx1\b", re.I)),
     ("schwintek", re.compile(r"\bschwintek\b", re.I)),
+    # Same maker is not the same system. A tongue jack is not a PSX1 stabilizer,
+    # and a Titan bracket is not Level Up.
+    ("tongue_jack", re.compile(r"tongue\s*jack|bevel\s*gear", re.I)),
+    ("titan", re.compile(r"\btitan\b|\bti[\s-]*489\b", re.I)),
     ("ac", re.compile(r"air\s*condition|\brooftop\b|\bhvac\b|\bb57915\b|\bbrisk\b", re.I)),
     ("plastic_tank", re.compile(r"plastic\s+tank", re.I)),
     ("toilet", re.compile(
@@ -861,8 +865,12 @@ _LINE_RES = (
 
 
 def _without_how(text: str) -> str:
-    """Shop text only. An appended How block is not the case identity."""
-    return re.split(r"\bHow\s*\([^)\n]{0,180}\):", text or "", maxsplit=1, flags=re.I)[0]
+    """Shop text only. An appended How block is not the case identity.
+
+    The cut is the How marker itself. A title with a closing parenthesis
+    used to leave the rest of that block in the shop text.
+    """
+    return re.split(r"\bHow\s*\(", text or "", maxsplit=1, flags=re.I)[0]
 
 
 def _product_lines(text: str) -> set[str]:
@@ -932,6 +940,37 @@ def _asked_brands(category, model, job, user_msg="", reply="", job_text="") -> s
     return asked
 
 
+def _figure_identity(row: dict) -> str:
+    """The words that name this crop. Keywords on the parent document do not."""
+    return " ".join(
+        str((row or {}).get(key) or "")
+        for key in ("title", "label", "caption", "clean_title", "doc_number", "product_line")
+    )
+
+
+def junk_figure(row) -> bool:
+    """A sample page, a watermark, or a port-header strip is not a shop figure.
+
+    Width and height are the stored crop. A short wide strip is a running
+    header. A normal page crop is left for the system gate.
+    """
+    blob = _figure_identity(row or {})
+    if re.search(r"\bsample\b|watermark|\(discontinued\)", blob, re.I):
+        return True
+    if re.search(r"port[-\s]*header|running header|header strip", blob, re.I):
+        return True
+    if re.search(r"\bti[\s-]*143\b", blob, re.I) and not re.search(r"\bpsx1\b|roll\s*pin", blob, re.I):
+        return True
+    try:
+        width = int((row or {}).get("width") or 0)
+        height = int((row or {}).get("height") or 0)
+    except (TypeError, ValueError):
+        width = height = 0
+    if width >= 320 and height > 0 and height <= 80 and width / height >= 6:
+        return True
+    return False
+
+
 def fits_case(row, category="", model="", user_msg="", reply="", job_text="") -> bool:
     """True only when this document is the case brand, model, and system.
 
@@ -941,6 +980,8 @@ def fits_case(row, category="", model="", user_msg="", reply="", job_text="") ->
     """
     import gd_library_coach as gdc
 
+    if junk_figure(row):
+        return False
     job = _case_job(category, model, user_msg, reply, job_text)
     row_text = _row_text(row or {})
     job_lines = _product_lines(job)
@@ -989,6 +1030,8 @@ def off_brand_figure(row, category="", model="", user_msg="", reply="", job_text
     """
     import gd_library_coach as gdc
 
+    if junk_figure(row):
+        return True
     job = _case_job(category, model, user_msg, reply, job_text)
     row_text = _row_text(row or {})
     job_lines = _product_lines(job)
