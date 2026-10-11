@@ -6242,9 +6242,14 @@ def _drop_off_brand_sheet_figures(proc: BayProcedure, job: str) -> None:
     """A cited figure from another brand or system does not stay on the sheet."""
     import library_figure_backfill as fb
 
+    # Missing on a stale cached module. Drop the figures rather than crash the PDF.
+    off_brand = getattr(fb, "off_brand_figure", None)
+    if off_brand is None:
+        proc.figures = []
+        return
     kept = []
     for fig in proc.figures or []:
-        if fb.off_brand_figure(
+        if off_brand(
             {
                 "title": fig.title,
                 "caption": fig.caption,
@@ -6293,10 +6298,14 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     details = {}
     import library_figure_backfill as fb
 
+    # A cached figure-bank module can predate these helpers. No helper means no figure.
+    fits = getattr(fb, "fits_case", None)
+    how_for = getattr(fb, "procedure_how", None)
+    off_brand = getattr(fb, "off_brand_figure", None)
     fitting = []
     for packet in packets:
         title = packet.get("title") or ""
-        if not fb.fits_case(
+        if fits is None or not fits(
             packet,
             category=proc.category or "",
             model=f"{proc.brand or ''} {proc.model or ''}".strip(),
@@ -6315,23 +6324,25 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         )
         if slot is None:
             continue
-        detail = fb.procedure_how(
-            packet,
-            packet.get("excerpt") or "",
-            title,
-            page,
-            category=proc.category or "",
-            model=f"{proc.brand or ''} {proc.model or ''}".strip(),
-            user_msg=proc.concern or "",
-            reply=job,
-        )
+        detail = ""
+        if how_for is not None:
+            detail = how_for(
+                packet,
+                packet.get("excerpt") or "",
+                title,
+                page,
+                category=proc.category or "",
+                model=f"{proc.brand or ''} {proc.model or ''}".strip(),
+                user_msg=proc.concern or "",
+                reply=job,
+            )
         if detail and slot not in details:
             details[slot] = detail
         for figure in packet["figures"]:
             fig_title = figure.get("title") or title
             if mf.brands_conflict(job, fig_title):
                 continue
-            if fb.off_brand_figure(
+            if off_brand is None or off_brand(
                 {**packet, "title": fig_title, "label": figure.get("label") or "", "caption": figure.get("caption") or ""},
                 category=proc.category or "",
                 model=f"{proc.brand or ''} {proc.model or ''}".strip(),

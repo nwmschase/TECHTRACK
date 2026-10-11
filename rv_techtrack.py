@@ -221,7 +221,9 @@ _GDC_STALE_GUARD_ATTRS = (
 # "v4.19.10" is not older than "v4.19.9" as text.
 _GDC_REQUIRED_REVISION = "v4.19.45"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
-_APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
+# The figure bank is before the Bay PDF. A redeploy reloads the callers and
+# used to leave this module cached, so fits_case and off_brand_figure were missing.
+_APP_MODULES = ("gd_library_coach", "gd_llm", "library_figure_backfill", "bay_procedure")
 
 
 def _cached_module_is_current(mod, required_revision, required_attrs=()):
@@ -286,7 +288,7 @@ def _load_gd_library_coach():
 
 
 def _reload_stale_app_modules(required_revision):
-    """Reload coach, gd_llm, and bay_procedure when their stamp is not current."""
+    """Reload coach, the figure bank, gd_llm, and bay_procedure when their stamp is not current."""
     for name in _APP_MODULES:
         attrs = _GDC_STALE_GUARD_ATTRS if name == "gd_library_coach" else ()
         _reload_app_module(name, required_revision, required_attrs=attrs)
@@ -4871,10 +4873,15 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     asked = mf.wants_manual_image(user_msg) or wants_library_page_shown(user_msg)
     if not physical and not asked:
         return reply
+    # A cached figure-bank module from before this deploy has no gate. Skip the
+    # figure instead of raising AttributeError on the reply.
+    fits = getattr(fb, "fits_case", None)
+    if fits is None:
+        return reply
     chosen = [
         item
         for item in _stored_figure_matches(reply, user_msg, category_name, model_text)
-        if fb.fits_case(item, category_name, model_text, user_msg, reply)
+        if fits(item, category_name, model_text, user_msg, reply)
     ]
     if not chosen:
         return reply
@@ -4891,16 +4898,19 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
             )
         except Exception:
             chunk_text = ""
-        detail = fb.procedure_how(
-            first,
-            chunk_text,
-            first.get("title") or "",
-            first.get("page"),
-            category_name,
-            model_text,
-            user_msg,
-            reply,
-        )
+        how_for = getattr(fb, "procedure_how", None)
+        detail = ""
+        if how_for is not None:
+            detail = how_for(
+                first,
+                chunk_text,
+                first.get("title") or "",
+                first.get("page"),
+                category_name,
+                model_text,
+                user_msg,
+                reply,
+            )
         if detail and detail not in (reply or ""):
             extra.append(detail)
     for item in chosen[:limit]:
