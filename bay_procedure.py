@@ -6440,9 +6440,38 @@ def _kit_topic_for_step(step: str) -> str:
     low = step or ""
     if re.search(r"vacuum breaker|\b34122\b|\b34123\b", low, re.I):
         return "breaker"
-    if re.search(r"\b42109\b|\bweep", low, re.I):
+    if re.search(r"\b42109\b|\bweep|pull the pedal|turn off the water|under the water hose", low, re.I):
         return "valve"
     return ""
+
+
+def _kit_crop_for_step(step: str, figures: list):
+    """The crop this step names. Water-off is Fig. 3. Pulling the pedal off is Fig. 1."""
+    import manual_figures as mf
+
+    low = step or ""
+    if re.search(r"pull the pedal (?:up and )?off", low, re.I):
+        crop = mf._matching_kit_crop(figures, r"pedal\s+removed")
+        if crop:
+            return crop
+    if re.search(r"turn off the water|under the water hose", low, re.I):
+        crop = mf._matching_kit_crop(figures, r"fig\.?\s*3\b")
+        if crop and not re.search(r"pedal", crop.get("label") or "", re.I):
+            return crop
+    named = mf._numbers_named(low)
+    if named:
+        for figure in figures or []:
+            nums = mf._figure_numbers(figure.get("label") or "")
+            if any(number in named for number in nums) and figure.get("png") and not mf.png_is_blank(figure.get("png") or b""):
+                return figure
+    return next(
+        (
+            item
+            for item in figures or []
+            if item.get("png") and not mf.png_is_blank(item.get("png") or b"")
+        ),
+        None,
+    )
 
 
 def place_thetford_kit_crops(proc: BayProcedure) -> BayProcedure:
@@ -6479,14 +6508,7 @@ def place_thetford_kit_crops(proc: BayProcedure) -> BayProcedure:
         packet = packets.get(topic)
         if not packet:
             continue
-        figure = next(
-            (
-                item
-                for item in packet.get("figures") or []
-                if item.get("png") and not mf.png_is_blank(item.get("png") or b"")
-            ),
-            None,
-        )
+        figure = _kit_crop_for_step(step, packet.get("figures") or [])
         if not figure:
             continue
         placed[index] = [

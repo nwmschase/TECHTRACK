@@ -3612,12 +3612,14 @@ def render_on_demand_library_pages(pages: list):
         ledger = list(st.session_state.get("ask_sources") or [])
         best = next((s for s in reversed(ledger) if s.get("file_path")), None)
         if best and best.get("file_path"):
-            r2_download_button(
-                "⬇️ Download best matching library PDF",
-                best["file_path"],
-                f"{(best.get('title') or 'manual')[:40]}.pdf",
-                "ask_ondemand_best_dl",
-            )
+            data = r2_download_bytes(best["file_path"])
+            if data:
+                st.download_button(
+                    "⬇️ Download best matching library PDF",
+                    data=data,
+                    file_name=f"{(best.get('title') or 'manual')[:40]}.pdf",
+                    key="ask_ondemand_best_dl",
+                )
         return
     shown_pdf = set()
     for i, src in enumerate(pages[:3]):
@@ -3627,9 +3629,17 @@ def render_on_demand_library_pages(pages: list):
             with st.expander("Text from this page", expanded=False):
                 st.text(excerpt[:1800])
         fpath = src.get("file_path")
-        if fpath and fpath not in shown_pdf:
+        if fpath and fpath not in shown_pdf and rendered:
             shown_pdf.add(fpath)
-            data = r2_download_bytes(fpath)
+            local = Path(str(fpath))
+            data = None
+            if local.is_file():
+                try:
+                    data = local.read_bytes()
+                except Exception:
+                    data = None
+            else:
+                data = r2_download_bytes(fpath)
             if data:
                 st.download_button(
                     "⬇️ Download this PDF",
@@ -3637,8 +3647,6 @@ def render_on_demand_library_pages(pages: list):
                     file_name=f"{(src.get('title') or 'manual')[:40]}.pdf",
                     key=f"ask_ondemand_dl_{i}",
                 )
-            elif not rendered:
-                st.caption("Storage not configured" if not get_r2_client() else "Could not download file")
 
 
 def clear_ask_source_state():
@@ -3692,36 +3700,41 @@ def render_library_page_image(src: dict, key_suffix: str):
         page = 1
     label = src.get("label") or ""
     caption = src.get("caption") or mf.display_caption(title, page, label or "page")
+    def _usable(blob) -> bool:
+        if not blob:
+            return False
+        try:
+            return not mf.png_is_blank(blob)
+        except Exception:
+            return False
+
     png = src.get("png")
-    if not png and src.get("image_path"):
+    if not _usable(png) and src.get("image_path"):
         import library_figure_backfill as fb
 
         png = fb.fetch_png(src.get("image_path") or "", download=r2_download_bytes)
-    if png:
+    if not _usable(png):
+        # R2 missed the crop. A bundled kit sheet or a real local file can still draw.
+        # A miss stays blank. The tech does not see a failed-download caption.
+        png = mf.png_for_library_offer(src)
+    if _usable(png):
         st.image(png, caption=caption, use_container_width=True)
         return True
     fpath = src.get("file_path")
-    if not fpath:
-        st.caption(f"{title} p.{page} - no storage path on this library record.")
-        return False
-    with st.spinner(f"Loading shop library page {page}…"):
+    local = Path(str(fpath or ""))
+    data = None
+    if fpath and local.is_file():
+        try:
+            data = local.read_bytes()
+        except Exception:
+            data = None
+    elif fpath:
         data = r2_download_bytes(fpath)
-    if not data:
-        st.error("Could not download that PDF from shop storage.")
-        return False
-    png = render_pdf_page_png(data, page)
-    if png:
-        st.image(png, caption=caption, use_container_width=True)
-        return True
-    if not PYMUPDF_AVAILABLE:
-        st.warning(
-            "Page images need `pymupdf` in requirements.txt. "
-            "Use Download full PDF and jump to this page. Text excerpt below."
-        )
-    else:
-        st.warning("Could not render page image. Download the PDF and jump to this page.")
-    if src.get("excerpt"):
-        st.text(src.get("excerpt"))
+    if data:
+        png = render_pdf_page_png(data, page)
+        if png and not mf.png_is_blank(png):
+            st.image(png, caption=caption, use_container_width=True)
+            return True
     return False
 
 

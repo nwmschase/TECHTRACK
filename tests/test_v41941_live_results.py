@@ -176,12 +176,12 @@ class TestBayUsesLibraryFigures(unittest.TestCase):
 class TestLoadedFigureCaption(unittest.TestCase):
     def test_a_rendered_figure_does_not_caption_a_failed_pdf_download(self):
         source = (Path(__file__).resolve().parents[1] / "rv_techtrack.py").read_text(encoding="utf-8")
-        start = source.index("def render_on_demand_library_pages")
-        body = source[start:source.index("\ndef ", start + 1)]
-        caption_at = body.index('st.caption("Storage not configured"')
-        guard_at = body.rindex("elif not rendered:", 0, caption_at)
-        self.assertLess(guard_at, caption_at)
-        self.assertNotIn("Could not download file", body[:guard_at])
+        for name in ("def render_on_demand_library_pages", "def render_library_page_image"):
+            start = source.index(name)
+            body = source[start:source.index("\ndef ", start + 1)]
+            self.assertNotIn("Could not download file", body, name)
+            self.assertNotIn("Could not download that PDF from shop storage.", body, name)
+            self.assertNotIn("Storage not configured", body, name)
 
 
 class TestGirardHoseQuote(unittest.TestCase):

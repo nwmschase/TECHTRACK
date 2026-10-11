@@ -44,7 +44,18 @@ def _png() -> bytes:
 TINY = _png()
 
 
-def _row(doc_id, title, brand, label, caption, product_line="", category_name="", models=""):
+def _row(
+    doc_id,
+    title,
+    brand,
+    label,
+    caption,
+    product_line="",
+    category_name="",
+    models="",
+    width=0,
+    height=0,
+):
     return {
         "id": doc_id,
         "document_id": doc_id,
@@ -58,6 +69,8 @@ def _row(doc_id, title, brand, label, caption, product_line="", category_name=""
         "label": label,
         "caption": caption,
         "png": TINY,
+        "width": width,
+        "height": height,
     }
 
 
@@ -141,6 +154,35 @@ def _library():
             "Fig. 1 plastic tank",
             "Plastic tank waste",
             category_name="Plumbing / Toilets",
+        ),
+        _row(
+            11,
+            "(Discontinued) Atwood Manual Tongue Jack Bevel Gear",
+            "Atwood",
+            "Fig. 1 bevel gear",
+            "SAMPLE watermark",
+            product_line="Tongue Jack",
+            category_name="Leveling",
+        ),
+        _row(
+            12,
+            "Lippert TI-143",
+            "Lippert",
+            "port header",
+            "TI-143 port header strip",
+            product_line="Leveling",
+            category_name="Leveling",
+            width=960,
+            height=36,
+        ),
+        _row(
+            13,
+            "Lippert TI-489 Titan Electric Bracket",
+            "Lippert",
+            "Fig. 1 Titan bracket",
+            "TI-489 Titan bracket",
+            product_line="Titan",
+            category_name="Leveling",
         ),
     ]
 
@@ -766,3 +808,269 @@ class TestS09Turn2StaysClean(unittest.TestCase):
             self.assertNotIn(banned, blob, banned)
         if offers:
             self.assertIn("dometic", blob)
+
+
+def _stored_live_step(step: str, how: str, figure: str) -> str:
+    """One stored turn: flattened eight fields, the live How block, then the caption.
+
+    Live joins the shop lines onto one line and appends How (title): plus
+    "Title / page N / Fig. ...". The title's ")" must not hide the step number.
+    """
+    return (
+        " ".join(step.splitlines())
+        + how
+        + f" Thetford Water Valve Kit 42109 / page 1 / {figure}"
+    )
+
+
+def _live_how(title="(Discontinued) Atwood Manual Tongue Jack Bevel Gear"):
+    """The block live appends: a How title that contains ")", then a caption."""
+    return (
+        f"\n\nHow ({title}, page 1): Tools: wrench. "
+        "Meter setting: not stated in the manual. "
+        "Order: 1. Remove the pump seal at the closet flange. "
+        "Step 1 of 14. "
+        f"{title} / page 1 / Fig. 1 bevel gear"
+    )
+
+
+class TestLiveThetfordTranscript(unittest.TestCase):
+    def test_the_drive_arm_weep_enters_the_valve_kit_and_the_steps_advance(self):
+        how = _live_how()
+        history = [
+            {"role": "user", "content": "Style II 42070 leaks under the flush lever"},
+            {"role": "assistant", "content": mf.thetford_proving_line("supply") + how},
+            {"role": "user", "content": "Supply is tight. No leak at the connection."},
+            {"role": "assistant", "content": mf.thetford_proving_line("vacuum") + how},
+        ]
+        step = _turn("water valve body weeps at the drive arm", history)
+        self.assertIn("Step 1 of 14", step)
+        self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step)
+        self.assertNotIn("Step 2 of", step)
+        seen = [1]
+        history = history + [
+            {"role": "user", "content": "water valve body weeps at the drive arm"},
+            {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 3 WATER")},
+        ]
+        # Each real answer leaves the step that already shipped and opens the next one.
+        facts = (
+            "Water is off.",
+            "The bolt covers are off.",
+            "The floor seal is off.",
+            "Pedal is off.",
+            "Thumb is in the low spot.",
+            "The retainer is held.",
+            "The inlet seal is out.",
+            "The inlet seal is in.",
+            "The new valve is in.",
+            "The drive pin is closed.",
+            "The pedal is on the pivot.",
+            "The toilet is stood up.",
+            "The toilet is on the bolts.",
+        )
+        for number, answer in enumerate(facts, start=2):
+            step = _turn(answer, history)
+            self.assertIn(f"Step {number} of 14", step, answer)
+            self.assertNotRegex(step, rf"Step {number - 1} of 14", answer)
+            self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step, answer)
+            self.assertNotIn("of 13", step, answer)
+            seen.append(number)
+            history = history + [
+                {"role": "user", "content": answer},
+                {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 1")},
+            ]
+        self.assertEqual(seen, list(range(1, 15)))
+        done = _turn("The water is on.", history)
+        self.assertIn("The repair procedure is done.", done)
+        self.assertNotIn("Step 14 of", done)
+        self.assertNotIn("Step 1 of", done)
+        self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", done)
+
+
+class TestMissingStorageUsesTheBundledCrop(unittest.TestCase):
+    def test_a_thetford_offer_without_an_r2_object_still_has_a_crop(self):
+        png = mf.png_for_library_offer(
+            {
+                "title": "Thetford Water Valve Kit 42109",
+                "label": "Fig. 1 PEDAL REMOVED",
+                "caption": "Thetford Water Valve Kit 42109 / page 1 / Fig. 1 PEDAL REMOVED",
+                "page": 1,
+                "file_path": "documents/9_missing_thetford.pdf",
+                "image_path": "library-pages/9/p1-fig-1.png",
+                "bundled": True,
+            }
+        )
+        self.assertTrue(png)
+        self.assertFalse(mf.png_is_blank(png))
+        other = mf.png_for_library_offer(
+            {
+                "title": "Dometic Brisk II",
+                "label": "Fig. 2 ceiling thermostat",
+                "file_path": "documents/missing.pdf",
+                "image_path": "library-pages/6/p1-fig.png",
+            }
+        )
+        self.assertEqual(other, b"")
+
+
+class TestWrongSystemFiguresStayOff(unittest.TestCase):
+    def test_s14_drops_the_atwood_sample_and_the_ti143_header(self):
+        proc = compile_bay_procedure(
+            concern="Front stabilizer jack. Power works. Manual crank will not operate. Roll pin broken.",
+            brand="Lippert",
+            model="PSX1",
+            category="Leveling",
+            chunks=[
+                {
+                    "title": "(Discontinued) Atwood Manual Tongue Jack Bevel Gear",
+                    "brand": "Atwood",
+                    "product_line": "Tongue Jack",
+                    "page": 1,
+                    "excerpt": "SAMPLE watermark. Bevel gear for the manual tongue jack. " * 8,
+                    "figures": [
+                        {
+                            "png": TINY,
+                            "label": "Fig. 1 bevel gear",
+                            "caption": "SAMPLE watermark",
+                            "title": "(Discontinued) Atwood Manual Tongue Jack Bevel Gear",
+                            "page": 1,
+                        }
+                    ],
+                },
+                {
+                    "title": "Lippert TI-143",
+                    "brand": "Lippert",
+                    "page": 2,
+                    "excerpt": "TI-143 port header strip. " * 12,
+                    "figures": [
+                        {
+                            "png": TINY,
+                            "label": "port header",
+                            "caption": "TI-143 port header strip",
+                            "title": "Lippert TI-143",
+                            "page": 2,
+                            "width": 960,
+                            "height": 36,
+                        }
+                    ],
+                },
+            ],
+        )
+        proc = paint_library_step_figures(proc, _library())
+        placed = " ".join(
+            f"{fig.title} {fig.caption}"
+            for group in (proc.step_figures or [])
+            for fig in group
+        )
+        placed += " " + " ".join(f"{fig.title} {fig.caption}" for fig in (proc.figures or []))
+        low = placed.lower()
+        self.assertNotIn("atwood", low)
+        self.assertNotIn("bevel", low)
+        self.assertNotIn("sample", low)
+        self.assertNotIn("ti-143", low)
+        self.assertNotIn("ti143", low.replace("-", ""))
+        self.assertNotIn("header", low)
+        pin = next(i for i, step in enumerate(proc.bay_order) if "roll pin" in step.lower())
+        self.assertTrue(proc.step_figures[pin])
+        self.assertIn("PSX1", proc.step_figures[pin][0].title)
+
+    def test_s06_drops_the_titan_bracket(self):
+        offers = fb.offers_for_turn(
+            _library(),
+            "Manual Mode flashes then dumps back to home. Auto Level still works.",
+            "show me the figure",
+            "Leveling",
+            "Lippert Level Up Advantage 807662",
+        )
+        blob = _blob(offers)
+        self.assertNotIn("titan", blob)
+        self.assertNotIn("489", blob)
+        self.assertNotIn("ti-143", blob)
+        self.assertNotIn("atwood", blob)
+        self.assertNotIn("sample", blob)
+        proc = compile_bay_procedure(
+            concern="Manual Mode flashes then dumps back to home. Auto Level still works.",
+            brand="Lippert",
+            model="Level Up Advantage 807662",
+            category="Leveling",
+            chunks=[
+                {
+                    "title": "Lippert TI-489 Titan Electric Bracket",
+                    "brand": "Lippert",
+                    "product_line": "Titan",
+                    "page": 1,
+                    "excerpt": "Titan bracket TI-489. " * 12,
+                    "figures": [
+                        {
+                            "png": TINY,
+                            "label": "Fig. 1 Titan bracket",
+                            "caption": "TI-489 Titan bracket",
+                            "title": "Lippert TI-489 Titan Electric Bracket",
+                            "page": 1,
+                        }
+                    ],
+                }
+            ],
+        )
+        proc = paint_library_step_figures(proc, _library())
+        placed = " ".join(
+            f"{fig.title} {fig.caption}"
+            for group in (proc.step_figures or [])
+            for fig in group
+        )
+        placed += " " + " ".join(f"{fig.title} {fig.caption}" for fig in (proc.figures or []))
+        low = placed.lower()
+        self.assertNotIn("titan", low)
+        self.assertNotIn("489", low)
+        for group in proc.step_figures or []:
+            for fig in group:
+                self.assertRegex(fig.title.lower(), r"level[\s-]*up|807662")
+
+
+class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
+    def test_water_off_and_pedal_off_get_their_crops(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+        valve = root / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+        breaker = root / "34123-34122-VacBrkr-1.pdf"
+        indexed = mf.index_pdf_bytes(valve.read_bytes())
+        figures = [
+            {"title": "Thetford Water Valve Kit 42109", "page": fig["page"], "label": fig["label"], "png": fig["png"]}
+            for fig in indexed["figures"]
+        ]
+        text = "\n".join(page["text"] for page in indexed["pages"])
+        proc = compile_bay_procedure(
+            concern="Thetford 42070 leaks under the flush lever",
+            brand="Thetford",
+            model="42070",
+            category=CAT,
+            chunks=[
+                {
+                    "title": "Thetford Water Valve Kit 42109",
+                    "page": 1,
+                    "excerpt": text,
+                    "figures": figures,
+                },
+                {
+                    "title": "Thetford Vacuum Breaker Kit 34123/34122",
+                    "page": 1,
+                    "excerpt": "\n".join(
+                        page["text"] for page in mf.index_pdf_bytes(breaker.read_bytes())["pages"]
+                    ),
+                },
+            ],
+        )
+        steps = []
+        for procedure in proc.procedures:
+            if "42109" in (procedure.get("title") or "") or "water valve" in (procedure.get("title") or "").lower():
+                steps = procedure["steps"]
+        self.assertTrue(steps)
+        water = next(step for step in steps if "turn off the water" in (step.get("text") or "").lower())
+        pedal = next(step for step in steps if "pull the pedal" in (step.get("text") or "").lower())
+        self.assertIn("WATER", (water.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((water.get("figure") or {}).get("png") or b""))
+        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        self.assertEqual(steps.index(water) + 1, 1)
+        self.assertEqual(steps.index(pedal) + 1, 4)

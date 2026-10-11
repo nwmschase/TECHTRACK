@@ -5617,19 +5617,43 @@ def _thetford_vacuum_bad(blob: str) -> bool:
 def _shop_text_without_how(text: str) -> str:
     """The shop line only. An appended How block and its captions are not the step.
 
-    Live stores the shop line plus How (Tip Sheet...) and a figure caption.
-    The step cursor reads that stored text. Tests stored the shop line alone,
-    so they advanced while the live check did not.
+    Live stores the eight shop fields, then How (doc): and a figure caption.
+    A title that contains ")" used to leave the rest of that How block in the
+    shop text, and a caption on the same line used to drop the step header
+    with it. The step cursor reads what remains.
     """
-    raw = re.split(r"\bHow\s*\([^)\n]{0,180}\):", text or "", maxsplit=1, flags=re.I)[0]
+    raw = (text or "").replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
+    raw = re.split(r"\bHow\s*\(", raw, maxsplit=1, flags=re.I)[0]
     kept = []
     for line in raw.splitlines():
         if re.match(r"\s*How\s*\(", line or "", re.I):
             continue
-        if re.search(r"/\s*page\s+\d+\s*/", line or "", re.I):
-            continue
-        kept.append(line)
+        line = re.sub(r"\s*/\s*page\s+\d+\s*/\s*\S.*", "", line, flags=re.I)
+        if line.strip():
+            kept.append(line.rstrip())
     return "\n".join(kept).strip()
+
+
+def _thetford_history(history: list = None) -> list:
+    """Chat turns as role plus text. Live session rows use those keys.
+
+    A Guided Diagnostics label is the assistant. PNG bytes are not part of
+    the turn. The step cursor reads the stored text only.
+    """
+    out = []
+    for message in history or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or message.get("speaker") or "").strip().lower()
+        content = message.get("content")
+        if content is None:
+            content = message.get("text")
+        if content is None:
+            content = message.get("message") or ""
+        if role in ("guided diagnostics", "guided_diagnostics", "gd", "model", "bot", "coach"):
+            role = "assistant"
+        out.append({"role": role, "content": str(content or "")})
+    return out
 
 
 def _thetford_line_slot(text: str) -> str:
@@ -5679,7 +5703,7 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
         if move in ("pass", "bad") and pending_ask:
             slots.add(pending_ask)
 
-    for message in history or []:
+    for message in _thetford_history(history):
         role = message.get("role") or ""
         content = message.get("content") or ""
         if role == "assistant":
@@ -5693,7 +5717,7 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
 def _thetford_open_slot(history: list = None) -> str:
     """The check the last shop line asked. A library-miss line is not a check."""
     pending = ""
-    for message in history or []:
+    for message in _thetford_history(history):
         if (message.get("role") or "") != "assistant":
             continue
         pending = _thetford_line_slot(message.get("content") or "") or pending
@@ -5725,13 +5749,33 @@ def _thetford_message_moves(text: str, pending: str) -> str:
 
 def _thetford_valve_repair_started(history: list = None) -> bool:
     """The water-valve kit is already the repair. Do not reopen the vacuum breaker."""
-    for message in history or []:
+    for message in _thetford_history(history):
         if (message.get("role") or "") != "assistant":
             continue
         shop = _shop_text_without_how(message.get("content") or "")
         if re.search(r"Step \d+ of 14\b", shop):
             return True
     return False
+
+
+def _thetford_vacuum_was_shown(history: list = None) -> bool:
+    """The vacuum-breaker check already shipped, whatever else the How block says."""
+    for message in _thetford_history(history):
+        if (message.get("role") or "") != "assistant":
+            continue
+        shop = _norm(_shop_text_without_how(message.get("content") or ""))
+        if "vacuum breaker" in shop:
+            return True
+    return False
+
+
+def _thetford_valve_body_finding(text: str) -> bool:
+    """The tech named the water-valve weep. That finding is not the vacuum breaker."""
+    if not _thetford_valve_bad(text):
+        return False
+    return bool(
+        re.search(r"drive\s*arm|valve\s*body|water\s*valve|\b42049\b|\b42109\b", _norm(text))
+    )
 
 
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
@@ -5755,6 +5799,11 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     on_valve = _thetford_valve_repair_started(history) or (
         _thetford_valve_bad(blob) and ("vacuum" in slots or _thetford_vacuum_ok(blob))
     )
+    # The vacuum check already shipped. A water-valve weep does not ask it again.
+    # A weep that arrives before that check still has to answer the vacuum breaker.
+    if _thetford_vacuum_was_shown(history) and _thetford_valve_body_finding(latest_msg):
+        slots.add("vacuum")
+        on_valve = True
     if move == "bad" and pending == "vacuum" and not on_valve:
         return "vacuum_replace"
     if move == "bad" and pending == "valve":
@@ -5820,7 +5869,7 @@ def _thetford_text_confirms(content: str) -> bool:
 def _thetford_wait_shown(history: list, number: int) -> bool:
     import manual_figures as mf
 
-    for message in history or []:
+    for message in _thetford_history(history):
         if (message.get("role") or "") != "assistant":
             continue
         content = _shop_text_without_how(message.get("content") or "")
@@ -5837,7 +5886,7 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
     import gd_step_photo as _photos
 
     seen = False
-    for message in history or []:
+    for message in _thetford_history(history):
         role = message.get("role") or ""
         content = message.get("content") or ""
         if role == "assistant":
@@ -5880,7 +5929,7 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
     text = mf.format_one_step(steps[number - 1], number, len(steps))
     already = any(
         f"Step {number} of" in _shop_text_without_how(message.get("content") or "")
-        for message in history or []
+        for message in _thetford_history(history)
         if (message.get("role") or "") == "assistant"
     )
     # The photo line is optional and is added once. A typed answer does not see it again.
