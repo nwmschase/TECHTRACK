@@ -5085,13 +5085,7 @@ def _conditional_lines(
     prior = _norm(_prior_assistant_text(history))
     job = _job_key(history, latest_msg, category_name, model_text)
     if job == "coleman":
-        return [
-            "Do the Peacemaker bypass at the rooftop unit and report whether the compressor runs while the fan stays still.",
-            "Measure the fan-motor stall current and the run capacitor. Report both readings.",
-            "Measure the run capacitor against its rated microfarad value and report that reading.",
-            "If the compressor runs, the fan stays locked, the stall current is about 1.9 A, and the run capacitor is near rated, replace the fan motor and the control board only.",
-            "The repair is to replace the fan motor and the control board only.",
-        ]
+        return [_coleman_shop_line(history, latest_msg, category_name, model_text)]
     if job == "facr":
         facr_facts = facr_proves_from_chat(history, latest_msg)
         if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
@@ -5561,6 +5555,8 @@ def ensure_level_up_lead_jack_reply(
 
 import manual_figures as _manual_figures
 
+COLEMAN_MOTOR_BOARD_AUTH_LINE = _manual_figures.coleman_proving_line("auth")
+
 THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
 THETFORD_SUPPLY_LINE = _manual_figures.thetford_proving_line("supply")
 THETFORD_VACUUM_LINE = _manual_figures.thetford_proving_line("vacuum")
@@ -5961,6 +5957,43 @@ def ensure_thetford_flush_reply(
     return nxt
 
 
+def _coleman_shop_line(
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Next Coleman 2111-0001 step in the eight-field shop template."""
+    facts = coleman_facts_from_chat(
+        history, latest_msg, f"{category_name or ''} {model_text or ''}"
+    )
+    if coleman_motor_board_evidence_complete(facts):
+        return COLEMAN_MOTOR_BOARD_AUTH_LINE
+    keys = ("peacemaker", "fan_high", "capacitor", "conditional", "repair")
+    shipped = 0
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        if "HOW:" in (message.get("content") or ""):
+            shipped += 1
+    return _manual_figures.coleman_proving_line(keys[min(shipped, len(keys) - 1)])
+
+
+def ensure_coleman_field_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+) -> str:
+    """Coleman turns use the same eight fields as the Thetford sheet."""
+    if _job_key(history, latest_msg, category_name, model_text) != "coleman":
+        return reply
+    if _is_library_miss_line(reply):
+        return reply
+    return _coleman_shop_line(history, latest_msg, category_name, model_text)
+
+
 def _prove_lines(
     history: list = None,
     latest_msg: str = "",
@@ -5970,9 +6003,7 @@ def _prove_lines(
     """The first ask. The repair waits until the tech answers or asks for it."""
     job = _job_key(history, latest_msg, category_name, model_text)
     if job == "coleman":
-        return [
-            "Do the Peacemaker bypass at the rooftop unit and report whether the compressor runs while the fan stays still.",
-        ]
+        return [_coleman_shop_line(history, latest_msg, category_name, model_text)]
     if job == "facr":
         return [
             "Check the condensation drain openings and the base pan, and report whether the drain is clear. Read the refrigerant pressures.",
@@ -6498,7 +6529,9 @@ def polish_shop_reply(
     if locked:
         if "📖" not in locked:
             locked = _with_cite(locked, _job_key(history, latest_msg, category_name, model_text))
-        return locked
+        return ensure_coleman_field_reply(
+            locked, history, latest_msg, category_name, model_text
+        )
     text = _FILLER_RE.sub("", _STRAY_PAGE_RE.sub("", _strip_source_header((reply or "").strip())))
     if _is_offline_notice(text):
         return text
@@ -6665,8 +6698,11 @@ def polish_shop_reply(
     )
     text = _strip_facr_internal_guard(text)
     text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
-    return without_reading_filler(
+    text = without_reading_filler(
         _strip_facr_internal_guard(text), history, latest_msg, category_name, model_text
+    )
+    return ensure_coleman_field_reply(
+        text, history, latest_msg, category_name, model_text
     )
 
 
@@ -6806,6 +6842,9 @@ def _avoid_duplicate_reply_body(
     def _out(text: str) -> str:
         import manual_figures as _mf
 
+        text = ensure_coleman_field_reply(
+            text, history, latest_msg, category_name, model_text
+        )
         text = _mf.hide_internal_marker(text)
         text = _strip_facr_internal_guard(text)
         text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)

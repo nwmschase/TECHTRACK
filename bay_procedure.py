@@ -1312,6 +1312,8 @@ def _coleman_sources(ranked) -> list[dict]:
 
 def _coleman_path() -> dict:
     """2111-0001 climax matches GD: Fan High, Peacemaker, cap, then motor and board only."""
+    import manual_figures as mf
+
     return {
         "primary_cite": COLEMAN_BAY_PRIMARY_CITE,
         "pattern_means": (
@@ -1381,33 +1383,10 @@ def _coleman_path() -> dict:
             ],
         ),
         "bay_order": [
-            (
-                "Prove Fan High at the 9-pin before any part is condemned. Pin 5 black "
-                "is Fan High and pin 9 white is fan common. If the board output tester "
-                "is dark or black-to-white is about 0 VAC, Fan High is dead: go to the "
-                "Peacemaker bypass. If Fan High is about 115 VAC, the board is calling "
-                "for the fan: stay on the live-voltage fan path."
-            ),
-            (
-                "Bypass the thermostat and the control box with the SkillAbove Peacemaker. "
-                "If the compressor runs and the fan does not rotate on high or low, record "
-                "the amps. Shaft-locked current about 1.9 A means the fan motor is locked: "
-                "go to the fan run capacitor. If the compressor does not run, stay on the "
-                "compressor and do not condemn the fan motor."
-            ),
-            (
-                "Measure the fan run capacitor and compare it to the value printed on the "
-                "capacitor. On this 2111-0001 the rated value is 15 µF. If the capacitor "
-                "is open or far from rated, replace the capacitor and retest the fan. If "
-                "it measures about rated, the capacitor is not the failed part: go to the "
-                "motor and the board."
-            ),
-            (
-                "When Fan High is dead, the Peacemaker bypass shows the compressor runs "
-                "with the fan locked and stall current reported, and the fan run capacitor "
-                "is good, R&R the rooftop fan motor and the control board only. Do not "
-                "replace the full 2111-0001 assembly. That is the confirmed correction."
-            ),
+            mf.coleman_proving_body("fan_high"),
+            mf.coleman_proving_body("peacemaker"),
+            mf.coleman_proving_body("capacitor"),
+            mf.coleman_proving_body("repair"),
         ],
         "do_not": [
             "Do not replace the full 2111-0001 rooftop assembly on this prove.",
