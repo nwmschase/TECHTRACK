@@ -4,7 +4,7 @@
 **App:** https://techtrack-37lks9ceccfqe8a3k3prpy.streamlit.app/  
 **Repo:** https://github.com/nwmschase/TECHTRACK (`rv_techtrack.py`)  
 **Spine coverage:** inception through current main **v4.19.56** (`0d57348`); pre-v4.7.1 filled from git **2026-09-16**; v4.18.1–v4.19.54 backfilled from git/PRs/tags **2026-10-11**  
-**Known-good tags:** `known-good-v41954` → `a76c68f` (v4.19.54 + docs, pre-v4.19.55); `known-good-v41952` → `8acbcbf` (v4.19.52, latest); `known-good-v41950` → `e7b2bad`; `known-good-v41949` → `cd04634`; `known-good-v41948` → `4dd6f68`; `known-good-v41947` → `b546299`; `known-good-v41942` → `f25ec8a`; `known-good-v41941-pre74` → `69d30e7`; `known-good-v41940` → `1dd8c6d`; `known-good-v4.19.39-importer` → `1a34c92`; `known-good-v4.19.39` → `d646e40`; `known-good-v4.19.38` → `110c4b8`; `known-good-v4.19.36` → `d45710a`; `known-good-v4.19.34` → `9933fe7`; `known-good-v4.19.29` → `7d11571`. Current main v4.19.54 is `known-good-v41952` shop code plus a version stamp (10 files, stamp-only) and carries no known-good tag of its own.  
+**Known-good tags:** `known-good-v41954` → `a76c68f` (v4.19.54 + docs, pre-v4.19.55); `known-good-v41952` → `8acbcbf` (v4.19.52, latest); `known-good-v41950` → `e7b2bad`; `known-good-v41949` → `cd04634`; `known-good-v41948` → `4dd6f68`; `known-good-v41947` → `b546299`; `known-good-v41942` → `f25ec8a`; `known-good-v41941-pre74` → `69d30e7`; `known-good-v41940` → `1dd8c6d`; `known-good-v4.19.39-importer` → `1a34c92`; `known-good-v4.19.39` → `d646e40`; `known-good-v4.19.38` → `110c4b8`; `known-good-v4.19.36` → `d45710a`; `known-good-v4.19.34` → `9933fe7`; `known-good-v4.19.29` → `7d11571`. Current main v4.19.56 is `known-good-v41954` (`a76c68f`) shop code plus a version stamp and carries no known-good tag of its own.  
 **Profiles:** GD-PROFILE v1.1 and PDF-PROFILE v1.1 (Chase, 2026-10-11), at `/workspace/techtrack-validation/profiles/`.  
 **Rule:** Append an entry on every merge, deploy, or revert in the same commit cycle; mirrored in repo as CHANGELOG.md.  
 **Maintainers:** Tech Track + Leader (co-maintain)
@@ -678,11 +678,12 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Each Bay figure sits centered under the step that cites it at 75% of the page width
 - Thetford fixes 1-5: one action per HOW line, cited-page image (42088 p3), specific or omitted Bad line, no stray "2.", per-document backfill counts
 - Established profiles in docs/profiles (GD v1.2, PDF v1.4, PDF-PAST-FAILS, PROFILE-CHANGE-LOG) plus scripts/profile_check.py, which grades scorecards and PF-01–PF-33 with PASS / FAIL / MANUAL; Thetford 42070 and S01 pass every automatable check
-- Status: live gate WORSE (v41955-gate) → reverted by v4.19.56. Pre-merge tests: 747 passed, 1 env-caused failure (test_gd_nav_and_send two_sends; passes with XAI_API_KEY/GROQ_API_KEY unset; also fails on main)
+- Status: Live gate WORSE 2026-10-11 ~12:55 PT. Thetford: GD T2 leaked a not-stated template block; Bay PDF auto-FAIL 5/10, only 2 of 4 branches, no Installation on vacuum breaker, garbled Step 14, Tools=towel, Bad negates Good, irrelevant Do Not, 1 of 4 figures drawn. Reverted in v4.19.56. Pre-merge tests: 747 passed, 1 env-caused failure (test_gd_nav_and_send two_sends; passes with XAI_API_KEY/GROQ_API_KEY unset; also fails on main)
 - Known-good tags: none (`known-good-v41954` → `a76c68f` is the pre-merge rollback point)
 
-### v4.19.56 — 2026-10-11 — Revert `0d57348` (direct on main; no PR) — main SHA `0d57348943618bf65ba1c6c048ab6985344b448b`
+### v4.19.56 — 2026-10-11 12:58 PT — Revert `0d57348` (direct on main; no PR) — main SHA `0d57348943618bf65ba1c6c048ab6985344b448b`
 - **REVERT** of v4.19.55 (PR #85, `3cc5176`): shop code restored to known-good-v41954 (`a76c68f`). CHANGELOG.md and docs/profiles stay as they were on main
 - Revert reason (v41955-gate, live library path): Thetford GD show-me leaked a template block and a page-7 caption on a page-3 cite. The Bay PDF printed 2 of 4 flowchart branches, a vacuum-breaker branch with no Installation, garbled "Put the vot.", towel-only tools, Bad lines that only negate Good, a glued "Flush 3 times. dry", off-case Do Not lines, and 4 figure cites with 1 image. profile_check scored that PDF 5/10 with an automatic FAIL
 - Version stamp v4.19.56 so this deploy is distinct from v4.19.55
+- Rollback target: `known-good-v41954` → `a76c68f`
 - Known-good tags: `known-good-v41954` → `a76c68f`
