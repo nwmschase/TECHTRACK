@@ -3,7 +3,8 @@
 
 Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt>
 
-Prints PASS or FAIL for each rule. Exit 0 when every rule passes.
+Prints PASS or FAIL for each rule, then the v1.2 scorecard.
+A line a human must judge prints MANUAL. Exit 0 when no rule FAILs.
 A PDF is checked for section order, branch subsections, step line order,
 banned strings, sentence length, figure width, and figure placement.
 A transcript is checked for the chat profile: no label block, no step
@@ -69,13 +70,18 @@ PHOTO_LINE = "send a photo of what you see"
 
 
 class Rule:
-    def __init__(self, name: str, ok: bool, detail: str = ""):
+    def __init__(self, name: str, ok: bool, detail: str = "", **marks):
         self.name = name
         self.ok = ok
         self.detail = detail
+        self.status = marks.get("status") or ("PASS" if ok else "FAIL")
+        self.number = marks.get("number") or 0
+        self.line_text = marks.get("line_text") or ""
+        self.scorecard = bool(marks.get("scorecard"))
+        self.auto_fail = bool(marks.get("auto_fail"))
 
     def __repr__(self) -> str:
-        return f"{'PASS' if self.ok else 'FAIL'}  {self.name}  {self.detail}".rstrip()
+        return f"{self.status}  {self.name}  {self.detail}".rstrip()
 
 
 def _words(text: str) -> int:
@@ -363,7 +369,8 @@ def check_pdf_bytes(data: bytes) -> list[Rule]:
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
         text = "\n".join(page.get_text() for page in doc)
-        return check_sheet_text(text) + _figure_rules(doc)
+        rules = check_sheet_text(text) + _figure_rules(doc)
+        return rules + grade_pdf(text, rules)
     finally:
         doc.close()
 
@@ -406,7 +413,7 @@ def check_transcript(text: str) -> list[Rule]:
     bodies = [_assistant_body(turn) for turn in assistants if _assistant_body(turn)]
     repeated = len(bodies) != len(set(bodies))
     follow = all("?" in turn for turn in assistants) if assistants else False
-    return [
+    rules = [
         _rule("no_label_block", label_hit is None, "" if label_hit is None else label_hit.group(0).strip()),
         _rule("no_step_counter", counter_hit is None, "" if counter_hit is None else counter_hit.group(0)),
         _banned(low, include_photo=False),
@@ -423,6 +430,7 @@ def check_transcript(text: str) -> list[Rule]:
         _rule("no_repeats", not repeated, "a reply repeated" if repeated else f"{len(bodies)} distinct replies"),
         _rule("follow_up", follow, "each reply asks what the tech sees" if follow else "a reply has no follow-up question"),
     ]
+    return rules + grade_gd(raw, rules)
 
 
 def _looks_like_sheet(text: str) -> bool:
@@ -438,12 +446,203 @@ def check_path(path: Path) -> list[Rule]:
         rules = check_sheet_text(text)
         rules.append(_rule("figure_width", False, "text extract has no page images; pass the PDF"))
         rules.append(_rule("figure_placement", False, "text extract has no page images; pass the PDF"))
-        return rules
+        return rules + grade_pdf(text, rules)
     return check_transcript(text)
 
 
+GD_SCORECARD = (
+    "Stayed on the shop manual pathways and cited them; no invented parts, specs, or steps.",
+    "Every test request explained HOW: where, tool and setting, what to look or listen for, what good and bad mean, what to report.",
+    "Followed the tech's answers; moved forward on reported results; no repeats or loops.",
+    "Natural, conversational sentences; no rigid label blocks or step counter.",
+    "Figures only when asked; same brand and model; none if the manual has none.",
+    "Asked for a photo when it would really help, and did NOT ask when it wasn't needed.",
+    "Web fallback only when the manuals fell short AND the tech asked; labeled, with sources.",
+    "Safety warnings given where they apply.",
+    "Reopen handled neutrally: re-checked earlier steps and readings, then the next likely cause.",
+    "None of: leaked app text, off-brand content, filler, cut-off sentences.",
+)
+PDF_SCORECARD = (
+    "Structure complete: header, flowchart, diagnosis, a branch for every possible repair, Do Not list, sources.",
+    "Each branch runs to completion and ends with a confirm step with a clear pass or fail.",
+    "Every step has a bold numbered heading and the same labeled lines in the same order.",
+    "One action per line; sentences of about 12 words or fewer; plain words.",
+    "Bad looks like is specific to the step, or left out.",
+    "Real same-brand manual figure, large (about 70-80% width), centered under the step that cites it, with caption; never split from its step.",
+    "No figure where the manual has none; nothing invented or off-brand.",
+    "Safety stated once per section, and correct (no contradictions).",
+    "None of: PHOTO or yes/no lines, UNCONFIRMED tags, disclaimers, leaked app text, cut-off sentences, stray numbers.",
+    "Web content only in a separate labeled Outside sources section.",
+)
+GD_AUTO_FAIL = {1, 8, 10}
+PDF_AUTO_FAIL = {2, 7, 8, 9}
+_REOPEN_PHRASE = re.compile(
+    r"wasn['\u2019]?t the fix|not the(?: actual)? fix|\bcame back\b|\bnot fixed\b",
+    re.I,
+)
+_BLAME = re.compile(r"your fault|you did it wrong|our mistake", re.I)
+_GD_WEB_LABEL = "Not in the shop manuals, from the web:"
+
+
+def _named(rules: list[Rule]) -> dict:
+    return {rule.name: rule for rule in rules}
+
+
+def _ok(rules: dict, name: str) -> bool:
+    rule = rules.get(name)
+    return bool(rule and rule.ok)
+
+
+def _card(number: int, status: str, line_text: str, detail: str, auto_numbers: set[int]) -> Rule:
+    return Rule(
+        f"score-{number}",
+        status != "FAIL",
+        detail,
+        status=status,
+        number=number,
+        line_text=line_text,
+        scorecard=True,
+        auto_fail=number in auto_numbers,
+    )
+
+
+def _step_inspection(text: str) -> dict:
+    """Label order, a generic Bad line, and a stray number, scanned once."""
+    chunks = _step_chunks(_procedure_text(text))
+    order_problems = []
+    generic = []
+    stray = []
+    if not chunks:
+        order_problems.append("no numbered steps")
+    for chunk in chunks:
+        heading = chunk.splitlines()[0][:80]
+        labels = []
+        for line in chunk.splitlines():
+            low = line.strip().lower()
+            for name in LABEL_ORDER:
+                if low.startswith(name):
+                    labels.append(name)
+                    break
+            if low.startswith("bad looks like:"):
+                value = line.split(":", 1)[-1].strip()
+                if GENERIC_BAD.match(value):
+                    generic.append(heading)
+            if re.match(r"\s*\d+\.\s+\d+\.", line):
+                stray.append(heading)
+        if labels != [name for name in LABEL_ORDER if name in labels]:
+            order_problems.append(f"{heading} labels out of order")
+        missing = [name for name in REQUIRED_LABELS if name not in labels]
+        if missing:
+            order_problems.append(f"{heading} missing {', '.join(missing)}")
+    return {"order": order_problems, "generic": generic, "stray": stray}
+
+
+def _gd_web_ok(text: str) -> bool:
+    if re.search(r"from the web|outside sources", text or "", re.I):
+        return _GD_WEB_LABEL in (text or "")
+    return True
+
+
+def _reopen_blames(text: str) -> bool:
+    for user, assistant in _pairs(text or ""):
+        if _REOPEN_PHRASE.search(user) and _BLAME.search(assistant):
+            return True
+    return False
+
+
+def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
+    """v1.2 Guided Diagnostics scorecard. Lines 1, 2, 6, 8, and 9 stay MANUAL unless a check can fail them."""
+    named = _named(rules)
+    photo = named.get("photo_only_when_it_helps")
+    cite = "source:" in (text or "").lower()
+    if photo and not photo.ok:
+        photo_status, photo_detail = "FAIL", photo.detail or "photo on every step"
+    else:
+        photo_status = "MANUAL"
+        photo_detail = photo.detail if photo else "human confirms when a photo helps"
+    if _reopen_blames(text):
+        reopen_status, reopen_detail = "FAIL", "a reopen reply blames the tech or the program"
+    else:
+        reopen_status, reopen_detail = "MANUAL", "human confirms a neutral reopen"
+    rows = [
+        (1, "MANUAL", "shop-manual cite present" if cite else "no Source cite; human confirms the pathway"),
+        (2, "MANUAL", "human confirms the how-to detail"),
+        (3, "PASS" if _ok(named, "no_repeats") and _ok(named, "follow_up") else "FAIL", "moved forward without a repeated reply"),
+        (4, "PASS" if _ok(named, "no_label_block") and _ok(named, "no_step_counter") else "FAIL", "no label block and no step counter"),
+        (5, "PASS" if _ok(named, "no_figure_without_ask") else "FAIL", "figures only after the tech asked"),
+        (6, photo_status, photo_detail),
+        (7, "PASS" if _gd_web_ok(text) else "FAIL", "web fallback is labeled, or there is no web content"),
+        (8, "MANUAL", "human confirms the safety warnings"),
+        (9, reopen_status, reopen_detail),
+        (10, "PASS" if _ok(named, "banned_strings") else "FAIL", "no leaked text, filler, or cut-off marker"),
+    ]
+    return [_card(number, status, GD_SCORECARD[number - 1], detail, GD_AUTO_FAIL) for number, status, detail in rows]
+
+
+def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
+    """v1.2 Bay PDF scorecard. Lines 7 and 8 stay MANUAL unless a check can fail them."""
+    named = _named(rules)
+    inspected = _step_inspection(text)
+    banned_ok = _ok(named, "banned_strings")
+    if not banned_ok:
+        invented_status, invented_detail = "FAIL", named["banned_strings"].detail or "invented or off-brand text"
+    else:
+        invented_status, invented_detail = "MANUAL", "human confirms no figure was invented or off-brand"
+    safety = named.get("safety_once")
+    if safety and not safety.ok:
+        safety_status, safety_detail = "FAIL", safety.detail or "safety note repeated"
+    else:
+        safety_status, safety_detail = "MANUAL", "human confirms the safety note is correct"
+    line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
+    rows = [
+        (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") else "FAIL", "header, flowchart, diagnosis, branches, do not, sources"),
+        (2, "PASS" if _ok(named, "branch_subsections") else "FAIL", "each branch ends on a confirm with a pass and a fail"),
+        (3, "PASS" if not inspected["order"] else "FAIL", "numbered headings and the same label order"),
+        (4, "PASS" if _ok(named, "sentence_length") else "FAIL", "one action per line, about 12 words"),
+        (5, "PASS" if not inspected["generic"] else "FAIL", "Bad looks like is specific, or left off"),
+        (6, "PASS" if _ok(named, "figure_width") and _ok(named, "figure_placement") else "FAIL", "figure width, centering, and caption"),
+        (7, invented_status, invented_detail),
+        (8, safety_status, safety_detail),
+        (9, line_nine, "no photo script, unconfirmed, leaked text, or stray number"),
+        (10, "PASS" if _ok(named, "web_content") else "FAIL", "web content stays in Outside sources"),
+    ]
+    return [_card(number, status, PDF_SCORECARD[number - 1], detail, PDF_AUTO_FAIL) for number, status, detail in rows]
+
+
+def gate_summary(rules: list[Rule]) -> str:
+    """Markdown block for a gate summary. MANUAL lines are not passes."""
+    cards = [rule for rule in rules if rule.scorecard]
+    if not cards:
+        return ""
+    if cards[0].line_text == GD_SCORECARD[0]:
+        kind = "Guided Diagnostics"
+    else:
+        kind = "Bay PDF"
+    lines = [f"## {kind} scorecard"]
+    passed = 0
+    auto = []
+    for rule in cards:
+        note = f" ({rule.detail})" if rule.detail else ""
+        lines.append(f"{rule.number}. {rule.status} — {rule.line_text}{note}")
+        if rule.status == "PASS":
+            passed += 1
+        if rule.status == "FAIL" and rule.auto_fail:
+            auto.append(str(rule.number))
+    verdict = "yes" if auto else "no"
+    extra = f" Lines {', '.join(auto)}." if auto else ""
+    lines.append(f"Result: {passed}/10. Automatic FAIL: {verdict}.{extra}")
+    return "\n".join(lines)
+
+
 def format_report(rules: list[Rule]) -> str:
-    lines = [f"{'PASS' if rule.ok else 'FAIL'}  {rule.name}" + (f"  {rule.detail}" if rule.detail else "") for rule in rules]
+    lines = []
+    for rule in rules:
+        if rule.scorecard:
+            continue
+        lines.append(f"{'PASS' if rule.ok else 'FAIL'}  {rule.name}" + (f"  {rule.detail}" if rule.detail else ""))
+    summary = gate_summary(rules)
+    if summary:
+        lines.append(summary)
     failed = [rule for rule in rules if not rule.ok]
     lines.append("PASS" if not failed else f"FAIL  {len(failed)} rule(s)")
     return "\n".join(lines)

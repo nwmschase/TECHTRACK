@@ -51,6 +51,13 @@ class TestProfileDocs(unittest.TestCase):
         self.assertIn("Established by Chase on 2026-10-11.", pdf)
         self.assertIn("Before you start", pdf)
         self.assertIn("Thetford-42070", pdf)
+        self.assertIn("Version 1.2", guided)
+        self.assertIn("## Performance scorecard (grade every reviewed session, PASS/FAIL per line)", guided)
+        self.assertIn("Any FAIL on 1, 8, or 10 is an automatic overall FAIL.", guided)
+        self.assertIn("## Performance scorecard (grade every PDF, PASS/FAIL per line)", pdf)
+        self.assertIn("Any FAIL on 2, 7, 8, or 9 is an automatic overall FAIL.", pdf)
+        log = (ROOT / "docs" / "profiles" / "PROFILE-CHANGE-LOG.md").read_text(encoding="utf-8")
+        self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)
 
 
 class TestPdfProfile(unittest.TestCase):
@@ -130,6 +137,56 @@ class TestGdProfile(unittest.TestCase):
         ])
         rules = {rule.name: rule for rule in profile_check.check_transcript(repeat)}
         self.assertFalse(rules["no_repeats"].ok)
+
+
+class TestScorecard(unittest.TestCase):
+    def test_gd_scorecard_prints_manual_lines_and_a_gate_block(self):
+        text = _transcript([
+            ("The supply connection is tight and dry.", "The supply connection is dry.\nWhat do you see?"),
+            ("show me", "The manual shows Fig. 1.\n[figure]\nWhat do you see?"),
+        ])
+        rules = profile_check.check_transcript(text)
+        summary = profile_check.gate_summary(rules)
+        for number in (1, 2, 6, 8, 9):
+            self.assertIn(f"{number}. MANUAL", summary)
+        self.assertIn("Result: ", summary)
+        self.assertIn("/10.", summary)
+        self.assertIn("Automatic FAIL: no.", summary)
+        self.assertIn("Stayed on the shop manual pathways", summary)
+        self.assertTrue(summary.startswith("## Guided Diagnostics scorecard"))
+        failed = [rule for rule in rules if rule.scorecard and rule.status == "FAIL"]
+        self.assertEqual(failed, [])
+
+    def test_a_filler_line_fails_gd_line_10_automatically(self):
+        text = _transcript([
+            ("leak", "Not stated in this sheet. What do you see?"),
+        ])
+        summary = profile_check.gate_summary(profile_check.check_transcript(text))
+        self.assertIn("10. FAIL", summary)
+        self.assertIn("Automatic FAIL: yes.", summary)
+        self.assertIn("Lines 10.", summary)
+
+    def test_a_blame_on_reopen_fails_the_manual_line(self):
+        text = _transcript([
+            ("It came back. It wasn't the fix.", "This was your fault. What do you see?"),
+        ])
+        summary = profile_check.gate_summary(profile_check.check_transcript(text))
+        self.assertIn("9. FAIL", summary)
+        self.assertIn("Automatic FAIL: no.", summary)
+
+    def test_thetford_pdf_scorecard_leaves_human_lines_manual(self):
+        rules = profile_check.check_pdf_bytes(render_bay_procedure_pdf(_thetford()))
+        self.assertEqual(_failures(rules), [])
+        summary = profile_check.gate_summary(rules)
+        self.assertTrue(summary.startswith("## Bay PDF scorecard"))
+        self.assertIn("2. PASS", summary)
+        self.assertIn("7. MANUAL", summary)
+        self.assertIn("8. MANUAL", summary)
+        self.assertIn("Automatic FAIL: no.", summary)
+        self.assertRegex(summary, r"Result: \d+/10\.")
+        report = profile_check.format_report(rules)
+        self.assertIn("## Bay PDF scorecard", report)
+        self.assertTrue(report.endswith("PASS"))
 
 
 if __name__ == "__main__":
