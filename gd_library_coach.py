@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.45"
+COACH_REVISION = "v4.19.46"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -5034,7 +5034,7 @@ def _firm_repair_reply(
     for message in history or []:
         if (message.get("role") or "") != "assistant":
             continue
-        content = message.get("content") or ""
+        content = _shop_text_without_how(message.get("content") or "")
         cites = [line.strip() for line in content.splitlines() if line.strip().startswith("📖")]
         for sentence in _split_reply_sentences(content):
             if not _direct_repair_sentence(sentence, job, answered):
@@ -5614,9 +5614,27 @@ def _thetford_vacuum_bad(blob: str) -> bool:
     )
 
 
+def _shop_text_without_how(text: str) -> str:
+    """The shop line only. An appended How block and its captions are not the step.
+
+    Live stores the shop line plus How (Tip Sheet...) and a figure caption.
+    The step cursor reads that stored text. Tests stored the shop line alone,
+    so they advanced while the live check did not.
+    """
+    raw = re.split(r"\bHow\s*\([^)\n]{0,180}\):", text or "", maxsplit=1, flags=re.I)[0]
+    kept = []
+    for line in raw.splitlines():
+        if re.match(r"\s*How\s*\(", line or "", re.I):
+            continue
+        if re.search(r"/\s*page\s+\d+\s*/", line or "", re.I):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def _thetford_line_slot(text: str) -> str:
     """Which Thetford check this shop line is asking."""
-    low = _norm(text)
+    low = _norm(_shop_text_without_how(text))
     if "flange" in low:
         return "flange"
     if "vacuum breaker" in low:
@@ -5652,6 +5670,13 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
         if _thetford_vacuum_ok(user_text) or _thetford_vacuum_bad(user_text):
             slots.add("vacuum")
         if _thetford_not_checked(user_text) and pending_ask:
+            slots.add(pending_ask)
+        # A real answer closes the check that was asked. The next turn has to
+        # remember that. Tests used "vacuum breaker is dry", which matches the
+        # ok-pattern above. Live answers ("no leak while flushing", "water is
+        # off") do not, so the same check came back.
+        move = _thetford_message_moves(user_text, pending_ask)
+        if move in ("pass", "bad") and pending_ask:
             slots.add(pending_ask)
 
     for message in history or []:
@@ -5698,6 +5723,17 @@ def _thetford_message_moves(text: str, pending: str) -> str:
     return "pass"
 
 
+def _thetford_valve_repair_started(history: list = None) -> bool:
+    """The water-valve kit is already the repair. Do not reopen the vacuum breaker."""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        shop = _shop_text_without_how(message.get("content") or "")
+        if re.search(r"Step \d+ of 14\b", shop):
+            return True
+    return False
+
+
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     """Supply, then the vacuum breaker, then the valve body, then the flange.
 
@@ -5705,6 +5741,8 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     A check that already shipped also advances on the next real answer.
     A closed check is not asked again. A weep does not skip the vacuum breaker.
     A proven leak starts that repair only after the earlier checks are closed.
+    Once the water-valve repair has started, a later leak does not go back
+    to the vacuum breaker.
     A mismatched or unclear photo does not close the check.
     """
     import gd_step_photo as _photos
@@ -5714,7 +5752,10 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     slots = set(_thetford_closed_slots(history, latest_msg))
     pending = _thetford_open_slot(history)
     move = _thetford_message_moves(latest_msg, pending)
-    if move == "bad" and pending == "vacuum":
+    on_valve = _thetford_valve_repair_started(history) or (
+        _thetford_valve_bad(blob) and ("vacuum" in slots or _thetford_vacuum_ok(blob))
+    )
+    if move == "bad" and pending == "vacuum" and not on_valve:
         return "vacuum_replace"
     if move == "bad" and pending == "valve":
         return "valve_replace"
@@ -5722,9 +5763,9 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
         slots.add(pending)
     if "supply" not in slots and not _thetford_supply_ok(blob):
         return "supply"
-    if _thetford_vacuum_bad(blob):
+    if not on_valve and _thetford_vacuum_bad(blob):
         return "vacuum_replace"
-    if "vacuum" not in slots and not _thetford_vacuum_ok(blob):
+    if not on_valve and "vacuum" not in slots and not _thetford_vacuum_ok(blob):
         return "vacuum"
     if _thetford_valve_bad(blob):
         return "valve_replace"
@@ -5782,7 +5823,7 @@ def _thetford_wait_shown(history: list, number: int) -> bool:
     for message in history or []:
         if (message.get("role") or "") != "assistant":
             continue
-        content = message.get("content") or ""
+        content = _shop_text_without_how(message.get("content") or "")
         if f"Step {number} of" in content and mf.PHOTO_WAIT in content:
             return True
     return False
@@ -5799,6 +5840,8 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
     for message in history or []:
         role = message.get("role") or ""
         content = message.get("content") or ""
+        if role == "assistant":
+            content = _shop_text_without_how(content)
         if role == "assistant" and f"Step {number} of" in content:
             seen = True
             continue
@@ -5836,7 +5879,7 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
         )
     text = mf.format_one_step(steps[number - 1], number, len(steps))
     already = any(
-        f"Step {number} of" in (message.get("content") or "")
+        f"Step {number} of" in _shop_text_without_how(message.get("content") or "")
         for message in history or []
         if (message.get("role") or "") == "assistant"
     )

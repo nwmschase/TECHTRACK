@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.45
+RV TechTrack v4.19.46
+- v4.19.46: Reload every Guided Diagnostics and Bay PDF module and log its revision. Version stamp so this deploy is distinct from v4.19.45.
 - v4.19.45: Shop behavior is the pre-#76 release again. Version stamp so this deploy is distinct from v4.19.44.
 - v4.19.44: Version stamp so this deploy is distinct from v4.19.43.
 - v4.19.43: Version stamp so this deploy is distinct from v4.19.42.
@@ -219,9 +220,18 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.45"
-# Coach first: bay_procedure imports gd_library_coach while it loads.
-_APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
+_GDC_REQUIRED_REVISION = "v4.19.46"
+# Import order. gd_llm and the photo helper have no app import at load time.
+# manual_figures is next because the coach and the figure bank import it while
+# they load. The coach is before the figure bank and the Bay PDF, which import it.
+_APP_MODULES = (
+    "gd_llm",
+    "gd_step_photo",
+    "manual_figures",
+    "gd_library_coach",
+    "library_figure_backfill",
+    "bay_procedure",
+)
 
 
 def _cached_module_is_current(mod, required_revision, required_attrs=()):
@@ -285,16 +295,56 @@ def _load_gd_library_coach():
     )
 
 
+def _log_loaded_revision(name, mod, required_revision):
+    """Log the MODULE_REVISION that is actually bound for this module."""
+    import logging
+
+    loaded = getattr(mod, "MODULE_REVISION", None)
+    if loaded in (None, ""):
+        loaded = getattr(mod, "COACH_REVISION", None)
+    loaded = "" if loaded in (None, "") else str(loaded)
+    log = logging.getLogger("techtrack.modules")
+    if loaded != str(required_revision):
+        log.error(
+            "MODULE_REVISION %s=%s expected %s",
+            name,
+            loaded or "missing",
+            required_revision,
+        )
+        return
+    log.warning("MODULE_REVISION %s=%s", name, loaded)
+
+
 def _reload_stale_app_modules(required_revision):
-    """Reload coach, gd_llm, and bay_procedure when their stamp is not current."""
+    """Reload every Guided Diagnostics and Bay PDF module when its stamp is old.
+
+    A module that imports an earlier one is loaded again when that dependency
+    was replaced, so it cannot keep the previous function objects. Each module
+    logs the revision that ended up bound.
+    """
+    import sys
+
+    dependency_replaced = False
+    coach = None
     for name in _APP_MODULES:
+        if dependency_replaced:
+            sys.modules.pop(name, None)
+        before = sys.modules.get(name)
         attrs = _GDC_STALE_GUARD_ATTRS if name == "gd_library_coach" else ()
-        _reload_app_module(name, required_revision, required_attrs=attrs)
+        mod = _reload_app_module(name, required_revision, required_attrs=attrs)
+        if mod is not before:
+            dependency_replaced = True
+        if name == "gd_library_coach":
+            coach = mod
+        _log_loaded_revision(name, mod, required_revision)
+    return coach
 
 
 _gdc = _load_gd_library_coach()
 # After the loader slice tests exec. APP_VERSION is this deploy's header.
-_reload_stale_app_modules(APP_VERSION)
+# Rebind the coach after the ordered reload. An earlier pass can bind it
+# before manual_figures is current.
+_gdc = _reload_stale_app_modules(APP_VERSION)
 # Import after the reload so this script binds the new function objects.
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
@@ -457,6 +507,7 @@ from bay_procedure import (
     apply_chunk_figures,
     compile_bay_procedure,
     crop_page_png_to_figure,
+    cited_figure_count,
     paint_library_step_figures,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
@@ -4859,6 +4910,7 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
 
     An empty library leaves the reply exactly as the shop line wrote it.
     """
+    import library_figure_backfill as fb
     import manual_figures as mf
 
     physical = bool(re.search(
@@ -4869,7 +4921,16 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     asked = mf.wants_manual_image(user_msg) or wants_library_page_shown(user_msg)
     if not physical and not asked:
         return reply
-    chosen = _stored_figure_matches(reply, user_msg, category_name, model_text)
+    # A cached figure-bank module from before this deploy has no gate. Skip the
+    # figure instead of raising AttributeError on the reply.
+    fits = getattr(fb, "fits_case", None)
+    if fits is None:
+        return reply
+    chosen = [
+        item
+        for item in _stored_figure_matches(reply, user_msg, category_name, model_text)
+        if fits(item, category_name, model_text, user_msg, reply)
+    ]
     if not chosen:
         return reply
     limit = 3 if asked else 1
@@ -4885,7 +4946,19 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
             )
         except Exception:
             chunk_text = ""
-        detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
+        how_for = getattr(fb, "procedure_how", None)
+        detail = ""
+        if how_for is not None:
+            detail = how_for(
+                first,
+                chunk_text,
+                first.get("title") or "",
+                first.get("page"),
+                category_name,
+                model_text,
+                user_msg,
+                reply,
+            )
         if detail and detail not in (reply or ""):
             extra.append(detail)
     for item in chosen[:limit]:
@@ -5907,39 +5980,45 @@ def _merge_stored_figures(proc, chunks):
         return proc
     if not rows:
         return proc
-    job = f"{proc.brand} {proc.model} {proc.concern}"
+    job = f"{proc.category or ''} {proc.brand or ''} {proc.model or ''} {proc.concern or ''}"
     packets = fb.figure_packets(rows, chunks, job)
-    if not packets:
-        return proc
-    packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
-    load_rows = [
-        row for row in rows
-        if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
-    ]
-    try:
-        fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
-    except Exception:
-        load_rows = []
-    by_key = {
-        (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
-        for row in load_rows
-    }
-    for packet in packets:
-        kept = []
-        for figure in packet.get("figures") or []:
-            png = by_key.get(
-                (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
-                b"",
-            )
-            if not png:
-                continue
-            figure["png"] = png
-            kept.append(figure)
-        packet["figures"] = kept
-    packets = [packet for packet in packets if packet.get("figures")]
+    # An off-brand retrieval still leaves the matching library document to paint.
+    # Stopping here was why a Bay sheet said Cited figures: 0.
     if packets:
-        proc = apply_chunk_figures(proc, packets)
-    groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category, proc.model)
+        packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
+        load_rows = [
+            row for row in rows
+            if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
+        ]
+        try:
+            fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
+        except Exception:
+            load_rows = []
+        by_key = {
+            (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
+            for row in load_rows
+        }
+        for packet in packets:
+            kept = []
+            for figure in packet.get("figures") or []:
+                png = by_key.get(
+                    (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
+                    b"",
+                )
+                if not png:
+                    continue
+                figure["png"] = png
+                kept.append(figure)
+            packet["figures"] = kept
+        packets = [packet for packet in packets if packet.get("figures")]
+        if packets:
+            proc = apply_chunk_figures(proc, packets)
+    groups = fb.figures_beside_steps(
+        rows,
+        proc.bay_order,
+        proc.category,
+        f"{proc.brand or ''} {proc.model or ''}".strip(),
+    )
     pending = [offer for group in groups for offer in group if not offer.get("png")]
     if pending:
         try:
@@ -6061,7 +6140,7 @@ with tab_jobs:
                 "primary_cite": proc.primary_cite,
                 "sources": proc.sources,
                 "check_count": len(proc.bay_order),
-                "figure_count": len(proc.figures),
+                "figure_count": cited_figure_count(proc),
             }
             st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
 

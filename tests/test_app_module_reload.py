@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_NAMES = ("gd_library_coach", "gd_llm", "bay_procedure")
+APP_NAMES = (
+    "gd_llm",
+    "gd_step_photo",
+    "manual_figures",
+    "gd_library_coach",
+    "library_figure_backfill",
+    "bay_procedure",
+)
 
 
 def _loader_namespace():
@@ -49,12 +56,12 @@ class TestAppModuleReload(unittest.TestCase):
         stale.suggested_pdf_filename = lambda *a, **k: "old.pdf"
         sys.modules["bay_procedure"] = stale
 
-        ns["_reload_stale_app_modules"]("v4.19.45")
+        ns["_reload_stale_app_modules"]("v4.19.46")
         loaded = sys.modules["bay_procedure"]
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.19.45")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.46")
         # A second pass sees the matching stamp and keeps this module object.
-        again = ns["_reload_app_module"]("bay_procedure", "v4.19.45")
+        again = ns["_reload_app_module"]("bay_procedure", "v4.19.46")
         self.assertIs(again, loaded)
 
         proc = loaded.compile_bay_procedure(
@@ -70,23 +77,110 @@ class TestAppModuleReload(unittest.TestCase):
         self.assertIn("module board", nodes)
         self.assertNotIn("sail passed", nodes)
 
+    def test_redeploy_replaces_a_stale_figure_bank_module(self):
+        """Callers reload. The figure bank has to reload with them."""
+        ns = _loader_namespace()
+        stale = types.ModuleType("library_figure_backfill")
+        stale.MODULE_REVISION = "v4.19.6"
+        sys.modules["library_figure_backfill"] = stale
+
+        ns["_reload_stale_app_modules"]("v4.19.46")
+        loaded = sys.modules["library_figure_backfill"]
+        self.assertIsNot(loaded, stale)
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.46")
+        self.assertTrue(hasattr(loaded, "fits_case"))
+        self.assertTrue(hasattr(loaded, "off_brand_figure"))
+        self.assertTrue(hasattr(loaded, "procedure_how"))
+
+    def test_stale_manual_figures_reloads_the_coach_and_logs_revisions(self):
+        """The lead-jack coach must not keep a module that was loaded earlier."""
+        ns = _loader_namespace()
+        stale = types.ModuleType("manual_figures")
+        stale.MODULE_REVISION = "v4.19.6"
+        sys.modules["manual_figures"] = stale
+        with self.assertLogs("techtrack.modules", level="WARNING") as captured:
+            ns["_reload_stale_app_modules"]("v4.19.46")
+        loaded = sys.modules["manual_figures"]
+        self.assertIsNot(loaded, stale)
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.46")
+        coach = sys.modules["gd_library_coach"]
+        self.assertIs(coach._manual_figures, loaded)
+        self.assertEqual(coach.MODULE_REVISION, "v4.19.46")
+        text = "\n".join(captured.output)
+        for name in APP_NAMES:
+            self.assertIn(f"MODULE_REVISION {name}=v4.19.46", text)
+        mismatch = types.ModuleType("gd_step_photo")
+        mismatch.MODULE_REVISION = "v4.19.6"
+        with self.assertLogs("techtrack.modules", level="ERROR") as bad:
+            ns["_log_loaded_revision"]("gd_step_photo", mismatch, "v4.19.46")
+        self.assertIn("MODULE_REVISION gd_step_photo=v4.19.6 expected v4.19.46", "\n".join(bad.output))
+
+    def test_stale_figure_bank_shows_no_figure_instead_of_crashing(self):
+        """The live crash: a reloaded caller bound the old module object."""
+        import bay_procedure as bp
+
+        stale = types.ModuleType("library_figure_backfill")
+        sys.modules["library_figure_backfill"] = stale
+        proc = bp.compile_bay_procedure(
+            concern="AC turns on but will not blow cold",
+            brand="Dometic",
+            model="B57915E711J0EMX",
+            category="Air Conditioning",
+            chunks=[
+                {
+                    "title": "Tip Sheet #216",
+                    "excerpt": "Remove the pump seal at the closet flange.",
+                    "page": 4,
+                    "figures": [
+                        {
+                            "png": b"\x89PNG\r\n\x1a\nstale",
+                            "label": "Fig. 4 pump seal",
+                            "caption": "Power Gear pump seal",
+                            "page": 4,
+                            "title": "Tip Sheet #216",
+                        }
+                    ],
+                }
+            ],
+        )
+        titles = " ".join(
+            [
+                *(fig.title for fig in proc.figures or []),
+                *(fig.title for group in proc.step_figures or [] for fig in group),
+            ]
+        ).lower()
+        self.assertNotIn("tip sheet", titles)
+        self.assertNotIn("power gear", titles)
+        self.assertEqual(bp.cited_figure_count(proc), 0)
+
+        proc.figures = [
+            bp.BayFigure(
+                title="Tip Sheet #216",
+                caption="Fig. 4 pump seal",
+                excerpt="Power Gear pump seal",
+                image_png=b"\x89PNG\r\n\x1a\nstale",
+            )
+        ]
+        bp._drop_off_brand_sheet_figures(proc, "Dometic B57915 AC will not blow cold")
+        self.assertEqual(proc.figures, [])
+
     def test_missing_revision_is_stale(self):
         ns = _loader_namespace()
         stale = types.ModuleType("gd_llm")
         stale.complete_chat = lambda *a, **k: "STALE"
         sys.modules["gd_llm"] = stale
-        loaded = ns["_reload_app_module"]("gd_llm", "v4.19.45")
+        loaded = ns["_reload_app_module"]("gd_llm", "v4.19.46")
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.19.45")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.19.46")
 
     def test_matching_revision_is_not_replaced(self):
         ns = _loader_namespace()
         current = types.ModuleType("bay_procedure")
-        current.MODULE_REVISION = "v4.19.45"
+        current.MODULE_REVISION = "v4.19.46"
         marker = object()
         current.marker = marker
         sys.modules["bay_procedure"] = current
-        loaded = ns["_reload_app_module"]("bay_procedure", "v4.19.45")
+        loaded = ns["_reload_app_module"]("bay_procedure", "v4.19.46")
         self.assertIs(loaded, current)
         self.assertIs(loaded.marker, marker)
 
@@ -95,7 +189,7 @@ class TestAppModuleReload(unittest.TestCase):
         header = re.search(r"RV TechTrack (v\d+\.\d+\.\d+)", src).group(1)
         required = re.search(r'_GDC_REQUIRED_REVISION = "(v[\d.]+)"', src).group(1)
         self.assertEqual(required, header)
-        self.assertEqual(header, "v4.19.45")
+        self.assertEqual(header, "v4.19.46")
         for name in APP_NAMES:
             text = (ROOT / f"{name}.py").read_text(encoding="utf-8")
             self.assertIn(f'MODULE_REVISION = "{header}"' if name != "gd_library_coach" else "MODULE_REVISION = COACH_REVISION", text)
