@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.51"
+COACH_REVISION = "v4.19.50"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -2752,8 +2752,6 @@ def ensure_facr_early_pressure_ask(
     """
     if _job_key(history, latest_msg, category_name, model_text) != "facr":
         return reply or ""
-    if "Here is the repair procedure." in (reply or "") and re.search(r"Step \d+ of", reply or ""):
-        return reply or ""
     facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
     text = (reply or "").strip()
     pressures_in = facts.get("facr_pressure") == "ok"
@@ -4958,11 +4956,6 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("dataline")
     if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
         found.add("ceiling")
-    if re.search(r"\bpeacemaker\b", low) and re.search(
-        r"\bcompressor\b|\bshaft\b|\blocked\b|\bcool|\b\d+(?:\.\d+)?\s*a\b",
-        low,
-    ):
-        found.add("peacemaker")
     if _levelup_firefly_confirmed(low):
         found.add("can")
     return found
@@ -5001,12 +4994,6 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         return True
     if "pressure" in answered and re.search(
         r"read the refrigerant|connect gauges|check refrigerant pressures|read both gauges",
-        low,
-    ):
-        return True
-    if "peacemaker" in answered and re.search(
-        r"\b(?:do|run|repeat|perform)\b.{0,48}\b(?:peacemaker|bypass)\b"
-        r"|\b(?:peacemaker|bypass)\b.{0,48}\b(?:report|again)\b",
         low,
     ):
         return True
@@ -6284,13 +6271,6 @@ def _final_shop_line(
     return _with_cite(chosen, job)
 
 
-def _restore_look_for_leaks(text: str) -> str:
-    """The filler trim eats a trailing period. The closing leak line stays whole."""
-    if (text or "").rstrip().endswith("Look for leaks"):
-        return text.rstrip() + "."
-    return text
-
-
 def without_reading_filler(
     reply: str,
     history: list = None,
@@ -6303,14 +6283,14 @@ def without_reading_filler(
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n *", "\n", text).strip(" \n.")
     if text and not _FILLER_RE.search(text):
-        return _restore_look_for_leaks(text)
+        return text
     miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
     if miss and not _FILLER_RE.search(miss):
-        return _restore_look_for_leaks(miss)
+        return miss
     fallback = _final_shop_line(history, latest_msg, category_name, model_text)
     fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
     if fallback and not _FILLER_RE.search(fallback):
-        return _restore_look_for_leaks(fallback)
+        return fallback
     return ""
 
 
@@ -6922,58 +6902,6 @@ def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
     return _has_pan_on_flameout_marker(blob or "")
 
 
-def _facr_walk_started(history: list = None) -> bool:
-    """True once an assistant turn has shown a numbered FACR removal step."""
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        content = message.get("content") or ""
-        if (
-            "Here is the repair procedure." in content
-            and "2024006031" in content
-            and re.search(r"Step \d+ of", content)
-        ):
-            return True
-    return False
-
-
-def _facr_procedure_turn(history: list = None, latest_msg: str = "", prefix: str = "") -> str:
-    """One R&R step after authorization. Yes or no moves on. A hold stays put."""
-    import manual_figures as mf
-
-    steps = list(mf.facr_rr_layout().get("steps") or [])
-    if not steps:
-        return ""
-    number = 1
-    while number <= len(steps) and _thetford_step_confirmed(history, latest_msg, number):
-        number += 1
-    if number > len(steps):
-        return (
-            "The repair procedure is done.\n"
-            "Retest for no drip and no frost.\n"
-            "Cooling amps stay at or under 8.2 A."
-        )
-    shown = any(
-        f"Step {number} of" in _shop_text_without_how(message.get("content") or "")
-        for message in _thetford_history(history)
-        if (message.get("role") or "") == "assistant"
-    )
-    lead = ""
-    if number == 1 and prefix and not shown:
-        lead = prefix.strip() + "\n"
-    text = lead + mf.format_one_step(steps[number - 1], number, len(steps))
-    if shown and _thetford_step_hold(latest_msg) and not _thetford_wait_shown(history, number):
-        text = f"{text}\n{mf.PHOTO_WAIT}"
-    text = f"{text}\nPart 2024006031."
-    figure = steps[number - 1].get("figure") if isinstance(steps[number - 1].get("figure"), dict) else {}
-    title = (figure or {}).get("title") or "Furrion Chill FACR CCD-0008666"
-    page = (figure or {}).get("page")
-    cite = f"📖 Source: {title}, page {page}" if page else f"📖 Source: {title}"
-    if cite not in text:
-        text = f"{text}\n{cite}"
-    return text
-
-
 def _facr_rr_already_sent(history: list = None) -> bool:
     for message in history or []:
         if (message.get("role") or "") != "assistant":
@@ -7026,18 +6954,10 @@ def _live_close_reply(
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
     if job == "facr":
-        # A yes or no on a removal step stays on that procedure. It is not a new prove.
-        if _facr_walk_started(history):
-            walked = _facr_procedure_turn(history, latest_msg)
-            if walked:
-                return walked
         facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
             follow = _facr_follow_after_authorization(history, latest_msg)
             if follow:
-                walked = _facr_procedure_turn(history, latest_msg, prefix=follow)
-                if walked:
-                    return walked
                 return follow
             return facr_pressure_rr_line(facts)
         if facr_gate_turn_authorizes(facts, history, latest_msg):
