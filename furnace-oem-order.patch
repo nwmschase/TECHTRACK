@@ -1,0 +1,134 @@
+diff --git a/rv_techtrack.py b/rv_techtrack.py
+index 86a2251..922ea17 100644
+--- a/rv_techtrack.py
++++ b/rv_techtrack.py
+@@ -945,6 +945,8 @@ PROCEDURE_TOPIC_TERMS = [
+     "wiring", "dc volt", "ac volt", "lp gas", "propane", "manual gas",
+     "door seal", "frame heater", "climate control", "diagnostic mode",
+     "error code", "fault code", "sequence of operation", "ohms", "voltage",
++    "sail switch", "sail", "limit switch", "high limit", "thermostat bypass",
++    "blower", "airflow",
+ ]
+ 
+ 
+@@ -1132,6 +1134,13 @@ def search_manual_chunks(category_id, model_text: str, symptom: str, limit: int =
+         for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
+                   "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
+             query_terms.add(t)
++    # Core path terms for RV furnace — sail switch is first-line, even if the tech
++    # only typed "won't light" / "fan runs" / Dometic furnace.
++    furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
++    if any(k in furnace_blob for k in ("furnace", "sail", "blower", "won't light", "wont light", "no heat", "no ignition")):
++        for t in ("sail", "switch", "limit", "thermostat", "bypass", "blower",
++                  "airflow", "voltage", "igniter", "electrode", "valve", "propane"):
++            query_terms.add(t)
+ 
+     scored = []
+     for ch in all_chunks:
+@@ -1338,6 +1347,14 @@ CRITICAL RULES:
+    d) Shared: ventilation, level (skip if already confirmed), door seals/air leaks
+    e) Thermistor / controls
+    f) Cooling unit performance LAST (only after heat source proven)
++5b. OEM ORDER for RV furnace (Dometic / Atwood / Suburban) when category is Furnaces or the item is a furnace — do this almost first, before board, igniter, gas valve, or electrode:
++   a) Bypass the wall thermostat at the furnace (jumper t-stat terminals / local heat call) so coach controls are out of the path
++   b) Confirm 12V at the furnace under load while the blower runs (about 10.5–13.5 VDC)
++   c) Verify sail-switch POWER IN and POWER OUT with the blower running. IN without OUT = sail not closed or no airflow. No IN = wiring/board/limit/t-stat path — do not replace the sail yet
++   d) Then dirty blower / restricted return-exhaust / high-limit in series / correct sail part and paddle position
++   e) Temporary sail jumper only AFTER the blower is running; never leave jumped
++   f) Igniter, gas valve, and flame sense ONLY after the sail/limit path is proven
++   If the concern is fan runs / won't light / no heat / 1-flash airflow on a Dometic furnace, steps a–c are mandatory first recommendations even if the tech did not mention the sail switch.
+ 6. Start with brief SAFETY notes when relevant.
+ 7. Output format:
+    - SAFETY (short)
+@@ -1359,9 +1376,11 @@ CRITICAL RULES:
+ 12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω — confirm on the RM2662 page before using it").
+ 13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device."""
+ 
++        furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
+         user_prompt = f"""CATEGORY: {category_name}
+ MODEL / SYSTEM: {model_text or "(not provided)"}
+ SYMPTOM: {symptom}
++{furnace_rule}
+ 
+ MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
+ Each excerpt header has Manual + Page — copy those into every step's 📖 Source line:
+@@ -1397,6 +1416,34 @@ Do not put sources only at the bottom. Do not dump the entire chart."""
+ 
+ 
+ 
++# ---------------- FURNACE OEM ORDER (always-on coach rule) ----------------
++def is_furnace_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
++    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
++    return "furnace" in blob
++
++
++def furnace_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
++    symptom = (symptom or "").strip()
++    if is_furnace_context(category_name, model_text, symptom):
++        return f"{symptom} furnace sail switch thermostat bypass airflow limit".strip()
++    return symptom
++
++
++FURNACE_OEM_ORDER = """
++FURNACE OEM ORDER (Dometic / Atwood / Suburban and any RV furnace job) — use this whenever the category is Furnaces OR the item/model/concern is a furnace. Do this almost first. Do not wait for the tech to ask about the sail switch.
++
++1) Bypass the wall thermostat / coach climate board at the FURNACE: jumper the furnace thermostat terminals (or apply a known-good heat call at the furnace) so a bad t-stat or AC control board is out of the path. Confirm the furnace blower starts from that local call.
++2) Measure sail-switch POWER IN and POWER OUT while the blower is running (12 VDC typical).
++   - IN present, OUT absent with blower running = sail not closed (switch, paddle alignment, or not enough airflow).
++   - IN absent = do not condemn the sail yet (call circuit, wiring, board, or series high-limit).
++3) If IN is good and OUT is dead: watch the paddle, check dirty blower wheel, restricted return/exhaust, low voltage under load (need about 10.5–13.5 VDC at the furnace while running), then high-limit in series. Replace the sail only after those checks or a failed manual-actuate/continuity test.
++4) Temporary sail jumper is DIAGNOSTIC ONLY and ONLY after the blower is already running. Never jumper before the motor starts (lockout). Never leave a safety switch jumped.
++5) Only after the t-stat-bypass + sail/limit path is proven: electrode/igniter, gas pressure/valve, flame sense.
++
++When the concern is fan runs / no light / no heat / airflow or 1-flash limit fault on a Dometic furnace, the FIRST recommended inspections must be thermostat bypass and sail-switch voltage in vs out. Do not skip them because the tech did not type "sail switch".
++"""
++
++
+ # ---------------- ASK TECHTRACK (chat diagnose) ----------------
+ ASK_TECHTRACK_SYSTEM = """You are an expert RV shop technician coach helping techs diagnose and repair units on the floor.
+ 
+@@ -1413,7 +1460,8 @@ Rules:
+ 7. After the tech reports a result, interpret it and give the next 1–2 checks.
+ 8. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
+ 9. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
+-10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check."""
++10. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
++11. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power."""
+ 
+ 
+ def _ask_chat_transcript(history: list) -> str:
+@@ -1461,6 +1509,7 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
+         (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
+     )
+     search_symptom = f"{prior_user} {user_msg}".strip()
++    search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
+     chunks, context = _ask_manual_context(category_name, model_text, search_symptom, limit=8)
+ 
+     system_prompt = ASK_TECHTRACK_SYSTEM
+@@ -1468,6 +1517,8 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
+         system_prompt += f"\n\nCategory selected: {category_name}"
+     if model_text:
+         system_prompt += f"\nModel/system: {model_text}"
++    if is_furnace_context(category_name, model_text, search_symptom):
++        system_prompt += "\n\n" + FURNACE_OEM_ORDER
+     if context:
+         system_prompt += (
+             "\n\nMANUAL EXCERPTS from this shop's library "
+@@ -1788,7 +1839,7 @@ with tab_jobs:
+                             hits = search_manual_chunks(
+                                 cat_obj.id if cat_obj else None,
+                                 nj_model,
+-                                nj_concern,
++                                furnace_search_symptom(nj_cat, nj_model, nj_concern),
+                                 limit=16,
+                             )
+                             plan, sources, sources_json = run_guided_diagnostics(
+@@ -1976,7 +2027,7 @@ with tab_jobs:
+                         hits = search_manual_chunks(
+                             cat_obj.id if cat_obj else None,
+                             job.model_text or "",
+-                            job.concern,
++                            furnace_search_symptom(job.category_name, job.model_text or "", job.concern),
+                             limit=16,
+                         )
+                         plan, sources, sources_json = run_guided_diagnostics(
