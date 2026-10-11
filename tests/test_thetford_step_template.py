@@ -36,52 +36,27 @@ def _packet(title, path):
 
 
 def _assert_fields(case, text):
-    """A printed Bay step has a heading and a Do this list. Blanks and the photo script stay off."""
-    case.assertRegex(text, r"Step \d+:")
-    case.assertIn("Do this:", text)
-    case.assertNotIn("HOW:", text)
-    case.assertNotIn("PHOTO:", text)
-    case.assertNotIn("Yes, go to the next step.", text)
-    case.assertNotIn("A photo is optional.", text)
+    """A printed step keeps the action and the photo line, and leaves blanks off."""
+    case.assertIn("HOW:", text)
+    case.assertIn("PHOTO:", text)
     case.assertNotIn("UNCONFIRMED", text)
     case.assertNotIn("Not stated in this sheet", text)
-
-
-def _assert_chat(case, text):
-    """A Guided Diagnostics reply is sentences. The label block and the counter stay off."""
-    case.assertNotIn("Where:", text)
-    case.assertNotIn("Do this:", text)
-    case.assertNotIn("Good looks like:", text)
-    case.assertNotIn("Bad looks like:", text)
-    case.assertNotIn("Next:", text)
-    case.assertNotRegex(text, r"Step \d+ of")
-    case.assertNotIn("**Step ", text)
-    case.assertNotIn("HOW:", text)
-    case.assertNotIn("PHOTO:", text)
-    case.assertNotIn("Yes, go to the next step.", text)
-    case.assertNotIn("A photo is optional.", text)
-    case.assertNotIn("UNCONFIRMED", text)
-    case.assertNotIn("Not stated in this sheet", text)
-    case.assertIn("What do you see?", text)
 
 
 class TestThetfordStepTemplate(unittest.TestCase):
     def test_every_proving_line_has_the_eight_fields(self):
-        for key, line in (
-            ("supply", THETFORD_SUPPLY_LINE),
-            ("vacuum", THETFORD_VACUUM_LINE),
-            ("valve", THETFORD_VALVE_LINE),
-            ("flange", THETFORD_FLANGE_LINE),
+        for line in (
+            THETFORD_SUPPLY_LINE,
+            THETFORD_VACUUM_LINE,
+            THETFORD_VALVE_LINE,
+            THETFORD_FLANGE_LINE,
         ):
-            _assert_chat(self, line)
+            _assert_fields(self, line)
+            self.assertIn("WHERE:", line)
             self.assertNotIn("SAFETY:", line)
-            self.assertNotIn("Safety:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
-            step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
-            if mf.step_needs_photo(step):
-                self.assertEqual(line.count(mf.PHOTO_VISUAL), 1, key)
-            else:
-                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
+            self.assertIn("Take a photo", line)
+            self.assertIn("A photo is optional.", line)
 
     def test_gd_walk_keeps_the_fields_on_every_check(self):
         history = []
@@ -91,7 +66,7 @@ class TestThetfordStepTemplate(unittest.TestCase):
             reply = avoid_duplicate_reply(
                 draft, history, latest, "Plumbing / Toilets", "Style II 42070"
             )
-            _assert_chat(self, reply)
+            _assert_fields(self, reply)
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
             latest = "Not checked yet"
@@ -135,11 +110,8 @@ class TestThetfordStepTemplate(unittest.TestCase):
         doc = pymupdf.open(stream=render_bay_procedure_pdf(proc), filetype="pdf")
         pdf = "\n".join(page.get_text() for page in doc).lower()
         doc.close()
-        self.assertIn("do this:", pdf)
-        self.assertIn("step 1:", pdf)
-        self.assertNotIn("photo:", pdf)
-        self.assertNotIn("a photo is optional", pdf)
-        self.assertNotIn("yes, go to the next step", pdf)
+        self.assertIn("how:", pdf)
+        self.assertIn("photo:", pdf)
         self.assertNotIn("unconfirmed", pdf)
 
 

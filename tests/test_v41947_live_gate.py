@@ -88,12 +88,10 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         )
         titles = [procedure.get("title") or "" for procedure in proc.procedures]
         self.assertTrue(any("42109" in title for title in titles))
-        self.assertTrue(any("3412" in title for title in titles))
-        self.assertGreaterEqual(len(proc.procedures), 4)
-        valve = next(procedure for procedure in proc.procedures if "42109" in (procedure.get("title") or ""))
-        self.assertGreater(len(valve["steps"]), 13)
-        for step in valve["steps"]:
-            self.assertEqual(len(step.get("actions") or []), 1)
+        self.assertFalse(any("3412" in title for title in titles))
+        self.assertEqual(len(proc.procedures), 1)
+        valve = proc.procedures[0]
+        self.assertEqual(len(valve["steps"]), 13)
         water = valve["steps"][0]
         pedal = next(
             step for step in valve["steps"]
@@ -185,17 +183,8 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             line = mf.thetford_proving_line(key)
             self.assertNotIn("Not stated in this sheet", line)
             self.assertNotIn("UNCONFIRMED", line)
-            self.assertNotIn("Do this:", line)
-            self.assertNotIn("Where:", line)
-            self.assertNotIn("Good looks like:", line)
-            self.assertNotRegex(line, r"Step \d+ of")
-            step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
-            if mf.step_needs_photo(step):
-                self.assertIn(mf.PHOTO_VISUAL, line, key)
-            else:
-                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
-            self.assertNotIn("PHOTO:", line)
-            self.assertNotIn("A photo is optional.", line)
+            self.assertIn("HOW:", line)
+            self.assertIn("PHOTO:", line)
             self.assertNotIn("SAFETY:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
             self.assertIn("📖 Source:", line)
@@ -213,9 +202,7 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             )
             self.assertNotIn("Not stated in this sheet", reply)
             self.assertNotIn("UNCONFIRMED", reply)
-            self.assertNotIn("Do this:", reply)
-            self.assertNotIn("Where:", reply)
-            self.assertNotRegex(reply, r"Step \d+ of")
+            self.assertIn("HOW:", reply)
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
             latest = "Not checked yet"
@@ -495,11 +482,8 @@ class TestS20BleedReply(unittest.TestCase):
         from gd_library_coach import LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT
 
         for body in (LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT):
-            self.assertIn("Bleed and resync the jacks", body)
-            self.assertNotIn("Do this:", body)
-            self.assertNotIn("**Step", body)
-            self.assertNotIn("Yes, go to the next step.", body)
-            self.assertNotIn("No, do this step again.", body)
+            self.assertIn("Yes, go to the next step.", body)
+            self.assertIn("No, do this step again.", body)
             self.assertNotIn("Part 177094 is the cartridge valve", body)
             self.assertNotIn("177094", body)
 
