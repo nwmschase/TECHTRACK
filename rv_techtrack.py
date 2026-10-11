@@ -455,6 +455,7 @@ from bay_procedure import (
     apply_chunk_figures,
     compile_bay_procedure,
     crop_page_png_to_figure,
+    cited_figure_count,
     paint_library_step_figures,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
@@ -4857,6 +4858,7 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
 
     An empty library leaves the reply exactly as the shop line wrote it.
     """
+    import library_figure_backfill as fb
     import manual_figures as mf
 
     physical = bool(re.search(
@@ -4867,7 +4869,11 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     asked = mf.wants_manual_image(user_msg) or wants_library_page_shown(user_msg)
     if not physical and not asked:
         return reply
-    chosen = _stored_figure_matches(reply, user_msg, category_name, model_text)
+    chosen = [
+        item
+        for item in _stored_figure_matches(reply, user_msg, category_name, model_text)
+        if fb.fits_case(item, category_name, model_text, user_msg, reply)
+    ]
     if not chosen:
         return reply
     limit = 3 if asked else 1
@@ -5905,7 +5911,7 @@ def _merge_stored_figures(proc, chunks):
         return proc
     if not rows:
         return proc
-    job = f"{proc.brand} {proc.model} {proc.concern}"
+    job = f"{proc.category or ''} {proc.brand or ''} {proc.model or ''} {proc.concern or ''}"
     packets = fb.figure_packets(rows, chunks, job)
     if not packets:
         return proc
@@ -5937,7 +5943,12 @@ def _merge_stored_figures(proc, chunks):
     packets = [packet for packet in packets if packet.get("figures")]
     if packets:
         proc = apply_chunk_figures(proc, packets)
-    groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category, proc.model)
+    groups = fb.figures_beside_steps(
+        rows,
+        proc.bay_order,
+        proc.category,
+        f"{proc.brand or ''} {proc.model or ''}".strip(),
+    )
     pending = [offer for group in groups for offer in group if not offer.get("png")]
     if pending:
         try:
@@ -6059,7 +6070,7 @@ with tab_jobs:
                 "primary_cite": proc.primary_cite,
                 "sources": proc.sources,
                 "check_count": len(proc.bay_order),
-                "figure_count": len(proc.figures),
+                "figure_count": cited_figure_count(proc),
             }
             st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
 
