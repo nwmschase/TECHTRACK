@@ -855,6 +855,7 @@ _LINE_RES = (
     # and a Titan bracket is not Level Up.
     ("tongue_jack", re.compile(r"tongue\s*jack|bevel\s*gear", re.I)),
     ("titan", re.compile(r"\btitan\b|\bti[\s-]*489\b", re.I)),
+    ("happijac", re.compile(r"happi\s*jac", re.I)),
     ("ac", re.compile(r"air\s*condition|\brooftop\b|\bhvac\b|\bb57915\b|\bbrisk\b", re.I)),
     ("plastic_tank", re.compile(r"plastic\s+tank", re.I)),
     ("toilet", re.compile(
@@ -897,6 +898,43 @@ def _category_family(text: str) -> str:
 
 def _part_ids(text: str) -> set[str]:
     return set(re.findall(r"\b\d{4,}\b", text or ""))
+
+
+_BRAND_WORDS = {
+    "lippert", "dometic", "thetford", "furrion", "atwood", "coleman",
+    "girard", "suburban", "norcold", "happijac",
+}
+# Shared family words are not a topic. "Level" does not make a slide motor
+# relevant to a Manual Mode flash, and it does not make a HappiJac crop a PSX1.
+_GENERIC_TOPIC = {
+    "level", "mode", "auto", "home", "manual", "advantage", "system",
+    "repair", "check", "unit", "model", "works", "still", "flash",
+    "flashes", "dumps", "back", "page", "figure",
+}
+
+
+def figure_on_topic(row, reply="", user_msg="", model="") -> bool:
+    """A same-family crop still has to share the step's topic or part.
+
+    A bare Fig. label on a document that already passed the brand gate stays.
+    A table, a header strip, or a crop about a different part does not.
+    """
+    if junk_figure(row):
+        return False
+    identity = _figure_identity(row)
+    step_blob = " ".join(part for part in (reply, user_msg, model) if part)
+    if mf.brands_conflict(step_blob, identity):
+        return False
+    step = _without_how(" ".join(part for part in (reply, user_msg, model) if part))
+    step_words = _words(step) - _BRAND_WORDS - _GENERIC_TOPIC
+    row_words = _words(identity) - _BRAND_WORDS - _GENERIC_TOPIC
+    ids_step = _part_ids(step)
+    ids_row = _part_ids(identity)
+    if ids_row and ids_step:
+        return not ids_row.isdisjoint(ids_step)
+    if step_words & row_words:
+        return True
+    return not row_words
 
 
 def _row_text(row: dict) -> str:
@@ -959,7 +997,11 @@ def junk_figure(row) -> bool:
         return True
     if re.search(r"port[-\s]*header|running header|header strip", blob, re.I):
         return True
+    if re.search(r"\b(?:lcd|spec(?:ification)?\s+table|data\s+table)\b|\btable\b", blob, re.I):
+        return True
     if re.search(r"\bti[\s-]*143\b", blob, re.I) and not re.search(r"\bpsx1\b|roll\s*pin", blob, re.I):
+        return True
+    if re.search(r"\bti[\s-]*324\b", blob, re.I):
         return True
     try:
         width = int((row or {}).get("width") or 0)
@@ -1087,6 +1129,7 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
         for row in rows or []
         if (row.get("kind") or "figure") == "figure"
         and fits_case(row, category, model, user_msg, reply)
+        and figure_on_topic(row, reply, user_msg, model)
     ]
     topic = mf.part_topic(_without_how(reply))
     if topic:

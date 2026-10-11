@@ -59,6 +59,8 @@ _BRANDS = (
     "furrion",
     "suburban",
     "girard",
+    "happijac",
+    "happi jac",
     "lippert",
     "norcold",
     "bal",
@@ -802,12 +804,39 @@ def hide_internal_marker(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", cleaned)
 
 
+_LABEL_ONLY_RE = re.compile(
+    r"^(?:Water off|Power off|Propane off|Tools|Meter setting|Good|Bad|On good|On bad)\s*:?$",
+    re.I,
+)
+
+
+def shop_field_value(value: str) -> str:
+    """The words a field actually states. An unfilled field is blank."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    kept = []
+    for part in re.split(r"(?<=[.])\s+", text):
+        if NOT_STATED in part:
+            rest = re.sub(re.escape(NOT_STATED), " ", part).strip(" .;")
+            if not rest or _LABEL_ONLY_RE.match(rest):
+                continue
+            part = rest
+        part = part.strip()
+        if not part or _LABEL_ONLY_RE.match(part.strip(".")):
+            continue
+        kept.append(part if part.endswith(".") else part)
+    return re.sub(r"\s+", " ", " ".join(kept)).strip()
+
+
 def format_step_fields(fields: dict) -> str:
-    """The fixed shop template. A blank value is not stated in this sheet."""
+    """The shop template. A field the sheet does not fill in is left off."""
     lines = []
     for name in STEP_FIELDS:
-        value = re.sub(r"\s+", " ", str((fields or {}).get(name) or "")).strip()
-        lines.append(f"{name}: {value or NOT_STATED}")
+        value = shop_field_value((fields or {}).get(name) or "")
+        if not value:
+            continue
+        lines.append(f"{name}: {value}")
     lines.append(YES_LINE)
     lines.append(NO_LINE)
     return "\n".join(lines)
@@ -945,11 +974,19 @@ def step_field_lines(step: dict) -> list[str]:
     lines = []
     for name in STEP_FIELDS:
         if name == "HOW":
-            lines.append(f"HOW: {actions[0] if actions else NOT_STATED}")
+            how_value = shop_field_value(actions[0] if actions else "")
+            if not how_value:
+                continue
+            lines.append(f"HOW: {how_value}")
             for extra in actions[1:]:
-                lines.append(extra)
+                extra_value = shop_field_value(extra)
+                if extra_value:
+                    lines.append(extra_value)
             continue
-        lines.append(f"{name}: {(fields.get(name) or '').strip() or NOT_STATED}")
+        value = shop_field_value(fields.get(name) or "")
+        if not value:
+            continue
+        lines.append(f"{name}: {value}")
     lines.append(YES_LINE)
     lines.append(NO_LINE)
     return lines

@@ -50,8 +50,13 @@ class TestTranscriptReplay(unittest.TestCase):
         blob = " ".join(replies).lower()
         self.assertNotIn("reseat the freeze sensor", blob)
         self.assertNotIn("wall thermostat", blob)
-        self.assertNotIn("replace the rooftop assembly", blob)
-        self.assertIn("pressure", blob)
+        for reply in replies[:4]:
+            self.assertNotIn("replace the rooftop assembly", reply.lower())
+            self.assertNotIn("authorize rooftop assembly", reply.lower())
+        closing = replies[4].lower()
+        self.assertIn("authorize rooftop assembly", closing)
+        self.assertIn("replace the rooftop assembly", closing)
+        self.assertIn("ccd-0007990", closing)
 
     def test_s02_does_not_replace_a_wall_thermostat_on_a_coleman(self):
         replies = _replay(

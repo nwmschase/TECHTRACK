@@ -744,7 +744,7 @@ class TestBayPdfShowsKitCrops(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(proc.procedures, [])
+        self.assertGreaterEqual(len(proc.procedures), 2)
         vacuum = next(i for i, step in enumerate(proc.bay_order) if "vacuum breaker" in step.lower())
         valve = next(i for i, step in enumerate(proc.bay_order) if "42109" in step)
         for index, needle in ((vacuum, "34123"), (valve, "42109")):

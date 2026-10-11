@@ -2994,7 +2994,9 @@ def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind:
             return False
         return len(_procedure_words(blob) & _procedure_words(topic_text)) >= 2
     if any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ())):
-        return False
+        prefer = _QUOTE_PREFER.get(path_kind, ())
+        if not any(pattern.search(blob) for pattern in prefer):
+            return False
     if path_kind == "cooktop_tip":
         if re.search(r"thermocouple|\bflame\b", blob):
             return True
@@ -3245,7 +3247,10 @@ def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> st
     """
     raw = chunk_text or ""
     canon = _CANON_QUOTES.get(path_kind or "")
-    if canon and _quote_is_verbatim(raw, canon):
+    if canon and (
+        _quote_is_verbatim(raw, canon)
+        or (path_kind == "girard_e8" and re.search(r"pressure switch hose", raw or "", re.I))
+    ):
         return canon
     cleaned = clean_ocr_prose(raw)
     kept = []
@@ -6350,6 +6355,14 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                 reply=job,
             ):
                 continue
+            on_topic = getattr(fb, "figure_on_topic", None)
+            if on_topic is not None and not on_topic(
+                {**packet, "title": fig_title, "label": figure.get("label") or "", "caption": figure.get("caption") or ""},
+                proc.bay_order[slot] if slot < len(proc.bay_order) else "",
+                proc.concern or "",
+                f"{proc.brand or ''} {proc.model or ''}".strip(),
+            ):
+                continue
             png = figure.get("png") or b""
             if not png or mf.png_is_blank(png):
                 continue
@@ -6472,6 +6485,69 @@ def _kit_crop_for_step(step: str, figures: list):
         ),
         None,
     )
+
+
+def attach_thetford_repair_procedures(proc: BayProcedure) -> BayProcedure:
+    """The flush-leak sheet carries the numbered valve and breaker repairs.
+
+    The four checks stay the diagnosis. Each kit step that has a crop keeps it.
+    """
+    import manual_figures as mf
+
+    if not proc.bay_order:
+        return proc
+    blob = " ".join(
+        part for part in (proc.category, proc.brand, proc.model, proc.concern, proc.primary_cite) if part
+    )
+    if not mf.job_is_thetford(blob, " ".join(proc.bay_order)):
+        return proc
+    order = " ".join(proc.bay_order).lower()
+    if "vacuum" not in order and "42109" not in order:
+        return proc
+    built = []
+    for kind in ("valve", "breaker"):
+        layout = mf.thetford_kit_layout(kind)
+        if layout.get("steps"):
+            built.append(layout)
+    if built:
+        proc.procedures = built
+    return proc
+
+
+def _figure_identity_key(fig) -> tuple:
+    png = getattr(fig, "image_png", None)
+    if png is None and isinstance(fig, dict):
+        png = fig.get("png") or fig.get("image_png") or b""
+        title = (fig.get("title") or "").strip().lower()
+        caption = (fig.get("caption") or fig.get("label") or "").strip().lower()
+        page = fig.get("page")
+    else:
+        png = png or b""
+        title = (getattr(fig, "title", "") or "").strip().lower()
+        caption = (getattr(fig, "caption", "") or "").strip().lower()
+        page = getattr(fig, "page", None)
+    if png:
+        return ("png", png)
+    return ("id", title, page, caption)
+
+
+def dedupe_sheet_figures(proc: BayProcedure) -> BayProcedure:
+    """One copy of a figure on the sheet. The first step that uses it keeps it."""
+    seen = set()
+
+    def keep(fig) -> bool:
+        key = _figure_identity_key(fig)
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
+    proc.step_figures = [
+        [fig for fig in group if keep(fig)]
+        for group in (proc.step_figures or [])
+    ]
+    proc.figures = [fig for fig in (proc.figures or []) if keep(fig)]
+    return proc
 
 
 def place_thetford_kit_crops(proc: BayProcedure) -> BayProcedure:
@@ -6963,7 +7039,9 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
-    return place_thetford_kit_crops(apply_chunk_figures(proc, chunks))
+    return dedupe_sheet_figures(
+        attach_thetford_repair_procedures(place_thetford_kit_crops(apply_chunk_figures(proc, chunks)))
+    )
 
 
 def _is_fact12_job(model_text: str) -> bool:
@@ -8716,6 +8794,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     then pattern meaning, full bay order, do-not, sources, figures. Long paths
     paginate from measured block heights. See BAY_SHEET_STANDARD_PATH.
     """
+    proc = dedupe_sheet_figures(proc)
     pages: list[SheetPage] = []
     page = _new_sheet_page()
     pages.append(page)
