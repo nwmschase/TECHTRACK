@@ -5293,22 +5293,12 @@ LEADJACK_VERIFY_BODY = (
     "Did the drift stop?\n"
     "Yes, go to the next step.\n"
     "No, do this step again.\n"
-    "Part 177094 is the cartridge valve.\n"
-    + LEADJACK_CARTRIDGE_CITE_TOWABLE
-    + "\n"
-    + LEADJACK_CARTRIDGE_CITE_FW
-    + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_WAIT = (
     "Report whether the drift stopped after the bleed and resync.\n"
     "Yes, go to the next step.\n"
     "No, do this step again.\n"
-    "Part 177094 is the cartridge valve.\n"
-    + LEADJACK_CARTRIDGE_CITE_TOWABLE
-    + "\n"
-    + LEADJACK_CARTRIDGE_CITE_FW
-    + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")

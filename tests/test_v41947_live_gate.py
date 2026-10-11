@@ -94,19 +94,30 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         self.assertEqual(len(breaker["steps"]), 13)
         water = valve["steps"][0]
         pedal = valve["steps"][3]
+        thumb = next(step for step in valve["steps"] if "thumb" in (step.get("text") or "").lower())
+        inlet = next(step for step in valve["steps"] if "inlet seal in" in (step.get("text") or "").lower())
+        drive = next(step for step in valve["steps"] if "drive pin" in (step.get("text") or "").lower())
+        pivot = next(step for step in valve["steps"] if "pivot" in (step.get("text") or "").lower())
         self.assertIn("turn off the water", (water.get("text") or "").lower())
-        self.assertIn("WATER", (water.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((water.get("figure") or {}).get("png") or b""))
+        self.assertIsNone(water.get("figure"))
         self.assertIn("pull the pedal", (pedal.get("text") or "").lower())
-        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        self.assertIsNone(pedal.get("figure"))
+        self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
+        self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
+        self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
+        self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((thumb.get("figure") or {}).get("png") or b""))
         figured = 0
         for procedure in proc.procedures:
             for step in procedure["steps"]:
-                png = (step.get("figure") or {}).get("png") or b""
+                figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+                png = (figure or {}).get("png") or b""
                 if png and not mf.png_is_blank(png):
                     figured += 1
-        self.assertGreaterEqual(figured, 7)
+                    self.assertTrue(figure.get("label"))
+                else:
+                    self.assertFalse(figure)
+        self.assertGreaterEqual(figured, 5)
         trace = []
         pdf = render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])
@@ -135,6 +146,20 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         )
         self.assertEqual(proc.procedures, [])
         self.assertNotIn("42109", " ".join(proc.bay_order))
+
+
+class TestFillerSentenceOnce(unittest.TestCase):
+    def test_the_filler_sentence_is_said_at_most_once(self):
+        repeated = (
+            "Not stated in this sheet. Check the valve. "
+            "Not stated in this sheet. Not stated in this sheet."
+        )
+        cleaned = mf.hide_internal_marker(repeated)
+        self.assertEqual(cleaned.lower().count("not stated in this sheet"), 1)
+        self.assertIn("Check the valve", cleaned)
+        markers = mf.hide_internal_marker("UNCONFIRMED. Do the check. UNCONFIRMED.")
+        self.assertEqual(markers.lower().count("not stated in this sheet"), 1)
+        self.assertIn("Do the check", markers)
 
 
 class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
@@ -426,6 +451,17 @@ class TestS01RepairByTurnFive(unittest.TestCase):
         last = replies[-1].lower()
         self.assertNotIn("replace the rooftop assembly", last)
         self.assertNotIn("authorize rooftop assembly", last)
+
+
+class TestS20BleedReply(unittest.TestCase):
+    def test_the_bleed_reply_is_a_yes_no_without_the_cartridge_clause(self):
+        from gd_library_coach import LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT
+
+        for body in (LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT):
+            self.assertIn("Yes, go to the next step.", body)
+            self.assertIn("No, do this step again.", body)
+            self.assertNotIn("Part 177094 is the cartridge valve", body)
+            self.assertNotIn("177094", body)
 
 
 class TestS13HoseQuote(unittest.TestCase):

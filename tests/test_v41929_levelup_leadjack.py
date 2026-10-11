@@ -181,7 +181,10 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertNotIn("swap plumbing", follow.lower())
         self.assertNotIn("notched", follow.lower())
         again = self._turn("Not checked yet", history)
-        self.assertIn("177094", again)
+        self.assertIn("Bleed and resync the jacks.", again)
+        self.assertIn("Yes, go to the next step.", again)
+        self.assertIn("No, do this step again.", again)
+        self.assertNotIn("Part 177094 is the cartridge valve", again)
         self.assertNotIn("swap plumbing", again.lower())
         self.assertNotIn("notched", again.lower())
 
@@ -259,6 +262,7 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertIn("Yes, go to the next step.", override)
         self.assertIn("No, do this step again.", override)
         self.assertNotIn("1. Remove the front lead-jack cartridge valve", override)
+        self.assertNotIn("Part 177094 is the cartridge valve", override)
 
     def test_s20_does_not_borrow_a_furnace_chat(self):
         history = [

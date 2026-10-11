@@ -798,10 +798,27 @@ NOT_STATED = "Not stated in this sheet."
 
 
 def hide_internal_marker(text: str) -> str:
-    """The shop never prints the internal blank-field marker."""
+    """The shop never prints the internal blank-field marker.
+
+    The filler sentence is said at most once. A reply that never needed it
+    stays without it.
+    """
     cleaned = re.sub(r"\bUNCONFIRMED\b\.?", NOT_STATED, text or "", flags=re.I)
-    cleaned = re.sub(r"(?:Not stated in this sheet\.\s*){2,}", "Not stated in this sheet. ", cleaned)
-    return re.sub(r"[ \t]{2,}", " ", cleaned)
+    phrase = re.compile(r"Not stated in this sheet\.?", re.I)
+    found = list(phrase.finditer(cleaned))
+    if len(found) > 1:
+        pieces = []
+        last = 0
+        for index, match in enumerate(found):
+            pieces.append(cleaned[last:match.start()])
+            if index == 0:
+                pieces.append(match.group(0))
+            last = match.end()
+        pieces.append(cleaned[last:])
+        cleaned = "".join(pieces)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r" +([.,;:])", r"\1", cleaned)
+    return cleaned
 
 
 _LABEL_ONLY_RE = re.compile(
@@ -1378,8 +1395,8 @@ def _pick_figure(source: str, callouts: list, figures: list):
         if named and any(number in named for number in nums):
             candidates.append(figure)
     if not candidates:
-        talks = re.search(r"\b(?:clamp|pocket|pin)\s+[A-C]\b", source or "", re.I) or any(
-            re.search(r"\b(?:clamp|pocket|pin)\b", item or "", re.I) for item in callouts or []
+        talks = re.search(r"\b(?:clamps?|pockets?|pins?)\s+[A-C]\b", source or "", re.I) or any(
+            re.search(r"\b(?:clamps?|pockets?|pins?)\s+[A-C]\b", item or "", re.I) for item in callouts or []
         )
         if talks and len(figures) == 1:
             return figures[0]
@@ -1481,44 +1498,12 @@ def _matching_kit_crop(figures: list, pattern: str):
 
 
 def attach_open_kit_crops(steps: list, figures: list, doc: str = "") -> list:
-    """Put the kit crop on a step that names that action and does not already have one.
+    """Leave the crops the numbered instruction already named.
 
-    Water-off uses Fig. 3 WATER. Pulling the pedal off uses Fig. 1 PEDAL REMOVED.
-    A step that already names a figure keeps that crop.
+    A water-off line with no Fig. callout stays text. A line that says See Fig. 1
+    keeps that crop. Action words alone do not add a crop.
     """
-    water = _matching_kit_crop(figures, r"fig\.?\s*3\b.*\bwater\b|\bfig\.?\s*3\b")
-    pedal = _matching_kit_crop(figures, r"pedal\s+removed")
-    for step in steps or []:
-        current = step.get("figure") if isinstance(step.get("figure"), dict) else None
-        if current and (current.get("png") or b"") and not png_is_blank(current.get("png") or b""):
-            continue
-        fields = step.get("fields") or {}
-        if re.search(r"fig(?:ure)?\.?\s*\d+", fields.get("FIGURE") or "", re.I):
-            continue
-        blob = " ".join(
-            part
-            for part in (
-                step.get("text") or "",
-                fields.get("HOW") or "",
-                fields.get("WHERE") or "",
-            )
-            if part
-        )
-        chosen = None
-        if pedal and re.search(r"pull the pedal (?:up and )?off", blob, re.I):
-            chosen = pedal
-        elif water and re.search(r"turn off the water|under the water hose", blob, re.I):
-            if not re.search(r"pedal", water.get("label") or "", re.I):
-                chosen = water
-        if not chosen:
-            continue
-        step["figure"] = chosen
-        nums = _figure_numbers(chosen.get("label") or "")
-        if nums:
-            step["fig"] = nums[0]
-        updated = dict(fields)
-        updated["FIGURE"] = _figure_field(step, chosen.get("title") or doc or "")
-        step["fields"] = updated
+    del figures, doc
     return steps
 
 
