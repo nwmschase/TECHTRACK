@@ -7,6 +7,7 @@ up the next read. This module does not import Streamlit.
 """
 from __future__ import annotations
 
+import gc
 import time
 from pathlib import Path
 
@@ -34,6 +35,8 @@ BUNDLED_NOTE = "Bundled kit sheet, not from the shop library."
 CACHE_DIR = Path("library_pages")
 _LOCK_SECONDS = 180
 _BATCH = 2
+# One Streamlit step renders this many pages, then the next step resumes.
+PAGES_PER_STEP = 8
 
 _JOB_DDL = """
 CREATE TABLE IF NOT EXISTS figure_backfill_jobs (
@@ -56,7 +59,8 @@ CREATE TABLE IF NOT EXISTS figure_backfill_items (
     error VARCHAR(400) DEFAULT '',
     page_count INTEGER DEFAULT 0,
     figure_count INTEGER DEFAULT 0,
-    byte_size INTEGER DEFAULT 0
+    byte_size INTEGER DEFAULT 0,
+    page_cursor INTEGER DEFAULT 0
 )
 """
 
@@ -101,6 +105,11 @@ def ensure_schema(engine) -> None:
                 conn.exec_driver_sql(ddl)
         conn.exec_driver_sql(_JOB_DDL)
         conn.exec_driver_sql(_ITEM_DDL)
+        item_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(figure_backfill_items)").fetchall()}
+        if "page_cursor" not in item_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE figure_backfill_items ADD COLUMN page_cursor INTEGER DEFAULT 0"
+            )
 
 
 def _column_names(session, table: str) -> set[str]:
@@ -124,6 +133,10 @@ def ensure_ready(session) -> None:
         session.execute(text(_JOB_DDL))
     if not _column_names(session, "figure_backfill_items"):
         session.execute(text(_ITEM_DDL))
+    elif "page_cursor" not in _column_names(session, "figure_backfill_items"):
+        session.execute(text(
+            "ALTER TABLE figure_backfill_items ADD COLUMN page_cursor INTEGER DEFAULT 0"
+        ))
 
 
 def link_chunk_ids(session, document_id: int) -> None:
@@ -183,6 +196,46 @@ def fetch_png(image_path: str, download=None, cache_root=None) -> bytes:
     return data or b""
 
 
+def _insert_asset(session, document_id, page, kind, label, path, width, height, caption, bbox) -> None:
+    session.execute(
+        text(
+            """
+            INSERT INTO doc_assets (
+                document_id, page, kind, label, image_path, width, height,
+                png_blob, caption, bbox, chunk_id
+            ) VALUES (
+                :document_id, :page, :kind, :label, :image_path, :width, :height,
+                NULL, :caption, :bbox, NULL
+            )
+            """
+        ),
+        {
+            "document_id": int(document_id),
+            "page": int(page),
+            "kind": kind,
+            "label": label,
+            "image_path": path,
+            "width": int(width or 0),
+            "height": int(height or 0),
+            "caption": caption,
+            "bbox": mf.format_bbox(bbox),
+        },
+    )
+
+
+def _ship_png(png: bytes, path: str, upload_png, root) -> None:
+    """Upload one PNG, optionally cache it, then the caller drops the bytes."""
+    if root is not None and png and path:
+        dest = Path(root) / path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(png)
+    if upload_png and png and path:
+        try:
+            upload_png(png, path, "image/png")
+        except Exception:
+            pass
+
+
 def store_pdf_figures(
     session,
     document_id: int,
@@ -190,66 +243,90 @@ def store_pdf_figures(
     title: str = "",
     upload_png=None,
     root=None,
+    start_page: int = 1,
+    max_pages: int | None = None,
 ) -> dict:
-    """Render every page and crop captioned figures for one document.
+    """Render a window of pages, one page at a time, and upload each PNG.
 
-    Does not commit. The PNG is uploaded to R2. The row stores the key,
-    caption, page, and box, not the image bytes. ``root`` writes a cache copy
-    for callers that are not using R2.
+    Does not commit. The row stores the key, caption, page, and box, not the
+    image bytes. ``start_page`` and ``max_pages`` let a long manual resume
+    without rendering the rest of the file in this step. PNG bytes are dropped
+    before the next page is rasterized.
     """
     ensure_ready(session)
-    indexed = mf.index_pdf_bytes(pdf_bytes)
-    assets = mf.assets_from_index(indexed, int(document_id))
-    if root is not None:
-        mf.write_asset_files(int(document_id), assets, Path(root))
-    session.execute(
-        text("DELETE FROM doc_assets WHERE document_id = :id"),
-        {"id": int(document_id)},
-    )
-    stored_bytes = 0
-    for asset in assets:
-        png = asset.get("png") or b""
-        stored_bytes += len(png)
-        path = asset.get("image_path") or ""
-        if upload_png and png and path:
-            try:
-                upload_png(png, path, "image/png")
-            except Exception:
-                pass
-        label = asset.get("label") or ""
-        if title:
-            caption = mf.display_caption(
-                title, asset["page"], label if asset.get("kind") == "figure" else (label or "page")
-            )
-        else:
-            caption = asset.get("caption") or ""
+    start = max(1, int(start_page or 1))
+    if start <= 1:
         session.execute(
-            text(
-                """
-                INSERT INTO doc_assets (
-                    document_id, page, kind, label, image_path, width, height,
-                    png_blob, caption, bbox, chunk_id
-                ) VALUES (
-                    :document_id, :page, :kind, :label, :image_path, :width, :height,
-                    NULL, :caption, :bbox, NULL
-                )
-                """
-            ),
-            {
-                "document_id": int(document_id),
-                "page": int(asset["page"]),
-                "kind": asset["kind"],
-                "label": label,
-                "image_path": path,
-                "width": int(asset.get("width") or 0),
-                "height": int(asset.get("height") or 0),
-                "caption": caption,
-                "bbox": mf.format_bbox(asset.get("bbox")),
-            },
+            text("DELETE FROM doc_assets WHERE document_id = :id"),
+            {"id": int(document_id)},
         )
+    else:
+        session.execute(
+            text("DELETE FROM doc_assets WHERE document_id = :id AND page >= :page"),
+            {"id": int(document_id), "page": start},
+        )
+    pages = []
+    figures = []
+    stored_bytes = 0
+    page_count = 0
+    any_text = False
+    last_page = start - 1
+    for rendered in mf.walk_pdf_pages(pdf_bytes, start_page=start, max_pages=max_pages):
+        page_count = int(rendered["page_count"])
+        last_page = int(rendered["page"])
+        page_text = rendered.get("text") or ""
+        if page_text:
+            any_text = True
+        png = rendered.get("png") or b""
+        stored_bytes += len(png)
+        path = mf.asset_path(int(document_id), last_page, "page", "page")
+        _ship_png(png, path, upload_png, root)
+        label = "page"
+        caption = mf.display_caption(title, last_page, label) if title else ""
+        width = int(rendered.get("width") or 0)
+        height = int(rendered.get("height") or 0)
+        _insert_asset(
+            session, document_id, last_page, "page", "", path, width, height, caption, ""
+        )
+        pages.append({"page": last_page, "width": width, "height": height})
+        rendered["png"] = b""
+        png = b""
+        for figure in list(rendered.get("figures") or []):
+            fig_png = figure.get("png") or b""
+            stored_bytes += len(fig_png)
+            fig_label = figure.get("label") or ""
+            fig_path = mf.asset_path(int(document_id), last_page, "figure", fig_label or "fig")
+            _ship_png(fig_png, fig_path, upload_png, root)
+            fig_caption = mf.display_caption(title, last_page, fig_label) if title else (fig_label or "")
+            _insert_asset(
+                session,
+                document_id,
+                last_page,
+                "figure",
+                fig_label,
+                fig_path,
+                int(figure.get("width") or 0),
+                int(figure.get("height") or 0),
+                fig_caption,
+                figure.get("bbox"),
+            )
+            figures.append({"page": last_page, "label": fig_label})
+            figure["png"] = b""
+        rendered["figures"] = []
+        gc.collect()
     link_chunk_ids(session, int(document_id))
-    indexed["stored_bytes"] = stored_bytes
-    return indexed
+    next_page = last_page + 1 if page_count else 1
+    done = page_count == 0 or next_page > page_count
+    whole = max_pages is None or (start <= 1 and done)
+    return {
+        "pages": pages,
+        "figures": figures,
+        "scanned": (not any_text) if whole else False,
+        "stored_bytes": stored_bytes,
+        "page_count": page_count,
+        "next_page": next_page,
+        "done": done,
+    }
 
 
 def _pdf_documents(session) -> list[dict]:
@@ -571,49 +648,78 @@ def process_backfill_batch(
         """
         SELECT * FROM figure_backfill_items
         WHERE job_id = :id AND status = 'pending'
-        ORDER BY id
+        ORDER BY CASE WHEN COALESCE(page_cursor, 0) > 0 THEN 0 ELSE 1 END, id
         LIMIT :batch
         """,
         {"id": int(job_id), "batch": batch},
     )
-    for row in pending:
-        session.execute(
-            text("UPDATE figure_backfill_items SET status = 'working' WHERE id = :id"),
-            {"id": row["id"]},
-        )
-    session.commit()
-    done = failed = 0
+    done = failed = processed = 0
     for index, item in enumerate(pending, 1):
         title = item.get("title") or ""
+        session.execute(
+            text("UPDATE figure_backfill_items SET status = 'working' WHERE id = :id"),
+            {"id": item["id"]},
+        )
+        session.commit()
         try:
             data = download_pdf(item.get("file_path") or "") if download_pdf else None
             if not data:
                 raise RuntimeError("could not download the pdf")
+            start = int(item.get("page_cursor") or 0) or 1
             indexed = store_pdf_figures(
                 session,
                 int(item["document_id"]),
                 data,
                 title=title,
                 upload_png=upload_png,
+                start_page=start,
+                max_pages=PAGES_PER_STEP,
             )
-            session.execute(
-                text(
-                    """
-                    UPDATE figure_backfill_items
-                    SET status = 'done', error = '', page_count = :pages,
-                        figure_count = :figures, byte_size = :nbytes
-                    WHERE id = :id
-                    """
-                ),
-                {
-                    "pages": len(indexed.get("pages") or []),
-                    "figures": len(indexed.get("figures") or []),
-                    "nbytes": int(indexed.get("stored_bytes") or 0),
-                    "id": item["id"],
-                },
-            )
+            del data
+            gc.collect()
+            page_count = int(indexed.get("page_count") or 0)
+            figure_count = int(item.get("figure_count") or 0) + len(indexed.get("figures") or [])
+            nbytes = int(item.get("byte_size") or 0) + int(indexed.get("stored_bytes") or 0)
+            if indexed.get("done", True):
+                session.execute(
+                    text(
+                        """
+                        UPDATE figure_backfill_items
+                        SET status = 'done', error = '', page_count = :pages,
+                            figure_count = :figures, byte_size = :nbytes, page_cursor = 0
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "pages": page_count or len(indexed.get("pages") or []),
+                        "figures": figure_count,
+                        "nbytes": nbytes,
+                        "id": item["id"],
+                    },
+                )
+                done += 1
+                finished_file = True
+            else:
+                session.execute(
+                    text(
+                        """
+                        UPDATE figure_backfill_items
+                        SET status = 'pending', error = '', page_count = :pages,
+                            figure_count = :figures, byte_size = :nbytes, page_cursor = :cursor
+                        WHERE id = :id
+                        """
+                    ),
+                    {
+                        "pages": page_count,
+                        "figures": figure_count,
+                        "nbytes": nbytes,
+                        "cursor": int(indexed.get("next_page") or 0),
+                        "id": item["id"],
+                    },
+                )
+                finished_file = False
             session.commit()
-            done += 1
+            processed += 1
         except Exception as exc:
             session.rollback()
             session.execute(
@@ -628,11 +734,15 @@ def process_backfill_batch(
             )
             session.commit()
             failed += 1
+            processed += 1
+            finished_file = True
         if progress:
             try:
                 progress(index, len(pending), title)
             except Exception:
                 pass
+        if not finished_file:
+            break
     counts = job_progress(session, int(job_id))
     finished = counts["pending"] == 0 and counts["working"] == 0
     status = "complete" if finished else "paused"
@@ -650,7 +760,7 @@ def process_backfill_batch(
     return {
         "ok": True,
         "job_id": int(job_id),
-        "processed": len(pending),
+        "processed": processed,
         "done": done,
         "failed": failed,
         "pending": counts["pending"],

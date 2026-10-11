@@ -7,6 +7,7 @@ text keeps the page image and does not grow a made-up figure.
 """
 from __future__ import annotations
 
+import gc
 import io
 import re
 import sqlite3
@@ -110,11 +111,97 @@ def _fitz():
     return pymupdf
 
 
+def _release_pixmap(pix) -> None:
+    """Drop one raster. The next page must not keep this buffer."""
+    if pix is None:
+        return
+    try:
+        pix.close()
+    except Exception:
+        pass
+
+
+def _release_document(doc) -> None:
+    """Close the PDF and drop MuPDF's decoded-image store."""
+    fitz = _fitz()
+    if doc is not None:
+        try:
+            doc.close()
+        except Exception:
+            pass
+    try:
+        fitz.TOOLS.store_shrink(100)
+    except Exception:
+        pass
+    gc.collect()
+
+
 def render_page_png(page, zoom: float = _ZOOM) -> bytes:
     """Rasterize one PyMuPDF page. Vector drawings become pixels here."""
     fitz = _fitz()
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
-    return pix.tobytes("png")
+    try:
+        return pix.tobytes("png")
+    finally:
+        _release_pixmap(pix)
+
+
+def walk_pdf_pages(source, start_page: int = 1, max_pages: int | None = None):
+    """Yield one rendered page, then free its pixmap before the next page.
+
+    ``source`` is PDF bytes or a filesystem path. The yielded dict is cleared
+    after the caller continues, so the PNG bytes do not accumulate.
+    """
+    fitz = _fitz()
+    if isinstance(source, (bytes, bytearray)):
+        doc = fitz.open(stream=bytes(source), filetype="pdf")
+    else:
+        doc = fitz.open(str(source))
+    try:
+        total = int(doc.page_count)
+        start = max(1, int(start_page or 1))
+        if start > total:
+            return
+        last = total
+        if max_pages is not None:
+            last = min(total, start + max(1, int(max_pages)) - 1)
+        for number in range(start, last + 1):
+            page = doc[number - 1]
+            text = (page.get_text("text") or "").strip()
+            pix = page.get_pixmap(matrix=fitz.Matrix(_ZOOM, _ZOOM), alpha=False)
+            try:
+                png = pix.tobytes("png")
+                width, height = int(pix.width), int(pix.height)
+            finally:
+                _release_pixmap(pix)
+                pix = None
+            figures = detect_page_figures(page, png) if text else []
+            for figure in figures:
+                figure["page"] = number
+            rendered = {
+                "page": number,
+                "page_count": total,
+                "png": png,
+                "width": width,
+                "height": height,
+                "text": text,
+                "figures": figures,
+            }
+            png = None
+            figures = None
+            page = None
+            yield rendered
+            rendered["png"] = b""
+            for figure in rendered.get("figures") or []:
+                figure["png"] = b""
+            rendered["figures"] = []
+            try:
+                fitz.TOOLS.store_shrink(100)
+            except Exception:
+                pass
+            gc.collect()
+    finally:
+        _release_document(doc)
 
 
 def _png_size(png: bytes) -> tuple[int, int]:
@@ -334,7 +421,7 @@ def index_pdf_bytes(pdf_bytes: bytes) -> dict:
                     figure["page"] = index + 1
                     figures.append(figure)
     finally:
-        doc.close()
+        _release_document(doc)
     return {"pages": pages, "figures": figures, "scanned": not any_text}
 
 
