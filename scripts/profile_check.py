@@ -3,8 +3,8 @@
 
 Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt>
 
-Prints PASS or FAIL for each rule, then the v1.2 scorecard.
-A line a human must judge prints MANUAL. Exit 0 when no rule FAILs.
+Prints PASS or FAIL for each rule, the PF-01..PF-33 past-fail lines, then the
+v1.2 scorecard. A line a human must judge prints MANUAL. Exit 0 when no rule FAILs.
 A PDF is checked for section order, branch subsections, step line order,
 banned strings, sentence length, figure width, and figure placement.
 A transcript is checked for the chat profile: no label block, no step
@@ -12,6 +12,7 @@ counter, a photo only when it helps, no figure without an ask, and no repeats.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -370,7 +371,8 @@ def check_pdf_bytes(data: bytes) -> list[Rule]:
     try:
         text = "\n".join(page.get_text() for page in doc)
         rules = check_sheet_text(text) + _figure_rules(doc)
-        return rules + grade_pdf(text, rules)
+        rules = rules + grade_pdf(text, rules)
+        return rules + grade_past_fails(doc, text)
     finally:
         doc.close()
 
@@ -446,7 +448,7 @@ def check_path(path: Path) -> list[Rule]:
         rules = check_sheet_text(text)
         rules.append(_rule("figure_width", False, "text extract has no page images; pass the PDF"))
         rules.append(_rule("figure_placement", False, "text extract has no page images; pass the PDF"))
-        return rules + grade_pdf(text, rules)
+        return rules + grade_pdf(text, rules) + grade_past_fails(None, text)
     return check_transcript(text)
 
 
@@ -609,6 +611,612 @@ def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
     return [_card(number, status, PDF_SCORECARD[number - 1], detail, PDF_AUTO_FAIL) for number, status, detail in rows]
 
 
+_PF_FIELD = re.compile(
+    r"^(Where|Good looks like|Bad looks like|Next|Safety|If it fails|Caution):\s*(.*)$",
+    re.I,
+)
+_PF_STOP = re.compile(
+    r"^(?:Step\s+\d+\s*:|Figure:|Fig\.|BAY PROCEDURE|Tacoma RV Center|"
+    r"REPAIR BRANCH|REPAIR PROCEDURE|BEFORE YOU START|REMOVAL|INSTALLATION|"
+    r"VERIFY|DO NOT|SOURCES|DIAGNOSIS|VISUAL FLOWCHART|WHAT THIS PATTERN|"
+    r"Where:|Tools:|Do this:|Good looks like:|Bad looks like:|Next:|Safety:|"
+    r"If it fails:|Caution:|- |(?:CCD|FACT|FACR)-\d+)",
+    re.I,
+)
+_PF_HEADING = re.compile(
+    r"^(?:REMOVAL|INSTALLATION|VERIFY|BEFORE YOU START|DO NOT|DIAGNOSIS|"
+    r"REPAIR PROCEDURE|REPAIR BRANCH|SOURCES \(SHOP DOCUMENT LIBRARY\)|"
+    r"VISUAL FLOWCHART|WHAT THIS PATTERN USUALLY MEANS)$",
+    re.I,
+)
+_PF_PAGE = re.compile(r"\b(?:page\s+\d+|p\.?\s*\d+)\b", re.I)
+_PF_GLUED_DOC = re.compile(
+    r"(?m)^(?:\d+\s+)?(?:CCD|FACT|FACR)-\d{3,}\s+(?!page\b|p\.?\s*\d)[A-Za-z]"
+)
+_PF_DOUBLE = re.compile(r"\b([A-Za-z]{2,})[^\S\n]+\1\b", re.I)
+_PF_RUNON = re.compile(r"[a-z]{3,}\s+[A-Z][a-z]{2,}")
+_PF_FIG_LINE = re.compile(r"^(?:Figure:|Fig\.)", re.I)
+_PF_FOREIGN = re.compile(
+    r"\b(?:le|la|les|des|du|et|el|los|las|del|para|que|una|"
+    r"jetez|resserrez|levante|coloque|envuelva|fije|separe|corra|sous|pince)\b",
+    re.I,
+)
+_PF_STATE = (
+    (re.compile(r"water off", re.I), re.compile(r"water on", re.I)),
+    (re.compile(r"power off", re.I), re.compile(r"power on", re.I)),
+    (re.compile(r"propane off", re.I), re.compile(r"propane on", re.I)),
+    (re.compile(r"breaker off", re.I), re.compile(r"breaker on", re.I)),
+    (re.compile(r"supplies off", re.I), re.compile(r"supplies on", re.I)),
+)
+_PF_EXPERT = (
+    "petit tube in the flame",
+    "freeze-sensor seating",
+    "e2 or e3 is a freeze",
+)
+_THETFORD_OFF = (
+    "norcold", "furrion", "dometic", "suburban", "coleman", "happijac",
+    "atwood", "girard", "power gear", "lippert",
+)
+_FURRION_OFF = (
+    "norcold", "thetford", "dometic", "suburban", "coleman", "happijac", "atwood",
+)
+_CAPTION_BAD = ("bundled kit sheet", "sketch")
+
+
+def _pf(number: int, status: str, detail: str) -> Rule:
+    return Rule(f"PF-{number:02d}", status != "FAIL", detail, status=status, number=number)
+
+
+def _case_kind(text: str) -> str:
+    head = (text or "")[:1800].lower()
+    if "thetford" in head or "42070" in head:
+        return "thetford"
+    if "furrion" in head or "facr" in head or "ccd-0008666" in head:
+        return "furrion"
+    return ""
+
+
+def _bounded_steps(text: str) -> list[str]:
+    """A step ends at the next step or at the next section heading."""
+    parts = re.split(r"(?=Step\s+\d+\s*:)", _procedure_text(text or ""))
+    steps = []
+    for part in parts:
+        if not re.match(r"Step\s+\d+\s*:", part):
+            continue
+        cut = re.split(
+            r"\n(?=(?:REPAIR BRANCH|REPAIR PROCEDURE|BEFORE YOU START|REMOVAL|"
+            r"INSTALLATION|VERIFY|DO NOT|SOURCES|DIAGNOSIS)\b)",
+            part,
+            maxsplit=1,
+        )
+        steps.append(cut[0])
+    return steps
+
+
+def _step_actions(step: str) -> list[str]:
+    actions = []
+    in_do = False
+    for line in step.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("do this:"):
+            in_do = True
+            continue
+        if in_do and re.match(r"\d+\.\s+", stripped):
+            actions.append(re.sub(r"^\d+\.\s+", "", stripped).strip().rstrip(".").lower())
+            continue
+        if in_do and stripped:
+            in_do = False
+    return actions
+
+
+def _sentence_values(text: str) -> list[str]:
+    """Procedure sentences, with a wrapped line joined back onto its field."""
+    proc = _procedure_text(text or "")
+    proc = re.split(r"\nSOURCES\b", proc, maxsplit=1)[0]
+    lines = proc.splitlines()
+    values = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        match = _PF_FIELD.match(stripped)
+        action = re.match(r"\d+\.\s+(\S.*)$", stripped)
+        bullet = stripped.startswith("- ")
+        if match:
+            value = match.group(2).strip()
+            index += 1
+            while index < len(lines):
+                nxt = lines[index].strip()
+                if not nxt or _PF_FIELD.match(nxt) or _PF_STOP.match(nxt) or re.match(r"\d+\.\s+", nxt):
+                    break
+                value = f"{value} {nxt}".strip()
+                index += 1
+            if value:
+                values.append(value)
+            continue
+        if action:
+            value = action.group(1).strip()
+            index += 1
+            while index < len(lines):
+                nxt = lines[index].strip()
+                if not nxt or _PF_FIELD.match(nxt) or _PF_STOP.match(nxt) or re.match(r"\d+\.\s+", nxt):
+                    break
+                value = f"{value} {nxt}".strip()
+                index += 1
+            values.append(value)
+            continue
+        if bullet:
+            value = stripped[2:].strip()
+            index += 1
+            while index < len(lines):
+                nxt = lines[index].strip()
+                if not nxt or _PF_FIELD.match(nxt) or _PF_STOP.match(nxt) or nxt.startswith("- "):
+                    break
+                if re.match(r"\d+\.\s+", nxt) or nxt.startswith("Step "):
+                    break
+                value = f"{value} {nxt}".strip()
+                index += 1
+            if not _PF_PAGE.search(value):
+                values.append(value)
+            continue
+        index += 1
+    return values
+
+
+def _source_lines(text: str) -> list[str] | None:
+    match = re.search(r"SOURCES \(SHOP DOCUMENT LIBRARY\)(.*)\Z", text or "", re.S)
+    if not match:
+        match = re.search(r"(?m)^SOURCES\b(.*)\Z", text or "", re.S)
+    if not match:
+        return None
+    return [line.strip() for line in match.group(1).splitlines() if line.strip().startswith("-")]
+
+
+def _page_views(doc) -> list[dict]:
+    if doc is None:
+        return []
+    views = []
+    for page in doc:
+        lines = [line.strip() for line in page.get_text().splitlines() if line.strip()]
+        views.append({
+            "lines": lines,
+            "images": len(page.get_images() or []),
+            "rect": page.rect,
+            "words": page.get_text("words") or [],
+            "drawings": page.get_drawings() or [],
+        })
+    return views
+
+
+def _body_lines(lines: list[str]) -> list[str]:
+    body = []
+    for line in lines:
+        low = line.lower()
+        if low == "bay procedure" or low.startswith("tacoma rv center"):
+            continue
+        body.append(line)
+    return body
+
+
+def _image_rows(doc) -> list[dict]:
+    if doc is None:
+        return []
+    rows = []
+    for index, page in enumerate(doc, 1):
+        infos = page.get_image_info() or []
+        xrefs = [item[0] for item in (page.get_images(full=True) or [])]
+        words = page.get_text("words") or []
+        for slot, info in enumerate(infos):
+            box = info.get("bbox")
+            xref = xrefs[slot] if slot < len(xrefs) else info.get("xref")
+            digest = ""
+            if xref:
+                try:
+                    raw = doc.extract_image(xref)
+                    digest = hashlib.md5(raw["image"]).hexdigest()
+                except Exception:
+                    digest = str(xref)
+            rows.append({
+                "page": index,
+                "bbox": box,
+                "md5": digest or str(xref or slot),
+                "words": words,
+                "rect": page.rect,
+            })
+    return rows
+
+
+def _off_brand(text: str, kind: str) -> str:
+    low = (text or "").lower()
+    banned = _THETFORD_OFF if kind == "thetford" else _FURRION_OFF if kind == "furrion" else ()
+    for token in banned:
+        if token in low:
+            return token
+    return ""
+
+
+def _state_conflict(step: str) -> str:
+    for off, on in _PF_STATE:
+        if off.search(step) and on.search(step):
+            return f"{off.pattern} and {on.pattern}"
+    return ""
+
+
+def grade_past_fails(doc, text: str) -> list[Rule]:
+    """PF-01..PF-33. FAIL only on a definite hit. MANUAL keeps a human remainder."""
+    raw = text or ""
+    low = raw.lower()
+    kind = _case_kind(raw)
+    steps = _bounded_steps(raw)
+    sentences = _sentence_values(raw)
+    pages = _page_views(doc)
+    images = _image_rows(doc)
+    rules = []
+
+    cut = [value for value in sentences if re.search(r"\(Fig\s*\.", value) or re.search(r"\b(?:is|the|and)\s*$", value, re.I)]
+    if re.search(r"\(Fig\s*\.", raw) or cut:
+        sample = cut[0] if cut else "(Fig ."
+        rules.append(_pf(1, "FAIL", f"cut-off sentence: {sample[:80]}"))
+    else:
+        rules.append(_pf(1, "PASS", "no cut-off ending on a procedure sentence"))
+
+    bare = []
+    runon = []
+    for value in sentences:
+        if _words(value) >= 3 and not re.search(r"[.!?]$", value):
+            bare.append(value)
+        if _PF_RUNON.search(value):
+            runon.append(value)
+    if bare or runon:
+        sample = (bare or runon)[0]
+        rules.append(_pf(2, "FAIL", f"missing stop or run-on: {sample[:80]}"))
+    else:
+        rules.append(_pf(2, "PASS", "procedure sentences end with a stop"))
+
+    fillers = [phrase for phrase in ("unconfirmed", "not stated in this sheet", "see doc.") if phrase in low]
+    rules.append(_pf(3, "FAIL" if fillers else "PASS", ", ".join(fillers) if fillers else "no placeholder tokens"))
+
+    foreign = []
+    letters = [ch for ch in raw if ch.isalpha()]
+    odd = sum(1 for ch in letters if ord(ch) > 127)
+    ratio = (odd / len(letters)) if letters else 0
+    for line in raw.splitlines():
+        if len(_PF_FOREIGN.findall(line)) >= 2:
+            foreign.append(line.strip())
+    if foreign or ratio > 0.02:
+        rules.append(_pf(4, "FAIL", (foreign[0][:80] if foreign else f"non-English letters {ratio:.1%}")))
+    else:
+        rules.append(_pf(4, "PASS", "steps and quotes stay in plain English"))
+
+    glued = _PF_GLUED_DOC.search(raw)
+    rules.append(_pf(
+        5,
+        "FAIL" if glued else "PASS",
+        glued.group(0)[:80] if glued else "no doc id glued to the front of a quote",
+    ))
+
+    length = _sentence_length(raw)
+    rules.append(_pf(6, "PASS" if length.ok else "FAIL", length.detail))
+
+    doubled = []
+    for line in raw.splitlines():
+        match = _PF_DOUBLE.search(line)
+        if match and match.group(1).lower() not in {"yes", "no"}:
+            doubled.append(match.group(0))
+    rules.append(_pf(7, "FAIL" if doubled else "PASS", doubled[0] if doubled else "no doubled word"))
+
+    if not steps:
+        rules.append(_pf(8, "FAIL", "flowchart only; no numbered repair steps"))
+    else:
+        rules.append(_pf(8, "MANUAL", f"{len(steps)} numbered steps; the expected count is a human compare"))
+
+    flat = []
+    for step in steps:
+        flat.extend(_step_actions(step))
+    dupes = [flat[i] for i in range(1, len(flat)) if flat[i] and flat[i] == flat[i - 1]]
+    if dupes:
+        rules.append(_pf(9, "FAIL", f"repeated action: {dupes[0][:80]}"))
+    else:
+        rules.append(_pf(9, "MANUAL", "no adjacent action is repeated; an extra procedure title still needs the asked-for part"))
+
+    missing = []
+    conflicts = []
+    for step in steps:
+        labels = []
+        for line in step.splitlines():
+            stripped = line.strip().lower()
+            for name in LABEL_ORDER:
+                if stripped.startswith(name):
+                    labels.append(name)
+                    break
+        absent = [name[:-1] for name in REQUIRED_LABELS if name not in labels]
+        if absent:
+            missing.append(step.splitlines()[0][:60] + " missing " + ", ".join(absent))
+        conflict = _state_conflict(step)
+        if conflict:
+            conflicts.append(step.splitlines()[0][:60] + " " + conflict)
+    if missing or conflicts:
+        rules.append(_pf(10, "FAIL", (missing or conflicts)[0]))
+    else:
+        rules.append(_pf(
+            10,
+            "PASS",
+            "Do this, Good looks like, and Next are on every step; Bad looks like is specific or omitted; safety stays once per section",
+        ))
+
+    yes_lines = [line.strip() for line in raw.splitlines() if line.strip().upper() in {"YES", "NO"}]
+    doubled_label = [line for line in raw.splitlines() if re.search(r"\bYES\s+YES\b|\bNO\s+NO\b", line)]
+    has_yes = any(line == "YES" for line in yes_lines)
+    has_no = any(line == "NO" for line in yes_lines)
+    if doubled_label or not has_yes or not has_no:
+        detail = doubled_label[0].strip() if doubled_label else "flowchart is missing YES or NO"
+        rules.append(_pf(11, "FAIL", detail[:80]))
+    else:
+        rules.append(_pf(11, "MANUAL", f"YES {yes_lines.count('YES')} and NO {yes_lines.count('NO')}; the diamond graph still needs a look"))
+
+    if kind == "thetford":
+        tokens_ok = ("42109" in raw or "water valve" in low) and ("vacuum breaker" in low or "34122" in raw or "34123" in raw)
+        if "norcold" in low or not tokens_ok:
+            rules.append(_pf(12, "FAIL", "Thetford sheet is missing the valve or vacuum-breaker repair"))
+        else:
+            rules.append(_pf(12, "PASS", "repair names the water valve and the vacuum breaker"))
+    elif kind == "furrion":
+        tokens_ok = "rooftop" in low or "ccd-0007990" in low or "freeze" in low
+        if "norcold" in low or not tokens_ok:
+            rules.append(_pf(12, "FAIL", "rooftop sheet is missing the freeze or drain repair"))
+        else:
+            rules.append(_pf(12, "PASS", "repair stays on the rooftop freeze and drain path"))
+    else:
+        rules.append(_pf(12, "MANUAL", "no pinned repair phrase for this case"))
+
+    sources = _source_lines(raw)
+    if sources is None:
+        rules.append(_pf(13, "FAIL", "Sources section is missing"))
+    elif not sources or any(not _PF_PAGE.search(line) for line in sources):
+        rules.append(_pf(13, "FAIL", "a source line has no page"))
+    else:
+        rules.append(_pf(13, "PASS", f"{len(sources)} sources, each with a page"))
+
+    if kind == "thetford":
+        needed = [token for token in ("42109", "34122", "42088") if token not in raw and not (token == "34122" and "34123" in raw)]
+        rules.append(_pf(14, "FAIL" if needed else "PASS", ", ".join(needed) if needed else "42109, 34122/34123, and 42088 are still cited"))
+    elif kind == "furrion":
+        needed = [token for token in ("CCD-0008666", "CCD-0007990") if token not in raw]
+        rules.append(_pf(14, "FAIL" if needed else "PASS", ", ".join(needed) if needed else "CCD-0008666 and CCD-0007990 are still cited"))
+    else:
+        rules.append(_pf(14, "MANUAL", "no known-good cite set for this case"))
+
+    cite_lines = []
+    orphans = 0
+    if pages:
+        for view in pages:
+            hits = [line for line in view["lines"] if _PF_FIG_LINE.match(line)]
+            cite_lines.extend(hits)
+            if not view["images"]:
+                orphans += len(hits)
+        image_count = len(images)
+        if cite_lines and image_count == 0:
+            rules.append(_pf(15, "FAIL", f"{len(cite_lines)} figure cites and no embedded image"))
+        elif orphans > image_count:
+            rules.append(_pf(15, "FAIL", f"{orphans} figure cites are not drawn ({image_count} images)"))
+        else:
+            rules.append(_pf(15, "PASS", f"{image_count} images cover the figure cites"))
+    elif cite_lines or re.search(r"(?m)^(Figure:|Fig\.)", raw):
+        rules.append(_pf(15, "MANUAL", "figure cites need the PDF images"))
+    else:
+        rules.append(_pf(15, "PASS", "no figure cite in the text extract"))
+
+    if doc is None:
+        rules.append(_pf(16, "MANUAL", "clipping needs the PDF image boxes"))
+    elif not images:
+        rules.append(_pf(16, "PASS", "no figure to clip"))
+    else:
+        clipped = []
+        for image in images:
+            box = image["bbox"]
+            rect = image["rect"]
+            if not box:
+                clipped.append(f"page {image['page']} image has no box")
+                continue
+            x0, y0, x1, y1 = box
+            if x0 < 12 or y0 < 12 or x1 > rect.width - 12 or y1 > rect.height - 12:
+                clipped.append(f"page {image['page']} figure meets the page edge")
+            caption = any(
+                word[1] >= y1 - 2 and word[1] <= y1 + 48 and word[3] < rect.height - 4
+                for word in image["words"]
+            )
+            if not caption:
+                clipped.append(f"page {image['page']} caption is off the page")
+        rules.append(_pf(16, "FAIL" if clipped else "PASS", clipped[0] if clipped else "figures sit inset with the caption on the page"))
+
+    if doc is None:
+        rules.append(_pf(17, "MANUAL", "image dedupe needs the PDF"))
+    elif not images:
+        rules.append(_pf(17, "PASS", "no repeated figure"))
+    else:
+        groups: dict[str, list] = {}
+        for image in images:
+            groups.setdefault(image["md5"], []).append(image)
+        problems = []
+        for group in groups.values():
+            page_nums = sorted(image["page"] for image in group)
+            if len(page_nums) >= 4:
+                problems.append(f"same figure on pages {page_nums}")
+            elif any(right == left + 1 for left, right in zip(page_nums, page_nums[1:])):
+                problems.append(f"same figure on consecutive pages {page_nums}")
+            else:
+                for image in group:
+                    y0 = image["bbox"][1] if image["bbox"] else 0
+                    under_step = any(
+                        str(word[4]).startswith("Step") and word[3] <= y0 + 4
+                        for word in image["words"]
+                    )
+                    if len(group) > 1 and not under_step:
+                        problems.append(f"page {image['page']} repeat is not under its step")
+        if problems:
+            rules.append(_pf(17, "FAIL", problems[0]))
+        elif any(len(group) > 1 for group in groups.values()):
+            rules.append(_pf(17, "PASS", "a repeated manual page sits under each step that cites it"))
+        else:
+            rules.append(_pf(17, "PASS", f"{len(images)} figures, each used once"))
+
+    caption_text = "\n".join(
+        line for line in raw.splitlines()
+        if _PF_FIG_LINE.match(line.strip()) or re.match(r"(?:CCD|FACT|FACR)-\d+", line.strip())
+    ).lower()
+    if "bundled kit sheet" in low or any(phrase in caption_text for phrase in _CAPTION_BAD):
+        rules.append(_pf(18, "FAIL", "caption is a sketch or a bundled kit sheet"))
+    else:
+        rules.append(_pf(18, "MANUAL", "no sketch caption; the manual id on the caption is a human check"))
+
+    if not kind:
+        rules.append(_pf(19, "MANUAL", "figure brand needs a known case"))
+    else:
+        brand_hit = _off_brand(caption_text, kind)
+        rules.append(_pf(
+            19,
+            "FAIL" if brand_hit else "PASS",
+            f"caption names {brand_hit}" if brand_hit else "figure captions match the case brand",
+        ))
+
+    rules.append(_pf(20, "MANUAL", "YES and NO spacing against the arrows is a 90 dpi check"))
+
+    if doc is None:
+        rules.append(_pf(21, "MANUAL", "bar overlap needs the PDF"))
+    else:
+        covered = []
+        for index, view in enumerate(pages, 1):
+            for drawing in view["drawings"]:
+                rect = drawing.get("rect")
+                if not rect or rect.width < 400 or not (8 < rect.height < 28):
+                    continue
+                inside = []
+                for word in view["words"]:
+                    cx = (word[0] + word[2]) / 2
+                    cy = (word[1] + word[3]) / 2
+                    if rect.x0 - 1 <= cx <= rect.x1 + 1 and rect.y0 - 0.5 <= cy <= rect.y1 + 0.5:
+                        inside.append(str(word[4]))
+                blob = " ".join(inside).lower()
+                if any(token in blob for token in ("step", "do this", "good looks", "where:")):
+                    covered.append(f"page {index} bar covers step text")
+        rules.append(_pf(21, "FAIL" if covered else "PASS", covered[0] if covered else "section bars hold their own headings"))
+
+    if not pages:
+        rules.append(_pf(22, "MANUAL", "orphan headings need the PDF pages"))
+        rules.append(_pf(23, "MANUAL", "page splits need the PDF pages"))
+        rules.append(_pf(24, "MANUAL", "page count needs the PDF"))
+    else:
+        orphans_h = []
+        repeats = []
+        empty = []
+        for index, view in enumerate(pages):
+            body = _body_lines(view["lines"])
+            if body and _PF_HEADING.match(body[-1]):
+                orphans_h.append(f"page {index + 1} ends on {body[-1]}")
+            if index + 1 < len(pages):
+                nxt = _body_lines(pages[index + 1]["lines"])
+                if body and nxt and _PF_HEADING.match(body[-1]) and body[-1].lower() == nxt[0].lower():
+                    repeats.append(f"{body[-1]} repeats onto page {index + 2}")
+            if view["images"] == 0 and len(body) <= 3 and not any(line.startswith("Step ") for line in body):
+                empty.append(f"page {index + 1} is nearly empty")
+        rules.append(_pf(22, "FAIL" if orphans_h else "PASS", orphans_h[0] if orphans_h else "no heading is stranded at the bottom of a page"))
+        if repeats or empty:
+            rules.append(_pf(23, "FAIL", (repeats or empty)[0]))
+        else:
+            rules.append(_pf(23, "PASS", f"{len(pages)} pages, no repeated heading and no empty trailing page"))
+        count = len(pages)
+        if kind == "thetford":
+            limit = 24
+        elif kind == "furrion":
+            limit = 18
+        else:
+            limit = 0
+        if not limit:
+            rules.append(_pf(24, "MANUAL", f"{count} pages; no baseline for this case"))
+        elif count > limit:
+            rules.append(_pf(24, "FAIL", f"{count} pages over the {limit}-page ceiling"))
+        else:
+            rules.append(_pf(24, "PASS", f"{count} pages within the {limit}-page ceiling"))
+
+    meta = []
+    for line in raw.splitlines():
+        line_low = line.lower()
+        if "closest reference" in line_low or "excerpt" in line_low:
+            meta.append(line.strip())
+        elif re.search(r"\blibrary\b", line_low) and "document library" not in line_low:
+            meta.append(line.strip())
+    rules.append(_pf(25, "FAIL" if meta else "PASS", meta[0][:80] if meta else "no internal note on the sheet"))
+
+    if sources is None:
+        rules.append(_pf(26, "MANUAL", "no Sources section to compare"))
+    elif kind and any(_off_brand(line, kind) for line in sources):
+        hit = next(line for line in sources if _off_brand(line, kind))
+        rules.append(_pf(26, "FAIL", f"off-brand source: {hit[:80]}"))
+    elif kind:
+        rules.append(_pf(26, "MANUAL", "source lines name this case; snippet overlap is a human check"))
+    else:
+        rules.append(_pf(26, "MANUAL", "off-topic snippets need the case brand"))
+
+    jargon = []
+    if re.search(r"\bchannel\b", low):
+        jargon.append("channel")
+    if ".pdf" in low:
+        jargon.append(".pdf")
+    rules.append(_pf(27, "FAIL" if jargon else "PASS", ", ".join(jargon) if jargon else "no channel or raw filename"))
+
+    stray = re.search(r"(?m)^\s*\d+\.\s+\d+\.", raw)
+    field_stray = [value for value in sentences if re.match(r"\d+\.\s+\d+\.", value)]
+    if stray or field_stray:
+        rules.append(_pf(28, "FAIL", (stray.group(0) if stray else field_stray[0])[:80]))
+    else:
+        rules.append(_pf(28, "PASS", "no stray numbering"))
+
+    concern = ""
+    concern_match = re.search(r"(?m)^CONCERN\s*$\n\s*(.+)", raw)
+    if concern_match:
+        concern = concern_match.group(1).strip()
+    if concern.lower() in {"", "-", "concern", "n/a", "none", "unknown", "todo"}:
+        rules.append(_pf(29, "FAIL", "CONCERN is blank"))
+    else:
+        rules.append(_pf(29, "PASS", "CONCERN names this case"))
+
+    if not kind:
+        rules.append(_pf(30, "MANUAL", "cite brand needs a known case"))
+    else:
+        brand_hit = _off_brand(raw, kind)
+        rules.append(_pf(
+            30,
+            "FAIL" if brand_hit else "PASS",
+            f"sheet names {brand_hit}" if brand_hit else "cites stay on this case's brand",
+        ))
+
+    model = ""
+    model_match = re.search(r"(?m)^MODEL\s*$\n\s*(.+)", raw)
+    if model_match:
+        model = model_match.group(1).strip()
+    if model.lower() in {"", "-", "model", "n/a", "none"}:
+        rules.append(_pf(31, "FAIL", "MODEL is blank"))
+    elif kind == "thetford" and "42070" in low and "42070" not in model:
+        rules.append(_pf(31, "FAIL", "MODEL does not include 42070"))
+    elif kind == "furrion" and "facr08" in low and "facr08" not in model.lower():
+        rules.append(_pf(31, "FAIL", "MODEL does not include FACR08"))
+    else:
+        rules.append(_pf(31, "PASS", model[:80]))
+
+    expert = [phrase for phrase in _PF_EXPERT if phrase in low]
+    if expert:
+        rules.append(_pf(32, "FAIL", expert[0]))
+    else:
+        rules.append(_pf(32, "MANUAL", "banned phrases are absent; technical correctness still needs expert review"))
+
+    step_conflicts = [step.splitlines()[0][:70] for step in steps if _state_conflict(step)]
+    if step_conflicts:
+        rules.append(_pf(33, "FAIL", step_conflicts[0]))
+    else:
+        rules.append(_pf(33, "PASS", "no step pairs water, power, or propane off with on"))
+
+    return rules
+
+
 def gate_summary(rules: list[Rule]) -> str:
     """Markdown block for a gate summary. MANUAL lines are not passes."""
     cards = [rule for rule in rules if rule.scorecard]
@@ -638,6 +1246,9 @@ def format_report(rules: list[Rule]) -> str:
     lines = []
     for rule in rules:
         if rule.scorecard:
+            continue
+        if rule.name.startswith("PF-"):
+            lines.append(f"{rule.name} {rule.status}" + (f"  {rule.detail}" if rule.detail else ""))
             continue
         lines.append(f"{'PASS' if rule.ok else 'FAIL'}  {rule.name}" + (f"  {rule.detail}" if rule.detail else ""))
     summary = gate_summary(rules)

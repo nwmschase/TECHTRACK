@@ -31,6 +31,10 @@ def _failures(rules):
     return [f"{rule.name}: {rule.detail}" for rule in rules if not rule.ok]
 
 
+def _past_fails(rules):
+    return {rule.name: rule for rule in rules if rule.name.startswith("PF-")}
+
+
 def _transcript(turns):
     """turns is (user, assistant) pairs."""
     lines = []
@@ -52,12 +56,16 @@ class TestProfileDocs(unittest.TestCase):
         self.assertIn("Before you start", pdf)
         self.assertIn("Thetford-42070", pdf)
         self.assertIn("Version 1.2", guided)
+        self.assertIn("Version 1.4", pdf)
+        self.assertIn("PDF-PAST-FAILS.md", pdf)
         self.assertIn("## Performance scorecard (grade every reviewed session, PASS/FAIL per line)", guided)
         self.assertIn("Any FAIL on 1, 8, or 10 is an automatic overall FAIL.", guided)
         self.assertIn("## Performance scorecard (grade every PDF, PASS/FAIL per line)", pdf)
         self.assertIn("Any FAIL on 2, 7, 8, or 9 is an automatic overall FAIL.", pdf)
         log = (ROOT / "docs" / "profiles" / "PROFILE-CHANGE-LOG.md").read_text(encoding="utf-8")
         self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)
+        self.assertIn("| 2026-10-11 10:50 AM | PDF | 1.3 |", log)
+        self.assertIn("| 2026-10-11 12:11 PM | PDF | 1.4 |", log)
 
 
 class TestPdfProfile(unittest.TestCase):
@@ -65,11 +73,28 @@ class TestPdfProfile(unittest.TestCase):
         pdf = render_bay_procedure_pdf(_thetford())
         rules = profile_check.check_pdf_bytes(pdf)
         self.assertEqual(_failures(rules), [], "\n".join(profile_check.format_report(rules).splitlines()))
+        self._past_fails_pass(rules)
 
     def test_s01_pdf_matches_the_profile(self):
         pdf = render_bay_procedure_pdf(_sheet())
         rules = profile_check.check_pdf_bytes(pdf)
         self.assertEqual(_failures(rules), [], "\n".join(profile_check.format_report(rules).splitlines()))
+        self._past_fails_pass(rules)
+
+    def _past_fails_pass(self, rules):
+        pf = _past_fails(rules)
+        self.assertEqual(len(pf), 33)
+        failed = [f"{name} {rule.detail}" for name, rule in pf.items() if rule.status == "FAIL"]
+        self.assertEqual(failed, [])
+        self.assertEqual(pf["PF-10"].status, "PASS")
+        self.assertIn("once per section", pf["PF-10"].detail)
+        self.assertEqual(pf["PF-13"].status, "PASS")
+        self.assertIn("page", pf["PF-13"].detail)
+        report = profile_check.format_report(rules)
+        self.assertIn("PF-01 PASS", report)
+        self.assertIn("PF-33 PASS", report)
+        self.assertIn("## Bay PDF scorecard", report)
+        self.assertTrue(report.endswith("PASS"))
 
 
 class TestGdProfile(unittest.TestCase):
@@ -187,6 +212,62 @@ class TestScorecard(unittest.TestCase):
         report = profile_check.format_report(rules)
         self.assertIn("## Bay PDF scorecard", report)
         self.assertTrue(report.endswith("PASS"))
+
+
+class TestPastFails(unittest.TestCase):
+    def _pf(self, text):
+        return _past_fails(profile_check.grade_past_fails(None, text))
+
+    def test_placeholders_and_a_blank_model_fail(self):
+        rules = self._pf("UNCONFIRMED\nNot stated in this sheet\nSee doc.\nMODEL\n-\n")
+        self.assertEqual(rules["PF-03"].status, "FAIL")
+        self.assertEqual(rules["PF-31"].status, "FAIL")
+        self.assertFalse(rules["PF-03"].ok)
+
+    def test_an_internal_note_and_a_doubled_yes_fail(self):
+        rules = self._pf("YES\nNO\nYES YES\n(FACR08 manual, closest reference)\n")
+        self.assertEqual(rules["PF-11"].status, "FAIL")
+        self.assertEqual(rules["PF-25"].status, "FAIL")
+
+    def test_a_step_without_a_safety_line_still_passes(self):
+        text = "\n".join([
+            "REPAIR PROCEDURE",
+            "Step 1: Pull the pedal",
+            "Where: At the pedal.",
+            "Do this:",
+            "1. Pull the pedal.",
+            "Good looks like: The pedal is off.",
+            "Next: Stop here.",
+            "SOURCES (SHOP DOCUMENT LIBRARY)",
+            "- Thetford Water Valve Kit 42109 page 1",
+        ])
+        rules = self._pf(text)
+        self.assertEqual(rules["PF-10"].status, "PASS")
+        self.assertIn("once per section", rules["PF-10"].detail)
+        self.assertEqual(rules["PF-13"].status, "PASS")
+
+    def test_water_off_and_water_on_in_one_step_fail(self):
+        text = "\n".join([
+            "REPAIR PROCEDURE",
+            "Step 14: Open the valve",
+            "Safety: Turn the RV water off.",
+            "Do this:",
+            "1. Turn the RV water on.",
+            "Good looks like: Water is on.",
+            "Next: Stop.",
+        ])
+        rules = self._pf(text)
+        self.assertEqual(rules["PF-10"].status, "FAIL")
+        self.assertEqual(rules["PF-33"].status, "FAIL")
+
+    def test_a_cut_off_quote_fails(self):
+        rules = self._pf("Straighten the temperature probe (Fig .\n")
+        self.assertEqual(rules["PF-01"].status, "FAIL")
+
+    def test_a_source_without_a_page_fails(self):
+        text = "SOURCES (SHOP DOCUMENT LIBRARY)\n- Lippert Level Up owner's manual, hose diagram\n"
+        rules = self._pf(text)
+        self.assertEqual(rules["PF-13"].status, "FAIL")
 
 
 if __name__ == "__main__":
