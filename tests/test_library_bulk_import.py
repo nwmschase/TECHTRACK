@@ -103,14 +103,23 @@ class BulkCase(unittest.TestCase):
             upload_staging=self.upload_staging if staging_upload else None,
         )
 
-    def run_batch(self, job_id, batch_size=None, download=False):
+    def run_batch(self, job_id, batch_size=None, download=False, delete_zip=None):
         return bulk.process_next_batch(
             self.session,
             job_id,
             upload_pdf=self.upload_pdf,
             download_zip=self.download_staging if download else None,
             backup_db=self.backup,
+            delete_zip=delete_zip,
             batch_size=batch_size,
+        )
+
+    def job_row(self, job_id):
+        return dict(
+            self.session.execute(
+                text("SELECT * FROM bulk_import_jobs WHERE id = :id"),
+                {"id": job_id},
+            ).mappings().one()
         )
 
     def documents(self):
@@ -178,6 +187,171 @@ class TestAutoContinue(unittest.TestCase):
         panel = (ROOT / "library_bulk_import.py").read_text(encoding="utf-8")
         self.assertIn('st.checkbox(\n        "Auto-continue"', panel)
         self.assertIn('st.button("Stop", key="bulk_stop")', panel)
+
+
+class TestStagingZipCleanup(BulkCase):
+    def test_a_finished_zip_with_no_failures_is_deleted(self):
+        staged = self.stage(
+            {"a.pdf": _text_pdf("Alpha manual."), "b.pdf": _text_pdf("Beta manual.")},
+            batch_size=10,
+            staging_upload=True,
+        )
+        deleted = []
+
+        def delete_zip(key):
+            deleted.append(key)
+            self.staging_puts.pop(key, None)
+            return True
+
+        done = self.run_batch(staged["job_id"], batch_size=10, delete_zip=delete_zip)
+        self.assertEqual(done["status"], "complete")
+        self.assertEqual(done["failed"], 0)
+        self.assertEqual(done["pending"], 0)
+        self.assertTrue(done["staging_zip_deleted"])
+        self.assertEqual(deleted, [staged["zip_r2_key"]])
+        self.assertTrue(staged["zip_r2_key"].startswith("imports/bulk/"))
+        self.assertEqual(self.job_row(staged["job_id"])["zip_r2_key"], "")
+        self.assertEqual(len(self.documents()), 2)
+        again = bulk.cleanup_finished_import_zips(self.session, delete_zip)
+        self.assertEqual(again["deleted"], [])
+
+    def test_a_failed_file_keeps_the_zip_so_the_import_can_resume(self):
+        staged = self.stage(
+            {"good.pdf": _text_pdf("Keep this page."), "bad.pdf": b"not a pdf"},
+            batch_size=10,
+            staging_upload=True,
+        )
+        deleted = []
+        done = self.run_batch(
+            staged["job_id"],
+            batch_size=10,
+            delete_zip=lambda key: deleted.append(key) or True,
+        )
+        self.assertEqual(done["status"], "complete")
+        self.assertGreater(done["failed"], 0)
+        self.assertEqual(done["pending"], 0)
+        self.assertEqual(deleted, [])
+        self.assertTrue(done["staging_zip_kept"])
+        self.assertFalse(done["staging_zip_deleted"])
+        self.assertEqual(self.job_row(staged["job_id"])["zip_r2_key"], staged["zip_r2_key"])
+        self.assertEqual(len(self.documents()), 1)
+
+    def test_an_unfinished_batch_does_not_delete_the_zip(self):
+        staged = self.stage(
+            {"one.pdf": _text_pdf("First."), "two.pdf": _text_pdf("Second.")},
+            batch_size=1,
+            staging_upload=True,
+        )
+        deleted = []
+        step = self.run_batch(
+            staged["job_id"],
+            batch_size=1,
+            delete_zip=lambda key: deleted.append(key) or True,
+        )
+        self.assertEqual(step["status"], "paused")
+        self.assertEqual(step["pending"], 1)
+        self.assertEqual(deleted, [])
+        self.assertEqual(self.job_row(staged["job_id"])["zip_r2_key"], staged["zip_r2_key"])
+
+    def test_a_scanned_pdf_still_drops_the_staging_zip(self):
+        staged = self.stage({"scan.pdf": _blank_pdf()}, batch_size=4, staging_upload=True)
+        deleted = []
+        done = self.run_batch(
+            staged["job_id"],
+            batch_size=4,
+            delete_zip=lambda key: deleted.append(key) or True,
+        )
+        self.assertEqual(done["needs_ocr"], 1)
+        self.assertEqual(done["failed"], 0)
+        self.assertEqual(deleted, [staged["zip_r2_key"]])
+        self.assertEqual(self.job_row(staged["job_id"])["zip_r2_key"], "")
+
+    def test_cleanup_skips_failed_and_open_zips_and_retries_a_delete_error(self):
+        clean = self.stage(
+            {"clean.pdf": _text_pdf("Done.")},
+            batch_size=4,
+            staging_upload=True,
+            name="clean.zip",
+        )
+        self.run_batch(clean["job_id"], batch_size=4)
+        failed = self.stage(
+            {"good.pdf": _text_pdf("Stored."), "bad.pdf": b"not a pdf"},
+            batch_size=4,
+            staging_upload=True,
+            name="failed.zip",
+        )
+        self.run_batch(failed["job_id"], batch_size=4)
+        paused = self.stage(
+            {"one.pdf": _text_pdf("One."), "two.pdf": _text_pdf("Two.")},
+            batch_size=1,
+            staging_upload=True,
+            name="open.zip",
+        )
+        self.run_batch(paused["job_id"], batch_size=1)
+        self.assertNotEqual(clean["zip_r2_key"], failed["zip_r2_key"])
+        self.assertNotEqual(clean["zip_r2_key"], paused["zip_r2_key"])
+
+        blocked = bulk.cleanup_finished_import_zips(self.session, lambda key: False)
+        self.assertEqual(blocked["deleted"], [])
+        self.assertIn(clean["zip_r2_key"], [item["key"] for item in blocked["errors"]])
+        self.assertEqual(self.job_row(clean["job_id"])["zip_r2_key"], clean["zip_r2_key"])
+
+        deleted = []
+        cleaned = bulk.cleanup_finished_import_zips(
+            self.session, lambda key: deleted.append(key) or True
+        )
+        self.assertEqual(deleted, [clean["zip_r2_key"]])
+        self.assertEqual(cleaned["deleted"], [clean["zip_r2_key"]])
+        self.assertIn(failed["zip_r2_key"], cleaned["kept"])
+        self.assertIn(paused["zip_r2_key"], cleaned["kept"])
+        self.assertEqual(self.job_row(clean["job_id"])["zip_r2_key"], "")
+        self.assertEqual(self.job_row(failed["job_id"])["zip_r2_key"], failed["zip_r2_key"])
+        self.assertEqual(self.job_row(paused["job_id"])["zip_r2_key"], paused["zip_r2_key"])
+
+    def test_cleanup_does_not_delete_a_zip_another_open_job_still_needs(self):
+        files = {"shared.pdf": _text_pdf("Shared manual.")}
+        first = self.stage(files, batch_size=4, staging_upload=True, name="first.zip")
+        self.run_batch(first["job_id"], batch_size=4)
+        second = self.stage(files, batch_size=4, staging_upload=True, name="second.zip")
+        self.assertNotEqual(second["job_id"], first["job_id"])
+        self.assertEqual(second["zip_r2_key"], first["zip_r2_key"])
+        deleted = []
+        cleaned = bulk.cleanup_finished_import_zips(
+            self.session, lambda key: deleted.append(key) or True
+        )
+        self.assertEqual(deleted, [])
+        self.assertEqual(cleaned["deleted"], [])
+        self.assertEqual(self.job_row(first["job_id"])["zip_r2_key"], "")
+        self.assertEqual(self.job_row(second["job_id"])["zip_r2_key"], first["zip_r2_key"])
+
+    def test_cleanup_refuses_a_key_outside_imports_bulk(self):
+        staged = self.stage(
+            {"a.pdf": _text_pdf("Stored.")},
+            batch_size=4,
+            staging_upload=True,
+        )
+        self.run_batch(staged["job_id"], batch_size=4)
+        self.session.execute(
+            text("UPDATE bulk_import_jobs SET zip_r2_key = :key WHERE id = :id"),
+            {"key": "documents/secret.pdf", "id": staged["job_id"]},
+        )
+        self.session.commit()
+        deleted = []
+        cleaned = bulk.cleanup_finished_import_zips(
+            self.session, lambda key: deleted.append(key) or True
+        )
+        self.assertEqual(deleted, [])
+        self.assertEqual(cleaned["deleted"], [])
+        self.assertEqual(cleaned["errors"][0]["key"], "documents/secret.pdf")
+        self.assertEqual(self.job_row(staged["job_id"])["zip_r2_key"], "documents/secret.pdf")
+        self.assertFalse(bulk.is_bulk_staging_key("documents/secret.pdf"))
+        self.assertFalse(bulk.is_bulk_staging_key("imports/bulk/"))
+        self.assertTrue(bulk.is_bulk_staging_key(staged["zip_r2_key"]))
+        panel = (ROOT / "library_bulk_import.py").read_text(encoding="utf-8")
+        self.assertIn('st.button("Clean up finished import ZIPs", key="bulk_cleanup_zips")', panel)
+        src = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
+        self.assertIn("delete_bytes=r2_delete_object", src)
+        self.assertNotIn("process_next_batch", src)
 
 
 class TestChunkWindows(unittest.TestCase):

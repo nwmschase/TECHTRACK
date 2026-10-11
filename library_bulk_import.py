@@ -692,6 +692,131 @@ def _stage_fail(message: str) -> dict:
     }
 
 
+def is_bulk_staging_key(key: str) -> bool:
+    """True for one ``imports/bulk/<file>.zip`` object. Document keys are not staging ZIPs."""
+    text = (key or "").strip().replace("\\", "/")
+    if not text.startswith("imports/bulk/") or not text.endswith(".zip"):
+        return False
+    name = text[len("imports/bulk/") :]
+    return bool(name) and "/" not in name and ".." not in name
+
+
+def staging_zip_can_drop(progress: dict) -> bool:
+    """The cloud ZIP can go when nothing is left to import and nothing failed.
+
+    A failed file keeps the ZIP so that import can resume. Pending or working
+    files keep it too.
+    """
+    if not progress:
+        return False
+    return (
+        int(progress.get("pending") or 0) == 0
+        and int(progress.get("working") or 0) == 0
+        and int(progress.get("failed") or 0) == 0
+    )
+
+
+def _clear_staging_key(session, job_id: int, key: str) -> None:
+    session.execute(
+        text(
+            """
+            UPDATE bulk_import_jobs
+            SET zip_r2_key = '', updated_date = :now
+            WHERE id = :id AND zip_r2_key = :key
+            """
+        ),
+        {"now": _now(), "id": int(job_id), "key": key},
+    )
+    session.commit()
+    session.expire_all()
+
+
+def _staging_key_still_needed(session, key: str, except_job_id: int) -> bool:
+    """True when another job still has to read this same cloud ZIP."""
+    rows = _all(
+        session,
+        "SELECT id FROM bulk_import_jobs WHERE zip_r2_key = :key AND id != :id",
+        {"key": key, "id": int(except_job_id)},
+    )
+    for row in rows:
+        if not staging_zip_can_drop(job_progress(session, int(row["id"]))):
+            return True
+    return False
+
+
+def release_finished_staging_zip(session, job: dict, progress: dict, delete_object) -> dict:
+    """Delete ``imports/bulk/<sha>.zip`` when this job no longer needs it.
+
+    The object stays when a file failed or work is still pending. A key outside
+    ``imports/bulk/`` is never deleted. If another open job uses the same key,
+    this job drops its pointer and the object stays.
+    """
+    key = (job.get("zip_r2_key") or "").strip()
+    if not key:
+        return {"deleted": False, "kept": False, "key": "", "error": ""}
+    if not staging_zip_can_drop(progress):
+        return {"deleted": False, "kept": True, "key": key, "error": ""}
+    if not is_bulk_staging_key(key):
+        return {
+            "deleted": False,
+            "kept": True,
+            "key": key,
+            "error": "Refusing to delete a key outside imports/bulk/.",
+        }
+    if _staging_key_still_needed(session, key, int(job["id"])):
+        _clear_staging_key(session, int(job["id"]), key)
+        return {"deleted": False, "kept": False, "key": key, "error": ""}
+    if delete_object is None:
+        return {"deleted": False, "kept": True, "key": key, "error": ""}
+    try:
+        ok = bool(delete_object(key))
+    except Exception as exc:
+        return {"deleted": False, "kept": True, "key": key, "error": str(exc)}
+    if not ok:
+        return {
+            "deleted": False,
+            "kept": True,
+            "key": key,
+            "error": "Could not delete the staging ZIP.",
+        }
+    _clear_staging_key(session, int(job["id"]), key)
+    return {"deleted": True, "kept": False, "key": key, "error": ""}
+
+
+def cleanup_finished_import_zips(session, delete_object) -> dict:
+    """Delete staging ZIPs for finished imports that have no failed files.
+
+    Imports that are still open, or that finished with a failed file, keep
+    their ZIP so they can resume.
+    """
+    jobs = _all(
+        session,
+        """
+        SELECT * FROM bulk_import_jobs
+        WHERE zip_r2_key IS NOT NULL AND zip_r2_key != ''
+        ORDER BY id ASC
+        """,
+    )
+    deleted, kept, errors = [], [], []
+    for job in jobs:
+        # A previous row in this pass may already have cleared this key.
+        current = _one(session, "SELECT zip_r2_key FROM bulk_import_jobs WHERE id = :id", {"id": job["id"]})
+        if not current or not (current.get("zip_r2_key") or "").strip():
+            continue
+        job = dict(job)
+        job["zip_r2_key"] = current["zip_r2_key"]
+        result = release_finished_staging_zip(
+            session, job, job_progress(session, int(job["id"])), delete_object
+        )
+        if result["deleted"]:
+            deleted.append(result["key"])
+        elif result["error"]:
+            errors.append({"key": result["key"], "error": result["error"]})
+        elif result["kept"]:
+            kept.append(result["key"])
+    return {"deleted": deleted, "kept": kept, "errors": errors}
+
+
 def job_progress(session, job_id: int) -> dict:
     rows = session.execute(
         text(
@@ -1272,10 +1397,15 @@ def process_next_batch(
     upload_pdf,
     download_zip=None,
     backup_db=None,
+    delete_zip=None,
     batch_size: int | None = None,
     progress=None,
 ) -> dict:
-    """Import the next N pending files. Commits each file, then asks for a DB backup."""
+    """Import the next N pending files. Commits each file, then asks for a DB backup.
+
+    When the ZIP finishes with nothing pending and nothing failed, ``delete_zip``
+    removes the ``imports/bulk/`` copy. A failed file leaves that copy in place.
+    """
     job = _one(session, "SELECT * FROM bulk_import_jobs WHERE id = :id", {"id": job_id})
     if not job:
         return _empty_result(job_id, "missing", error="Import job not found.")
@@ -1421,6 +1551,9 @@ def process_next_batch(
         except Exception as exc:
             backup = (False, str(exc))
     counts = job_progress(session, job_id)
+    staging = {"deleted": False, "kept": False, "key": "", "error": ""}
+    if new_status == "complete":
+        staging = release_finished_staging_zip(session, job, counts, delete_zip)
     return {
         "ok": not zip_error,
         "job_id": job_id,
@@ -1435,6 +1568,9 @@ def process_next_batch(
         "backup": backup,
         "busy": False,
         "error": zip_error,
+        "staging_zip_deleted": staging["deleted"],
+        "staging_zip_kept": staging["kept"],
+        "staging_zip_error": staging["error"],
     }
 
 
@@ -1462,6 +1598,7 @@ def render_manager_bulk_panel(
     r2_prefix_totals,
     r2_ready: bool,
     staging_dir="bulk_imports",
+    delete_bytes=None,
 ) -> None:
     """Draw the Manager Tools bulk-import panel.
 
@@ -1481,7 +1618,9 @@ def render_manager_bulk_panel(
     st.caption(
         "Each batch imports a few files and then saves the database to cloud storage. "
         "Leave this page whenever you need Guided Diagnostics or a Bay sheet. "
-        "Progress stays in the database, so you can continue after a rerun or a reboot."
+        "Progress stays in the database, so you can continue after a rerun or a reboot. "
+        "When a ZIP finishes with no failed files, its cloud copy under imports/bulk/ is removed. "
+        "A ZIP with a failed file stays so the import can resume."
     )
     try:
         local = storage_summary(session, db_path)
@@ -1499,6 +1638,21 @@ def render_manager_bulk_panel(
         st.session_state["bulk_r2_error"] = cached_err
     for line in storage_summary_lines(local, cached, cached_err):
         st.write(line)
+    if st.button("Clean up finished import ZIPs", key="bulk_cleanup_zips"):
+        if delete_bytes is None or not r2_ready:
+            st.error("R2 storage is not configured. Check Streamlit Secrets.")
+        else:
+            cleaned = cleanup_finished_import_zips(session, delete_bytes)
+            st.success(
+                f"Removed {len(cleaned['deleted'])} finished staging ZIP(s) from cloud storage."
+            )
+            if cleaned["kept"]:
+                st.info(
+                    f"Kept {len(cleaned['kept'])} ZIP(s). "
+                    "Those imports still have unfinished or failed files, so they can resume."
+                )
+            for item in cleaned["errors"]:
+                st.warning(f"{item['key']}: {item['error']}")
     if not r2_ready:
         st.error("R2 storage is not configured. Check Streamlit Secrets before starting an import.")
 
@@ -1587,6 +1741,7 @@ def render_manager_bulk_panel(
                 auto=auto,
                 stopped=False,
                 reset_pace=bool(go),
+                delete_zip=delete_bytes,
             )
         elif should_run and not r2_ready:
             st.session_state["bulk_run_chain"] = False
@@ -1627,6 +1782,7 @@ def render_manager_bulk_panel(
                     auto=auto,
                     stopped=False,
                     reset_pace=True,
+                    delete_zip=delete_bytes,
                 )
 
 
@@ -1642,6 +1798,7 @@ def _run_batch(
     auto,
     stopped=False,
     reset_pace=False,
+    delete_zip=None,
 ) -> None:
     before = job_progress(session, job_id)
     arm_import_pace(st.session_state, before["done_files"], time.time(), reset=reset_pace)
@@ -1659,6 +1816,7 @@ def _run_batch(
             upload_pdf=upload_bytes,
             download_zip=download_bytes,
             backup_db=backup_db,
+            delete_zip=delete_zip,
             batch_size=batch_size,
             progress=_tick,
         )
@@ -1666,6 +1824,17 @@ def _run_batch(
         st.session_state["bulk_run_chain"] = False
         st.error(f"Bulk import stopped: {exc}")
         return
+    if result.get("staging_zip_deleted"):
+        st.caption("Removed the finished staging ZIP from cloud storage.")
+    elif result.get("staging_zip_error"):
+        st.warning(
+            "The import finished, but the staging ZIP is still in cloud storage: "
+            + result["staging_zip_error"]
+        )
+    elif result.get("staging_zip_kept") and result.get("status") == "complete":
+        st.caption(
+            "The staging ZIP stays in cloud storage because a file failed. The import can resume."
+        )
     if result.get("error"):
         st.session_state["bulk_run_chain"] = False
         st.error(result["error"])

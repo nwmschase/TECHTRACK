@@ -636,6 +636,20 @@ def get_r2_client():
         return None
 
 
+def r2_delete_object(key: str) -> bool:
+    """Delete one bulk-import staging ZIP. Document, certificate, and backup keys stay."""
+    if not library_bulk_import.is_bulk_staging_key(key):
+        return False
+    client = get_r2_client()
+    if not client or not key:
+        return False
+    try:
+        client.delete_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=key)
+        return True
+    except Exception:
+        return False
+
+
 def r2_put_bytes(file_obj, key: str, content_type: str = "application/octet-stream") -> bool:
     """Upload bytes to R2. Bulk import uses this so a failed file does not write a page error."""
     client = get_r2_client()
@@ -6495,6 +6509,7 @@ if is_manager and tab_mgr is not None:
                 backup_db=lambda: maybe_backup_db_to_r2(force=True),
                 r2_prefix_totals=r2_prefix_totals,
                 r2_ready=r2_available(),
+                delete_bytes=r2_delete_object,
             )
 
         with st.expander("👤 User Management", expanded=False):
