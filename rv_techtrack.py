@@ -5680,12 +5680,6 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
         reply, history, user_msg, category_name, model_text
     )
     record_cited_pages(reply)
-    if wants_library_page_shown(user_msg):
-        reply += (
-            "\n\nThe figure is in the shop Document Library PDF. "
-            "If a page image appears below, that is the real shop library page "
-            "(not a chat photo embed). If nothing appears below, say so and use Download PDF / meter from the text labels."
-        )
     return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
 
 

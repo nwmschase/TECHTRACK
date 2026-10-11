@@ -251,7 +251,15 @@ _EXCERPT_GUARD_RE = re.compile(
     re.I,
 )
 _GLUED_IMPERATIVE_RE = re.compile(
-    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set)\b)"
+    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set|Next)\b)"
+)
+_INSTRUCTION_LEAK_RE = re.compile(
+    r"if a page image appears below"
+    r"|not a chat photo embed"
+    r"|use download pdf"
+    r"|say so and use download pdf"
+    r"|bundled kit sheet",
+    re.I,
 )
 
 
@@ -281,8 +289,11 @@ def strip_leaked_prompt(text: str) -> str:
         paragraphs.pop(0)
     while len(paragraphs) > 1 and _paragraph_is_guard_echo(paragraphs[0]):
         paragraphs.pop(0)
+    paragraphs = [part for part in paragraphs if not _INSTRUCTION_LEAK_RE.search(part)]
     cleaned = "\n\n".join(paragraphs).strip()
     cleaned = _strip_excerpt_guard(cleaned)
+    if not cleaned and _INSTRUCTION_LEAK_RE.search(raw):
+        return ""
     return cleaned or raw
 
 
@@ -6803,9 +6814,13 @@ def polish_shop_reply(
     )
     text = _strip_facr_internal_guard(text)
     text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
-    return without_reading_filler(
+    text = without_reading_filler(
         _strip_facr_internal_guard(text), history, latest_msg, category_name, model_text
     )
+    # The filler trim strips a trailing period. The closing leak line stays whole.
+    if (text or "").rstrip().endswith("Look for leaks"):
+        text = text.rstrip() + "."
+    return text
 
 
 def _ice_cooling_unit_ready(blob: str) -> bool:

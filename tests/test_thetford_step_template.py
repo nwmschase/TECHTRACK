@@ -94,7 +94,14 @@ class TestThetfordStepTemplate(unittest.TestCase):
                 shown.append(mf.format_one_step(step, 1, len(procedure["steps"])))
                 self.assertLessEqual(mf._word_count(step["fields"]["HOW"]), 15, step["text"])
                 self.assertNotIn("It looks right", text)
-        self.assertTrue(any(step["fields"]["WHERE"] == "Not stated in this sheet." for procedure in proc.procedures for step in procedure["steps"]))
+        leak = next(
+            step
+            for procedure in proc.procedures
+            for step in procedure["steps"]
+            if "turn the rv water on" in " ".join(step.get("actions") or []).lower()
+        )
+        self.assertIn("pedal", leak["fields"]["WHERE"].lower())
+        self.assertNotIn("Turn the RV water off", leak["fields"]["SAFETY"])
         self.assertTrue(any("until" in (step.get("source") or "").lower() and "Good: Not stated in this sheet." not in step["fields"]["GOOD vs BAD"] for procedure in proc.procedures for step in procedure["steps"]))
         self.assertNotIn("UNCONFIRMED", " ".join(proc.bay_order))
         self.assertNotIn("UNCONFIRMED", " ".join(proc.do_not))

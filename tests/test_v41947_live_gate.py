@@ -91,16 +91,23 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         self.assertFalse(any("3412" in title for title in titles))
         self.assertEqual(len(proc.procedures), 1)
         valve = proc.procedures[0]
-        self.assertEqual(len(valve["steps"]), 14)
+        self.assertEqual(len(valve["steps"]), 13)
         water = valve["steps"][0]
-        pedal = valve["steps"][3]
+        pedal = next(
+            step for step in valve["steps"]
+            if "pull the pedal" in " ".join(step.get("actions") or []).lower()
+        )
         thumb = next(step for step in valve["steps"] if "thumb" in (step.get("text") or "").lower())
         inlet = next(step for step in valve["steps"] if "inlet seal in" in (step.get("text") or "").lower())
         drive = next(step for step in valve["steps"] if "drive pin" in (step.get("text") or "").lower())
         pivot = next(step for step in valve["steps"] if "pivot" in (step.get("text") or "").lower())
         self.assertIn("turn off the water", (water.get("text") or "").lower())
         self.assertIsNone(water.get("figure"))
-        self.assertIn("pull the pedal", (pedal.get("text") or "").lower())
+        self.assertIn("pull the pedal", " ".join(pedal.get("actions") or []).lower())
+        self.assertEqual(
+            sum("pull the pedal" in " ".join(step.get("actions") or []).lower() for step in valve["steps"]),
+            1,
+        )
         self.assertIsNone(pedal.get("figure"))
         self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
