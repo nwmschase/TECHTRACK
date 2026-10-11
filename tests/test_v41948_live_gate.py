@@ -94,7 +94,7 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         captions = [mark for mark in trace if mark.role == "caption"]
         self.assertGreaterEqual(len(images), 4)
         self.assertGreaterEqual(len(captions), len(images))
-        floor = MARGIN + 36
+        floor = MARGIN
         for image in images:
             self.assertGreaterEqual(image.y0, floor - 1)
             self.assertLessEqual(image.y1, 792)

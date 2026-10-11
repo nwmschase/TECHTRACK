@@ -7533,6 +7533,12 @@ _FLOW_GAP = 16.0
 _PAD_X = 7.0
 _PAD_Y = 5.0
 _CONTENT_W = PAGE_W - 2 * MARGIN
+# Every Bay figure uses this width, centered under the step that cites it.
+_FIGURE_WIDTH = 0.75 * _CONTENT_W
+# Low enough that a portrait crop at that width still clears the page margin.
+_FIGURE_FLOOR = MARGIN
+_STEP_GAP = 14.0
+_STEP_TEXT_W = _CONTENT_W - 16.0
 
 
 def _next_id(prefix: str) -> str:
@@ -8652,60 +8658,100 @@ def _add_boxed_text(cur: _SheetFlow, text: str, *, size: float = 9.0, leading: f
         idx += take
 
 
-def _add_manual_figure(cur: _SheetFlow, fig: BayFigure):
-    """Draw one cropped figure in a single block. It never splits across a page."""
-    import manual_figures as mf
-
-    png = fig.image_png or b""
-    if not png:
-        return
-    cap = mf.display_caption(fig.title, fig.page, fig.caption)
-    cap_m = measure_text(cap, _CONTENT_W - 16, 8, bold=True, leading=10)
+def _figure_draw_size(png: bytes, max_h: float) -> tuple[float, float]:
+    """One width for every Bay figure: 75% of the usable page, aspect kept."""
     width, height = _png_pixel_size(png)
-    # 180 pt is about 375 px at 150 dpi, above the 250 px floor.
-    dw = min(_CONTENT_W - 24, 250.0)
-    dh = dw * height / max(width, 1)
-    if dh > 230.0:
-        dh = 230.0
-        dw = dh * width / max(height, 1)
-    if dw < 120.0:
-        dw = 120.0
-        dh = dw * height / max(width, 1)
-    need = cap_m.height + dh + 16.0
-    if need > cur.remaining():
-        cur.new_page("Bay order continued")
-        avail = cur.remaining() - cap_m.height - 20.0
-        if dh > avail > 70.0:
-            dh = avail
-            dw = avail * width / max(height, 1)
-    _emit_block(cur, cap_m, x=MARGIN + 8, size=8, bold=True, color=NAVY, gap_after=4, allow_break=False)
-    if cur.y - dh < cur.floor:
-        dh = max(48.0, cur.y - cur.floor - 6.0)
-        dw = dh * width / max(height, 1)
-    cur.page.images.append(DrawnImage(png, MARGIN + 12, cur.y - dh, dw, dh))
-    cur.y -= dh + 10.0
+    fig_w = _FIGURE_WIDTH
+    fig_h = fig_w * float(height) / max(float(width), 1.0)
+    if max_h > 0 and fig_h > max_h:
+        fig_h = max_h
+    return fig_w, max(fig_h, 1.0)
 
 
-def _add_step(cur: _SheetFlow, index: int, step: str):
-    """One bay-order step: a bold heading, then labeled lines, with space after it."""
+def _keep_block(cur: _SheetFlow, need: float, subtitle: str) -> None:
+    """Start a new page when the step and its figure will not both fit."""
+    if need <= cur.y - _FIGURE_FLOOR:
+        return
+    cur.new_page(subtitle)
+
+
+def _paint_centered_figure(cur: _SheetFlow, png: bytes, caption: str, fig_w: float, fig_h: float) -> None:
+    """Figure centered under the step, caption centered under the figure."""
+    img_x = MARGIN + (_CONTENT_W - fig_w) / 2.0
+    img_bottom = cur.y - fig_h
+    cur.page.images.append(DrawnImage(png, img_x, img_bottom, fig_w, fig_h))
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    cap_x = img_x + max(0.0, (fig_w - cap_m.width) / 2.0)
+    baseline = img_bottom - 4.0 - cap_m.ascent
+    cur.page.texts.append(
+        DrawnText(
+            "\n".join(cap_m.lines),
+            cap_x,
+            baseline,
+            w=max(cap_m.width, 12),
+            size=8,
+            bold=True,
+            color=NAVY,
+            leading=cap_m.leading,
+            lines=list(cap_m.lines),
+            role="caption",
+        )
+    )
+    cur.y = baseline - max(0, len(cap_m.lines) - 1) * cap_m.leading - cap_m.descent
+
+
+def _figure_block_height(png: bytes, caption: str, max_h: float) -> tuple[float, float, float]:
+    fig_w, fig_h = _figure_draw_size(png, max_h)
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    return fig_w, fig_h, fig_h + 4.0 + cap_m.height
+
+
+def _fit_figure_pair(png: bytes, caption: str, room: float) -> tuple[float, float]:
+    """Keep the shared width. Shrink height only when a fresh page is still too short."""
+    fig_w, _fig_h, block = _figure_block_height(png, caption, 0)
+    if block <= room:
+        return fig_w, _fig_h
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    fig_h = max(36.0, room - 4.0 - cap_m.height)
+    return fig_w, fig_h
+
+
+def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = None):
+    """One bay-order step, then each cited figure under it. They stay on one page."""
     import manual_figures as mf
 
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
     heading, lines = mf.lines_from_shop_text(step, index)
     head = measure_text(heading, text_w, 9, bold=True, leading=11.6)
-    body = measure_text("\n".join(lines), text_w, 8.5, leading=11.0) if lines else None
-    gap = 10.0
-    block_h = head.height + (3.0 + body.height if body else 0.0)
+    body = measure_text("\n".join(lines), text_w, 8, leading=10.8) if lines else None
+    text_h = head.height + (3.0 + body.height if body else 0.0)
+    drawn = []
+    fig_span = 0.0
+    for fig in figures or []:
+        png = getattr(fig, "image_png", b"") or b""
+        if not png:
+            continue
+        cap = mf.display_caption(fig.title, fig.page, fig.caption)
+        _fw, _fh, block = _figure_block_height(png, cap, 0)
+        drawn.append((png, cap))
+        fig_span += 4.0 + block
+    floor = _FIGURE_FLOOR if drawn else cur.floor
+    need = text_h + fig_span + _STEP_GAP
 
     def continued(flow: _SheetFlow):
         flow.new_page("Bay order continued")
-        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=min(block_h, 48))
+        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=min(text_h, 48))
 
-    if block_h + gap > cur.remaining():
-        fresh = cur.banner_bottom - 8.0 - cur.floor - 40.0
-        if block_h + gap <= fresh:
-            continued(cur)
+    if need > cur.y - floor:
+        continued(cur)
+    room = cur.y - floor - text_h - _STEP_GAP
+    sized = []
+    for png, cap in drawn:
+        fig_w, fig_h = _fit_figure_pair(png, cap, room - 4.0)
+        sized.append((png, cap, fig_w, fig_h))
+        _fw, _fh, block = _figure_block_height(png, cap, fig_h)
+        room -= 4.0 + block
 
     def paint_check():
         baseline = cur.y - head.ascent
@@ -8719,12 +8765,19 @@ def _add_step(cur: _SheetFlow, index: int, step: str):
             )
         )
 
-    if block_h + gap > cur.remaining():
-        continued(cur)
-    paint_check()
-    _paint_measured(cur, head, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0)
-    if body:
-        _paint_measured(cur, body, x=text_x, size=8.5, bold=False, color=INK, role="body", owner="", gap_after=gap)
+    saved_floor = cur.floor
+    cur.floor = floor
+    try:
+        paint_check()
+        _paint_measured(cur, head, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0 if body else 0.0)
+        if body:
+            _paint_measured(cur, body, x=text_x, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0)
+        for png, cap, fig_w, fig_h in sized:
+            cur.y -= 4.0
+            _paint_centered_figure(cur, png, cap, fig_w, fig_h)
+        cur.y -= _STEP_GAP
+    finally:
+        cur.floor = saved_floor
 
 
 def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None, allow_break: bool = True):
@@ -8850,23 +8903,24 @@ def _fit_image(png: bytes, max_w: float, max_h: float) -> tuple[float, float]:
 
 
 def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break: bool = True) -> bool:
-    """Draw the caption and the figure under the cursor. False when it will not fit."""
+    """A leftover library figure, same width as a step figure, caption underneath."""
     cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
-    cap_m = measure_text(cap, _CONTENT_W - 16, 9, bold=True, leading=12)
-    img_w = _CONTENT_W - 32
-    dw, dh = _fit_image(png, img_w, max(0.0, cur.remaining() - cap_m.height - 36))
-    if dh < 28 or dw < 28:
+    _fw, _fh, block = _figure_block_height(png, cap, 0)
+    need = 36.0 + block
+    if need > cur.y - _FIGURE_FLOOR:
+        if not allow_break:
+            return False
+        cur.new_page(cur.subtitle)
+    room = cur.y - _FIGURE_FLOOR - 36.0
+    fig_w, fig_h = _fit_figure_pair(png, cap, room)
+    if fig_h < 28 or fig_w < 28:
         return False
     if not _add_section(
-        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(cap_m.height + 12, 36), allow_break=allow_break
+        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(block, 36), allow_break=allow_break
     ):
         return False
-    _emit_block(cur, cap_m, x=MARGIN + 8, size=9, bold=True, color=NAVY, gap_after=6)
-    cur.y -= 2
-    if cur.y - dh < cur.floor:
-        return False
-    cur.page.images.append(DrawnImage(png, MARGIN + 16, cur.y - dh, dw, dh))
-    cur.y -= dh + 8
+    _paint_centered_figure(cur, png, cap, fig_w, fig_h)
+    cur.y -= 8.0
     return True
 
 
@@ -8996,10 +9050,10 @@ def _paint_diagnosis(body: _SheetFlow, steps: list[str]) -> None:
         _add_step(body, index, line)
 
 
-def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) -> None:
+def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float, allow_break: bool = True) -> None:
     block = measure_text(text, width - 10, 7.5, leading=9.5)
     box_h = block.height + 8.0
-    if box_h + 4 > cur.remaining():
+    if allow_break and box_h + 4 > cur.remaining():
         cur.new_page("Repair procedure")
     top = cur.y
     bottom = top - box_h
@@ -9020,8 +9074,19 @@ def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) ->
     cur.y = bottom - 4.0
 
 
+def _repair_figure_caption(figure: dict) -> str:
+    import manual_figures as mf
+
+    label = re.sub(r"\s+", " ", (figure.get("label") or "")).strip()
+    if re.fullmatch(r"CCD-000\d+, page \d+", label):
+        return label
+    if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
+        return label
+    return mf.display_caption(figure.get("title") or "", figure.get("page") or 1, label)
+
+
 def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
-    """Numbered Removal and Installation, with the kit figure beside the step."""
+    """Numbered Removal and Installation. The figure sits under the step that cites it."""
     import manual_figures as mf
 
     title = procedure.get("title") or "Repair procedure"
@@ -9035,6 +9100,8 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     steps = list(procedure.get("steps") or [])
     section = ""
     shown_safety = None
+    text_x = MARGIN + 8.0
+    text_w = _STEP_TEXT_W
     for index, step in enumerate(steps, 1):
         section_label = ""
         if step.get("section") != section:
@@ -9048,29 +9115,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
-        fig_w = 132.0
-        fig_h = 0.0
-        cap = ""
-        cap_m = None
-        if has:
-            width, height = _png_pixel_size(png)
-            fig_h = fig_w * height / max(width, 1)
-            if fig_h > 150.0:
-                fig_h = 150.0
-                fig_w = max(120.0, 150.0 * width / max(height, 1))
-            label = re.sub(r"\s+", " ", ((figure or {}).get("label") or "")).strip()
-            if re.fullmatch(r"CCD-000\d+, page \d+", label):
-                cap = label
-            elif re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
-                cap = label
-            else:
-                cap = mf.display_caption(
-                    (figure or {}).get("title") or "",
-                    (figure or {}).get("page") or 1,
-                    label,
-                )
-            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-        text_w = _CONTENT_W - 20.0 - ((fig_w + 14.0) if has else 0)
+        cap = _repair_figure_caption(figure) if has else ""
         safety = mf.step_safety_text(step)
         safety_line = ""
         if safety and safety != shown_safety:
@@ -9083,79 +9128,49 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         )
         if safety_line:
             body_lines = [safety_line, *body_lines]
-
-        def _measure_step(width: float):
-            head_m = measure_text(heading, width, 9, bold=True, leading=11.6)
-            body_m = (
-                measure_text("\n".join(body_lines), width, 8, leading=10.8)
-                if body_lines
-                else None
-            )
-            text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
-            return head_m, body_m, text_h
-
-        head_m, body_m, text_h = _measure_step(text_w)
-        caption_h = (cap_m.height + 6.0) if cap_m else 0.0
-        pair_h = (fig_h + caption_h) if has else 0.0
-        row = max(text_h + 6.0, pair_h + 4.0)
-        if step.get("caution"):
-            row += 22.0
-        heading_h = 0.0
+        head_m = measure_text(heading, text_w, 9, bold=True, leading=11.6)
+        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=10.8) if body_lines else None
+        text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
+        caution = f"Caution: {step['caution']}" if step.get("caution") else ""
+        caution_h = 0.0
+        if caution:
+            caution_m = measure_text(caution, text_w - 10, 7.5, leading=9.5)
+            caution_h = caution_m.height + 12.0
+        sec_h = 0.0
         if section_label:
-            heading_h = measure_text(section_label, _CONTENT_W - 16.0, 9, leading=11.6).height + 6.0
-        if row + heading_h + 8 > body.remaining():
-            body.new_page("Repair procedure")
-        if has and pair_h + 8.0 > body.remaining():
-            width, height = _png_pixel_size(png)
-            avail = max(48.0, body.remaining() - caption_h - 16.0)
-            fig_h = min(fig_h, avail)
-            fig_w = max(120.0, fig_h * width / max(height, 1))
-            if fig_w > 180.0:
-                fig_w = 180.0
-                fig_h = fig_w * height / max(width, 1)
-            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-            caption_h = cap_m.height + 6.0
-            pair_h = fig_h + caption_h
-            text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
-            head_m, body_m, text_h = _measure_step(text_w)
-            row = max(text_h + 6.0, pair_h + 4.0)
-            if step.get("caution"):
-                row += 22.0
-            if row + heading_h + 8 > body.remaining():
-                body.new_page("Repair procedure")
-        if section_label:
-            _add_plain_item(body, section_label, size=9, gap=6, allow_break=False)
-        top = body.y
-        body.y = top
-        _paint_measured(
-            body, head_m, x=MARGIN + 8, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0
-        )
-        if body_m:
-            _paint_measured(
-                body, body_m, x=MARGIN + 8, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0
-            )
+            sec_h = measure_text(section_label, text_w, 9, leading=11.6).height + 6.0
+        fig_block = 0.0
         if has:
-            img_x = MARGIN + _CONTENT_W - fig_w
-            img_bottom = top - fig_h
-            body.page.images.append(DrawnImage(png, img_x, img_bottom, fig_w, fig_h))
-            cap_baseline = img_bottom - 4.0 - cap_m.ascent
-            body.page.texts.append(
-                DrawnText(
-                    "\n".join(cap_m.lines),
-                    img_x,
-                    cap_baseline,
-                    w=fig_w,
-                    size=7,
-                    bold=True,
-                    color=NAVY,
-                    leading=cap_m.leading,
-                    lines=list(cap_m.lines),
-                    role="caption",
+            _fw, _fh, fig_block = _figure_block_height(png, cap, 0)
+            fig_block += 4.0
+        need = sec_h + text_h + caution_h + fig_block
+        if need > body.y - _FIGURE_FLOOR:
+            body.new_page("Repair procedure")
+        room = body.y - _FIGURE_FLOOR - sec_h - text_h - caution_h
+        fig_w, fig_h = _fit_figure_pair(png, cap, max(0.0, room - 4.0)) if has else (0.0, 0.0)
+        saved_floor = body.floor
+        body.floor = _FIGURE_FLOOR
+        try:
+            if section_label:
+                sec_m = measure_text(section_label, text_w, 9, bold=True, leading=11.6)
+                _paint_measured(
+                    body, sec_m, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=6.0
                 )
+            _paint_measured(
+                body, head_m, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0 if body_m else 0.0
             )
-        body.y = top - max(text_h, pair_h) - 10.0
-        if step.get("caution"):
-            _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
+            if body_m:
+                _paint_measured(
+                    body, body_m, x=text_x, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0
+                )
+            if caution:
+                _paint_caution_box(body, caution, x=text_x, width=text_w, allow_break=False)
+            if has:
+                body.y -= 4.0
+                _paint_centered_figure(body, png, cap, fig_w, fig_h)
+            body.y -= _STEP_GAP
+        finally:
+            body.floor = saved_floor
 
 
 def _do_not_block_height(items: list[str]) -> float:
@@ -9239,10 +9254,9 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             group = []
             if i - 1 < len(proc.step_figures or []):
                 group = list(proc.step_figures[i - 1] or [])
-            _add_step(body, i, step)
+            _add_step(body, i, step, group)
             for fig in group:
                 if fig and fig.image_png:
-                    _add_manual_figure(body, fig)
                     shown_figures.add(fig.image_png)
     if proc.do_not:
         _paint_do_not(body, proc.do_not)

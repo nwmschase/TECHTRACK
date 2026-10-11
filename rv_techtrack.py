@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.55
-- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Version stamp so this deploy is distinct from v4.19.54.
+- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Version stamp so this deploy is distinct from v4.19.54.
 - v4.19.54: Live v4.19.53 is reverted. Shop behavior is known-good-v41952 again. Version stamp so this deploy is distinct from v4.19.53.
 - v4.19.53: Every Bay step and Guided Diagnostics reply uses one short layout. Backfill is per case for CCD-0008666, CCD-0007990, and the Thetford Style II docs. Version stamp so this deploy is distinct from v4.19.52.
 - v4.19.52: Live v4.19.51 is reverted. Shop behavior is known-good-v41950 again. Version stamp so this deploy is distinct from v4.19.51.

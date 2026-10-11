@@ -214,7 +214,8 @@ class TestFacrSheet(unittest.TestCase):
         proc = _sheet()
         pages = compose_sheet(proc)
         self.assertGreaterEqual(len(pages), 4)
-        self.assertLess(len(pages), 12)
+        # A 75% page-width figure takes most of a page, so the old 12-page cap no longer fits.
+        self.assertLess(len(pages), 18)
         text = "\n".join(item.text for page in pages for item in page.texts).lower()
         self.assertIn("proving checks", text)
         self.assertIn("removal", text)

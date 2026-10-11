@@ -1081,7 +1081,7 @@ def step_body_lines(
     good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
     if good:
         lines.append(f"Good looks like: {_finish_sentence(good)}")
-    if bad:
+    if bad and not _GENERIC_BAD_RE.match(bad):
         lines.append(f"Bad looks like: {_finish_sentence(bad)}")
     lines.extend(_next_lines(fields.get("NEXT") or ""))
     figure = shop_field_value(fields.get("FIGURE") or "")
@@ -1217,7 +1217,13 @@ def lines_from_shop_text(text: str, number: int) -> tuple[str, list[str]]:
                 if body:
                     lines.append(f"{number}. {_finish_sentence(body)}")
         elif value:
-            lines.append(f"{name}: {_finish_sentence(value)}")
+            bare = value.strip().rstrip(".")
+            if name == "Bad looks like" and (
+                _GENERIC_BAD_RE.match(bare) or _GENERIC_BAD_RE.match(value.strip())
+            ):
+                pass
+            else:
+                lines.append(f"{name}: {_finish_sentence(value)}")
         index += 2
     return heading, lines
 
@@ -1674,6 +1680,7 @@ _BAD_FOR_GOOD = {
     "The clamp is on.": "The clamp is off.",
     "The clamp is tight.": "The clamp is loose.",
     "The toilet does not rock.": "The toilet still rocks.",
+    "Toilet does not rock.": "The toilet still rocks.",
     "The rings are off.": "A ring is still on.",
     "You have read the steps.": "A step was skipped.",
     "The toilet is rinsed.": "The toilet is not rinsed.",
@@ -1684,6 +1691,7 @@ _BAD_FOR_GOOD = {
     "It is in.": "It is not in.",
     "The step is finished.": "The step is not finished.",
     "It stops.": "It does not stop.",
+    "Tab locks in place.": "The tab does not lock.",
     "It hits the spring.": "It does not hit the spring.",
     "The pedal snaps.": "The pedal does not snap.",
 }
@@ -1715,7 +1723,8 @@ def _bad_for_see(see: str) -> str:
 
 
 _GENERIC_BAD_RE = re.compile(
-    r"^(?:it does not look right|not stated(?: in this sheet)?|unconfirmed|do this step again)\.?$",
+    r"^(?:it does not look right|not stated(?: in this sheet)?|unconfirmed|"
+    r"do this step again|the step is not finished|not this:.*)\.?$",
     re.I,
 )
 
@@ -1950,10 +1959,14 @@ def _ensure_visible_good_bad(step: dict) -> None:
     if not good:
         good = see or shop_field_value(step.get("see") or "") or "The step is finished."
     if not bad or _GENERIC_BAD_RE.match(bad):
-        bad = bad_sign or _bad_for_see(good)
-    if _GENERIC_BAD_RE.match(bad):
-        bad = _bad_for_see(good)
-    fields["GOOD vs BAD"] = f"Good: {_finish_sentence(good)} Bad: {_finish_sentence(bad)}"
+        bad = bad_sign or ""
+    if bad and _GENERIC_BAD_RE.match(bad):
+        bad = ""
+    good = _finish_sentence(good)
+    if bad:
+        fields["GOOD vs BAD"] = f"Good: {good} Bad: {_finish_sentence(bad)}"
+    else:
+        fields["GOOD vs BAD"] = f"Good: {good}"
 
 
 def _figure_group_key(step: dict):
