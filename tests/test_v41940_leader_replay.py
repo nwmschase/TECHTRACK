@@ -81,18 +81,23 @@ class TestLeaderReplay(unittest.TestCase):
             "FACR08HESA2-PS",
             kind="facr",
         )
-        for reply in replies:
+        for index, reply in enumerate(replies):
             low = reply.lower()
             self.assertTrue(reply)
             self.assertIn("📖", reply)
-            self.assertNotIn("replace the rooftop assembly", low)
-            self.assertNotIn("authorize rooftop assembly", low)
             self.assertNotIn("next check on the", low)
             self.assertNotIn("stay on the facr", low)
             self.assertNotIn("do not leave this prove", low)
-            self.assertNotIn("interior leak remains", low)
             self.assertNotIn("report the prove that is still open", low)
             self.assertNotIn("sail switch", low)
+            if index < 4:
+                self.assertNotIn("replace the rooftop assembly", low)
+                self.assertNotIn("authorize rooftop assembly", low)
+                self.assertNotIn("interior leak remains", low)
+                continue
+            self.assertIn("authorize rooftop assembly", low)
+            self.assertIn("replace the rooftop assembly", low)
+            self.assertIn("ccd-0007990", low)
 
     def test_s02_does_not_repeat_the_peacemaker_ask(self):
         replies = _walk(

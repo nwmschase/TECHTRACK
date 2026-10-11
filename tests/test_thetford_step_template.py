@@ -36,10 +36,11 @@ def _packet(title, path):
 
 
 def _assert_fields(case, text):
-    for name in mf.STEP_FIELDS:
-        case.assertIn(f"{name}:", text, name)
-        case.assertNotIn("UNCONFIRMED", text)
-        case.assertIn("Not stated in this sheet", text)
+    """A printed step keeps the action and the photo line, and leaves blanks off."""
+    case.assertIn("HOW:", text)
+    case.assertIn("PHOTO:", text)
+    case.assertNotIn("UNCONFIRMED", text)
+    case.assertNotIn("Not stated in this sheet", text)
 
 
 class TestThetfordStepTemplate(unittest.TestCase):
@@ -51,10 +52,9 @@ class TestThetfordStepTemplate(unittest.TestCase):
             THETFORD_FLANGE_LINE,
         ):
             _assert_fields(self, line)
-            self.assertIn("Meter setting: Not stated in this sheet.", line)
-            self.assertIn("Power off: Not stated in this sheet.", line)
-            self.assertIn("Propane off: Not stated in this sheet.", line)
-            self.assertNotIn("UNCONFIRMED", line)
+            self.assertIn("WHERE:", line)
+            self.assertNotIn("SAFETY:", line)
+            self.assertNotIn("TOOLS / METER SETTING:", line)
             self.assertIn("Take a photo", line)
             self.assertIn("A photo is optional.", line)
 
@@ -103,8 +103,8 @@ class TestThetfordStepTemplate(unittest.TestCase):
         doc = pymupdf.open(stream=render_bay_procedure_pdf(proc), filetype="pdf")
         pdf = "\n".join(page.get_text() for page in doc).lower()
         doc.close()
-        for name in mf.STEP_FIELDS:
-            self.assertIn(name.lower() + ":", pdf, name)
+        self.assertIn("how:", pdf)
+        self.assertIn("photo:", pdf)
         self.assertNotIn("unconfirmed", pdf)
 
 

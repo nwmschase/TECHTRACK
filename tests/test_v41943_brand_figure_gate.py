@@ -744,7 +744,7 @@ class TestBayPdfShowsKitCrops(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(proc.procedures, [])
+        self.assertGreaterEqual(len(proc.procedures), 2)
         vacuum = next(i for i, step in enumerate(proc.bay_order) if "vacuum breaker" in step.lower())
         valve = next(i for i, step in enumerate(proc.bay_order) if "42109" in step)
         for index, needle in ((vacuum, "34123"), (valve, "42109")):
@@ -1028,7 +1028,7 @@ class TestWrongSystemFiguresStayOff(unittest.TestCase):
 
 
 class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
-    def test_water_off_and_pedal_off_get_their_crops(self):
+    def test_a_crop_sits_only_on_the_step_the_manual_illustrates(self):
         from pathlib import Path
 
         root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
@@ -1068,9 +1068,16 @@ class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
         self.assertTrue(steps)
         water = next(step for step in steps if "turn off the water" in (step.get("text") or "").lower())
         pedal = next(step for step in steps if "pull the pedal" in (step.get("text") or "").lower())
-        self.assertIn("WATER", (water.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((water.get("figure") or {}).get("png") or b""))
-        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        thumb = next(step for step in steps if "thumb" in (step.get("text") or "").lower())
+        inlet = next(step for step in steps if "inlet seal in" in (step.get("text") or "").lower())
+        drive = next(step for step in steps if "drive pin" in (step.get("text") or "").lower())
+        pivot = next(step for step in steps if "pivot" in (step.get("text") or "").lower())
+        self.assertIsNone(water.get("figure"))
+        self.assertIsNone(pedal.get("figure"))
+        self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((thumb.get("figure") or {}).get("png") or b""))
+        self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
+        self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
+        self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
         self.assertEqual(steps.index(water) + 1, 1)
         self.assertEqual(steps.index(pedal) + 1, 4)

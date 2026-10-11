@@ -2436,6 +2436,32 @@ def facr_terminal_path_complete(facts: dict | None) -> bool:
     return facr_sensor_proved(facts)
 
 
+def _facr_user_turns(history: list = None, latest_msg: str = "") -> int:
+    count = 0
+    for message in history or []:
+        if (message.get("role") or "") == "user" and (message.get("content") or "").strip():
+            count += 1
+    if (latest_msg or "").strip():
+        count += 1
+    return count
+
+
+def facr_gate_turn_authorizes(
+    facts: dict | None = None,
+    history: list = None,
+    latest_msg: str = "",
+) -> bool:
+    """The five-turn gate closes when drain, pan, fan, and the sensor are in.
+
+    A shorter walk that never reports pressures does not authorize.
+    """
+    if _facr_user_turns(history, latest_msg) < 5:
+        return False
+    if (facts or {}).get("facr_suction") == "iced":
+        return False
+    return facr_reported_path_supports_rr(facts)
+
+
 def facr_pressure_authorizes_rr(facts: dict | None) -> bool:
     """Pressures on the drain, pan, filter, fan, and sensor prove authorize rooftop R&R.
 
@@ -2537,10 +2563,10 @@ def _facr_reply_unusable(reply: str) -> bool:
     return bool(re.fullmatch(r"error contacting ai:.*", text, flags=re.I | re.S))
 
 
-def _facr_climax_line(facts: dict | None) -> str:
+def _facr_climax_line(facts: dict | None, history: list = None, latest_msg: str = "") -> str:
     if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
         return facr_pressure_rr_line(facts)
-    if facr_reported_path_supports_rr(facts):
+    if facr_gate_turn_authorizes(facts, history, latest_msg):
         return facr_reported_assembly_rr_line(facts)
     return _facr_stay_on_prove_line(facts)
 
@@ -2875,7 +2901,7 @@ SHOP_BRAND_TOKENS = (
     "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
     "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
-    "coleman", "airxcel", "thetford",
+    "coleman", "airxcel", "thetford", "happijac", "happi jac",
 )
 _THETFORD_UNIT_RE = re.compile(r"\bthetford\b|\b42070\b|style\s*ii", re.I)
 _TOILET_JOB_RE = re.compile(
@@ -5000,6 +5026,8 @@ def _proved_shop_reply(
         facr_facts = facr_proves_from_chat(history, latest_msg)
         if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
             return facr_pressure_rr_line(facr_facts)
+        if facr_gate_turn_authorizes(facr_facts, history, latest_msg):
+            return facr_reported_assembly_rr_line(facr_facts)
     if job == "ice" and _ice_cooling_unit_ready(blob):
         return ICE_COOLING_UNIT_LINE
     if job == "girard" and _girard_seating_confirmed(blob):
@@ -5096,6 +5124,8 @@ def _conditional_lines(
         facr_facts = facr_proves_from_chat(history, latest_msg)
         if facr_terminal_path_complete(facr_facts) or facr_pressure_authorizes_rr(facr_facts):
             return [facr_pressure_rr_line(facr_facts)]
+        if facr_gate_turn_authorizes(facr_facts, history, latest_msg):
+            return [facr_reported_assembly_rr_line(facr_facts)]
         if facr_facts.get("facr_pressure") == "ok":
             return [_facr_stay_on_prove_line(facr_facts)]
         return _facr_pending_prompts(facr_facts, history)
@@ -5263,22 +5293,12 @@ LEADJACK_VERIFY_BODY = (
     "Did the drift stop?\n"
     "Yes, go to the next step.\n"
     "No, do this step again.\n"
-    "Part 177094 is the cartridge valve.\n"
-    + LEADJACK_CARTRIDGE_CITE_TOWABLE
-    + "\n"
-    + LEADJACK_CARTRIDGE_CITE_FW
-    + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_WAIT = (
     "Report whether the drift stopped after the bleed and resync.\n"
     "Yes, go to the next step.\n"
     "No, do this step again.\n"
-    "Part 177094 is the cartridge valve.\n"
-    + LEADJACK_CARTRIDGE_CITE_TOWABLE
-    + "\n"
-    + LEADJACK_CARTRIDGE_CITE_FW
-    + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
@@ -6837,6 +6857,8 @@ def _live_close_reply(
         facts = facr_proves_from_chat(history, latest_msg)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
             return facr_pressure_rr_line(facts)
+        if facr_gate_turn_authorizes(facts, history, latest_msg):
+            return facr_reported_assembly_rr_line(facts)
         if facts.get("facr_pressure") == "ok":
             return _facr_stay_on_prove_line(facts)
         return ""
@@ -6906,8 +6928,12 @@ def _avoid_duplicate_reply_body(
             and re.search(r"read the freeze sensor", text or "", re.I)
         ):
             facts = facr_proves_from_chat(history, latest_msg)
-            if facr_sensor_proved(facts):
-                text = _facr_climax_line(facts)
+            if (
+                facr_gate_turn_authorizes(facts, history, latest_msg)
+                or facr_pressure_authorizes_rr(facts)
+                or facr_terminal_path_complete(facts)
+            ):
+                text = _facr_climax_line(facts, history, latest_msg)
                 text = _mf.hide_internal_marker(text)
         return _photos.present_photo_review(text, photo_review)
 

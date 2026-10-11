@@ -37,8 +37,12 @@ class TestReadability(unittest.TestCase):
                 problems = mf.readability_problems(step)
                 self.assertEqual(problems, [], (kind, step["text"], problems))
                 joined = " ".join(mf.step_sentences(step))
+                self.assertNotIn("Not stated in this sheet", joined)
                 for label in mf.STEP_FIELDS:
-                    self.assertIn(f"{label}:", joined)
+                    if mf.shop_field_value(step["fields"].get(label) or ""):
+                        self.assertIn(f"{label}:", joined, step["text"])
+                    else:
+                        self.assertNotIn(f"{label}:", joined, step["text"])
                 self.assertIn("On good:", step["fields"]["NEXT"])
                 self.assertIn("On bad:", step["fields"]["NEXT"])
                 self.assertNotRegex(step["text"], r"\band then\b")
@@ -178,8 +182,10 @@ class TestProcedureHandoff(unittest.TestCase):
         self.assertIn("Here is the repair procedure.", first)
         self.assertIn("Step 1 of", first)
         self.assertIn("Take a photo of this step and send it.", first)
-        for label in mf.STEP_FIELDS:
-            self.assertIn(f"{label}:", first)
+        self.assertNotIn("Not stated in this sheet", first)
+        self.assertIn("HOW:", first)
+        self.assertIn("PHOTO:", first)
+        self.assertNotIn("GOOD vs BAD:", first)
         self.assertNotIn("Step 2 of", first)
         self.assertIn("42109", first)
         self.assertNotIn("It looks right", first)

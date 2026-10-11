@@ -92,7 +92,7 @@ class TestBundledThetfordFigures(unittest.TestCase):
 
 
 class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
-    def test_text_only_chunks_do_not_paste_the_bundled_kit(self):
+    def test_text_only_chunks_still_carry_the_numbered_repair(self):
         proc = compile_bay_procedure(
             concern="Thetford 42070 leaks under the flush lever",
             brand="Thetford",
@@ -103,10 +103,17 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
                 {"title": "Thetford Water Valve Service Kit 42109", "page": 1, "excerpt": "Disconnect RV water supply from toilet."},
             ],
         )
-        self.assertEqual(proc.procedures, [])
+        self.assertGreaterEqual(len(proc.procedures), 2)
+        valve = next(
+            procedure
+            for procedure in proc.procedures
+            if "42109" in (procedure.get("title") or "")
+        )
+        self.assertEqual(len(valve["steps"]), 14)
         blob = " ".join(proc.bay_order).lower()
         self.assertIn("supply", blob)
         self.assertIn("vacuum", blob)
+        self.assertNotIn("not stated in this sheet", blob)
         pages = compose_sheet(proc)
         images = [image for page in pages for image in page.images]
         self.assertGreaterEqual(len(images), 2)
