@@ -2111,6 +2111,25 @@ _FACR_SENSOR_OHM_RE = re.compile(
 _FACR_25C_RE = re.compile(r"\b25\s*(?:c|degrees?|deg)\b")
 
 
+def _facr_gate_words(raw: str) -> dict:
+    """Short gate reports. The word itself is the pass.
+
+    'pressures' counts when the tech is reporting it. A question does not.
+    """
+    facts = {}
+    if re.fullmatch(r"drains?[.!]?", raw or ""):
+        facts["facr_drain"] = "clear"
+    if re.fullmatch(r"pans?[.!]?", raw or ""):
+        facts["facr_pan_slope"] = "ok"
+    if re.fullmatch(r"fans?[.!]?", raw or ""):
+        facts["facr_fan"] = "ok"
+    if re.search(r"\bpressures?\b", raw or "") and not re.search(
+        r"\b(?:not|no|n't|without)\b.{0,24}\bpressures?\b", raw or ""
+    ) and not re.search(r"\b(?:read|check|measure|connect)\b|\?", raw or ""):
+        facts["facr_pressure"] = "ok"
+    return facts
+
+
 def _facr_sensor_reading_reported(raw: str) -> bool:
     """A freeze-sensor resistance the tech actually typed."""
     if not raw:
@@ -2130,7 +2149,7 @@ def facr_freeze_proves_from_text(text: str) -> dict:
     raw = _facr_prep(text)
     if not raw:
         return {}
-    facts = {}
+    facts = _facr_gate_words(raw)
     if re.search(
         r"\bdrain\b.{0,32}\b(clear|open|ok|good|free|flowing)\b|"
         r"\b(clear|open|ok|good)\b.{0,16}\bdrain\b|"
@@ -2172,7 +2191,7 @@ def _facr_extended_proves_from_text(text: str) -> dict:
     raw = _facr_prep(text)
     if not raw:
         return {}
-    facts = {}
+    facts = _facr_gate_words(raw)
     if re.search(
         r"\bpan\s*/\s*slope\b.{0,24}\b(good|ok|fine|level|correct|pass|passed)\b|"
         r"\bslope\b.{0,24}\b(good|ok|fine|correct|level|right)\b|"
@@ -2305,6 +2324,10 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
         and _FACR_SHORT_PASS_RE.search(raw)
         and not re.search(r"\b(bad|fail|failed|iced|clogged|restricted)\b", raw)
     ):
+        named = _facr_checks_named(raw)
+        # "Drain is clear" answers the drain. It does not prove the freeze sensor.
+        if named and not set(named) <= set(asked):
+            return {}
         return _mark_facr_asked(asked)
     facts = {}
     if "facr_freeze_sensor" in asked and (
@@ -2423,9 +2446,7 @@ def facr_pressure_authorizes_rr(facts: dict | None) -> bool:
     facts = facts or {}
     if facts.get("facr_pressure") != "ok" or facts.get("facr_suction") == "iced":
         return False
-    fan = facts.get("facr_fan_filter") == "ok" or (
-        facts.get("facr_filter") == "ok" and facts.get("facr_fan") == "ok"
-    )
+    fan = facts.get("facr_fan_filter") == "ok" or facts.get("facr_fan") == "ok"
     return bool(
         facts.get("facr_drain") == "clear"
         and facts.get("facr_pan_slope") == "ok"
@@ -3460,11 +3481,12 @@ GROUND_CONTROL_LEVEL_LINE = (
     "6. The display reads ZERO POINT CALIBRATION, ENTER to set, Power to exit. Press ENTER.\n"
     "7. The display reads Zero point stability check, then Zero point set successfully.\n"
     "8. That stored position is the level state, and the touch pad turns off.\n"
+    "Zero-point calibration is the repair.\n"
     "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
     "(Ground Control TT/2.0/3.0)"
 )
 GROUND_CONTROL_STAY_LINE = (
-    "Stay on the zero-point sequence already given. Report the display after ENTER.\n"
+    "If the stored level holds, call that calibration the repair and leave the FRONT side alone.\n"
     "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
     "(Ground Control TT/2.0/3.0)"
 )
@@ -5101,7 +5123,7 @@ def _conditional_lines(
         ]
     if job == "ground":
         return [
-            "Do a manual level, then set zero point. Press FRONT five times, then REAR five times, then press ENTER.",
+            "Do a manual level, then set zero point, press FRONT five times, then REAR five times, then press ENTER, because zero-point calibration is the repair.",
             "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. Zero-point calibration is the repair.",
             "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, zero-point calibration is the repair.",
         ]
@@ -5220,6 +5242,39 @@ LEADJACK_CARTRIDGE_LINE = (
 LEADJACK_CARTRIDGE_FOLLOW = (
     "The repair is to replace the front lead-jack cartridge valve, part 177094. "
     "The parts list calls 177094 the Cartridge Valve, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+LEADJACK_RR_BODY = (
+    "1. Remove the front lead-jack cartridge valve, part 177094.\n"
+    "2. Install the new cartridge valve, part 177094.\n"
+    "3. Use the parts-list figure, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+LEADJACK_VERIFY_BODY = (
+    "Bleed and resync the jacks.\n"
+    "Did the drift stop?\n"
+    "Yes, go to the next step.\n"
+    "No, do this step again.\n"
+    "Part 177094 is the cartridge valve.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+LEADJACK_VERIFY_WAIT = (
+    "Report whether the drift stopped after the bleed and resync.\n"
+    "Yes, go to the next step.\n"
+    "No, do this step again.\n"
+    "Part 177094 is the cartridge valve.\n"
     + LEADJACK_CARTRIDGE_CITE_TOWABLE
     + "\n"
     + LEADJACK_CARTRIDGE_CITE_FW
@@ -5420,17 +5475,68 @@ def _leadjack_pushes_forward(latest_msg: str) -> bool:
     return bool(words) and len(words) <= 4 and _leadjack_affirmed(latest_msg)
 
 
+def _leadjack_ack(latest_msg: str) -> str:
+    """One short line for the fact just reported. It does not restate the last reply."""
+    low = _norm(latest_msg)
+    if _leadjack_override_out(latest_msg):
+        return "Override screw is backed out."
+    if _leadjack_plumbing_stated(latest_msg) or "plumbing checked" in low:
+        return "Plumbing checks correct."
+    if _leadjack_loose_cartridge(latest_msg):
+        return "The cartridge was loose."
+    if re.search(r"\bnot checked yet\b", low):
+        return "That check is still open."
+    if re.search(r"\bwhat(?:'s| is) the repair\b", low):
+        return "The repair is part 177094."
+    if low and _leadjack_affirmed(latest_msg) and len(low.split()) <= 4:
+        return "That check is good."
+    return "That fact is in."
+
+
+def _leadjack_post_body(history: list = None) -> str:
+    """After the repair is named: R&R and the figure, then bleed and resync."""
+    blob = _norm(_prior_assistant_text(history))
+    if "report whether the drift stopped" in blob:
+        return LEADJACK_VERIFY_WAIT
+    if "bleed and resync" in blob:
+        return LEADJACK_VERIFY_WAIT
+    if "parts-list figure" in blob:
+        return LEADJACK_VERIFY_BODY
+    return LEADJACK_RR_BODY
+
+
+def _leadjack_post_repair(history: list = None, latest_msg: str = "") -> str:
+    """The latest tech message picks the next stage. The previous line does not."""
+    ack = _leadjack_ack(latest_msg)
+    body = _leadjack_post_body(history)
+    line = f"{ack}\n{body}"
+    last = _norm(_last_assistant_text(history))
+    if last and _norm(line) == last:
+        if body == LEADJACK_RR_BODY:
+            body = LEADJACK_VERIFY_BODY
+        elif body == LEADJACK_VERIFY_BODY:
+            body = LEADJACK_VERIFY_WAIT
+        else:
+            body = LEADJACK_RR_BODY
+        line = f"{ack}\n{body}"
+    return line
+
+
 def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
-    """The next lead-jack step. A repeated ask moves one stage forward."""
+    """The next lead-jack step. A new tech message after the repair moves forward.
+
+    There is no reply cache. The old line was chosen from the previous assistant
+    text and ignored the latest tech message, so the same cartridge sentence
+    shipped again.
+    """
+    if _leadjack_cartridge_already_given(history):
+        return _leadjack_post_repair(history, latest_msg)
     stage = _leadjack_stage(history, latest_msg)
     shipped = _leadjack_shipped_stage(history)
     if _leadjack_rank(shipped) > _leadjack_rank(stage):
         stage = shipped
     line = _leadjack_line_for(stage)
-    last_raw = _last_assistant_text(history)
-    last = _norm(last_raw)
-    if last == _norm(LEADJACK_CARTRIDGE_FOLLOW):
-        return LEADJACK_CARTRIDGE_FOLLOW
+    last = _norm(_last_assistant_text(history))
     if last and last == _norm(line) and _leadjack_pushes_forward(latest_msg):
         index = _leadjack_rank(stage)
         if index + 1 < len(_LEADJACK_STAGES):
@@ -5559,10 +5665,44 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
     return slots
 
 
+def _thetford_open_slot(history: list = None) -> str:
+    """The check the last shop line asked. A library-miss line is not a check."""
+    pending = ""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        pending = _thetford_line_slot(message.get("content") or "") or pending
+    return pending
+
+
+def _thetford_message_moves(text: str, pending: str) -> str:
+    """How a new tech message treats the check that already shipped.
+
+    A weep does not answer the vacuum breaker. A leak on the open check starts
+    that repair. Any other real answer advances. A figure ask does not.
+    """
+    raw = (text or "").strip()
+    if not raw or not pending:
+        return ""
+    if _thetford_show_ask(raw) or _thetford_asks_procedure_list(raw):
+        return ""
+    if re.search(r"\bnot yet\b", raw, re.I) and not _thetford_not_checked(raw):
+        return ""
+    if pending == "vacuum" and _thetford_valve_bad(raw) and "vacuum" not in _norm(raw):
+        return ""
+    low = _norm(raw)
+    passed = bool(re.search(r"\b(no leak|does not leak|doesn't leak|dry|tight|good|ok|okay)\b", low))
+    failed = bool(re.search(r"\b(leak|leaks|leaking|wet|failed|still)\b", low)) and not passed and "weep" not in low
+    if failed:
+        return "bad"
+    return "pass"
+
+
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     """Supply, then the vacuum breaker, then the valve body, then the flange.
 
     'Not checked yet' closes the check that was just asked and advances.
+    A check that already shipped also advances on the next real answer.
     A closed check is not asked again. A weep does not skip the vacuum breaker.
     A proven leak starts that repair only after the earlier checks are closed.
     A mismatched or unclear photo does not close the check.
@@ -5571,7 +5711,15 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
 
     latest_msg = _photos.adjust_latest(latest_msg)
     blob = _user_blob(history, latest_msg)
-    slots = _thetford_closed_slots(history, latest_msg)
+    slots = set(_thetford_closed_slots(history, latest_msg))
+    pending = _thetford_open_slot(history)
+    move = _thetford_message_moves(latest_msg, pending)
+    if move == "bad" and pending == "vacuum":
+        return "vacuum_replace"
+    if move == "bad" and pending == "valve":
+        return "valve_replace"
+    if move == "pass" and pending:
+        slots.add(pending)
     if "supply" not in slots and not _thetford_supply_ok(blob):
         return "supply"
     if _thetford_vacuum_bad(blob):
@@ -5616,18 +5764,16 @@ def _thetford_short_step_answer(content: str) -> bool:
 
 
 def _thetford_text_confirms(content: str) -> bool:
+    """Any real answer moves a repair step that already shipped.
+
+    A hold, a figure ask, a procedure-list ask, or a question stays put.
+    """
     raw = (content or "").strip()
-    if _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
+    if not raw or _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
         return False
-    if re.fullmatch(r"(?:yes|no)[.!]?", raw, re.I):
-        return True
-    if _PHOTO_CONFIRM_RE.search(raw):
-        if re.search(r"\bno\b", raw, re.I) and not re.search(
-            r"\b(?:photo|picture|yes)\b", raw, re.I
-        ):
-            return _thetford_short_step_answer(raw)
-        return True
-    return _thetford_short_step_answer(raw)
+    if raw.endswith("?") and not re.fullmatch(r"(?:yes|no)\??", raw, re.I):
+        return False
+    return True
 
 
 def _thetford_wait_shown(history: list, number: int) -> bool:
@@ -6658,8 +6804,19 @@ def _avoid_duplicate_reply_body(
     latest_msg = _photos.adjust_latest(latest_msg)
 
     def _out(text: str) -> str:
+        import manual_figures as _mf
+
+        text = _mf.hide_internal_marker(text)
         text = _strip_facr_internal_guard(text)
         text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+        if (
+            _job_key(history, latest_msg, category_name, model_text) == "facr"
+            and re.search(r"read the freeze sensor", text or "", re.I)
+        ):
+            facts = facr_proves_from_chat(history, latest_msg)
+            if facr_sensor_proved(facts):
+                text = _facr_climax_line(facts)
+                text = _mf.hide_internal_marker(text)
         return _photos.present_photo_review(text, photo_review)
 
     text = _strip_stop_no_further_tests((reply or "").strip())

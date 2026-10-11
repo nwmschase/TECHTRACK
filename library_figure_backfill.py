@@ -822,6 +822,11 @@ def _words(value: str) -> set[str]:
     }
 
 
+def _row_part_topic(row: dict) -> str:
+    blob = f"{row.get('title') or ''} {row.get('label') or ''} {row.get('caption') or ''}"
+    return mf.part_topic(blob)
+
+
 def _library_miss(*parts) -> bool:
     blob = " ".join(str(part or "") for part in parts).lower()
     return "document in the shop library for this unit" in blob
@@ -837,10 +842,18 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
 
     job = " ".join(part for part in (category, model, user_msg, reply) if part)
     figures = [row for row in rows or [] if (row.get("kind") or "figure") == "figure"]
+    topic = mf.part_topic(reply)
+    if topic:
+        figures = [
+            row
+            for row in figures
+            if not _row_part_topic(row) or _row_part_topic(row) == topic
+        ]
     if not figures:
         return []
-    named = mf._numbers_named(user_msg or "") or mf._numbers_named(reply or "")
-    ask_words = _words(f"{user_msg or ''} {reply or ''}")
+    named = mf._numbers_named(reply or "") or mf._numbers_named(user_msg or "")
+    reply_words = _words(reply or "")
+    ask_words = reply_words or _words(user_msg or "")
     model_words = _words(f"{model or ''} {category or ''}")
     by_doc: dict[int, dict] = {}
     for row in figures:
@@ -858,6 +871,7 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
         title_words = _words(identity)
         label_words = _words(f"{row.get('label') or ''} {row.get('caption') or ''}")
         overlap = len(title_words & model_words) + len(title_words & ask_words)
+        overlap += len(label_words & reply_words) * 3
         overlap += len(label_words & ask_words)
         if brand and mf.brand_name(job) == mf.brand_name(identity):
             overlap += 4
@@ -879,7 +893,10 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
             nums = mf._figure_numbers(label)
             if named and not any(number in named for number in nums):
                 continue
-            figure_score = len(_words(label) & ask_words)
+            label_words = _words(label)
+            figure_score = len(label_words & reply_words) * 3 + len(label_words & ask_words)
+            if topic and _row_part_topic(row) == topic:
+                figure_score += 6
             if named and any(number in named for number in nums):
                 figure_score += 8
             chosen.append((figure_score, bucket["score"], row))
@@ -952,6 +969,15 @@ def select_library_figures(rows, reply: str, user_msg: str, category: str, model
 
 def brand_name_of(text_value: str) -> str:
     return mf.brand_name(text_value)
+
+
+def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> list[list[dict]]:
+    """The same library crops Guided Diagnostics would show, one group per bay step."""
+    groups = []
+    for step in steps or []:
+        offers = select_library_figures(rows, step or "", "", category, model)
+        groups.append(offers[:1])
+    return groups
 
 
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:

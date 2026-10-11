@@ -331,6 +331,8 @@ def scrub_sheet_text(text: str) -> str:
         parts = re.split(r"(?<=[.!?])\s+", out)
         out = " ".join(p for p in parts if p and not body_uses_coach_donots(p))
     out = BODY_MANUAL_CODE_RE.sub("", out)
+    out = re.sub(r"\bUNCONFIRMED\b\.?", "Not stated in this sheet.", out, flags=re.I)
+    out = re.sub(r"(?:Not stated in this sheet\.\s*){2,}", "Not stated in this sheet. ", out)
     out = re.sub(r"\s+([.,;:])", r"\1", out)
     out = re.sub(r"\s{2,}", " ", out)
     return out.strip()
@@ -3228,14 +3230,23 @@ _QUOTE_PREFER = {
 }
 
 
+_CANON_QUOTES = {
+    "girard_e8": "Check for integrity and connections of the pressure switch hose.",
+}
+
+
 def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> str:
     """One on-page sentence for this procedure.
 
     A later sentence can win when the first line is about a different prove.
     The BAL troubleshooting screw sentence and the Girard pressure-switch hose
-    sentence are the ones those sheets have to keep.
+    sentence are the ones those sheets have to keep. A hose sentence that also
+    names the blower still counts.
     """
     raw = chunk_text or ""
+    canon = _CANON_QUOTES.get(path_kind or "")
+    if canon and _quote_is_verbatim(raw, canon):
+        return canon
     cleaned = clean_ocr_prose(raw)
     kept = []
     seen = set()
@@ -3244,12 +3255,18 @@ def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> st
         sentence = _LEADING_FIG_RE.sub("", sentence).strip()
         if not sentence:
             continue
-        if any(re.search(pattern, sentence, re.I) for pattern in _PATH_OFF.get(path_kind or "", ())):
+        preferred_now = any(
+            pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())
+        )
+        if not preferred_now and any(
+            re.search(pattern, sentence, re.I) for pattern in _PATH_OFF.get(path_kind or "", ())
+        ):
             continue
         one = clean_source_excerpt(sentence, locked=False)
         if not one:
             continue
-        one = _drop_path_off_sentences(one, path_kind)
+        if not preferred_now:
+            one = _drop_path_off_sentences(one, path_kind)
         one = _drop_sheet_contradictions(one, topic_text)
         if path_kind == "cooktop_tip":
             one = _cooktop_excerpt(one)
@@ -6043,7 +6060,7 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
             "A leak under the flush lever is checked in this order: the supply connection, "
             "the vacuum breaker while flushing, the water valve at the pedal, then the floor flange. "
             "Stop at the check that is leaking. "
-            "Style II uses a foot pedal. Confirming that the word lever means that pedal is UNCONFIRMED."
+            "Style II uses a foot pedal. Whether the word lever means that pedal is not stated in this sheet."
         ),
         "flowchart": _thetford_leak_flowchart(),
         "bay_order": [
@@ -6054,12 +6071,11 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
         ],
         "do_not": [
             "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
-            "Do not repair a failed vacuum breaker. UNCONFIRMED.",
             "Do not use scouring powders, acids, or concentrated cleaners.",
             "Never use automotive antifreeze. Use RV potable antifreeze only.",
             "If ice is in the toilet, do not flush until the ice thaws.",
             "When using air pressure to blow water from the lines, the toilet valve must be open.",
-            "Do not order a part number that is not on the sheet. UNCONFIRMED.",
+            "Do not order a part number that is not on the sheet.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6316,6 +6332,45 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     used = {fig.image_png for group in proc.step_figures for fig in group if fig.image_png}
     used.update(owned)
     proc.figures = [fig for fig in proc.figures if fig.image_png not in used]
+    return proc
+
+
+def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProcedure:
+    """Put the same library figure rows Guided Diagnostics loads beside each step.
+
+    A step that already has a crop is left alone. Rows without a PNG are skipped.
+    ``groups`` is the per-step offer list after the PNG bytes have been loaded.
+    """
+    import library_figure_backfill as fb
+    import manual_figures as mf
+
+    if not proc.bay_order:
+        return proc
+    if groups is None:
+        if not rows:
+            return proc
+        groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category or "", proc.model or "")
+    placed = [list(group) for group in (proc.step_figures or [])]
+    while len(placed) < len(proc.bay_order):
+        placed.append([])
+    for index, offers in enumerate(groups):
+        if any(getattr(fig, "image_png", b"") for fig in placed[index]):
+            continue
+        for offer in offers:
+            png = offer.get("png") or b""
+            if not png or mf.png_is_blank(png):
+                continue
+            placed[index].append(
+                BayFigure(
+                    title=offer.get("title") or "",
+                    page=offer.get("page"),
+                    caption=offer.get("caption") or offer.get("label") or "Fig.",
+                    excerpt="",
+                    image_png=png,
+                )
+            )
+            break
+    proc.step_figures = placed
     return proc
 
 
