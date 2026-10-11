@@ -1903,6 +1903,139 @@ def thetford_proving_line(key: str) -> str:
     return hide_internal_marker(f"{thetford_proving_body(key)}\n{_THETFORD_PROVING_CITE[key]}")
 
 
+_COLEMAN_SAFETY = _PROVING_SAFETY
+_COLEMAN_TOOLS = _PROVING_TOOLS
+_COLEMAN_PHOTO_METER = (
+    "Take a photo of the meter reading. A photo is optional. You can type what you see."
+)
+_COLEMAN_PHOTO_PART = (
+    "Take a photo of this step and send it. A photo is optional. You can type what you see."
+)
+_COLEMAN_CITE = {
+    "fan_high": "📖 Source: 1976-536 and 1976-603",
+    "peacemaker": "📖 Source: SkillAbove Peacemaker",
+    "capacitor": "📖 Source: Coleman-Mach mechanical controls service manual and 1976-695",
+    "conditional": "📖 Source: Coleman-Mach 12VDC rooftop service manual",
+    "repair": "📖 Source: Coleman-Mach 12VDC rooftop service manual",
+    "auth": (
+        "📖 Source: Coleman-Mach 12VDC rooftop service manual "
+        "(printed circuit board; 115 VAC missing at the 9-pin means the board); "
+        "1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common); "
+        "SkillAbove Peacemaker (bypass the thermostat and control box; compressor and fan; amperage); "
+        "Coleman-Mach mechanical controls service manual and 1976-695 "
+        "(run capacitor good and the motor will not start: replace the motor)."
+    ),
+}
+_COLEMAN_PROVING = {
+    "fan_high": {
+        "WHERE": "At the 9-pin on the control board.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": "Tools: Not stated in this sheet. Meter setting: VAC.",
+        "HOW": "Read Fan High voltage at the 9-pin.",
+        "GOOD vs BAD": (
+            "Good: the tester is dark or black-to-white is about 0 VAC. "
+            "Bad: Fan High is about 115 VAC."
+        ),
+        "NEXT": (
+            "On good: go to the Peacemaker bypass. "
+            "On bad: stay on the live-voltage fan path. "
+            "Pin 5 black is Fan High and pin 9 white is fan common."
+        ),
+        "FIGURE": "1976-536 and 1976-603.",
+        "PHOTO": _COLEMAN_PHOTO_METER,
+    },
+    "peacemaker": {
+        "WHERE": "At the rooftop unit for the Peacemaker bypass.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": "Tools: Not stated in this sheet. Meter setting: amps.",
+        "HOW": "Do the Peacemaker bypass at the rooftop unit.",
+        "GOOD vs BAD": (
+            "Good: the compressor runs and the fan does not rotate. "
+            "Bad: the compressor does not run."
+        ),
+        "NEXT": (
+            "On good: shaft-locked current about 1.9 A goes to the fan run capacitor. "
+            "On bad: stay on the compressor and do not condemn the fan motor."
+        ),
+        "FIGURE": "SkillAbove Peacemaker.",
+        "PHOTO": _COLEMAN_PHOTO_METER,
+    },
+    "capacitor": {
+        "WHERE": "At the fan run capacitor.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": "Tools: Not stated in this sheet. Meter setting: microfarads.",
+        "HOW": "Measure the fan run capacitor.",
+        "GOOD vs BAD": (
+            "Good: it measures about rated. On this 2111-0001 the rated value is 15 µF. "
+            "Bad: the capacitor is open or far from rated."
+        ),
+        "NEXT": (
+            "On good: go to the fan motor and the control board. "
+            "On bad: replace the capacitor and retest the fan."
+        ),
+        "FIGURE": "1976-695.",
+        "PHOTO": _COLEMAN_PHOTO_METER,
+    },
+    "conditional": {
+        "WHERE": "At the fan motor and the control board.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": _COLEMAN_TOOLS,
+        "HOW": "Compare the stall current and the capacitor.",
+        "GOOD vs BAD": (
+            f"Good: the compressor runs, the fan stays locked, and the capacitor is near rated. "
+            f"Bad: {NOT_STATED}"
+        ),
+        "NEXT": (
+            "On good: if the compressor runs and the fan stays locked and the capacitor is near rated, "
+            "replace the fan motor and the control board only. "
+            f"On bad: {NOT_STATED}"
+        ),
+        "FIGURE": "Coleman-Mach 12VDC rooftop service manual.",
+        "PHOTO": _COLEMAN_PHOTO_PART,
+    },
+    "repair": {
+        "WHERE": "On the 2111-0001 rooftop unit.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": _COLEMAN_TOOLS,
+        "HOW": "Replace the fan motor and the control board only.",
+        "GOOD vs BAD": f"Good: the fan motor and the control board are the failed parts. Bad: {NOT_STATED}",
+        "NEXT": (
+            "On good: that is the confirmed correction. "
+            "On bad: do not replace the full 2111-0001 assembly."
+        ),
+        "FIGURE": "12VDC rooftop book and 1976-695.",
+        "PHOTO": _COLEMAN_PHOTO_PART,
+    },
+    "auth": {
+        "WHERE": "On the Coleman-Mach 2111-0001 fan motor and control board.",
+        "SAFETY": _COLEMAN_SAFETY,
+        "TOOLS / METER SETTING": _COLEMAN_TOOLS,
+        "HOW": "AUTHORIZATION: R&R the fan motor and the control board only.",
+        "GOOD vs BAD": (
+            "Good: Fan High is dead, the compressor runs, the fan stays locked, "
+            "and the capacitor is near rated. The capacitor is not the failed part. "
+            f"Bad: {NOT_STATED}"
+        ),
+        "NEXT": (
+            "On good: that is the confirmed correction. "
+            f"On bad: {NOT_STATED}"
+        ),
+        "FIGURE": "12VDC wall-thermostat manual, 1976-536, 1976-603, Peacemaker, and 1976-695.",
+        "PHOTO": _COLEMAN_PHOTO_PART,
+    },
+}
+
+
+def coleman_proving_body(key: str) -> str:
+    """Eight shop fields for one Coleman-Mach 2111-0001 step. No source line."""
+    return hide_internal_marker(format_step_fields(_COLEMAN_PROVING[key]))
+
+
+def coleman_proving_line(key: str) -> str:
+    """The same Coleman step, plus the document cite. No invented page number."""
+    return hide_internal_marker(f"{coleman_proving_body(key)}\n{_COLEMAN_CITE[key]}")
+
+
 def procedure_handoff(layout: dict) -> str:
     """Full procedure text. GD sends one step at a time from format_one_step."""
     steps = list(layout.get("steps") or [])
