@@ -37,20 +37,25 @@ class TestReadability(unittest.TestCase):
                 problems = mf.readability_problems(step)
                 self.assertEqual(problems, [], (kind, step["text"], problems))
                 joined = " ".join(mf.step_sentences(step))
-                self.assertIn("You should see:", joined)
-                self.assertIn("Yes, go to the next step.", joined)
-                self.assertIn("No, ", joined)
-                self.assertNotRegex(joined, r"\band then\b")
-                for sentence in mf.step_sentences(step):
-                    self.assertLessEqual(mf._word_count(sentence), 15, sentence)
+                for label in mf.STEP_FIELDS:
+                    self.assertIn(f"{label}:", joined)
+                self.assertIn("On good:", step["fields"]["NEXT"])
+                self.assertIn("On bad:", step["fields"]["NEXT"])
+                self.assertNotRegex(step["text"], r"\band then\b")
+                self.assertLessEqual(mf._word_count(step["text"]), 15, step["text"])
+                self.assertNotIn("It looks right", joined)
                 if step.get("fig"):
                     self.assertIsNotNone(step.get("figure"), step["text"])
                     label = step["figure"]["label"]
                     number = re.search(r"(\d+)", label).group(1)
-                    self.assertIn(number, step["text"] + " " + step.get("explain", ""))
+                    self.assertIn(number, step["fields"]["FIGURE"])
                 else:
                     self.assertIsNone(step.get("figure"))
-            blob = " ".join(step["text"].lower() for step in layout["steps"])
+                    self.assertEqual(step["fields"]["FIGURE"], "UNCONFIRMED")
+            blob = " ".join(
+                " ".join(step.get("actions") or [step["text"]]).lower()
+                for step in layout["steps"]
+            )
             source = " ".join(page["text"].lower() for page in mf.index_pdf_bytes(
                 (VALVE_PDF if kind == "valve" else BREAKER_PDF).read_bytes()
             )["pages"])
@@ -75,7 +80,10 @@ class TestReadability(unittest.TestCase):
         """
         figures = [{"label": "Fig. 1 LEVER LOCK", "png": b"png", "page": 1}]
         layout = mf.procedure_from_sheet(text, figures, "Widget lever sheet")
-        blob = " ".join(step["text"].lower() for step in layout["steps"])
+        blob = " ".join(
+            " ".join(step.get("actions") or [step["text"]]).lower()
+            for step in layout["steps"]
+        )
         self.assertIn("lever", blob)
         self.assertIn("lock", blob)
         self.assertIn("slot a", blob)
@@ -85,7 +93,10 @@ class TestReadability(unittest.TestCase):
         pictured = [step for step in layout["steps"] if step.get("figure")]
         self.assertTrue(pictured)
         for step in pictured:
-            self.assertIn("1", step["text"] + " " + step.get("explain", ""))
+            self.assertIn(
+                "1",
+                step["text"] + " " + step.get("explain", "") + " " + (step.get("fields") or {}).get("FIGURE", ""),
+            )
         for step in layout["steps"]:
             self.assertEqual(mf.readability_problems(step), [])
 
@@ -127,7 +138,9 @@ class TestReadability(unittest.TestCase):
         self.assertIn("before you start", text)
         self.assertIn("removal", text)
         self.assertIn("installation", text)
-        self.assertIn("you should see", text)
+        self.assertIn("where:", text)
+        self.assertIn("good vs bad:", text)
+        self.assertIn("tools / meter setting:", text)
         self.assertIn("do not make the nuts too tight", text)
         self.assertLess(text.find("removal"), text.find("installation"))
         # A step with no figure is text only. The first water-off step has no picture.
@@ -140,24 +153,44 @@ class TestProcedureHandoff(unittest.TestCase):
             {"role": "user", "content": "toilet leaks under the flush lever"},
             {"role": "assistant", "content": "Back of the toilet: check the water supply line."},
         ]
-        first = avoid_duplicate_reply(
+        asked = avoid_duplicate_reply(
             "Check whether the vacuum breaker leaks while flushing.",
             history,
             "Supply is tight. The water valve weeps at the pedal.",
             "Plumbing / Toilets",
             "Style II 42070",
         )
+        self.assertIn("vacuum breaker", asked.lower())
+        self.assertNotIn("Step 1 of", asked)
+        self.assertNotIn("42049", asked)
+        history = history + [
+            {"role": "user", "content": "Supply is tight. The water valve weeps at the pedal."},
+            {"role": "assistant", "content": asked},
+        ]
+        first = avoid_duplicate_reply(
+            "",
+            history,
+            "Vacuum breaker is dry. No leak there.",
+            "Plumbing / Toilets",
+            "Style II 42070",
+        )
         self.assertIn("Here is the repair procedure.", first)
         self.assertIn("Step 1 of", first)
         self.assertIn("Take a photo of this step and send it.", first)
-        self.assertIn("You should see:", first)
+        for label in mf.STEP_FIELDS:
+            self.assertIn(f"{label}:", first)
         self.assertNotIn("Step 2 of", first)
+        self.assertIn("42109", first)
+        self.assertNotIn("It looks right", first)
         for sentence in re.split(r"\n+", first):
             if sentence.startswith("📖"):
                 continue
+            name = sentence.split(":", 1)[0]
+            if name in mf.STEP_FIELDS and name != "HOW":
+                continue
             self.assertLessEqual(mf._word_count(sentence), 15, sentence)
         history = history + [
-            {"role": "user", "content": "Supply is tight. The water valve weeps at the pedal."},
+            {"role": "user", "content": "Vacuum breaker is dry. No leak there."},
             {"role": "assistant", "content": first},
         ]
         held = avoid_duplicate_reply(

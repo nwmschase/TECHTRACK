@@ -118,7 +118,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.40"
+MODULE_REVISION = "v4.19.41"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -2098,7 +2098,7 @@ _PATH_CLIMAX = {
     "ground_control": ("zero-point", "zero point", "manual level", "enter"),
     "dometic_ceiling": ("ceiling thermostat", "3311071", "peacemaker"),
     "fact12_freeze": ("freeze sensor", "resecure"),
-    "girard_e8": ("petit tube",),
+    "girard_e8": ("petit tube", "pressure switch", "pressure switch hose"),
     "stabilizer": ("front stabilizer", "psx1", "jack assembly"),
     "cooktop_tip": ("thermocouple", "reposition"),
     "thetford_leak": ("water valve", "vacuum breaker", "flange", "water supply", "supply connection"),
@@ -3001,7 +3001,7 @@ def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind:
             and re.search(r"range|cooktop", title or "", re.I)
         )
     if path_kind == "bal_tongue" and re.search(r"\bbal\b", blob) and re.search(
-        r"jack|tongue|stabil", blob
+        r"jack|tongue|stabil|troubleshoot|ss\s*5\.1|\b5\.1\b", blob
     ):
         return True
     if excerpt and sentence_is_on_procedure(excerpt, topic_text, path_kind):
@@ -3216,6 +3216,63 @@ def _first_verbatim_sentence(raw: str, excerpt: str) -> str:
     return ""
 
 
+_QUOTE_PREFER = {
+    "bal_tongue": (
+        re.compile(r"remove the \d+ screws", re.I),
+        re.compile(r"ensure a good connection", re.I),
+    ),
+    "girard_e8": (
+        re.compile(r"pressure switch hose", re.I),
+        re.compile(r"integrity and connections", re.I),
+    ),
+}
+
+
+def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> str:
+    """One on-page sentence for this procedure.
+
+    A later sentence can win when the first line is about a different prove.
+    The BAL troubleshooting screw sentence and the Girard pressure-switch hose
+    sentence are the ones those sheets have to keep.
+    """
+    raw = chunk_text or ""
+    cleaned = clean_ocr_prose(raw)
+    kept = []
+    seen = set()
+    for sentence in _split_sentences(cleaned):
+        sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence)).strip()
+        sentence = _LEADING_FIG_RE.sub("", sentence).strip()
+        if not sentence:
+            continue
+        if any(re.search(pattern, sentence, re.I) for pattern in _PATH_OFF.get(path_kind or "", ())):
+            continue
+        one = clean_source_excerpt(sentence, locked=False)
+        if not one:
+            continue
+        one = _drop_path_off_sentences(one, path_kind)
+        one = _drop_sheet_contradictions(one, topic_text)
+        if path_kind == "cooktop_tip":
+            one = _cooktop_excerpt(one)
+        one = (one or "").strip()
+        if not one or _source_quote_rejected(one) or not source_sentence_is_printable(one):
+            continue
+        if not _quote_is_verbatim(raw, one):
+            continue
+        preferred = any(pattern.search(one) for pattern in _QUOTE_PREFER.get(path_kind or "", ()))
+        if not preferred and not sentence_is_on_procedure(one, topic_text, path_kind):
+            continue
+        one = _as_sentence(one)
+        key = re.sub(r"\s+", " ", one.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(one)
+    for sentence in kept:
+        if any(pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())):
+            return sentence
+    return kept[0] if kept else ""
+
+
 def _source_doc_key(src: dict) -> str:
     """Same manual, not the same page number on a different book."""
     title = (src.get("title") or "").strip().lower()
@@ -3263,25 +3320,8 @@ def polish_bay_sources(
         if not chunk_text:
             excerpt = ""
         else:
-            excerpt = clean_source_excerpt(chunk_text, locked=False)
+            excerpt = _best_verbatim_quote(chunk_text, path_kind, topic_text)
             excerpt = _strip_internal_notes(excerpt)
-            excerpt = _drop_path_off_sentences(excerpt, path_kind)
-            excerpt = _drop_sheet_contradictions(excerpt, topic_text)
-            if path_kind == "cooktop_tip":
-                excerpt = _cooktop_excerpt(excerpt)
-            kept_sentences = [
-                sentence
-                for sentence in _split_sentences(excerpt)
-                if source_sentence_is_printable(sentence)
-                and not _source_quote_rejected(sentence)
-                and sentence_is_on_procedure(sentence, topic_text, path_kind)
-                and _quote_is_verbatim(chunk_text, sentence)
-            ]
-            excerpt = kept_sentences[0] if kept_sentences else ""
-            if excerpt and ":" in excerpt:
-                head = excerpt.split(":", 1)[0].strip()
-                if head and _quote_is_verbatim(chunk_text, head) and source_sentence_is_printable(head):
-                    excerpt = _as_sentence(head)
         raw_off = any(re.search(pattern, raw_excerpt or "", re.I) for pattern in _PATH_OFF.get(path_kind or "", ()))
         if path_kind == "stabilizer" and not cited and not locked:
             if not _STABILIZER_KEEP_RE.search(excerpt or "") and not _STABILIZER_KEEP_RE.search(raw_excerpt or ""):
@@ -5125,6 +5165,8 @@ def _ground_control_path(concern: str) -> dict:
         ),
         "flowchart": Flowchart(
             readable=True,
+            # Room under the last diamond so its NO label clears both nodes.
+            row_pad={"d_side": 36.0},
             nodes=[
                 FlowNode(
                     "s",
@@ -5732,7 +5774,7 @@ def _thetford_troubleshooting_cite(ranked) -> str:
 
 
 def _thetford_leak_flowchart() -> Flowchart:
-    """Supply connection, then the pedal valve, then the vacuum breaker, then the flange."""
+    """Supply, then the vacuum breaker, then the valve body, then the flange."""
     return Flowchart(
         readable=True,
         nodes=[
@@ -5766,37 +5808,37 @@ def _thetford_leak_flowchart() -> Flowchart:
             FlowNode(
                 "r2",
                 "end",
-                "Replace the water valve.",
+                "Replace the vacuum breaker.",
                 0.22,
                 0.36,
-                w=210,
+                w=220,
                 h=52,
             ),
             FlowNode(
                 "d2",
                 "decision",
-                "Water valve weeping\nat the pedal?",
+                "Vacuum breaker leaking\nonly while flushing?",
                 0.78,
                 0.36,
-                w=220,
+                w=230,
                 h=76,
             ),
             FlowNode(
                 "r3",
                 "end",
-                "Replace the vacuum breaker.",
+                "Replace the water valve.",
                 0.22,
                 0.54,
-                w=220,
+                w=210,
                 h=52,
             ),
             FlowNode(
                 "d3",
                 "decision",
-                "Vacuum breaker leaking\nduring flush?",
+                "Water valve weeping\nat the pedal?",
                 0.78,
                 0.54,
-                w=230,
+                w=220,
                 h=76,
             ),
             FlowNode(
@@ -5993,31 +6035,31 @@ def _lead_jack_drift_path() -> dict:
 
 
 def _thetford_leak_path(concern: str, ranked) -> dict:
+    import manual_figures as mf
+
     return {
         "primary_cite": _thetford_troubleshooting_cite(ranked),
         "pattern_means": (
-            "A leak under the flush lever is the supply connection, the water valve at the pedal, "
-            "the vacuum breaker during a flush, or the floor flange. "
-            "Stop at the check that is leaking."
+            "A leak under the flush lever is checked in this order: the supply connection, "
+            "the vacuum breaker while flushing, the water valve at the pedal, then the floor flange. "
+            "Stop at the check that is leaking. "
+            "Style II uses a foot pedal. Confirming that the word lever means that pedal is UNCONFIRMED."
         ),
         "flowchart": _thetford_leak_flowchart(),
         "bay_order": [
-            (
-                "Back of the toilet: check the water supply line connection at the water valve. "
-                "Secure or tighten it as necessary."
-            ),
-            "If the water valve weeps at the pedal, replace the water valve.",
-            (
-                "If the vacuum breaker leaks while flushing, replace the vacuum breaker "
-                "or the water module, depending on model."
-            ),
-            (
-                "Between the closet flange and the toilet, check the flange nuts. "
-                "If the leak continues, check the flange height and replace the flange seal."
-            ),
+            mf.thetford_proving_body("supply"),
+            mf.thetford_proving_body("vacuum"),
+            mf.thetford_proving_body("valve"),
+            mf.thetford_proving_body("flange"),
         ],
         "do_not": [
-            "Do not replace the vacuum breaker or the flange seal before the supply connection and the water valve are checked.",
+            "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
+            "Do not repair a failed vacuum breaker. UNCONFIRMED.",
+            "Do not use scouring powders, acids, or concentrated cleaners.",
+            "Never use automotive antifreeze. Use RV potable antifreeze only.",
+            "If ice is in the toilet, do not flush until the ice thaws.",
+            "When using air pressure to blow water from the lines, the toilet valve must be open.",
+            "Do not order a part number that is not on the sheet. UNCONFIRMED.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6125,21 +6167,54 @@ def bind_primary_sources(proc: "BayProcedure") -> "BayProcedure":
     return proc
 
 
+_SLOT_STOP = {
+    "this", "that", "with", "from", "have", "been", "will", "your", "into",
+    "onto", "before", "after", "when", "then", "than", "them", "they",
+    "page", "manual", "item", "part", "list", "calls", "good", "does",
+    "replace", "confirm", "check", "test", "step", "figure",
+}
+
+
+def _content_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(word) > 3 and word not in _SLOT_STOP
+    }
+
+
 def _step_slot_for_figure(steps: list[str], title: str, excerpt: str):
-    """Which bay step a kit sheet illustrates. Supply and flange stay unpictured."""
-    blob = f"{title} {excerpt[:240]}".lower()
-    if re.search(r"34122|34123|vacuum breaker", blob):
+    """Which bay step this figure illustrates. Any brand, by the words on the step.
+
+    The vacuum-breaker and water-valve sheets keep their shop slots. Supply
+    and flange stay unpictured unless the figure's own words land there.
+    """
+    blob = f"{title} {excerpt[:800]}"
+    low = blob.lower()
+    if re.search(r"34122|34123|vacuum breaker", low):
         for index, step in enumerate(steps):
             if "vacuum" in step.lower():
                 return index
-    if re.search(r"42109|water valve", blob):
+    if re.search(r"42109|water valve", low):
         for index, step in enumerate(steps):
-            low = step.lower()
-            if "weep" in low or "replace the water valve" in low:
+            step_low = step.lower()
+            if "weep" in step_low or "replace the water valve" in step_low:
                 return index
         for index, step in enumerate(steps):
             if "water valve" in step.lower():
                 return index
+    words = _content_words(blob)
+    nums = set(re.findall(r"\b\d{4,}\b", blob))
+    best_index = None
+    best_score = 0
+    for index, step in enumerate(steps):
+        score = len(words & _content_words(step))
+        score += 5 * len(nums & set(re.findall(r"\b\d{4,}\b", step)))
+        if score > best_score:
+            best_score = score
+            best_index = index
+    if best_score >= 2:
+        return best_index
     return None
 
 
@@ -6178,7 +6253,13 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
         if mf.brands_conflict(job, title):
             continue
         page = packet.get("page")
-        slot = _step_slot_for_figure(proc.bay_order, title, packet.get("excerpt") or "")
+        labels = " ".join(
+            f"{figure.get('label') or ''} {figure.get('caption') or ''}"
+            for figure in packet["figures"]
+        )
+        slot = _step_slot_for_figure(
+            proc.bay_order, f"{title} {labels}", packet.get("excerpt") or ""
+        )
         if slot is None:
             continue
         detail = mf.procedure_detail(packet.get("excerpt") or "", title, page)
@@ -8337,7 +8418,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         has = bool(png) and not mf.png_is_blank(png)
         text_w = _CONTENT_W - 20.0 - (fig_w + 14.0 if has else 0)
         sentences = mf.step_sentences(step)
-        block = measure_text(f"{index}. " + " ".join(sentences), text_w, 8, leading=10.2)
+        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
         fig_h = 0.0
         if has:
             width, height = _png_pixel_size(png)

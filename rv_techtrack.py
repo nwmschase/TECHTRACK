@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.40
+RV TechTrack v4.19.41
+- v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Every library document stores a rendered page image and each figure crop in cloud storage. The database keeps the key, the caption, the page, the box, and the link to the chunk. Guided Diagnostics and the Bay PDF show those figures for any brand. A bundled Thetford kit image is a last resort only, and its caption says it is not from the shop library. A manager can backfill figures for manuals already loaded, including a Lippert bulk import, and can resume that job. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading. The BAL troubleshooting page and the Girard pressure-switch hose sentence stay on the Bay sheet. A cooktop reply does not repeat a library-excerpt instruction. Level Up replies do not repeat the same line. Ground Control says zero-point calibration is the repair, and its NO label sits off the node. Bulk import Auto-continue keeps loading the next batch.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
 - v4.19.38: Shop behavior is the v4.19.36 release again. The v4.19.37 changes are not in this deploy.
@@ -214,7 +215,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.40"
+_GDC_REQUIRED_REVISION = "v4.19.41"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -886,11 +887,11 @@ class DocChunk(Base):
 
 
 class DocAsset(Base):
-    """Page PNG or figure crop stored with the library chunks.
+    """Key for a page PNG or figure crop stored in R2.
 
-    The row lives in the same sqlite file the R2 database backup uploads.
-    ``image_path`` is the library-pages key, and ``png_blob`` rides along in
-    that backup so a restored DB still has the picture.
+    ``image_path`` is the object key. The caption, page, box, and chunk link
+    live on this row. The PNG bytes do not. ``png_blob`` stays empty so an
+    older database file still opens.
     """
     __tablename__ = "doc_assets"
     id = Column(Integer, primary_key=True)
@@ -902,6 +903,9 @@ class DocAsset(Base):
     width = Column(Integer, default=0)
     height = Column(Integer, default=0)
     png_blob = Column(LargeBinary)
+    caption = Column(Text, default="")
+    bbox = Column(String(80), default="")
+    chunk_id = Column(Integer, default=None)
 
 
 class Certificate(Base):
@@ -1010,6 +1014,12 @@ def _ensure_schema_upgrades():
         pass
     try:
         library_bulk_import.ensure_schema(engine)
+    except Exception:
+        pass
+    try:
+        import library_figure_backfill as _figure_backfill
+
+        _figure_backfill.ensure_schema(engine)
     except Exception:
         pass
 
@@ -1695,58 +1705,75 @@ def clear_document_assets(document_id: int):
     session.commit()
 
 
-def _store_pdf_assets(doc: Document, file_bytes: bytes):
-    """Render page PNGs and figure crops into the library DB and the page folder."""
-    import manual_figures as mf
+def _download_library_pdf(file_path: str):
+    """PDF bytes for a library row. Cloud storage first, then a local path."""
+    data = None
+    try:
+        data = r2_download_bytes(file_path)
+    except Exception:
+        data = None
+    if data:
+        return data
+    local = Path(file_path or "")
+    if local.is_file():
+        return local.read_bytes()
+    return None
 
-    indexed = mf.index_pdf_bytes(file_bytes)
-    session.query(DocAsset).filter_by(document_id=doc.id).delete()
-    assets = mf.assets_from_index(indexed, doc.id)
-    mf.write_asset_files(doc.id, assets, Path("."))
-    for asset in assets:
-        try:
-            r2_upload(asset["png"], asset["image_path"], "image/png")
-        except Exception:
-            pass
-        session.add(DocAsset(
-            document_id=doc.id,
-            page=asset["page"],
-            kind=asset["kind"],
-            label=asset.get("label") or "",
-            image_path=asset.get("image_path") or "",
-            width=asset.get("width") or 0,
-            height=asset.get("height") or 0,
-            png_blob=asset.get("png") or b"",
-        ))
+
+def _bulk_index_figures(document_id, pdf_bytes, title):
+    """Page images and figure crops for one bulk-import file. A failure returns ''."""
+    import library_figure_backfill as fb
+
+    if not document_id or not pdf_bytes:
+        return ""
+    indexed = fb.store_pdf_figures(
+        session,
+        int(document_id),
+        pdf_bytes,
+        title=title or "",
+        upload_png=r2_put_bytes,
+    )
+    return (
+        f"{len(indexed.get('pages') or [])} page images, "
+        f"{len(indexed.get('figures') or [])} figures"
+    )
+
+
+def _store_pdf_assets(doc: Document, file_bytes: bytes):
+    """Render page PNGs and figure crops into R2. The database keeps the key."""
+    import library_figure_backfill as fb
+
+    indexed = fb.store_pdf_figures(
+        session,
+        doc.id,
+        file_bytes,
+        title=doc.title or "",
+        upload_png=r2_put_bytes,
+    )
     session.commit()
     return indexed
 
 
 def backfill_missing_page_assets() -> int:
-    """One-time pass: existing manuals get page images and figure crops."""
+    """Render page images and figure crops for every PDF already in the library.
+
+    The Manager Tools button runs the same job a few manuals at a time.
+    """
+    import library_figure_backfill as fb
+
+    job_id = fb.ensure_job(session)
     done = 0
-    for doc in session.query(Document).all():
-        if (doc.file_type or "").lower() != "pdf":
-            continue
-        have = session.query(DocAsset).filter_by(document_id=doc.id, kind="page").first()
-        if have:
-            continue
-        data = None
-        try:
-            data = r2_download_bytes(doc.file_path)
-        except Exception:
-            data = None
-        if not data:
-            local = Path(doc.file_path or "")
-            if local.is_file():
-                data = local.read_bytes()
-        if not data:
-            continue
-        try:
-            _store_pdf_assets(doc, data)
-            done += 1
-        except Exception:
-            continue
+    while True:
+        result = fb.process_backfill_batch(
+            session,
+            job_id,
+            download_pdf=_download_library_pdf,
+            upload_png=r2_put_bytes,
+            batch_size=2,
+        )
+        done += int(result.get("done") or 0)
+        if result.get("busy") or result.get("status") == "complete" or not result.get("processed"):
+            break
     return done
 
 
@@ -1792,6 +1819,13 @@ def index_document_from_bytes(doc: Document, file_bytes: bytes):
                 keywords=doc.keywords or "",
             ))
             count += 1
+    try:
+        import library_figure_backfill as fb
+
+        session.flush()
+        fb.link_chunk_ids(session, doc.id)
+    except Exception:
+        pass
     doc.indexed = True
     note = f"Indexed {count} chunks from {len(pages)} pages"
     if asset_note:
@@ -3552,6 +3586,10 @@ def render_library_page_image(src: dict, key_suffix: str):
     label = src.get("label") or ""
     caption = src.get("caption") or mf.display_caption(title, page, label or "page")
     png = src.get("png")
+    if not png and src.get("image_path"):
+        import library_figure_backfill as fb
+
+        png = fb.fetch_png(src.get("image_path") or "", download=r2_download_bytes)
     if png:
         st.image(png, caption=caption, use_container_width=True)
         return True
@@ -4738,55 +4776,26 @@ def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_te
 
 
 def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_text: str):
-    """Figure crops for this job. Another brand's image is left out."""
-    import manual_figures as mf
+    """Figure crops for this job from the library. Any brand.
+
+    PNG bytes load only for the rows that matched. A bundled Thetford kit
+    sheet is the last resort, and its caption says so.
+    """
+    import library_figure_backfill as fb
 
     try:
-        rows = (
-            session.query(DocAsset, Document)
-            .join(Document, Document.id == DocAsset.document_id)
-            .filter(DocAsset.kind == "figure")
-            .all()
-        )
+        rows = fb.meta_rows(session)
     except Exception:
+        rows = []
+    offers = fb.offers_for_turn(rows, reply, user_msg, category_name, model_text)
+    if not offers:
         return []
-    if not rows:
-        return []
-    job = f"{category_name} {model_text} {user_msg} {reply}"
-    blob = (reply or "").lower()
-    if "vacuum" in blob:
-        topic = "vacuum"
-    elif "water valve" in blob or "weep" in blob:
-        topic = "valve"
-    else:
-        topic = ""
-    chosen = []
-    for asset, doc in rows:
-        title = doc.title or ""
-        if mf.brands_conflict(job, title):
-            continue
-        title_l = title.lower()
-        if topic == "vacuum" and not re.search(r"34122|34123|vacuum", title_l):
-            continue
-        if topic == "valve" and not re.search(r"42109|water valve", title_l):
-            continue
-        png = asset.png_blob or b""
-        if not png:
-            local = Path(asset.image_path or "")
-            if local.is_file():
-                png = local.read_bytes()
-        if not png:
-            continue
-        chosen.append({
-            "title": title,
-            "page": asset.page,
-            "label": asset.label or "",
-            "caption": mf.display_caption(title, asset.page, asset.label or ""),
-            "png": png,
-            "file_path": doc.file_path,
-            "document_id": doc.id,
-        })
-    return chosen
+    if not offers[0].get("bundled"):
+        try:
+            fb.attach_pngs(session, offers, read_local=True, download=r2_download_bytes)
+        except Exception:
+            pass
+    return [item for item in offers if item.get("png")]
 
 
 def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, model_text: str) -> str:
@@ -4796,11 +4805,6 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     """
     import manual_figures as mf
 
-    try:
-        if session.query(DocAsset).count() == 0:
-            return reply
-    except Exception:
-        return reply
     physical = bool(re.search(
         r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
         reply or "",
@@ -4815,15 +4819,19 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     limit = 3 if asked else 1
     extra = []
     first = chosen[0]
-    chunk_text = "\n".join(
-        (row.chunk_text or "")
-        for row in session.query(DocChunk).filter_by(
-            document_id=first["document_id"], page=first["page"]
-        ).all()
-    )
-    detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
-    if detail and detail not in (reply or ""):
-        extra.append(detail)
+    if first.get("document_id"):
+        try:
+            chunk_text = "\n".join(
+                (row.chunk_text or "")
+                for row in session.query(DocChunk).filter_by(
+                    document_id=first["document_id"], page=first["page"]
+                ).all()
+            )
+        except Exception:
+            chunk_text = ""
+        detail = mf.procedure_detail(chunk_text, first["title"], first["page"])
+        if detail and detail not in (reply or ""):
+            extra.append(detail)
     for item in chosen[:limit]:
         if item["caption"] not in (reply or ""):
             extra.append(item["caption"])
@@ -4839,6 +4847,8 @@ def guided_diagnostics_reply(
     history: list,
     unity_gate: str = "",
     ask_flow: dict = None,
+    photo: tuple | None = None,
+    photo_review: dict | None = None,
 ):
     """
     Open library coach is the product path.
@@ -4846,6 +4856,15 @@ def guided_diagnostics_reply(
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
+    if photo_review is None and photo and photo[0]:
+        import gd_step_photo as _photos
+
+        asked = ""
+        for message in reversed(history or []):
+            if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
+                asked = message.get("content") or ""
+                break
+        photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", asked, user_msg)
     facts = facts_from_chat(history, user_msg)
     extra += "\n\n" + format_stated_facts_rule(facts)
     # The lead-jack card is already the shop line. Waiting on the model only
@@ -4861,7 +4880,12 @@ def guided_diagnostics_reply(
             reply, history, user_msg, category_name, model_text
         )
         reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-        return _append_stored_figure_offer(reply, user_msg, category_name, model_text), None
+        reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
+        if photo_review:
+            import gd_step_photo as _photos
+
+            reply = _photos.present_photo_review(reply, photo_review)
+        return reply, None
     if HARD_TREE_EXCLUSIVE_CHAT:
         result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
         if result.get("used_engine") and not result.get("yielded_to_coach"):
@@ -4890,7 +4914,7 @@ def guided_diagnostics_reply(
             reply, _gdc.dometic_bypass_facts(history, user_msg), history
         )
     reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text
+        reply, history, user_msg, category_name, model_text, photo_review=photo_review
     )
     reply = _gdc.without_reading_filler(
         reply, history, user_msg, category_name, model_text
@@ -4903,6 +4927,10 @@ def guided_diagnostics_reply(
         reply, history, user_msg, category_name, model_text
     )
     reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
+    if photo_review:
+        import gd_step_photo as _photos
+
+        reply = _photos.present_photo_review(reply, photo_review)
     return reply, None
 
 
@@ -5811,62 +5839,48 @@ def _retrieve_bay_library_chunks(category_name: str, model_text: str, concern: s
 
 
 def _merge_stored_figures(proc, chunks):
-    """Crops already indexed with the manual go on the step they support."""
-    import manual_figures as mf
+    """Crops already indexed with the retrieved manuals go on the step they support.
+
+    Any brand. The PNG load is limited to those documents.
+    """
+    import library_figure_backfill as fb
 
     try:
-        rows = (
-            session.query(DocAsset, Document)
-            .join(Document, Document.id == DocAsset.document_id)
-            .filter(DocAsset.kind == "figure")
-            .all()
-        )
+        rows = fb.meta_rows(session)
     except Exception:
         return proc
     if not rows:
         return proc
-    titles = " ".join(
-        (src.get("title") or "") for src in (proc.sources or [])
-    ).lower()
-    for chunk in chunks or []:
-        titles += " " + (getattr(chunk, "title", None) or (chunk.get("title") if isinstance(chunk, dict) else "") or "")
-    titles = titles.lower()
     job = f"{proc.brand} {proc.model} {proc.concern}"
-    by_doc = {}
-    for asset, doc in rows:
-        if mf.brands_conflict(job, doc.title or ""):
-            continue
-        if (doc.title or "").lower() not in titles and not any(
-            token in titles for token in ("42109", "34123", "34122") if token in (doc.title or "")
-        ):
-            continue
-        by_doc.setdefault(doc.id, {"doc": doc, "assets": []})
-        by_doc[doc.id]["assets"].append(asset)
-    packets = []
-    for bucket in by_doc.values():
-        doc = bucket["doc"]
-        text = "\n".join(
-            (row.chunk_text or "")
-            for row in session.query(DocChunk).filter_by(document_id=doc.id).all()
-        )
-        figures = []
-        for asset in bucket["assets"]:
-            png = asset.png_blob or b""
+    packets = fb.figure_packets(rows, chunks, job)
+    if not packets:
+        return proc
+    packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
+    load_rows = [
+        row for row in rows
+        if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
+    ]
+    try:
+        fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
+    except Exception:
+        load_rows = []
+    by_key = {
+        (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
+        for row in load_rows
+    }
+    for packet in packets:
+        kept = []
+        for figure in packet.get("figures") or []:
+            png = by_key.get(
+                (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
+                b"",
+            )
             if not png:
                 continue
-            figures.append({
-                "png": png,
-                "label": asset.label or "",
-                "page": asset.page,
-                "title": doc.title,
-            })
-        if figures:
-            packets.append({
-                "title": doc.title,
-                "page": figures[0]["page"],
-                "excerpt": text[:8000],
-                "figures": figures,
-            })
+            figure["png"] = png
+            kept.append(figure)
+        packet["figures"] = kept
+    packets = [packet for packet in packets if packet.get("figures")]
     if not packets:
         return proc
     return apply_chunk_figures(proc, packets)
@@ -6190,6 +6204,7 @@ with tab_ask:
     # Ctrl+Enter in a bare text_area only commits the widget and reruns.
     # It does not click Send, so the draft stayed in the box. A form submits
     # on Ctrl+Enter and sends the text with that same click (no lost first click).
+    _photo_gen = int(st.session_state.get("ask_photo_gen") or 0)
     with st.form("gd_send_form", clear_on_submit=False):
         st.text_area(
             "Your message",
@@ -6197,11 +6212,17 @@ with tab_ask:
             height=100,
             placeholder="Customer states fridge not cooling on gas or electric. Display is on. Unit is level…",
         )
+        ask_photo = st.file_uploader(
+            "Photo (optional)",
+            type=["jpg", "jpeg", "png", "webp"],
+            key=f"ask_photo_{_photo_gen}",
+            help="Tag, leak, connector, meter reading, or the part. A photo is optional. You can type what you see.",
+        )
         send_col, hint_col = st.columns([1, 2])
         with send_col:
             send = st.form_submit_button("Send", type="primary", use_container_width=True)
         with hint_col:
-            st.caption("Ctrl+Enter sends this message.")
+            st.caption("Ctrl+Enter sends this message. Add a photo when the step asks, or type what you see.")
     b2, b3 = st.columns(2)
     with b2:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
@@ -6219,13 +6240,32 @@ with tab_ask:
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
         st.session_state["gd_unity_memory"] = "Not sure"
+        st.session_state["ask_photo_gen"] = int(st.session_state.get("ask_photo_gen") or 0) + 1
         st.rerun()
 
     if send or st.session_state.pop("ask_force_send", False):
         msg = (st.session_state.pop("ask_pending_answer", None) or st.session_state.get("ask_input") or "").strip()
-        if not msg:
-            st.warning("Type a message first.")
+        photo_bytes = b""
+        photo_mime = "image/jpeg"
+        if ask_photo is not None:
+            photo_bytes = ask_photo.getvalue() if hasattr(ask_photo, "getvalue") else bytes(ask_photo)
+            photo_mime = getattr(ask_photo, "type", None) or "image/jpeg"
+        if not msg and not photo_bytes:
+            st.warning("Type what you see, or add a photo.")
         else:
+            import gd_step_photo as _photos
+
+            photo_review = None
+            if photo_bytes:
+                asked = ""
+                for message in reversed(history or []):
+                    if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
+                        asked = message.get("content") or ""
+                        break
+                with st.spinner("Reading the photo…"):
+                    photo_review = _photos.review_step_photo(
+                        photo_bytes, photo_mime, asked, msg
+                    )
             with st.spinner("Searching manuals and thinking…"):
                 reply, new_flow = guided_diagnostics_reply(
                     msg,
@@ -6234,18 +6274,21 @@ with tab_ask:
                     history,
                     unity_gate=unity_gate,
                     ask_flow=st.session_state.get("ask_flow"),
+                    photo_review=photo_review,
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
-            history.append({"role": "user", "content": msg})
+            stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
+            history.append({"role": "user", "content": stored_msg})
             history.append({"role": "assistant", "content": reply})
             st.session_state["ask_chat"] = history
+            st.session_state["ask_photo_gen"] = _photo_gen + 1
             st.session_state["ask_chat_id"] = persist_ask_turn(
                 user["id"],
                 st.session_state.get("ask_chat_id"),
                 category_name,
                 ask_model or "",
-                msg,
+                stored_msg,
                 reply,
             )
             import manual_figures as _mf
@@ -6510,6 +6553,7 @@ if is_manager and tab_mgr is not None:
                 r2_prefix_totals=r2_prefix_totals,
                 r2_ready=r2_available(),
                 delete_bytes=r2_delete_object,
+                index_figures=_bulk_index_figures,
             )
 
         with st.expander("👤 User Management", expanded=False):
@@ -6652,12 +6696,51 @@ if is_manager and tab_mgr is not None:
                     prog.progress((i + 1) / max(len(docs), 1))
                 st.success(f"Indexed OK: {ok_n} · Skipped/failed: {fail_n}")
             st.caption(
-                "Page images and figure crops are stored with each manual. "
-                "Backfill adds them to manuals that were indexed before this version."
+                "Page images and figure crops are stored for every manual, with the caption, "
+                "page, and box linked to the chunk. "
+                "The backfill renders manuals already in the library, including a Lippert bulk import. "
+                "Each click does a few manuals and saves progress, so you can leave and continue."
             )
-            if st.button("Backfill page images"):
-                n = backfill_missing_page_assets()
-                st.success(f"Backfilled page images for {n} manual(s).")
+            import library_figure_backfill as _fb
+            _open = None
+            try:
+                _est = _fb.estimate_backfill(session)
+                st.write(_fb.estimate_caption(_est))
+                _open = _fb.open_job(session)
+                if _open:
+                    _counts = _fb.job_progress(session, int(_open["id"]))
+                    st.write(
+                        f"Figure backfill: **{_counts['done']}** of **{_counts['total']}** manuals. "
+                        f"Failed {_counts['failed']}. Remaining {_counts['pending']}."
+                    )
+            except Exception as exc:
+                st.error(f"Could not read the figure backfill: {exc}")
+            _backfill_label = (
+                "Continue figure backfill" if _open else "Backfill page images and figures"
+            )
+            if st.button(_backfill_label):
+                _job_id = _fb.ensure_job(session)
+                _bar = st.progress(0.0)
+
+                def _tick(index, total, title):
+                    _bar.progress(min(1.0, index / max(total, 1)), text=title or "Rendering")
+
+                _result = _fb.process_backfill_batch(
+                    session,
+                    _job_id,
+                    download_pdf=_download_library_pdf,
+                    upload_png=r2_put_bytes,
+                    batch_size=2,
+                    progress=_tick,
+                )
+                if _result.get("busy"):
+                    st.warning("This backfill is already running.")
+                else:
+                    st.success(
+                        f"This batch: {_result.get('done', 0)} rendered, "
+                        f"{_result.get('failed', 0)} failed. "
+                        f"Remaining {_result.get('pending', 0)}."
+                    )
 
             st.markdown("#### Index status by document")
             for d in session.query(Document).order_by(Document.title).all():

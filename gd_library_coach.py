@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.40"
+COACH_REVISION = "v4.19.41"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -246,6 +246,26 @@ def _paragraph_is_guard_echo(head: str) -> bool:
     return bool(head and _GUARD_ECHO_RE.search(head))
 
 
+_EXCERPT_GUARD_RE = re.compile(
+    r"[^.?!\n]*document library excerpts[^.?!\n]*do not include[^.?!\n]*[.?!]?",
+    re.I,
+)
+_GLUED_IMPERATIVE_RE = re.compile(
+    r"(?<=[a-z])\s+(?=(?:Check|Confirm|Replace|Measure|Report|Bypass|Inspect|Look|Press|Set)\b)"
+)
+
+
+def _strip_excerpt_guard(text: str) -> str:
+    """Drop a prompt sentence that says the library excerpts do not include a fact."""
+    cleaned = _EXCERPT_GUARD_RE.sub(" ", text or "")
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+def repair_glued_sentence(text: str) -> str:
+    """Put a period before an imperative that was glued onto the previous clause."""
+    return _GLUED_IMPERATIVE_RE.sub(". ", text or "")
+
+
 def strip_leaked_prompt(text: str) -> str:
     """Drop a prompt echo or a guard paragraph that landed in front of the answer.
 
@@ -262,6 +282,7 @@ def strip_leaked_prompt(text: str) -> str:
     while len(paragraphs) > 1 and _paragraph_is_guard_echo(paragraphs[0]):
         paragraphs.pop(0)
     cleaned = "\n\n".join(paragraphs).strip()
+    cleaned = _strip_excerpt_guard(cleaned)
     return cleaned or raw
 
 
@@ -2083,6 +2104,25 @@ _FACR_SHORT_PASS_RE = re.compile(
     re.I,
 )
 _FACR_YES_RE = re.compile(r"\b(yes|yep|yeah)\b", re.I)
+# Live techs write 2k, 2.0 k, 2 kohm, and 2000 ohms. The old pattern needed "k ohm".
+_FACR_SENSOR_OHM_RE = re.compile(
+    r"\b(?:2(?:\.0+)?\s*k(?:\s*ohms?)?|2000\s*ohms?)\b"
+)
+_FACR_25C_RE = re.compile(r"\b25\s*(?:c|degrees?|deg)\b")
+
+
+def _facr_sensor_reading_reported(raw: str) -> bool:
+    """A freeze-sensor resistance the tech actually typed."""
+    if not raw:
+        return False
+    if _FACR_SENSOR_OHM_RE.search(raw) and (
+        _FACR_25C_RE.search(raw) or re.search(r"freeze[\s-]*sensor|\bsensor\b", raw)
+    ):
+        return True
+    return bool(
+        re.search(r"freeze[\s-]*sensor", raw)
+        and re.search(r"\b\d+(?:\.\d+)?\s*(?:k|ohms?)\b", raw)
+    )
 
 
 def facr_freeze_proves_from_text(text: str) -> dict:
@@ -2149,7 +2189,7 @@ def _facr_extended_proves_from_text(text: str) -> dict:
         raw,
     ):
         facts["facr_suction"] = "clear"
-    if re.search(r"\b2\s*k\s*ohms?\b.{0,30}\b25\s*c\b|\b25\s*c\b.{0,30}\b2\s*k\s*ohms?\b", raw):
+    if _facr_sensor_reading_reported(raw):
         facts["facr_sensor_reading"] = "reported"
     if re.search(
         r"\b(cool\s+)?set ?point\b.{0,20}\b68\s*f\b|"
@@ -2267,7 +2307,9 @@ def _bind_facr_short_answer(asked: list, assistant_text: str, user_text: str) ->
     ):
         return _mark_facr_asked(asked)
     facts = {}
-    if "facr_freeze_sensor" in asked and re.search(r"\b2\s*k\s*ohms?\b", raw):
+    if "facr_freeze_sensor" in asked and (
+        _FACR_SENSOR_OHM_RE.search(raw) or _facr_sensor_reading_reported(raw)
+    ):
         facts["facr_sensor_reading"] = "reported"
     if "facr_thermostat" in asked and re.search(r"\b68\s*f\b", raw):
         facts["facr_thermostat"] = "good"
@@ -3781,7 +3823,7 @@ def ensure_dometic_ceiling_thermostat(
     ceiling thermostat/selector. A later turn keeps a real follow-up.
     """
     facts = facts or {}
-    text = reply or ""
+    text = repair_glued_sentence(reply or "")
     open_line = dometic_nocoool_open_line(facts)
     if (
         facts.get("dometic_unit_bypass") == "cools"
@@ -4959,6 +5001,9 @@ def _firm_repair_reply(
     if not (asks_what_is_the_repair(latest_msg) or _is_fallback_question(latest_msg)):
         return ""
     job = _job_key(history, latest_msg, category_name, model_text)
+    # "What is the repair procedure?" is the full list. A one-line harvest is not.
+    if job == "thetford" and re.search(r"\brepair procedure\b", latest_msg or "", re.I):
+        return ""
     answered = _answered_checks(_user_blob(history, latest_msg))
     lead = ""
     other = ""
@@ -5057,8 +5102,8 @@ def _conditional_lines(
     if job == "ground":
         return [
             "Do a manual level, then set zero point. Press FRONT five times, then REAR five times, then press ENTER.",
-            "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. That calibration is the repair.",
-            "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, that calibration is the repair.",
+            "If the plugs are seated, do a manual level. Press FRONT five times, then REAR five times, then ENTER. Zero-point calibration is the repair.",
+            "Manual level comes before zero point. FRONT five times, REAR five times, ENTER. If the display reads Zero point set successfully, zero-point calibration is the repair.",
         ]
     if job == "stab":
         return [
@@ -5172,6 +5217,16 @@ LEADJACK_CARTRIDGE_LINE = (
     + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
+LEADJACK_CARTRIDGE_FOLLOW = (
+    "The repair is to replace the front lead-jack cartridge valve, part 177094. "
+    "The parts list calls 177094 the Cartridge Valve, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+_LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
 
 
 def _leadjack_coil_good(blob: str) -> bool:
@@ -5249,8 +5304,8 @@ def _leadjack_answered_slots(history: list = None, latest_msg: str = "") -> set[
             slots.add("plumb")
         if _leadjack_override_out(user_text):
             slots.add("override")
-        if pending_ask == "plumb" and _leadjack_affirmed(user_text):
-            slots.add("plumb")
+        if pending_ask and _leadjack_affirmed(user_text):
+            slots.add(pending_ask)
         if re.search(r"\b177094\b|cartridge valve", _norm(user_text)):
             slots.add("plumb")
         if pending_ask and re.search(r"\bnot checked yet\b", _norm(user_text)):
@@ -5316,8 +5371,7 @@ def _leadjack_stage(history: list = None, latest_msg: str = "") -> str:
     return "cartridge"
 
 
-def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
-    stage = _leadjack_stage(history, latest_msg)
+def _leadjack_line_for(stage: str) -> str:
     if stage == "plumb":
         return LEADJACK_PLUMB_LINE
     if stage == "override":
@@ -5325,6 +5379,65 @@ def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
     if stage == "cartridge":
         return LEADJACK_CARTRIDGE_LINE
     return LEADJACK_COIL_LINE
+
+
+def _leadjack_rank(stage: str) -> int:
+    try:
+        return _LEADJACK_STAGES.index(stage)
+    except ValueError:
+        return -1
+
+
+def _leadjack_shipped_stage(history: list = None) -> str:
+    """The furthest lead-jack line already given. Later turns do not walk back."""
+    best = ""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        normed = _norm(content)
+        if "177094" in content:
+            stage = "cartridge"
+        elif normed == _norm(LEADJACK_OVERRIDE_LINE):
+            stage = "override"
+        elif normed == _norm(LEADJACK_PLUMB_LINE):
+            stage = "plumb"
+        elif normed == _norm(LEADJACK_COIL_LINE):
+            stage = "coil"
+        else:
+            continue
+        if _leadjack_rank(stage) > _leadjack_rank(best):
+            best = stage
+    return best
+
+
+def _leadjack_pushes_forward(latest_msg: str) -> bool:
+    """A repair ask, or a short yes, must not reprint the line just sent."""
+    low = _norm(latest_msg)
+    if re.search(r"\bwhat(?:'s| is) the repair\b", low):
+        return True
+    words = low.split()
+    return bool(words) and len(words) <= 4 and _leadjack_affirmed(latest_msg)
+
+
+def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
+    """The next lead-jack step. A repeated ask moves one stage forward."""
+    stage = _leadjack_stage(history, latest_msg)
+    shipped = _leadjack_shipped_stage(history)
+    if _leadjack_rank(shipped) > _leadjack_rank(stage):
+        stage = shipped
+    line = _leadjack_line_for(stage)
+    last_raw = _last_assistant_text(history)
+    last = _norm(last_raw)
+    if last == _norm(LEADJACK_CARTRIDGE_FOLLOW):
+        return LEADJACK_CARTRIDGE_FOLLOW
+    if last and last == _norm(line) and _leadjack_pushes_forward(latest_msg):
+        index = _leadjack_rank(stage)
+        if index + 1 < len(_LEADJACK_STAGES):
+            line = _leadjack_line_for(_LEADJACK_STAGES[index + 1])
+        else:
+            line = LEADJACK_CARTRIDGE_FOLLOW
+    return line
 
 
 def ensure_level_up_lead_jack_reply(
@@ -5340,36 +5453,15 @@ def ensure_level_up_lead_jack_reply(
     return _leadjack_shop_line(history, latest_msg)
 
 
+import manual_figures as _manual_figures
+
 THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
-THETFORD_SUPPLY_LINE = (
-    "Back of the toilet: check the water supply line connection at the water valve. "
-    "Secure or tighten it as necessary.\n"
-    + THETFORD_CITE_42088
-)
-THETFORD_VALVE_LINE = (
-    "Check whether water valve 42049 weeps at the pedal. "
-    "If it weeps, replace it with water valve kit 42109.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
-)
-THETFORD_VALVE_REPLACE_LINE = (
-    "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.\n"
-    "📖 Source: Thetford Water Valve Service Kit 42109, page 1"
-)
-THETFORD_VACUUM_LINE = (
-    "Check whether the vacuum breaker leaks while flushing. "
-    "If it leaks, replace the vacuum breaker or the water module, depending on model.\n"
-    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
-)
-THETFORD_VACUUM_REPLACE_LINE = (
-    "The vacuum breaker leaks while flushing. "
-    "Replace the vacuum breaker or the water module, depending on model.\n"
-    "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
-)
-THETFORD_FLANGE_LINE = (
-    "Between the closet flange and the toilet, check the flange nuts. "
-    "If the leak continues, check the flange height and replace the flange seal.\n"
-    + THETFORD_CITE_42088
-)
+THETFORD_SUPPLY_LINE = _manual_figures.thetford_proving_line("supply")
+THETFORD_VACUUM_LINE = _manual_figures.thetford_proving_line("vacuum")
+THETFORD_VACUUM_REPLACE_LINE = _manual_figures.thetford_proving_line("vacuum_replace")
+THETFORD_VALVE_LINE = _manual_figures.thetford_proving_line("valve")
+THETFORD_VALVE_REPLACE_LINE = _manual_figures.thetford_proving_line("valve_replace")
+THETFORD_FLANGE_LINE = _manual_figures.thetford_proving_line("flange")
 
 
 def _thetford_supply_ok(blob: str) -> bool:
@@ -5438,7 +5530,11 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
     """Checks already answered, or skipped with 'Not checked yet'.
 
     A skipped check stays closed. The next reply asks the next one in order.
+    A mismatched or unclear photo does not close the check just asked.
     """
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
     slots: set[str] = set()
     pending = ""
 
@@ -5464,23 +5560,28 @@ def _thetford_closed_slots(history: list = None, latest_msg: str = "") -> set[st
 
 
 def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
-    """Supply, then the pedal valve, then the vacuum breaker, then the flange.
+    """Supply, then the vacuum breaker, then the valve body, then the flange.
 
     'Not checked yet' closes the check that was just asked and advances.
-    A closed check is not asked again.
+    A closed check is not asked again. A weep does not skip the vacuum breaker.
+    A proven leak starts that repair only after the earlier checks are closed.
+    A mismatched or unclear photo does not close the check.
     """
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
     blob = _user_blob(history, latest_msg)
     slots = _thetford_closed_slots(history, latest_msg)
-    if _thetford_valve_bad(blob):
-        return "valve_replace"
-    if _thetford_vacuum_bad(blob):
-        return "vacuum_replace"
     if "supply" not in slots and not _thetford_supply_ok(blob):
         return "supply"
-    if "valve" not in slots and not _thetford_valve_ok(blob):
-        return "valve"
+    if _thetford_vacuum_bad(blob):
+        return "vacuum_replace"
     if "vacuum" not in slots and not _thetford_vacuum_ok(blob):
         return "vacuum"
+    if _thetford_valve_bad(blob):
+        return "valve_replace"
+    if "valve" not in slots and not _thetford_valve_ok(blob):
+        return "valve"
     return "flange"
 
 
@@ -5488,10 +5589,66 @@ _PHOTO_CONFIRM_RE = re.compile(
     r"\b(?:photo|picture|sent|attached|yes|done|ok|okay|here)\b",
     re.I,
 )
+_THETFORD_HOLD_RE = re.compile(r"\b(?:not yet|not checked yet|hold on|wait)\b", re.I)
+
+
+def _thetford_step_hold(content: str) -> bool:
+    return bool(_THETFORD_HOLD_RE.search(content or ""))
+
+
+def _thetford_asks_procedure_list(content: str) -> bool:
+    return bool(re.search(r"\brepair procedure\b", content or "", re.I))
+
+
+def _thetford_show_ask(content: str) -> bool:
+    return bool(re.search(r"\bshow\b", content or "", re.I))
+
+
+def _thetford_short_step_answer(content: str) -> bool:
+    """A typed yes, no, or short finding. A hold, a figure ask, or the procedure list is not one."""
+    raw = re.sub(r"\s+", " ", (content or "")).strip()
+    if not raw or _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
+        return False
+    if raw.endswith("?") and not re.fullmatch(r"(?:yes|no)\??", raw, re.I):
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", raw)
+    return bool(words) and len(words) <= 12
+
+
+def _thetford_text_confirms(content: str) -> bool:
+    raw = (content or "").strip()
+    if _thetford_step_hold(raw) or _thetford_asks_procedure_list(raw) or _thetford_show_ask(raw):
+        return False
+    if re.fullmatch(r"(?:yes|no)[.!]?", raw, re.I):
+        return True
+    if _PHOTO_CONFIRM_RE.search(raw):
+        if re.search(r"\bno\b", raw, re.I) and not re.search(
+            r"\b(?:photo|picture|yes)\b", raw, re.I
+        ):
+            return _thetford_short_step_answer(raw)
+        return True
+    return _thetford_short_step_answer(raw)
+
+
+def _thetford_wait_shown(history: list, number: int) -> bool:
+    import manual_figures as mf
+
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        if f"Step {number} of" in content and mf.PHOTO_WAIT in content:
+            return True
+    return False
 
 
 def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> bool:
-    """The tech sent a photo or said yes after this step was shown."""
+    """Yes, no, or a short answer after this step was shown. A bad photo does not count.
+
+    'Not yet' holds the step once. The same hold after that ask moves on.
+    """
+    import gd_step_photo as _photos
+
     seen = False
     for message in history or []:
         role = message.get("role") or ""
@@ -5499,17 +5656,16 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
         if role == "assistant" and f"Step {number} of" in content:
             seen = True
             continue
-        if seen and role == "user" and _PHOTO_CONFIRM_RE.search(content):
-            if re.search(r"\bno\b", content, re.I) and not re.search(r"\b(?:photo|picture)\b", content, re.I):
-                continue
+        if seen and role == "user" and _thetford_text_confirms(content):
             return True
-    if seen and _PHOTO_CONFIRM_RE.search(latest_msg or ""):
-        if re.search(r"\bno\b", latest_msg or "", re.I) and not re.search(
-            r"\b(?:photo|picture)\b", latest_msg or "", re.I
-        ):
-            return False
-        return True
-    return False
+    if not seen:
+        return False
+    decided = _photos.latest_confirms_step(latest_msg, _photos.current())
+    if decided is not None:
+        return decided
+    if _thetford_step_hold(latest_msg):
+        return _thetford_wait_shown(history, number)
+    return _thetford_text_confirms(latest_msg)
 
 
 def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
@@ -5538,7 +5694,8 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
         for message in history or []
         if (message.get("role") or "") == "assistant"
     )
-    if already:
+    # The photo line is optional and is added once. A typed answer does not see it again.
+    if already and _thetford_step_hold(latest_msg) and not _thetford_wait_shown(history, number):
         text = f"{text}\n{mf.PHOTO_WAIT}"
     if kind == "valve":
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
@@ -5589,6 +5746,32 @@ def _thetford_keep(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+def _thetford_procedure_catalog(stage: str) -> str:
+    """The numbered Removal and Installation list. Not the step the tech is on."""
+    import manual_figures as mf
+
+    if stage == "vacuum_replace":
+        kinds = ("breaker",)
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+    elif stage == "valve_replace":
+        kinds = ("valve",)
+        cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
+    else:
+        kinds = ("valve", "breaker")
+        cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
+    parts = []
+    for kind in kinds:
+        text = mf.procedure_handoff(mf.thetford_kit_layout(kind))
+        if text:
+            parts.append(text)
+    if not parts:
+        return ""
+    body = "\n\n".join(parts)
+    if cite not in body:
+        body = f"{body}\n{cite}"
+    return body
+
+
 def ensure_thetford_flush_reply(
     reply: str,
     history: list = None,
@@ -5601,6 +5784,10 @@ def ensure_thetford_flush_reply(
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
     stage = _thetford_stage(history, latest_msg)
+    if _thetford_asks_procedure_list(latest_msg):
+        listed = _thetford_procedure_catalog(stage)
+        if listed:
+            return listed
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)
@@ -5610,7 +5797,7 @@ def ensure_thetford_flush_reply(
     stage = _thetford_stage(history, latest_msg)
     stage_slot = {"valve_replace": "valve", "vacuum_replace": "vacuum"}.get(stage, stage)
     asked = _thetford_line_slot(reply) or _thetford_line_slot(original)
-    # A vacuum-breaker draft does not ship while the supply or the water valve is still open.
+    # A draft for another check does not ship. Open order is supply, vacuum, valve, flange.
     if asked and asked != stage_slot:
         return nxt
     if _thetford_not_checked(latest_msg):
@@ -6160,6 +6347,7 @@ def polish_shop_reply(
     model_text: str = "",
 ) -> str:
     """Shop text only: no model instructions, no invented facts, no repeated block."""
+    reply = repair_glued_sentence(_strip_excerpt_guard(reply or ""))
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         if "📖" not in locked:
@@ -6438,19 +6626,45 @@ def avoid_duplicate_reply(
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    photo_review=None,
 ) -> str:
     """Do not send the same reply twice, and do not ask a check that was already asked.
 
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
+    photo_review is the xAI read of an optional step photo. None keeps typed findings.
     """
+    import gd_step_photo as _photos
+
+    token = _photos.activate(photo_review)
+    try:
+        return _avoid_duplicate_reply_body(
+            reply, history, latest_msg, category_name, model_text, photo_review
+        )
+    finally:
+        _photos.deactivate(token)
+
+
+def _avoid_duplicate_reply_body(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    photo_review=None,
+) -> str:
+    import gd_step_photo as _photos
+
+    latest_msg = _photos.adjust_latest(latest_msg)
+
     def _out(text: str) -> str:
         text = _strip_facr_internal_guard(text)
-        return guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+        text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
+        return _photos.present_photo_review(text, photo_review)
 
     text = _strip_stop_no_further_tests((reply or "").strip())
     if _is_offline_notice(text):
-        return text
+        return _photos.present_photo_review(text, photo_review)
     closed = _live_close_reply(history, latest_msg, category_name, model_text)
     if closed:
         return _out(closed)
@@ -7712,7 +7926,7 @@ def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list 
     A low tip that the pan pushes gets that repair and cites SDN2U page 4, Figs. 3-4.
     A sentence that says the library does not cover tip position does not ship with the repair.
     """
-    cleaned = _strip_cooktop_contradiction(reply or "")
+    cleaned = _strip_excerpt_guard(_strip_cooktop_contradiction(reply or ""))
     repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
         complaint or ""
     )

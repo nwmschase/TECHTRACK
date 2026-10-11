@@ -103,7 +103,8 @@ class TestLeadJackReplay(unittest.TestCase):
             list(history),
             unity_gate="Not sure",
         )[0]
-        self.assertIn("gray wire", (early or "").lower())
+        self.assertNotEqual((early or "").strip().lower(), first.strip().lower())
+        self.assertIn("notched", (early or "").lower())
         self.assertNotIn("177094", early or "")
 
         coil = self._turn(
@@ -201,7 +202,8 @@ class TestLeadJackReplay(unittest.TestCase):
         low = follow.lower()
         self.assertNotIn("notched", low)
         self.assertNotIn("swap plumbing", low)
-        self.assertIn("override screw", low)
+        self.assertIn("177094", follow)
+        _assert_177094_is_cited(self, follow)
 
         stated = []
         self._turn(CONCERN, stated)

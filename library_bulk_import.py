@@ -1236,7 +1236,15 @@ def _read_member(zip_path: Path, name: str) -> bytes:
         return archive.read(name)
 
 
-def _import_one(session, item: dict, zip_path: Path, upload_pdf, taken: set, uploaded_by) -> str:
+def _import_one(
+    session,
+    item: dict,
+    zip_path: Path,
+    upload_pdf,
+    taken: set,
+    uploaded_by,
+    index_figures=None,
+) -> str:
     data = _read_member(zip_path, item["filename"])
     sha = hashlib.sha256(data).hexdigest()
     duplicate = _find_duplicate(session, sha)
@@ -1349,6 +1357,17 @@ def _import_one(session, item: dict, zip_path: Path, upload_pdf, taken: set, upl
                 "keywords": keywords,
             },
         )
+    if index_figures is not None:
+        try:
+            figure_note = index_figures(doc_id, data, title) or ""
+        except Exception:
+            figure_note = ""
+        if figure_note:
+            note = _clip(f"{note}; {figure_note}", 250)
+            session.execute(
+                text("UPDATE documents SET index_note = :note WHERE id = :id"),
+                {"note": note, "id": doc_id},
+            )
     _set_item(
         session,
         item["id"],
@@ -1400,6 +1419,7 @@ def process_next_batch(
     delete_zip=None,
     batch_size: int | None = None,
     progress=None,
+    index_figures=None,
 ) -> dict:
     """Import the next N pending files. Commits each file, then asks for a DB backup.
 
@@ -1502,6 +1522,7 @@ def process_next_batch(
                         upload_pdf,
                         taken,
                         job.get("created_by"),
+                        index_figures=index_figures,
                     )
                     session.commit()
                 except Exception as exc:
@@ -1599,6 +1620,7 @@ def render_manager_bulk_panel(
     r2_ready: bool,
     staging_dir="bulk_imports",
     delete_bytes=None,
+    index_figures=None,
 ) -> None:
     """Draw the Manager Tools bulk-import panel.
 
@@ -1685,8 +1707,9 @@ def render_manager_bulk_panel(
         "Auto-continue",
         key="bulk_auto_continue",
         help=(
-            "After each batch, start the next one until this ZIP is done. "
-            "Each batch still cloud-saves the database. Stop finishes the current batch, then waits."
+            "Keep importing the next batch until this ZIP is done. "
+            "Each batch still cloud-saves the database. "
+            "Stop finishes the batch that is running, then waits."
         ),
     )
     if not auto:
@@ -1742,6 +1765,7 @@ def render_manager_bulk_panel(
                 stopped=False,
                 reset_pace=bool(go),
                 delete_zip=delete_bytes,
+                index_figures=index_figures,
             )
         elif should_run and not r2_ready:
             st.session_state["bulk_run_chain"] = False
@@ -1783,6 +1807,7 @@ def render_manager_bulk_panel(
                     stopped=False,
                     reset_pace=True,
                     delete_zip=delete_bytes,
+                    index_figures=index_figures,
                 )
 
 
@@ -1799,31 +1824,60 @@ def _run_batch(
     stopped=False,
     reset_pace=False,
     delete_zip=None,
+    index_figures=None,
 ) -> None:
     before = job_progress(session, job_id)
     arm_import_pace(st.session_state, before["done_files"], time.time(), reset=reset_pace)
     holder = {"bar": None}
+    status_line = st.empty()
+    result = {}
 
     def _tick(index, total, filename):
         if holder["bar"] is None:
             holder["bar"] = st.progress(0.0)
         holder["bar"].progress(min(1.0, index / max(total, 1)), text=filename or "Importing")
 
-    try:
-        result = process_next_batch(
-            session,
-            job_id,
-            upload_pdf=upload_bytes,
-            download_zip=download_bytes,
-            backup_db=backup_db,
-            delete_zip=delete_zip,
-            batch_size=batch_size,
-            progress=_tick,
+    # One click keeps going. A rerun between batches dropped the chain and
+    # waited for another click.
+    while True:
+        try:
+            result = process_next_batch(
+                session,
+                job_id,
+                upload_pdf=upload_bytes,
+                download_zip=download_bytes,
+                backup_db=backup_db,
+                delete_zip=delete_zip,
+                batch_size=batch_size,
+                progress=_tick,
+                index_figures=index_figures,
+            )
+        except Exception as exc:
+            st.session_state["bulk_run_chain"] = False
+            st.error(f"Bulk import stopped: {exc}")
+            return
+        if result.get("error"):
+            st.session_state["bulk_run_chain"] = False
+            st.error(result["error"])
+            break
+        if result.get("busy"):
+            st.warning(result.get("error") or "This import is already running.")
+            break
+        status_line.write(
+            f"This batch: imported {result['imported']}, needs OCR {result['needs_ocr']}, "
+            f"duplicates {result['duplicate']}, failed {result['failed']}. "
+            f"Remaining {result.get('pending') or 0}."
         )
-    except Exception as exc:
-        st.session_state["bulk_run_chain"] = False
-        st.error(f"Bulk import stopped: {exc}")
-        return
+        carry_on = auto_continue_should_rerun(
+            auto=bool(auto) and bool(st.session_state.get("bulk_run_chain")),
+            stopped=stopped,
+            pending=int(result.get("pending") or 0),
+            processed=int(result.get("processed") or 0),
+            status=result.get("status") or "",
+            error=result.get("error") or "",
+        )
+        if not carry_on:
+            break
     if result.get("staging_zip_deleted"):
         st.caption("Removed the finished staging ZIP from cloud storage.")
     elif result.get("staging_zip_error"):
@@ -1835,17 +1889,6 @@ def _run_batch(
         st.caption(
             "The staging ZIP stays in cloud storage because a file failed. The import can resume."
         )
-    if result.get("error"):
-        st.session_state["bulk_run_chain"] = False
-        st.error(result["error"])
-    elif result.get("busy"):
-        st.session_state["bulk_run_chain"] = False
-        st.warning(result.get("error") or "This import is already running.")
-    else:
-        st.write(
-            f"This batch: imported {result['imported']}, needs OCR {result['needs_ocr']}, "
-            f"duplicates {result['duplicate']}, failed {result['failed']}."
-        )
     backup = result.get("backup")
     if isinstance(backup, tuple) and len(backup) == 2:
         ok, note = backup
@@ -1854,6 +1897,15 @@ def _run_batch(
         elif note:
             st.warning(note)
     now = time.time()
+    counts = job_progress(session, job_id)
+    pace = import_pace_line(st.session_state, counts["done_files"], now)
+    if pace:
+        st.write(pace)
+    # Another run holds the lock. Keep Auto-continue armed and try again.
+    if result.get("busy"):
+        if st.session_state.get("bulk_run_chain"):
+            st.rerun()
+        return
     carry_on = auto_continue_should_rerun(
         auto=bool(auto) and bool(st.session_state.get("bulk_run_chain")),
         stopped=stopped,
@@ -1864,10 +1916,7 @@ def _run_batch(
     )
     if not carry_on:
         freeze_import_pace(st.session_state, now)
-    counts = job_progress(session, job_id)
-    pace = import_pace_line(st.session_state, counts["done_files"], now)
-    if pace:
-        st.write(pace)
+        st.session_state["bulk_run_chain"] = False
     if result.get("status") == "complete" and not result.get("error"):
         st.success(
             f"Import finished. {result['total']} file(s) recorded. "
@@ -1875,7 +1924,3 @@ def _run_batch(
         )
         st.session_state["bulk_run_chain"] = False
         return
-    if carry_on:
-        st.rerun()
-    else:
-        st.session_state["bulk_run_chain"] = False
