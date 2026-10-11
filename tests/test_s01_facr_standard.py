@@ -269,7 +269,8 @@ class TestFacrRepairWalk(unittest.TestCase):
         self.assertIn("rooftop assembly", low)
         self.assertIn("ccd-0007990", low)
         self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", low)
-        self.assertIn("<!--gd-step:1-->", later)
+        self.assertNotIn("<!--", later)
+        self.assertTrue(mf.reply_shows_step(later, 1))
         self.assertIn("Turn the 115VAC breaker off", later)
         self.assertNotIn("Do this:", later)
         self.assertNotIn("Here is the repair procedure.", later)
@@ -290,7 +291,8 @@ class TestFacrRepairWalk(unittest.TestCase):
             "Air Conditioning",
             "FACR08HESA2-PS",
         )
-        self.assertIn("<!--gd-step:1-->", held)
+        self.assertNotIn("<!--", held)
+        self.assertTrue(mf.reply_shows_step(held, 1))
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         advanced = avoid_duplicate_reply(
@@ -300,7 +302,8 @@ class TestFacrRepairWalk(unittest.TestCase):
             "Air Conditioning",
             "FACR08HESA2-PS",
         )
-        self.assertIn("<!--gd-step:2-->", advanced)
+        self.assertNotIn("<!--", advanced)
+        self.assertTrue(mf.reply_shows_step(advanced, 2))
         self.assertNotRegex(advanced, r"(?<!\d)Step 1:")
         self.assertIn("12VDC", advanced)
         self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", advanced.lower())

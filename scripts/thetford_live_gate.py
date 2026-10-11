@@ -84,6 +84,52 @@ def _connect(db: Path):
     return sessionmaker(bind=engine)()
 
 
+def _english_enough(text: str) -> bool:
+    """An English procedure window. A translation column does not count.
+
+    The cut is the language header, so a French tail on an English window
+    stays in. A window that is already French or Spanish does not.
+    """
+    raw = mf._english_prefix(text or "")
+    if len(raw) < 80:
+        return False
+    letters = [ch for ch in raw if ch.isalpha()]
+    if letters and sum(1 for ch in letters if ord(ch) > 127) / len(letters) > 0.08:
+        return False
+    foreign = re.findall(
+        r"\b(?:le|la|les|des|du|jetez|el|los|las|para|que|boîtier|crampon)\b",
+        raw,
+        re.I,
+    )
+    return len(foreign) < 2
+
+
+def _rank_chunks(chunks: list[dict], limit: int = 12) -> list[dict]:
+    """The live ask returns about 12 chunks. English procedure windows rank first."""
+
+    def score(chunk: dict) -> int:
+        text = chunk.get("excerpt") or ""
+        title = (chunk.get("title") or "").lower()
+        page = int(chunk.get("page") or 0)
+        value = 0
+        if "42109" in title:
+            value += 80
+        elif "3412" in title or "vacuum" in title:
+            value += 70
+        elif "42088" in title and page == 3:
+            # One troubleshooting page is useful. It must not outrank a kit window.
+            value += 40
+        elif "42088" in title:
+            value += 10
+        if not _english_enough(text):
+            value -= 300
+        if re.search(r"\b(remove|install|pedal|vacuum breaker|flange|leak)\b", text, re.I):
+            value += 15
+        return value
+
+    return sorted(chunks, key=score, reverse=True)[:limit]
+
+
 def _thetford_chunks(session) -> list[dict]:
     blob = (
         "lower("
@@ -202,8 +248,13 @@ def _sheet_problems(proc, pdf: bytes) -> list[str]:
     valve = next((item for item in proc.procedures or [] if "42109" in (item.get("title") or "")), None)
     if valve:
         tools = " ".join(
-            (step.get("fields") or {}).get("TOOLS / METER SETTING") or ""
-            for step in valve.get("steps") or []
+            [
+                " ".join(valve.get("before") or []),
+                " ".join(
+                    (step.get("fields") or {}).get("TOOLS / METER SETTING") or ""
+                    for step in valve.get("steps") or []
+                ),
+            ]
         ).lower()
         if "wrench" not in tools and "plier" not in tools:
             problems.append("water valve tools are not the kit Needed list")
@@ -217,8 +268,8 @@ def _sheet_problems(proc, pdf: bytes) -> list[str]:
     do_not = " ".join(proc.do_not or []).lower()
     if "antifreeze" in do_not or re.search(r"\bice\b", do_not):
         problems.append("Do Not list has a winterizing item")
-    if "scouring" not in do_not:
-        problems.append("Do Not list dropped the cleaner line")
+    if "scouring" in do_not:
+        problems.append("Do Not list has a generic cleaner line")
     return problems
 
 
@@ -402,24 +453,56 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     out.mkdir(parents=True, exist_ok=True)
     session = _connect(db)
     try:
-        chunks = _thetford_chunks(session)
-        if not chunks:
+        found = _thetford_chunks(session)
+        if not found:
             print("no Thetford chunks in this database", file=sys.stderr)
             return 2
+        chunks = _rank_chunks(found, 12)
+        chunks = sorted(
+            chunks,
+            key=lambda chunk: (
+                int(chunk.get("document_id") or 0),
+                int(chunk.get("page") or 0),
+            ),
+        )
         doc_ids = {int(chunk["document_id"]) for chunk in chunks if chunk.get("document_id")}
         rows = _asset_rows(session, doc_ids)
     finally:
         session.close()
     fb.attach_pngs(None, rows, read_local=False, download=None, cache_root=cache)
     loaded = sum(1 for row in rows if row.get("png"))
+    job = f"{CATEGORY} {BRAND} {MODEL} {CONCERN}"
+    figures_by_doc: dict[int, list] = {}
+    for row in rows:
+        png = row.get("png") or b""
+        if not png or (row.get("kind") or "figure") != "figure":
+            continue
+        doc_id = int(row.get("document_id") or 0)
+        figures_by_doc.setdefault(doc_id, []).append(
+            {
+                "png": png,
+                "label": row.get("label") or "",
+                "caption": row.get("caption") or "",
+                "bbox": row.get("bbox") or "",
+                "page": row.get("page"),
+                "title": row.get("title") or "",
+            }
+        )
+    # The live ask is these ranked windows, cut at 4000 inside kit_excerpt.
+    # The collapsed figure packet keeps only the figure's page, so page 2
+    # of the vacuum breaker never reaches the sheet. Crops ride along.
+    compile_chunks = []
+    for chunk in chunks:
+        copied = dict(chunk)
+        copied["figures"] = list(figures_by_doc.get(int(chunk.get("document_id") or 0), []))
+        compile_chunks.append(copied)
     proc = compile_bay_procedure(
         concern=CONCERN,
         brand=BRAND,
         model=MODEL,
         category=CATEGORY,
-        chunks=chunks,
+        chunks=compile_chunks,
     )
-    job = f"{CATEGORY} {BRAND} {MODEL} {CONCERN}"
     packets = fb.figure_packets(rows, chunks, job)
     for packet in packets:
         packet["figures"] = [fig for fig in packet.get("figures") or [] if fig.get("png")]
@@ -441,7 +524,7 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     (out / "transcript.txt").write_text(transcript, encoding="utf-8")
     (out / "transcript-profile.txt").write_text(profile, encoding="utf-8")
     report = [
-        f"chunks {len(chunks)}",
+        f"chunks {len(chunks)} ranked of {len(found)}",
         f"documents {len(doc_ids)}",
         f"asset rows {len(rows)}",
         f"pngs from cache {loaded}",

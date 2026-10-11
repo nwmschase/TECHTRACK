@@ -53,7 +53,7 @@ class TestOneActionPerHowLine(unittest.TestCase):
         ]
         self.assertEqual(len(grabs), 1)
         self.assertEqual(len(pulls), 1)
-        self.assertIsNone(pulls[0].get("figure"))
+        self.assertIn("PEDAL REMOVED", ((pulls[0].get("figure") or {}).get("label") or ""))
 
     def test_proving_step_1_does_not_start_with_a_stray_number(self):
         for key in ("supply", "vacuum", "valve", "flange"):

@@ -334,7 +334,8 @@ class TestThetfordCursorIgnoresAppendedHow(unittest.TestCase):
 
     def test_a_real_answer_closes_the_vacuum_check_when_how_says_flange(self):
         nxt = _turn("No leak while flushing.", self._vacuum_history())
-        self.assertIn("<!--gd-step:1-->", nxt)
+        self.assertNotIn("<!--", nxt)
+        self.assertTrue(mf.reply_shows_step(nxt, 1))
         self.assertNotRegex(nxt, r"(?<!\d)Step 2:")
         self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt)
         self.assertNotIn("Tip Sheet", nxt)
@@ -342,20 +343,23 @@ class TestThetfordCursorIgnoresAppendedHow(unittest.TestCase):
 
     def test_real_answers_advance_the_procedure_past_step_1(self):
         first = _turn("No leak while flushing.", self._vacuum_history())
-        self.assertIn("<!--gd-step:1-->", first)
+        self.assertNotIn("<!--", first)
+        self.assertTrue(mf.reply_shows_step(first, 1))
         history = self._vacuum_history() + [
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": first + HOW},
         ]
         second = _turn("Water is off.", history)
-        self.assertIn("<!--gd-step:2-->", second)
+        self.assertNotIn("<!--", second)
+        self.assertTrue(mf.reply_shows_step(second, 2))
         self.assertNotRegex(second, r"(?<!\d)Step 1:")
         history = history + [
             {"role": "user", "content": "Water is off."},
             {"role": "assistant", "content": second + HOW},
         ]
         third = _turn("The bolt covers are off.", history)
-        self.assertIn("<!--gd-step:3-->", third)
+        self.assertNotIn("<!--", third)
+        self.assertTrue(mf.reply_shows_step(third, 3))
         self.assertNotRegex(third, r"(?<!\d)Step 1:")
         self.assertNotRegex(third, r"(?<!\d)Step 2:")
 
@@ -366,7 +370,8 @@ class TestThetfordCursorIgnoresAppendedHow(unittest.TestCase):
             {"role": "assistant", "content": first + HOW},
         ]
         held = _turn("Not checked yet.", history)
-        self.assertIn("<!--gd-step:1-->", held)
+        self.assertNotIn("<!--", held)
+        self.assertTrue(mf.reply_shows_step(held, 1))
         self.assertNotIn("motor brake", held.lower())
         self.assertNotIn("Tip Sheet", held)
         self.assertNotIn("pump seal", held.lower())
@@ -541,7 +546,8 @@ class TestThetfordCursorWalksAllFourteen(unittest.TestCase):
             {"role": "assistant", "content": vacuum + HOW},
         ]
         nxt = _turn("No leak while flushing.", history)
-        self.assertIn("<!--gd-step:1-->", nxt)
+        self.assertNotIn("<!--", nxt)
+        self.assertTrue(mf.reply_shows_step(nxt, 1))
         self.assertNotIn("Tip Sheet", nxt)
         history = history + [
             {"role": "user", "content": "No leak while flushing."},
@@ -551,7 +557,8 @@ class TestThetfordCursorWalksAllFourteen(unittest.TestCase):
         self.assertGreater(total, 13)
         for number in range(2, total + 1):
             nxt = _turn("Yes.", history)
-            self.assertIn(f"<!--gd-step:{number}-->", nxt)
+            self.assertNotIn("<!--", nxt)
+            self.assertTrue(mf.reply_shows_step(nxt, number))
             self.assertNotRegex(nxt, rf"(?<!\d)Step {number - 1}:")
             self.assertNotIn("Tip Sheet", nxt)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt)
@@ -706,7 +713,8 @@ class TestValveFindingDoesNotReturnToVacuum(unittest.TestCase):
             {"role": "assistant", "content": vacuum + HOW},
         ]
         step1 = _turn("No leak while flushing.", history)
-        self.assertIn("<!--gd-step:1-->", step1)
+        self.assertNotIn("<!--", step1)
+        self.assertTrue(mf.reply_shows_step(step1, 1))
         history = history + [
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": step1 + HOW},
@@ -717,7 +725,8 @@ class TestValveFindingDoesNotReturnToVacuum(unittest.TestCase):
         history = self._on_step_1()
         for answer in ("It still leaks.", "Leak at the pedal.", "The water valve still weeps."):
             nxt = _turn(answer, history)
-            self.assertIn("<!--gd-step:2-->", nxt, answer)
+            self.assertNotIn("<!--", nxt, answer)
+            self.assertTrue(mf.reply_shows_step(nxt, 2), answer)
             self.assertNotIn("34123", nxt, answer)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt, answer)
             self.assertIn("42109", nxt, answer)
@@ -843,7 +852,8 @@ class TestLiveThetfordTranscript(unittest.TestCase):
             {"role": "assistant", "content": mf.thetford_proving_line("vacuum") + how},
         ]
         step = _turn("water valve body weeps at the drive arm", history)
-        self.assertIn("<!--gd-step:1-->", step)
+        self.assertNotIn("<!--", step)
+        self.assertTrue(mf.reply_shows_step(step, 1))
         self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step)
         self.assertNotRegex(step, r"(?<!\d)Step 2:")
         seen = [1]
@@ -857,7 +867,8 @@ class TestLiveThetfordTranscript(unittest.TestCase):
         for number in range(2, total + 1):
             answer = "Yes."
             step = _turn(answer, history)
-            self.assertIn(f"<!--gd-step:{number}-->", step, answer)
+            self.assertNotIn("<!--", step, answer)
+            self.assertTrue(mf.reply_shows_step(step, number), answer)
             self.assertNotRegex(step, rf"(?<!\d)Step {number - 1}:", answer)
             self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step, answer)
             self.assertNotIn("34123", step, answer)
@@ -1063,9 +1074,9 @@ class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
         drive = next(step for step in steps if "drive pin" in (step.get("text") or "").lower())
         pivot = next(step for step in steps if "pivot" in (step.get("text") or "").lower())
         self.assertIsNone(water.get("figure"))
-        self.assertIsNone(pedal.get("figure"))
-        self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((thumb.get("figure") or {}).get("png") or b""))
+        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        self.assertIsNone(thumb.get("figure"))
         self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")

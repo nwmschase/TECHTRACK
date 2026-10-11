@@ -6067,7 +6067,7 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
     if kind == "valve":
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
     else:
-        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1"
     if cite not in text:
         text = f"{text}\n{cite}"
     return text
@@ -6119,7 +6119,7 @@ def _thetford_procedure_catalog(stage: str) -> str:
 
     if stage == "vacuum_replace":
         kinds = ("breaker",)
-        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1"
     elif stage == "valve_replace":
         kinds = ("valve",)
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
@@ -6139,7 +6139,44 @@ def _thetford_procedure_catalog(stage: str) -> str:
     return body
 
 
+def _thetford_pages_clash(text: str) -> bool:
+    """The body names a page the Source line does not."""
+    parts = (text or "").split("📖")
+    body = parts[0]
+    source = parts[1] if len(parts) > 1 else ""
+    body_pages = set(re.findall(r"\bpage\s+(\d+)\b", body, re.I))
+    source_pages = set(re.findall(r"\bpage\s+(\d+)\b", source, re.I))
+    return bool(body_pages and source_pages and body_pages.isdisjoint(source_pages))
+
+
+def _vacuum_reply_incomplete(text: str) -> bool:
+    """A vacuum turn with no bad result, no question, or the owner manual instead of kit 34123."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    has_bad = bool(re.search(r"\bbad result\b|\bbad looks like\b", raw, re.I))
+    cites_kit = bool(re.search(r"\b3412[23]\b", raw))
+    cites_manual_only = bool(re.search(r"\b42088\b", raw)) and not cites_kit
+    return (not has_bad) or ("?" not in raw) or cites_manual_only or _thetford_pages_clash(raw)
+
+
 def ensure_thetford_flush_reply(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    original: str = "",
+) -> str:
+    """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
+    import manual_figures as _mf
+
+    return _mf.strip_html_comments(
+        _thetford_flush_body(reply, history, latest_msg, category_name, model_text, original)
+    )
+
+
+def _thetford_flush_body(
     reply: str,
     history: list = None,
     latest_msg: str = "",
@@ -6190,29 +6227,40 @@ def ensure_thetford_flush_reply(
             return nxt
         kept = reply if _is_thetford_miss_line(reply) else original
         return _thetford_without_template(_thetford_keep(kept), nxt)
+    if stage == "vacuum" and _vacuum_reply_incomplete(reply):
+        return nxt
+    if _thetford_pages_clash(reply):
+        return nxt
     if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
         return _thetford_without_template(_thetford_keep(reply), nxt)
     return nxt
+
+
+def _thetford_where_answer() -> str:
+    """Where the supply fitting is. Not a second copy of the first check."""
+    return (
+        "That supply fitting sits at the back of the toilet, on the water valve.\n"
+        "Owner manual 42088 page 3 draws that connection.\n"
+        "A good result is a dry fitting while the lever rests.\n"
+        "A bad result is a drip on that fitting.\n"
+        "What do you see at the fitting?\n\n"
+        "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+    )
 
 
 def _thetford_show_reply(history: list = None, latest_msg: str = "") -> str:
     """Answer 'show me where' without repeating the check the tech already has.
 
     A repair step that is already on screen stays on that step. A proving
-    check that would come back word for word names the cited page as well,
-    so the where-answer is not a second copy of the first turn.
+    check that would come back word for word names the place on its own.
     """
     line = _thetford_shop_line(history, latest_msg)
+    if "<!--gd-step:" in (line or ""):
+        return line
     prev = _last_assistant_text(history)
-    if not prev or _norm(prev) != _norm(line) or "<!--gd-step:" in (line or ""):
+    if not prev or _norm(prev) != _norm(line):
         return line
-    note = "The cited manual page shows that connection."
-    if note.lower() in (line or "").lower():
-        return line
-    if "📖" in (line or ""):
-        head, _mark, tail = line.partition("📖")
-        return head.rstrip() + "\n" + note + "\n\n📖" + tail
-    return (line or "").rstrip() + "\n" + note
+    return _thetford_where_answer()
 
 
 def _thetford_without_template(text: str, fallback: str) -> str:
@@ -7010,13 +7058,15 @@ def _facr_walk_started(history: list = None) -> bool:
         if (message.get("role") or "") != "assistant":
             continue
         content = message.get("content") or ""
-        if "2024006031" in content and (
-            re.search(r"<!--\s*gd-step:\d+\s*-->", content)
-            or (
-                "Here is the repair procedure." in content
-                and re.search(r"Step \d+(?::| of\b)", content)
-            )
-        ):
+        if "2024006031" not in content:
+            continue
+        if re.search(r"<!--\s*gd-step:\d+\s*-->", content):
+            return True
+        if "Here is the repair procedure." in content and re.search(r"Step \d+(?::| of\b)", content):
+            return True
+        import manual_figures as mf
+
+        if any(mf.reply_shows_step(content, number) for number in range(1, 12)):
             return True
     return False
 
@@ -7200,6 +7250,7 @@ def _avoid_duplicate_reply_body(
         import manual_figures as _mf
 
         text = _mf.hide_internal_marker(text)
+        text = _mf.strip_html_comments(text)
         text = _strip_facr_internal_guard(text)
         text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
         if (

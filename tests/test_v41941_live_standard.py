@@ -143,7 +143,8 @@ class TestOptionalPhotoAndProcedureList(unittest.TestCase):
         self.history = _procedure_history(first)
 
     def test_typed_yes_no_and_a_short_answer_advance_once(self):
-        self.assertIn("<!--gd-step:1-->", self.first)
+        self.assertNotIn("<!--", self.first)
+        self.assertTrue(mf.reply_shows_step(self.first, 1))
         self.assertNotIn("Do this:", self.first)
         self.assertNotIn("Where:", self.first)
         self.assertNotIn("Good looks like:", self.first)
@@ -153,21 +154,25 @@ class TestOptionalPhotoAndProcedureList(unittest.TestCase):
         self.assertIn("What do you see?", self.first)
         for answer in ("Yes.", "No.", "Water is off."):
             reply = _turn(answer, self.history)
-            self.assertIn("<!--gd-step:2-->", reply, answer)
+            self.assertNotIn("<!--", reply, answer)
+            self.assertTrue(mf.reply_shows_step(reply, 2), answer)
             self.assertNotRegex(reply, r"(?<!\d)Step 1:", answer)
             self.assertNotIn("Send the photo before the next step.", reply, answer)
         held = _turn("Not yet.", self.history)
-        self.assertIn("<!--gd-step:1-->", held)
+        self.assertNotIn("<!--", held)
+        self.assertTrue(mf.reply_shows_step(held, 1))
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         again = _turn("Not yet.", self.history + [
             {"role": "user", "content": "Not yet."},
             {"role": "assistant", "content": held},
         ])
-        self.assertIn("<!--gd-step:2-->", again)
+        self.assertNotIn("<!--", again)
+        self.assertTrue(mf.reply_shows_step(again, 2))
         self.assertNotIn("Send the photo before the next step.", again)
         shown = _turn("show me the figure", self.history)
-        self.assertIn("<!--gd-step:1-->", shown)
+        self.assertNotIn("<!--", shown)
+        self.assertTrue(mf.reply_shows_step(shown, 1))
         self.assertNotRegex(shown, r"(?<!\d)Step 2:")
 
     def test_repair_procedure_is_the_numbered_list(self):

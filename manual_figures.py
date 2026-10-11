@@ -10,6 +10,7 @@ from __future__ import annotations
 import gc
 import io
 import re
+import unicodedata
 import sqlite3
 from pathlib import Path
 
@@ -342,7 +343,7 @@ def _overlaps(a, b) -> bool:
 
 
 def _label_from_caption(text: str) -> str:
-    match = _CAPTION_RE.match(text.strip())
+    match = _CAPTION_RE.match(re.sub(r"\s+", " ", text or "").strip())
     if not match:
         return text.strip()[:80]
     number = match.group(2)
@@ -353,17 +354,74 @@ def _label_from_caption(text: str) -> str:
     return label[:110]
 
 
+def _caption_groups(page) -> list[tuple[str, object, float]]:
+    """A Fig. caption plus the wrapped lines under it.
+
+    'FIGURE 3 - WATER' continues as 'VALVE CLOSED' and 'POSITION'. Those
+    lines are one caption. The crop has to include the last line.
+    """
+    lines = _text_lines(page)
+    groups = []
+    index = 0
+    while index < len(lines):
+        text, rect = lines[index]
+        if not _CAPTION_RE.match(text):
+            index += 1
+            continue
+        parts = [text]
+        bottom = float(rect.y1)
+        left = float(rect.x0)
+        index += 1
+        while index < len(lines):
+            nxt, nrect = lines[index]
+            if _CAPTION_RE.match(nxt) or re.match(r"^\d+[\.\)]\s+\S", nxt):
+                break
+            if float(nrect.y0) + 1 < bottom:
+                break
+            if float(nrect.y0) > bottom + 6:
+                break
+            if abs(float(nrect.x0) - left) > 18:
+                break
+            if len(nxt) > 48:
+                break
+            parts.append(nxt)
+            bottom = float(nrect.y1)
+            index += 1
+        groups.append((" ".join(parts), rect, bottom))
+    return groups
+
+
+def _render_figure_png(page, page_png: bytes, box, extra_bottom: float) -> bytes:
+    """A small drawing is rasterized from the page so it is not a soft upscale."""
+    width_pt = float(box.x1) - float(box.x0)
+    if width_pt < 160:
+        fitz = _fitz()
+        zoom = 400.0 / 72.0
+        clip = fitz.Rect(
+            float(box.x0) - 2,
+            float(box.y0) - 2,
+            float(box.x1) + 2,
+            float(extra_bottom) + 2,
+        )
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+        try:
+            png = pix.tobytes("png")
+        finally:
+            _release_pixmap(pix)
+        if png and not png_is_blank(png):
+            return png
+    return _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=extra_bottom)
+
+
 def detect_page_figures(page, page_png: bytes) -> list[dict]:
     """Crop each captioned drawing on one page. Scanned pages have no captions."""
     claimed = []
     found = []
-    for text, rect in _text_lines(page):
-        if not _CAPTION_RE.match(text):
-            continue
+    for text, rect, bottom in _caption_groups(page):
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        png = _crop_rendered(page_png, page.rect, box, _ZOOM, extra_bottom=rect.y1)
+        png = _render_figure_png(page, page_png, box, bottom)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
@@ -801,6 +859,13 @@ _WHERE_RULES = (
 NOT_STATED = "Not stated in this sheet."
 
 
+def strip_html_comments(text: str) -> str:
+    """A reply the tech reads does not carry a hidden HTML marker."""
+    cleaned = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def hide_internal_marker(text: str) -> str:
     """The shop never prints the internal blank-field marker.
 
@@ -893,10 +958,11 @@ _PHOTO_BLOCK_RES = (
 def reply_shows_step(text: str, number: int) -> bool:
     """True when this turn is repair step N.
 
-    Chat turns carry a hidden ``gd-step`` marker. Older turns say ``Step N of``
-    or ``Here is the repair procedure`` plus ``Step N:``. ``Step 1:`` does not
-    match ``Step 10:``. A proving check has neither marker, so it does not move
-    the repair cursor.
+    Chat turns used to carry a hidden ``gd-step`` marker. A shipped reply has
+    that marker stripped, so the step is also the action sentence. Older turns
+    say ``Step N of`` or ``Here is the repair procedure`` plus ``Step N:``.
+    ``Step 1:`` does not match ``Step 10:``. A proving check has neither, so it
+    does not move the repair cursor.
     """
     raw = text or ""
     n = int(number)
@@ -906,7 +972,75 @@ def reply_shows_step(text: str, number: int) -> bool:
         return True
     if "Here is the repair procedure." in raw and re.search(rf"(?<!\d)Step {n}:", raw):
         return True
+    return _reply_matches_step_action(raw, n)
+
+
+_STEP_ACTIONS = None
+
+
+def _step_action_text(step: dict) -> str:
+    return re.sub(r"\s+", " ", (step or {}).get("text") or "").strip().rstrip(".").lower()
+
+
+def _reply_matches_step_action(text: str, number: int) -> bool:
+    """The numbered kit step, after the HTML marker has been stripped.
+
+    A stored turn may flatten the sentences onto one line. The action still
+    has to be its own sentence, so "take off the pod" does not match
+    "take off the pod rings". A cited document matches only that document's
+    step, so a valve sentence cannot close a roof-unit step with the same number.
+    """
+    blob = re.sub(r"\s+", " ", strip_html_comments(text or "")).strip().lower()
+    actions = _actions_for_reply(blob, int(number))
+    if not actions:
+        return False
+    for action in actions:
+        if re.search(rf"(?:^|[.!?]\s+){re.escape(action)}(?:[.!?]|$)", blob):
+            return True
     return False
+
+
+def _actions_for_reply(blob: str, number: int) -> list:
+    cache = _cached_step_actions()
+    keys = []
+    if re.search(r"\b42109\b", blob):
+        keys.append("42109")
+    if re.search(r"\b3412[23]\b", blob):
+        keys.append("34123")
+    if re.search(r"\b2024006031\b", blob):
+        keys.append("2024006031")
+    actions = []
+    if keys:
+        for key in keys:
+            actions.extend((cache.get(key) or {}).get(number) or [])
+        return actions
+    return list((cache.get("any") or {}).get(number) or [])
+
+
+def _cached_step_actions() -> dict:
+    global _STEP_ACTIONS
+    if _STEP_ACTIONS is not None:
+        return _STEP_ACTIONS
+    found: dict = {"any": {}, "42109": {}, "34123": {}, "2024006031": {}}
+    layouts = (
+        ("42109", thetford_kit_layout("valve")),
+        ("34123", thetford_kit_layout("breaker")),
+        ("2024006031", facr_rr_layout()),
+    )
+    for key, layout in layouts:
+        steps = list((layout or {}).get("steps") or [])
+        for index, step in enumerate(steps, 1):
+            action = _step_action_text(step)
+            if not action:
+                continue
+            found[key].setdefault(index, [])
+            if action not in found[key][index]:
+                found[key][index].append(action)
+            found["any"].setdefault(index, [])
+            if action not in found["any"][index]:
+                found["any"][index].append(action)
+    _STEP_ACTIONS = found
+    return found
 
 
 def _finish_sentence(text: str) -> str:
@@ -1341,6 +1475,18 @@ def _photo_field(how: str) -> str:
     return " ".join(photos.photo_ask_lines(how))
 
 
+def _step_tool_line(source: str) -> str:
+    """Tools this step's own words name. The kit list is not copied onto every step."""
+    tools = []
+    for hit in _TOOL_WORD_RE.findall(source or ""):
+        word = re.sub(r"\s+", " ", hit).strip()
+        if word.lower() not in {item.lower() for item in tools}:
+            tools.append(word)
+    if not tools:
+        return ""
+    return "Tools: " + ", ".join(tools) + "."
+
+
 def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> dict:
     """Fill the template from this sheet. Do not invent a missing value."""
     source = step.get("source") or ""
@@ -1348,7 +1494,7 @@ def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> di
     return {
         "WHERE": _where_field(source),
         "SAFETY": _safety_field(sheet),
-        "TOOLS / METER SETTING": _tools_field(sheet, source),
+        "TOOLS / METER SETTING": _step_tool_line(f"{source} {how}"),
         "HOW": how,
         "GOOD vs BAD": _good_bad_field(source, how),
         "NEXT": _next_field(next_how),
@@ -1391,6 +1537,8 @@ def readability_problems(step: dict) -> list[str]:
         problems.append(f"{_word_count(how)} words: {how}")
     fields = step.get("fields") or {}
     for name in STEP_FIELDS:
+        if name == "TOOLS / METER SETTING":
+            continue
         if not (fields.get(name) or "").strip():
             problems.append(f"missing {name}")
     return problems
@@ -2045,6 +2193,13 @@ def _explain_for(action: str, figure, explained: set) -> str:
     return explain
 
 
+_OWNER_BEFORE_RE = re.compile(
+    r"rinse the toilet|drain the holding tank|add the tank deodorant|"
+    r"wash the toilet|turn the rv water on",
+    re.I,
+)
+
+
 def _short_before(items: list[str]) -> list[str]:
     out = []
     for item in items or []:
@@ -2056,6 +2211,8 @@ def _short_before(items: list[str]) -> list[str]:
                 if not short or short in out or _word_count(short) > 15:
                     continue
                 if not re.match(r"^(?:Read|Rinse|Drain|Put|Wash|Leave|Add|Turn)\b", short):
+                    continue
+                if _OWNER_BEFORE_RE.search(short):
                     continue
                 out.append(short)
     return out[:8]
@@ -2243,6 +2400,40 @@ def _apply_leak_test_step(steps: list) -> None:
     last["fields"] = fields
 
 
+def _kit_before(sheet: str, items: list[str]) -> list[str]:
+    """The Needed list is said once. Owner-manual chores stay off a leak repair."""
+    before = [item for item in items or [] if item and not _OWNER_BEFORE_RE.search(item)]
+    tools = _needed_tools(sheet)
+    if tools:
+        line = "Tools: " + ", ".join(tools) + "."
+        if line not in before:
+            before.insert(0, line)
+    return before
+
+
+def _seat_pedal_removed_figure(steps: list) -> None:
+    """Fig. 1 PEDAL REMOVED sits on the step that pulls the pedal off."""
+    for index, step in enumerate(steps or []):
+        text = (step.get("text") or "").lower()
+        if not re.search(r"pull the pedal|pedal up and off", text):
+            continue
+        current = step.get("figure") if isinstance(step.get("figure"), dict) else None
+        if current and re.search(r"pedal removed", current.get("label") or "", re.I):
+            continue
+        for nxt in steps[index + 1 : index + 4]:
+            figure = nxt.get("figure") if isinstance(nxt.get("figure"), dict) else None
+            label = (figure or {}).get("label") or ""
+            if re.search(r"pedal removed", label, re.I):
+                step["figure"] = figure
+                nums = _figure_numbers(label)
+                if nums:
+                    step["fig"] = nums[0]
+                fields = dict(step.get("fields") or {})
+                fields["FIGURE"] = _figure_field(step, "")
+                step["fields"] = fields
+                return
+
+
 def procedure_from_sheet(text: str, figures: list | None = None, title: str = "") -> dict:
     """Turn one library sheet into short steps. Nothing is stored for one model."""
     parsed = factory_procedure(text or "", figures)
@@ -2260,6 +2451,12 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
             style_note = f"Do this only on a Style {style_m.group(1).title()}." if style_m else ""
             first_piece = True
             for piece in _split_actions(source):
+                if re.fullmatch(
+                    r"style\s+\w+\s*(?:only\s*)?-\s*remove pod:?",
+                    (piece or "").strip(),
+                    re.I,
+                ) or re.fullmatch(r"remove pod:", (piece or "").strip(), re.I):
+                    continue
                 short = _short_action(piece)
                 if not short:
                     continue
@@ -2281,6 +2478,11 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
                 ):
                     continue
                 if steps and steps[-1]["text"] == short:
+                    continue
+                if any(
+                    earlier.get("section") == section and earlier.get("text") == short
+                    for earlier in steps
+                ):
                     continue
                 if not re.match(
                     r"^(?:turn|flush|take|unhook|pull|put|cover|throw|slide|tighten|set|stand|"
@@ -2348,6 +2550,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
         step["fields"]["NEXT"] = _next_field(nxt)
         _ensure_visible_good_bad(step)
     _apply_leak_test_step(steps)
+    _seat_pedal_removed_figure(steps)
     attach_open_kit_crops(steps, figures or [], doc)
     removal = [step for step in steps if step["section"] == "removal"]
     installation = [step for step in steps if step["section"] == "installation"]
@@ -2359,12 +2562,202 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
     return {
         "title": _display_title(title, text),
         "doc": title or "the manual",
-        "before": _short_before(parsed.get("before") or []),
+        "before": _kit_before(text or "", _short_before(parsed.get("before") or [])),
         "removal": removal,
         "installation": installation,
         "steps": steps,
         "spec": spec,
     }
+
+
+_FOREIGN_LINE_RE = re.compile(
+    r"\b(?:le|la|les|des|du|une|pour|avec|dans|puis|crampon|"
+    r"el|los|las|para|que|del|una|luego|manguera|abrazadera|dispositivo)\b",
+    re.I,
+)
+_LANG_HEADER_RE = re.compile(r"\b(?:FRAN[cç]ais|ESPA[nñ]OL|ITALIANO)\b", re.I)
+
+
+def _english_prefix(text: str) -> str:
+    """Drop the translation that starts after the English block."""
+    return _LANG_HEADER_RE.split(text or "", maxsplit=1)[0].strip()
+
+
+def _plain_sheet_line(raw: str) -> str:
+    """Bullets, ligatures, and marks become plain English letters."""
+    text = unicodedata.normalize("NFKC", raw or "")
+    text = text.replace("\u00ae", "").replace("\u2122", "").replace("\u00a9", "")
+    text = re.sub(r"[■•●▪▸]", " ", text)
+    text = (
+        text.replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _line_is_english(raw: str) -> bool:
+    """One sheet line is English. A translation column is not."""
+    if not raw or any(ord(ch) > 127 for ch in raw):
+        return False
+    if _LANG_HEADER_RE.search(raw):
+        return False
+    words = re.findall(r"[A-Za-z]{2,}", raw)
+    foreign = _FOREIGN_LINE_RE.findall(raw)
+    if len(foreign) >= 2:
+        return False
+    if words and len(foreign) / len(words) > 0.12:
+        return False
+    return True
+
+
+def _english_body(text: str) -> str:
+    """English column of one chunk. The French and Spanish columns stay out."""
+    lines = []
+    for raw_line in (text or "").splitlines():
+        raw = _plain_sheet_line(raw_line)
+        if not raw:
+            continue
+        cut = _LANG_HEADER_RE.split(raw, maxsplit=1)[0]
+        cut = re.sub(r"\bENGLISH\b", "", cut, flags=re.I).strip()
+        if cut and _line_is_english(cut):
+            lines.append(cut)
+    return "\n".join(lines)
+
+
+def _stitch_windows(parts: list[str]) -> str:
+    """Join overlapping retrieval windows back into one sheet, in order."""
+    kept = [part.strip() for part in parts if part and part.strip()]
+    if not kept:
+        return ""
+    out = kept[0]
+    for part in kept[1:]:
+        best = 0
+        limit = min(220, len(out), len(part))
+        for size in range(limit, 40, -1):
+            if out.endswith(part[:size]):
+                best = size
+                break
+        if not best:
+            tail = out[-240:]
+            for size in range(min(180, len(part), len(tail)), 40, -1):
+                idx = tail.find(part[:size])
+                if idx >= 0:
+                    best = size
+                    out = out[: len(out) - len(tail) + idx]
+                    break
+        out = out + (part[best:] if best else "\n" + part)
+    return out
+
+
+def _order_windows(parts: list[str]) -> list[str]:
+    """Put overlapping windows in sheet order. A later window starts inside an earlier one."""
+    kept = [part.strip() for part in parts if part and part.strip()]
+    if len(kept) <= 1:
+        return kept
+    used = [False] * len(kept)
+
+    def continues(part: str, others: list[str]) -> bool:
+        head = part[:70]
+        return any(head and head in other and other.find(head) > 30 for other in others)
+
+    start = 0
+    for index, part in enumerate(kept):
+        others = [other for other_index, other in enumerate(kept) if other_index != index]
+        if not continues(part, others):
+            start = index
+            break
+    order = [start]
+    used[start] = True
+    while len(order) < len(kept):
+        tail = kept[order[-1]][-220:]
+        best_index = -1
+        best_size = -1
+        for index, part in enumerate(kept):
+            if used[index]:
+                continue
+            size = 0
+            for span in range(min(160, len(part), len(tail)), 30, -1):
+                if part[:span] in tail:
+                    size = span
+                    break
+            if size > best_size:
+                best_size = size
+                best_index = index
+        if best_index < 0:
+            best_index = next(index for index, flag in enumerate(used) if not flag)
+        used[best_index] = True
+        order.append(best_index)
+    return [kept[index] for index in order]
+
+
+def _fit_english(text: str, limit: int = 4000) -> str:
+    """English text only, cut at the live packet limit."""
+    body = _english_body(text)
+    if len(body) < 80:
+        return ""
+    return body[:limit]
+
+
+def kit_excerpt(chunks, kind: str, limit: int = 4000) -> tuple[str, list]:
+    """Kit words and crops from retrieved chunks. Not the whole PDF on disk.
+
+    Live retrieval is about a dozen overlapping windows, joined and cut at
+    4000 characters. Each window keeps its English column. A translation
+    column is not stitched in, and the kit PDF on disk is not opened here.
+    """
+    needles = (
+        ("34122", "34123", "vacuum breaker")
+        if kind == "breaker"
+        else ("42109", "42049", "water valve")
+    )
+    grouped: dict[int, list[tuple[int, str]]] = {}
+    figures = []
+    seen_figures = set()
+    for index, chunk in enumerate(chunks or []):
+        if not isinstance(chunk, dict):
+            continue
+        blob = " ".join(
+            str(chunk.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "keywords", "file_path")
+        ).lower()
+        # The owner manual names the water valve and the vacuum breaker.
+        # That mention is not the kit sheet. Match the document, not the excerpt.
+        if not any(needle in blob for needle in needles):
+            continue
+        excerpt = chunk.get("excerpt") or ""
+        body = _english_body(excerpt)
+        # A short English scrap inside a translation window is not a procedure.
+        # A full kit sheet is mostly translation, so a long English column still counts.
+        if len(body) < 80:
+            continue
+        if len(body) < 1500 and len(body) < 0.30 * max(len(excerpt), 1):
+            continue
+        try:
+            page = int(chunk.get("page") or 0)
+        except (TypeError, ValueError):
+            page = 0
+        grouped.setdefault(page, []).append((index, body))
+        for figure in chunk.get("figures") or []:
+            if not isinstance(figure, dict) or not figure.get("png"):
+                continue
+            key = (
+                str(figure.get("label") or ""),
+                str(figure.get("page") or ""),
+                len(figure.get("png") or b""),
+            )
+            if key in seen_figures:
+                continue
+            seen_figures.add(key)
+            figures.append(figure)
+    pieces = []
+    for page in sorted(grouped):
+        windows = _order_windows([body for _index, body in grouped[page]])
+        stitched = _stitch_windows(windows)
+        if stitched:
+            pieces.append(stitched)
+    return _stitch_windows(pieces)[:limit], figures
 
 
 def thetford_kit_layout(kind: str, figures: list | None = None) -> dict:
@@ -2720,10 +3113,8 @@ _THETFORD_PROVING = {
         "WHERE": "At the vacuum breaker on the flush hose.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": "Check whether the vacuum breaker leaks while flushing.",
-        "GOOD vs BAD": (
-            "Good: no leak while flushing. Bad: it leaks while flushing. Leaks only while flushing."
-        ),
+        "HOW": "Check whether the vacuum breaker leaks only while flushing.",
+        "GOOD vs BAD": "Good: no leak while flushing. Bad: it leaks while flushing.",
         "NEXT": (
             "On good: go to the next check. "
             "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
@@ -2788,8 +3179,8 @@ _THETFORD_PROVING = {
 }
 _THETFORD_PROVING_CITE = {
     "supply": "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
-    "vacuum": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2",
-    "vacuum_replace": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2",
+    "vacuum": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1",
+    "vacuum_replace": "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1",
     "valve": "📖 Source: Thetford Water Valve Service Kit 42109, page 1",
     "valve_replace": "📖 Source: Thetford Water Valve Service Kit 42109, page 1",
     "flange": "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",

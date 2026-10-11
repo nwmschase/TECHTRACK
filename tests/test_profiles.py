@@ -134,7 +134,7 @@ class TestGdProfile(unittest.TestCase):
         steps = [proving[0], proving[1], proving[3], repair[0]]
         turns = []
         for answer, step, number in zip(answers, steps, range(1, 5)):
-            turns.append((answer, mf.format_chat_turn(step, number, len(steps))))
+            turns.append((answer, mf.strip_html_comments(mf.format_chat_turn(step, number, len(steps)))))
         rules = profile_check.check_transcript(_transcript(turns))
         self.assertEqual(_failures(rules), [], "\n".join(profile_check.format_report(rules).splitlines()))
 

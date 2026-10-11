@@ -190,7 +190,8 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("<!--gd-step:1-->", first)
+        self.assertNotIn("<!--", first)
+        self.assertTrue(mf.reply_shows_step(first, 1))
         self.assertNotIn("Here is the repair procedure.", first)
         self.assertNotIn("Take a photo of this step and send it.", first)
         self.assertNotIn("Not stated in this sheet", first)
@@ -218,7 +219,8 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("<!--gd-step:1-->", held)
+        self.assertNotIn("<!--", held)
+        self.assertTrue(mf.reply_shows_step(held, 1))
         self.assertNotIn("Send the photo before the next step.", held)
         self.assertNotRegex(held, r"(?<!\d)Step 2:")
         advanced = avoid_duplicate_reply(
@@ -228,7 +230,8 @@ class TestProcedureHandoff(unittest.TestCase):
             "Plumbing / Toilets",
             "Style II 42070",
         )
-        self.assertIn("<!--gd-step:2-->", advanced)
+        self.assertNotIn("<!--", advanced)
+        self.assertTrue(mf.reply_shows_step(advanced, 2))
         self.assertNotRegex(advanced, r"(?<!\d)Step 1:")
 
 

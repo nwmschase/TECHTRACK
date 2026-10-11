@@ -13,6 +13,7 @@ counter, a photo only when it helps, no figure without an ask, and no repeats.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import sys
 from pathlib import Path
@@ -53,6 +54,9 @@ BANNED = (
     "will display the shop",
     "absent from the docs",
     "send a photo of what you see",
+    "<!--",
+    "gd-step:",
+    "scouring",
 )
 SAFETY_CUE = re.compile(
     r"water off|supplies off|flammable|gloves|flame|hoist|propane|breaker off|keep people",
@@ -399,9 +403,53 @@ def _assistant_body(text: str) -> str:
     return re.sub(r"\s+", " ", body).strip().lower()
 
 
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _near_duplicate(bodies: list[str]) -> bool:
+    """One extra sentence on a copied turn is still the same reply."""
+    tokens = [_token_set(body) for body in bodies if body]
+    for index, left in enumerate(tokens):
+        for right in tokens[index + 1 :]:
+            if len(left) < 8 or len(right) < 8:
+                continue
+            union = left | right
+            if union and len(left & right) / len(union) >= 0.72:
+                return True
+            short, long = (left, right) if len(left) <= len(right) else (right, left)
+            if len(short) >= 12 and len(short & long) / len(short) >= 0.85:
+                return True
+    return False
+
+
+def _pages_clash(turn: str) -> bool:
+    parts = (turn or "").split("📖")
+    body = parts[0]
+    source = " ".join(parts[1:])
+    body_pages = set(re.findall(r"\bpage\s+(\d+)\b", body, re.I))
+    source_pages = set(re.findall(r"\bpage\s+(\d+)\b", source, re.I))
+    return bool(body_pages and source_pages and body_pages.isdisjoint(source_pages))
+
+
+def _bare_vacuum_turn(pairs: list[tuple[str, str]]) -> bool:
+    """T3 after a dry supply, with no bad line, no question, or owner manual 42088 instead of kit 34123."""
+    for user, assistant in pairs:
+        if not re.search(r"supply connection is dry", user or "", re.I):
+            continue
+        low = assistant.lower()
+        has_bad = bool(re.search(r"\bbad result\b|\bbad looks like\b", low))
+        cites_kit = bool(re.search(r"\b3412[23]\b", low))
+        if has_bad and "?" in assistant and cites_kit and not _pages_clash(assistant):
+            continue
+        return True
+    return False
+
+
 def check_transcript(text: str) -> list[Rule]:
     """GD-profile rules for a USER / ASSISTANT transcript."""
-    raw = re.sub(r"<!--.*?-->", "", text or "", flags=re.S)
+    original = text or ""
+    raw = re.sub(r"<!--.*?-->", "", original, flags=re.S)
     pairs = _pairs(raw)
     assistants = [pair[1] for pair in pairs] or [raw]
     low = raw.lower()
@@ -414,12 +462,12 @@ def check_transcript(text: str) -> list[Rule]:
         if FIGURE_RE.search(assistant) and not ASK_RE.search(user):
             figure_problems.append("figure shown before the tech asked")
     bodies = [_assistant_body(turn) for turn in assistants if _assistant_body(turn)]
-    repeated = len(bodies) != len(set(bodies))
+    repeated = len(bodies) != len(set(bodies)) or _near_duplicate(bodies)
     follow = all("?" in turn for turn in assistants) if assistants else False
     rules = [
         _rule("no_label_block", label_hit is None, "" if label_hit is None else label_hit.group(0).strip()),
         _rule("no_step_counter", counter_hit is None, "" if counter_hit is None else counter_hit.group(0)),
-        _banned(low, include_photo=False),
+        _banned(original.lower(), include_photo=False),
         _rule(
             "photo_only_when_it_helps",
             not photo_every,
@@ -710,6 +758,8 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
     photo = named.get("photo_only_when_it_helps")
     if _HOW_LEAK.search(raw) or not _ok(named, "banned_strings"):
         cite_status, cite_detail = "FAIL", "invented filler or a leaked How block"
+    elif any(_pages_clash(turn) for turn in assistants):
+        cite_status, cite_detail = "FAIL", "a reply names a page its Source line does not"
     elif assistants and all(_CITE_RE.search(turn) for turn in assistants):
         kind = _case_kind(raw)
         brand_hit = _off_brand(raw, kind) if kind else ""
@@ -726,6 +776,8 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
         )
     if _HOW_LEAK.search(raw):
         how_status, how_detail = "FAIL", "How block or 'not stated' is not a shop sentence"
+    elif _bare_vacuum_turn(_pairs(raw)):
+        how_status, how_detail = "FAIL", "the vacuum-breaker turn has no bad line, no question, or cites 42088 instead of kit 34123"
     elif assistants and all(_turn_explains_how(turn) for turn in assistants):
         how_status, how_detail = "PASS", "each reply says where, what to look for, good and bad, and what to report"
     else:
@@ -820,7 +872,7 @@ _PF_GLUED_DOC = re.compile(
     r"(?m)^(?:\d+\s+)?(?:CCD|FACT|FACR)-\d{3,}\s+(?!page\b|p\.?\s*\d)[A-Za-z]"
 )
 _PF_DOUBLE = re.compile(r"\b([A-Za-z]{2,})[^\S\n]+\1\b", re.I)
-_PF_RUNON = re.compile(r"[a-z]{3,}\s+[A-Z][a-z]{2,}")
+_PF_RUNON = re.compile(r"\b[a-z]{3,}\s+[A-Z][a-z]{2,}")
 _PF_FIG_LINE = re.compile(r"^(?:Figure:|Fig\.)", re.I)
 _PF_FOREIGN = re.compile(
     r"\b(?:le|la|les|des|du|et|el|los|las|del|para|que|una|"
@@ -1150,6 +1202,206 @@ def _yes_no_stroke_hits(doc) -> list[str]:
     return problems
 
 
+def _branch_chunks(text: str) -> list[str]:
+    starts = [match.start() for match in re.finditer(r"REPAIR BRANCH|REPAIR PROCEDURE", text or "")]
+    if not starts:
+        return [text or ""]
+    ends = starts[1:] + [len(text)]
+    return [text[start:end] for start, end in zip(starts, ends)]
+
+
+def _actions_repeated_in_a_branch(text: str) -> str:
+    for block in _branch_chunks(text):
+        seen = []
+        for step in _bounded_steps(block):
+            for action in _step_actions(step):
+                if not action or action.startswith("confirm "):
+                    continue
+                if action in seen:
+                    return action
+                seen.append(action)
+    return ""
+
+
+def _cited_doc_pages(text: str) -> set[tuple[str, str]]:
+    body = re.split(r"SOURCES \(SHOP DOCUMENT LIBRARY\)", text or "", maxsplit=1)[0]
+    found = set()
+    for match in re.finditer(r"\b(42088|34122|34123|42109)\b", body):
+        window = body[max(0, match.start() - 80) : match.end() + 80]
+        for page in re.findall(r"\bpage\s+(\d+)\b", window, re.I):
+            doc = "34123" if match.group(1) in {"34122", "34123"} else match.group(1)
+            found.add((doc, page))
+    return found
+
+
+def _sources_miss_cites(text: str) -> str:
+    sources = _source_lines(text)
+    if sources is None:
+        return ""
+    blob = "\n".join(sources)
+    missing = []
+    for doc, page in sorted(_cited_doc_pages(text)):
+        doc_ok = doc in blob or (doc == "34123" and "34122" in blob)
+        if not doc_ok or not re.search(rf"\bpage\s+{page}\b", blob, re.I):
+            missing.append(f"{doc} p{page}")
+    return ", ".join(missing)
+
+
+def _before_blocks(text: str) -> list[str]:
+    return re.findall(
+        r"BEFORE YOU START\s*(.*?)(?=\n(?:REMOVAL|INSTALLATION|VERIFY|Step\s+\d+))",
+        text or "",
+        re.S,
+    )
+
+
+def _before_owner_lines(text: str) -> str:
+    for block in _before_blocks(text):
+        low = block.lower()
+        if "drain the holding tank" in low or "add the tank deodorant" in low:
+            return "before you start has an owner-manual chore"
+        if re.search(r"rinse the toilet|wash the toilet", low):
+            return "before you start has an owner-manual chore"
+        if re.search(r"water on", low) and re.search(r"water off", low):
+            return "before you start says water on and water off"
+    return ""
+
+
+def _bad_repeats_itself(text: str) -> str:
+    for step in _bounded_steps(text):
+        for line in step.splitlines():
+            if not line.strip().lower().startswith("bad looks like:"):
+                continue
+            value = line.split(":", 1)[-1].strip()
+            parts = [part.strip().lower().rstrip(".") for part in re.split(r"[.!?]", value) if part.strip()]
+            if len(parts) >= 2 and len(set(parts)) < len(parts):
+                return value[:80]
+            if len(parts) >= 2:
+                left, right = _token_set(parts[0]), _token_set(parts[1])
+                short = left if len(left) <= len(right) else right
+                if len(short) >= 3 and len(left & right) / len(short) >= 0.6:
+                    return value[:80]
+    return ""
+
+
+def _fail_copies_bad(text: str) -> str:
+    for step in _bounded_steps(text):
+        bad = ""
+        fail = ""
+        for line in step.splitlines():
+            low = line.strip().lower()
+            if low.startswith("bad looks like:"):
+                bad = low.split(":", 1)[-1].strip().rstrip(".")
+            elif low.startswith("if it fails:"):
+                fail = low.split(":", 1)[-1].strip().rstrip(".")
+        if bad and fail and bad == fail:
+            return bad[:80]
+    return ""
+
+
+def _identical_tool_lists(text: str) -> str:
+    for block in _branch_chunks(text):
+        tools = []
+        steps = _bounded_steps(block)
+        for step in steps:
+            line = ""
+            for raw in step.splitlines():
+                if raw.strip().lower().startswith("tools:"):
+                    line = raw.strip().lower()
+                    break
+            tools.append(line)
+        filled = [line for line in tools if line]
+        if len(steps) >= 6 and len(filled) == len(steps) and len(set(filled)) == 1:
+            if filled[0].count(",") >= 2:
+                return filled[0][:80]
+    return ""
+
+
+def _stub_removal(text: str) -> str:
+    for block in _branch_chunks(text):
+        removal = []
+        in_removal = False
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped == "REMOVAL":
+                in_removal = True
+                continue
+            if stripped in {"INSTALLATION", "VERIFY"}:
+                in_removal = False
+            if in_removal and re.match(r"Step\s+\d+\s*:", stripped):
+                removal.append(stripped)
+        if len(removal) == 1 and re.match(r"Step\s+\d+\s*:\s*Check\b", removal[0], re.I):
+            return removal[0][:80]
+    return ""
+
+
+def _pedal_figure_step(text: str) -> str:
+    for step in _bounded_steps(text):
+        if not re.search(r"PEDAL REMOVED", step, re.I):
+            continue
+        head = step.splitlines()[0]
+        if not re.search(r"pedal", head, re.I) or not re.search(r"\boff\b", head, re.I):
+            return head[:80]
+    return ""
+
+
+def _yes_no_label_faults(doc) -> list[str]:
+    problems = []
+    for index, page in enumerate(doc, 1):
+        words = page.get_text("words") or []
+        labels = [word for word in words if str(word[4]).strip().upper() in {"YES", "NO"}]
+        segments = []
+        for drawing in page.get_drawings() or []:
+            for item in drawing.get("items") or []:
+                if not item or item[0] != "l":
+                    continue
+                p1, p2 = item[1], item[2]
+                segments.append((float(p1.x), float(p1.y), float(p2.x), float(p2.y)))
+        for word in labels:
+            height = float(word[3]) - float(word[1])
+            if height < 7.0:
+                problems.append(f"page {index} {word[4]} is {height:.1f}pt")
+                continue
+            cx = (float(word[0]) + float(word[2])) / 2.0
+            cy = (float(word[1]) + float(word[3])) / 2.0
+            best = None
+            best_d = 1e9
+            for x1, y1, x2, y2 in segments:
+                if abs(y2 - y1) > 10 or abs(x2 - x1) < 18:
+                    continue
+                dist = math.hypot(cx - x1, cy - y1)
+                if dist < best_d:
+                    best_d = dist
+                    best = (x1, x2)
+            if not best or best_d > 70:
+                continue
+            x1, x2 = best
+            if x2 < x1 - 8 and cx > x1 + 10:
+                problems.append(f"page {index} {word[4]} is right of a left arrow")
+            elif x1 < x2 - 8 and cx < x1 - 10:
+                problems.append(f"page {index} {word[4]} is left of a right arrow")
+    return problems
+
+
+def _soft_or_cut_figures(doc) -> list[str]:
+    problems = []
+    if doc is None:
+        return problems
+    for index, page in enumerate(doc, 1):
+        for line in page.get_text().splitlines():
+            if re.fullmatch(r"Fig\.?\s*3\s+WATER", line.strip(), re.I):
+                problems.append(f"page {index} Fig. 3 caption is cut off at WATER")
+        for info in page.get_image_info() or []:
+            bbox = info.get("bbox") or ()
+            width = int(info.get("width") or 0)
+            if len(bbox) < 4 or width <= 0:
+                continue
+            shown = float(bbox[2]) - float(bbox[0])
+            if width < 220 and shown > 280:
+                problems.append(f"page {index} figure is {width}px drawn at {shown:.0f}pt")
+    return problems
+
+
 def grade_past_fails(doc, text: str) -> list[Rule]:
     """PF-01..PF-33. FAIL only on a definite hit. MANUAL keeps a human remainder."""
     raw = text or ""
@@ -1231,8 +1483,15 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     for step in steps:
         flat.extend(_step_actions(step))
     dupes = [flat[i] for i in range(1, len(flat)) if flat[i] and flat[i] == flat[i - 1]]
-    if dupes:
-        rules.append(_pf(9, "FAIL", f"repeated action: {dupes[0][:80]}"))
+    again = _actions_repeated_in_a_branch(raw)
+    stub = _stub_removal(raw) if kind == "thetford" else ""
+    if dupes or again or stub:
+        detail = (
+            f"repeated action: {(dupes or [again])[0][:80]}"
+            if dupes or again else
+            f"removal is only a check: {stub}"
+        )
+        rules.append(_pf(9, "FAIL", detail))
     elif kind == "thetford":
         titles = _branch_titles(raw)
         extra, matched = _thetford_title_gap(titles)
@@ -1260,8 +1519,18 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
         conflict = _state_conflict(step)
         if conflict:
             conflicts.append(step.splitlines()[0][:60] + " " + conflict)
-    if missing or conflicts:
-        rules.append(_pf(10, "FAIL", (missing or conflicts)[0]))
+    bad_repeat = _bad_repeats_itself(raw)
+    copied_fail = _fail_copies_bad(raw)
+    same_tools = _identical_tool_lists(raw) if kind == "thetford" else ""
+    extra = []
+    if bad_repeat:
+        extra.append(f"bad line repeats itself: {bad_repeat}")
+    if copied_fail:
+        extra.append(f"if it fails repeats the bad line: {copied_fail}")
+    if same_tools:
+        extra.append(f"every step lists the same tools: {same_tools}")
+    if missing or conflicts or extra:
+        rules.append(_pf(10, "FAIL", (missing or conflicts or extra)[0]))
     else:
         rules.append(_pf(
             10,
@@ -1301,10 +1570,13 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
         rules.append(_pf(12, "MANUAL", "no pinned repair phrase for this case"))
 
     sources = _source_lines(raw)
+    missed_cites = _sources_miss_cites(raw) if kind == "thetford" else ""
     if sources is None:
         rules.append(_pf(13, "FAIL", "Sources section is missing"))
     elif not sources or any(not _PF_PAGE.search(line) for line in sources):
         rules.append(_pf(13, "FAIL", "a source line has no page"))
+    elif missed_cites:
+        rules.append(_pf(13, "FAIL", f"Sources is missing {missed_cites}"))
     else:
         rules.append(_pf(13, "PASS", f"{len(sources)} sources, each with a page"))
 
@@ -1331,7 +1603,11 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
         elif orphans > image_count:
             rules.append(_pf(15, "FAIL", f"{orphans} figure cites are not drawn ({image_count} images)"))
         else:
-            rules.append(_pf(15, "PASS", f"{image_count} images cover the figure cites"))
+            misplaced = _pedal_figure_step(raw)
+            if misplaced:
+                rules.append(_pf(15, "FAIL", f"PEDAL REMOVED is under {misplaced}"))
+            else:
+                rules.append(_pf(15, "PASS", f"{image_count} images cover the figure cites"))
     elif cite_lines or re.search(r"(?m)^(Figure:|Fig\.)", raw):
         rules.append(_pf(15, "MANUAL", "figure cites need the PDF images"))
     else:
@@ -1404,10 +1680,14 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
             rules.append(_pf(18, "FAIL", f"caption is not a manual figure id: {loose[0][:80]}"))
         elif captions and not _captions_tied_to_manual(raw):
             rules.append(_pf(18, "FAIL", "a Fig. caption sits in a branch that does not cite the manual"))
-        elif captions or not re.search(r"(?m)^(Figure:|Fig\.)", raw):
-            rules.append(_pf(18, "PASS", "each Fig. caption is a manual label in a branch that cites the manual"))
         else:
-            rules.append(_pf(18, "MANUAL", "no sketch caption; the manual id on the caption is a human check"))
+            soft = _soft_or_cut_figures(doc) if kind == "thetford" else []
+            if soft:
+                rules.append(_pf(18, "FAIL", soft[0]))
+            elif captions or not re.search(r"(?m)^(Figure:|Fig\.)", raw):
+                rules.append(_pf(18, "PASS", "each Fig. caption is a manual label in a branch that cites the manual"))
+            else:
+                rules.append(_pf(18, "MANUAL", "no sketch caption; the manual id on the caption is a human check"))
 
     if not kind:
         rules.append(_pf(19, "MANUAL", "figure brand needs a known case"))
@@ -1422,7 +1702,7 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     if doc is None:
         rules.append(_pf(20, "MANUAL", "YES and NO spacing against the arrows is a 90 dpi check"))
     else:
-        crowded = _yes_no_stroke_hits(doc)
+        crowded = _yes_no_stroke_hits(doc) + _yes_no_label_faults(doc)
         rules.append(_pf(
             20,
             "FAIL" if crowded else "PASS",
@@ -1563,8 +1843,9 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
         rules.append(_pf(32, "MANUAL", "banned phrases are absent; technical correctness still needs expert review"))
 
     step_conflicts = [step.splitlines()[0][:70] for step in steps if _state_conflict(step)]
-    if step_conflicts:
-        rules.append(_pf(33, "FAIL", step_conflicts[0]))
+    owner = _before_owner_lines(raw) if kind == "thetford" else ""
+    if step_conflicts or owner:
+        rules.append(_pf(33, "FAIL", step_conflicts[0] if step_conflicts else owner))
     else:
         rules.append(_pf(33, "PASS", "no step pairs water, power, or propane off with on"))
 

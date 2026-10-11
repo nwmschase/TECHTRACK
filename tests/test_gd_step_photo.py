@@ -3,6 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
+import manual_figures as mf
 from gd_library_coach import avoid_duplicate_reply
 from gd_step_photo import (
     DEAD_GROQ_SCOUT_MODEL,
@@ -111,7 +112,8 @@ class TestThetfordPhotoTurns(unittest.TestCase):
             {"verdict": "confirm", "sees": "The pedal is off."},
         )
         self.assertIn("I see: The pedal is off.", reply)
-        self.assertIn("<!--gd-step:2-->", reply)
+        self.assertNotIn("<!--", reply)
+        self.assertTrue(mf.reply_shows_step(reply, 2))
         self.assertNotRegex(reply, r"(?<!\d)Step 1:")
 
     def test_mismatch_asks_for_another_and_stays(self):
@@ -122,7 +124,8 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("I see: a dry towel on the floor.", reply)
         self.assertIn("This photo does not match the finding.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("<!--gd-step:1-->", reply)
+        self.assertNotIn("<!--", reply)
+        self.assertTrue(mf.reply_shows_step(reply, 1))
         self.assertNotRegex(reply, r"(?<!\d)Step 2:")
 
     def test_unclear_does_not_invent_a_scene(self):
@@ -135,12 +138,14 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("This photo is not clear enough.", reply)
         self.assertIn("I will not guess what it shows.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("<!--gd-step:1-->", reply)
+        self.assertNotIn("<!--", reply)
+        self.assertTrue(mf.reply_shows_step(reply, 1))
         self.assertNotRegex(reply, r"(?<!\d)Step 2:")
 
     def test_no_photo_typed_yes_still_moves_on(self):
         reply = _turn("Photo sent. Yes.", None)
-        self.assertIn("<!--gd-step:2-->", reply)
+        self.assertNotIn("<!--", reply)
+        self.assertTrue(mf.reply_shows_step(reply, 2))
         self.assertNotRegex(reply, r"(?<!\d)Step 1:")
         self.assertNotIn("I see:", reply)
 

@@ -6165,7 +6165,6 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
         ],
         "do_not": [
             "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
-            "Do not use scouring powders, acids, or concentrated cleaners.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6675,9 +6674,24 @@ def _drop_repeated_procedure_figures(procedures: list) -> None:
             seen.add(png)
 
 
-def _branch_step(how: str, where: str, good: str, bad: str, nxt: str, section: str = "removal") -> dict:
-    """One repair-branch action. The sentence stays under 12 words."""
+def _branch_step(
+    how: str,
+    where: str,
+    good: str,
+    bad: str,
+    nxt: str,
+    section: str = "removal",
+    fail: str = "",
+    tools: str = "",
+) -> dict:
+    """One repair-branch action. The sentence stays under 12 words.
+
+    ``fail`` is the next action when the step is bad. It is not a copy of the
+    bad look. ``tools`` is only the tool this action uses.
+    """
     bare = how.rstrip(".")
+    on_bad = (fail or "Stop and tell the shop.").rstrip(".")
+    tool_line = f"Tools: {tools.rstrip('.')}." if tools else ""
     return {
         "section": section,
         "text": bare,
@@ -6686,10 +6700,10 @@ def _branch_step(how: str, where: str, good: str, bad: str, nxt: str, section: s
         "fields": {
             "WHERE": where,
             "SAFETY": "",
-            "TOOLS / METER SETTING": "",
+            "TOOLS / METER SETTING": tool_line,
             "HOW": bare,
             "GOOD vs BAD": f"Good: {good} Bad: {bad}",
-            "NEXT": f"On good: {nxt} On bad: {bad}",
+            "NEXT": f"On good: {nxt} On bad: {on_bad}",
             "FIGURE": "",
             "PHOTO": "",
         },
@@ -6704,6 +6718,7 @@ def _confirm_step(where: str) -> dict:
         "The repair is dry.",
         "The leak is still there.",
         "This branch is complete.",
+        fail="Redo the branch that was just finished.",
         section="prove",
     )
 
@@ -6733,22 +6748,26 @@ def _supply_branch() -> dict:
         ],
         "steps": [
             _branch_step(
-                "Check the water supply line connection.",
-                "Back of the toilet.",
-                "The connection is dry.",
-                "The leak persists from the water valve.",
-                "Go to the next branch.",
+                "Pull the water hose off the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The hose is off.",
+                "The hose is still on.",
+                "Push the hose back on.",
+                fail="Loosen the clamp and pull the hose again.",
+                tools="pliers",
                 section="removal",
             ),
             _branch_step(
-                "Fix or tighten the supply connection.",
-                "Back of the toilet.",
+                "Push the water hose onto the water valve.",
+                "Back of the toilet, on the water valve.",
                 "The connection is dry.",
                 "The leak persists from the water valve.",
                 "Confirm the connection.",
+                fail="Replace the supply fitting.",
+                tools="pliers",
                 section="installation",
             ),
-            _confirm_step("Back of the toilet."),
+            _confirm_step("Back of the toilet, on the water valve."),
         ],
     }
 
@@ -6763,19 +6782,33 @@ def _flange_branch() -> dict:
         ],
         "steps": [
             _branch_step(
-                "Check the flange is 7/16 inch above the floor.",
+                "Take the nuts off the floor bolts.",
                 "At the closet flange, under the toilet.",
-                "The flange is dry.",
-                "The leak continues.",
-                "Replace the seal if it leaks.",
+                "The nuts are off.",
+                "A nut is still on.",
+                "Measure the flange height.",
+                fail="Turn the nut the other way.",
+                tools="wrench",
                 section="removal",
             ),
             _branch_step(
-                "Replace flange seal 02125.",
+                "Check the flange is 7/16 inch above the floor.",
+                "At the closet flange, under the toilet.",
+                "The flange is 7/16 inch above the floor.",
+                "The flange is not 7/16 inch above the floor.",
+                "Put seal 02125 on.",
+                fail="Add a spacer until the flange is 7/16 inch up.",
+                tools="ruler",
+                section="installation",
+            ),
+            _branch_step(
+                "Put flange seal 02125 on with the lip down.",
                 "At the closet flange, under the toilet.",
                 "The new seal is seated.",
                 "The leak continues.",
                 "Confirm the flange.",
+                fail="Seat the seal again and tighten the nuts.",
+                tools="wrench",
                 section="installation",
             ),
             _confirm_step("At the closet flange, under the toilet."),
@@ -6813,7 +6846,12 @@ def hoist_branch_safety(procedure: dict) -> dict:
         return procedure
     before = list(procedure.get("before") or [])
     blob = " ".join(before).lower()
-    pending = [sentence for sentence in order if sentence.rstrip(".").lower() not in blob]
+    pending = [
+        sentence
+        for sentence in order
+        if sentence.rstrip(".").lower() not in blob
+        and not re.search(r"\bwater on\b|turn the rv water on", sentence, re.I)
+    ]
     if not pending:
         return procedure
     note = max(pending, key=lambda sentence: counts[sentence.lower()])
@@ -6847,7 +6885,63 @@ def _with_removal_line(procedure: dict) -> dict:
     return cloned
 
 
-def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
+def _thetford_branch_layout(kind: str, chunks) -> dict:
+    """Kit steps from the retrieved excerpt. The full PDF is only a last resort."""
+    import manual_figures as mf
+
+    title = (
+        "Thetford Vacuum Breaker Kit 34123/34122"
+        if kind == "breaker"
+        else "Thetford Water Valve Kit 42109"
+    )
+    text, figures = mf.kit_excerpt(chunks, kind)
+    if text:
+        layout = mf.procedure_from_sheet(text, figures or None, title)
+        if layout.get("steps"):
+            return layout
+        return {}
+    return mf.thetford_kit_layout(kind)
+
+
+def _sync_thetford_sources(proc: BayProcedure) -> None:
+    """Every doc and page the sheet cites is a Sources line."""
+    blob = "\n".join(proc.bay_order or [])
+    blob += "\n" + (proc.primary_cite or "")
+    for procedure in proc.procedures or []:
+        blob += "\n" + (procedure.get("title") or "")
+        blob += "\n" + (procedure.get("doc") or "")
+        for step in procedure.get("steps") or []:
+            fields = step.get("fields") or {}
+            blob += "\n" + " ".join(str(value or "") for value in fields.values())
+            figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+            if figure:
+                blob += f"\n{figure.get('label') or ''} {figure.get('title') or ''} page {figure.get('page') or ''}"
+    rows = []
+
+    def add(title: str, page: int):
+        if page and not any(row["title"] == title and row["page"] == page for row in rows):
+            rows.append({"title": title, "page": page, "excerpt": ""})
+
+    if re.search(r"\b42088\b", blob):
+        pages = [int(n) for n in re.findall(r"42088\D{0,40}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,40}42088", blob, re.I)]
+        for page in sorted(set(pages) or {3}):
+            add("Thetford Style II OM Permanent RV Toilet 42088", page)
+    if re.search(r"\b34122\b|\b34123\b|vacuum breaker", blob, re.I):
+        pages = [int(n) for n in re.findall(r"3412[23]\D{0,48}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}3412[23]", blob, re.I)]
+        for page in sorted(set(pages) or {1}):
+            add("Thetford Vacuum Breaker Kit 34123/34122", page)
+    if re.search(r"\b42109\b", blob):
+        pages = [int(n) for n in re.findall(r"42109\D{0,48}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}42109", blob, re.I)]
+        for page in sorted(set(pages) or {1}):
+            add("Thetford Water Valve Kit 42109", page)
+    if rows:
+        proc.sources = rows
+
+
+def attach_thetford_repair_procedures(proc: BayProcedure, history=None, chunks=None) -> BayProcedure:
     """Diagnosis stays in the flowchart. Every supported repair is its own branch.
 
     Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122,
@@ -6869,7 +6963,7 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
         return proc
     branches = [hoist_branch_safety(_supply_branch())]
     for kind in ("breaker", "valve"):
-        layout = mf.thetford_kit_layout(kind)
+        layout = _thetford_branch_layout(kind, chunks)
         if layout.get("steps"):
             branched = hoist_branch_safety(ensure_verify_step(layout))
             branched["heading"] = "REPAIR BRANCH"
@@ -6877,6 +6971,7 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     branches.append(hoist_branch_safety(_flange_branch()))
     proc.procedures = [_with_removal_line(item) for item in branches]
     _drop_repeated_procedure_figures(proc.procedures)
+    _sync_thetford_sources(proc)
     return proc
 
 
@@ -7557,6 +7652,7 @@ def compile_bay_procedure(
             attach_thetford_repair_procedures(
                 place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
                 history=history,
+                chunks=chunks,
             )
         )
     )
@@ -7973,7 +8069,10 @@ def _pack_rows(flow: Flowchart, inner_w: float, inner_h: float, readable: bool, 
             else:
                 allocs = [pw * avail / sum(prefs) for pw in prefs]
             fitted = [_fit_node(node, alloc, readable, scale) for node, alloc in zip(row, allocs)]
-            if sum(item[0] for item in fitted) + _FLOW_GAP * (len(row) - 1) > inner_w + 1.5:
+            # Two nodes on one row are pinned to the edges. The open gap has to
+            # hold an 11pt YES on the arrow, so 16pt is not enough.
+            side_gap = 48.0 if len(row) == 2 else _FLOW_GAP * (len(row) - 1)
+            if sum(item[0] for item in fitted) + side_gap > inner_w + 1.5:
                 return None
         packed_rows.append(fitted)
     heights = [max(item[1] for item in row) for row in packed_rows]
@@ -8054,6 +8153,16 @@ def _pack_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: fl
             }
         extra = _row_pad(flow, row) if row is not rows[-1] else 0.0
         top -= rh + _FLOW_GAP + extra
+    # Decision diamonds share one center so a NO arrow drops straight down.
+    # A right edge pin leaves a jog, and the NO label then sits beside that jog.
+    mid = inner_x + inner_w / 2.0
+    right = [node for node in placed.values() if node["cx"] > mid]
+    if len(right) >= 2:
+        widest = max(right, key=lambda node: node["w"])
+        target = widest["cx"]
+        for node in right:
+            half = node["w"] / 2.0
+            node["cx"] = min(max(target, inner_x + half + 2.0), inner_x + inner_w - half)
     return placed
 
 
@@ -8442,9 +8551,10 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
     horizontal = abs(bx - ax) >= abs(by - ay)
     sizes = []
     trial = float(size)
-    while trial >= 6.4:
+    floor = 9.0 if size >= 10 else 6.4
+    while trial >= floor:
         sizes.append(trial)
-        trial -= 1.25
+        trial -= 1.0
 
     def clears_heads(box) -> bool:
         if own_pts and _arrowhead_hits_box(box, own_pts, pad=1.8):
@@ -8490,10 +8600,14 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
                 candidates.append((x, py + lift + (h - block.ascent)))
                 candidates.append((x, py - lift - block.ascent))
         elif horizontal:
-            for along in (3.0, 8.0, 14.0):
+            # The arrow leaves to the left. Keep YES/NO on that side of the port.
+            span = abs(bx - ax)
+            alongs = (10.0, 18.0, 28.0, max(16.0, span * 0.4))
+            for along in alongs:
                 x = px - along - w
-                baseline = py + 2.4 + (h - block.ascent)
-                candidates.append((x, baseline))
+                for lift in (3.0, 8.0, 12.0):
+                    candidates.append((x, py + lift + (h - block.ascent)))
+                    candidates.append((x, (py - lift - h) + (h - block.ascent)))
         elif by < ay:
             for along in (4.0, 10.0, 16.0):
                 for side in (8.0, 14.0, 22.0, 32.0):
@@ -8514,9 +8628,11 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         w = block.width
         h = block.height
         fallback = []
-        if horizontal:
+        if horizontal and bx >= ax:
             fallback.append((px + 8.0, py + 3.0 + (h - block.ascent)))
-            fallback.append((px - 8.0 - w, py + 3.0 + (h - block.ascent)))
+        elif horizontal:
+            fallback.append((px - 10.0 - w, py + 3.0 + (h - block.ascent)))
+            fallback.append((px - 22.0 - w, py + 8.0 + (h - block.ascent)))
         else:
             fallback.append((px + 16.0, py - block.ascent))
             fallback.append((px - 16.0 - w, py - block.ascent))
@@ -8541,8 +8657,13 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         node = owners[0]
         mid = (node[1] + node[3]) / 2.0
         baseline = mid - block.height / 2.0 + (block.height - block.ascent)
-        beside.append((node[2] + 6.0, baseline))
-        beside.append((node[0] - 6.0 - block.width, baseline))
+        left = (node[0] - 6.0 - block.width, baseline)
+        right = (node[2] + 6.0, baseline)
+        if horizontal and bx < ax:
+            beside.append(left)
+        else:
+            beside.append(right)
+            beside.append(left)
     beside.append((px + 6.0, py - block.ascent - 1.0))
     beside.append((px - block.width - 6.0, py - block.ascent - 1.0))
     for x, baseline in beside:
@@ -9205,19 +9326,15 @@ def _sources_that_fit(remaining: float, sources: list[dict]) -> list[tuple[str, 
 
 
 def _paint_fitting_sources(body: _SheetFlow, sources: list[dict]) -> None:
-    """Keep cites with the procedure. A sources-only page is not opened."""
+    """Keep cites with the procedure. A cited page is not dropped to save a line."""
     if not sources:
         return
+    rows = _source_rows(sources, mode="none")
     fitted = _sources_that_fit(body.remaining(), sources)
-    if fitted is not None:
+    if fitted is not None and len(fitted) >= len(sources):
         _paint_source_rows(body, fitted, allow_break=False)
         return
-    for title, _excerpt in _source_rows(sources[:4], mode="none"):
-        line = "Sources: " + title.lstrip("- ").strip()
-        block = measure_text(line, _CONTENT_W - 16.0, 8, leading=10.6)
-        if block.height + 4 > body.remaining():
-            break
-        _add_plain_item(body, line, size=8, gap=2.0, allow_break=False)
+    _paint_source_rows(body, rows, allow_break=True)
 
 
 def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_break: bool) -> None:
@@ -9323,6 +9440,10 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
     if before:
+        head = measure_text("BEFORE YOU START", _CONTENT_W - 16.0, 9, leading=11.6)
+        first = measure_text(f"- {before[0]}", _CONTENT_W - 16.0, 8, leading=10.6)
+        if body.remaining() < head.height + first.height + 16.0:
+            body.new_page("Repair procedure")
         _add_plain_item(body, "BEFORE YOU START", size=9, gap=2)
         for item in before:
             _add_plain_item(body, f"- {item}", size=8, gap=2)

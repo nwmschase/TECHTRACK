@@ -128,7 +128,7 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         do_not = " ".join(self.proc.do_not).lower()
         self.assertNotIn("antifreeze", do_not)
         self.assertNotIn("ice", do_not)
-        self.assertIn("scouring", do_not)
+        self.assertNotIn("scouring", do_not)
         self.assertFalse(any("How (" in line for line in self.proc.bay_order))
 
     def test_profile_check_has_no_fail(self):
@@ -201,3 +201,57 @@ class TestBayTabCopy(unittest.TestCase):
         self.assertIn("Repair branches:", source)
         self.assertNotIn("Bay-order steps:", source)
         self.assertIn("one numbered branch", source)
+
+
+class TestReviewDefectsFail(unittest.TestCase):
+    """The pre-merge misses stay failures. A clean sheet is not a weaker check."""
+
+    def test_bare_vacuum_near_copy_marker_and_page_clash_fail(self):
+        bare = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\n"
+            "Check the vacuum breaker on page 3.\n"
+            "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(bare)}
+        self.assertEqual(named["score-2"].status, "FAIL")
+        clash = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\n"
+            "Bad result: it leaks while flushing. What do you see? Owner manual page 1 shows the kit.\n"
+            "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(clash)}
+        self.assertEqual(named["score-1"].status, "FAIL")
+        copied = (
+            "The water supply connection is at the back of the toilet on the water valve "
+            "and the fitting should be dry before you open a kit."
+        )
+        dup = (
+            f"USER: one\nASSISTANT:\n{copied}\n\n"
+            f"USER: two\nASSISTANT:\n{copied} The cited manual page shows that connection.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(dup)}
+        self.assertEqual(named["no_repeats"].status, "FAIL")
+        leaked = "USER: one\nASSISTANT:\nPull the pedal up and off.\n<!--gd-step:1-->\n"
+        banned = [rule for rule in profile_check.check_transcript(leaked) if rule.name == "banned_strings"]
+        self.assertEqual(banned[0].status, "FAIL")
+
+    def test_duplicate_pod_and_scouring_fail(self):
+        pod = (
+            "Thetford 42070\n"
+            "REPAIR BRANCH\nVacuum breaker 34123\n"
+            "REMOVAL\n"
+            "Step 12: Take off the pod\nDo this:\n1. Take off the pod.\n"
+            "Step 14: Take off the pod\nDo this:\n1. Take off the pod.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.grade_past_fails(None, pod)}
+        self.assertEqual(named["PF-09"].status, "FAIL")
+        banned = [
+            rule
+            for rule in profile_check.check_transcript(
+                "USER: x\nASSISTANT:\nDo not use scouring powders.\n"
+            )
+            if rule.name == "banned_strings"
+        ]
+        self.assertEqual(banned[0].status, "FAIL")
