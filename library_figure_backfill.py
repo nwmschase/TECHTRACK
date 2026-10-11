@@ -1519,6 +1519,178 @@ def _offer_matches_cited_page(item: dict, cites: dict[str, set[int]]) -> bool:
     return any(page in cites[token] for token in tokens)
 
 
+def gd_figure_caption(item: dict) -> str:
+    """Caption under a Guided Diagnostics figure: the document and the page."""
+    item = item or {}
+    title = str(item.get("title") or "Manual").strip() or "Manual"
+    try:
+        page = int(item.get("page") or 0)
+    except (TypeError, ValueError):
+        page = 0
+    label = str(item.get("label") or "").strip()
+    try:
+        if page:
+            return mf.display_caption(title, page, label)
+        return title
+    except Exception:
+        if page:
+            return f"{title}, page {page}"
+        return title
+
+
+def _source_cites(reply: str) -> list[tuple[str, int]]:
+    """'Source: <manual>, page N' lines. The page number is part of the cite."""
+    found = []
+    for match in re.finditer(r"Source:\s*([^,\n]{3,160}),\s*page\s+(\d+)", reply or "", re.I):
+        title = re.sub(r"^[\s📖*]+", "", match.group(1)).strip()
+        if title:
+            found.append((title, int(match.group(2))))
+    return found
+
+
+def _row_on_source(row: dict, title: str, page: int) -> bool:
+    try:
+        row_page = int(row.get("page") or 0)
+    except (TypeError, ValueError):
+        return False
+    if row_page != int(page):
+        return False
+    row_title = (row.get("title") or "").strip().lower()
+    want = (title or "").strip().lower()
+    if not row_title or not want:
+        return False
+    if want in row_title or row_title in want:
+        return True
+    return bool(_doc_tokens(want) & _doc_tokens(row_title))
+
+
+def _gd_same_case(item: dict, category: str, model: str, user_msg: str, reply: str) -> bool:
+    """Same brand and model as this case. A bad row is skipped, not raised."""
+    try:
+        if off_brand_figure(item, category, model, user_msg, reply):
+            return False
+        return bool(fits_case(item, category, model, user_msg, reply))
+    except Exception:
+        return False
+
+
+def _offer_is_cited(item: dict, cites: dict[str, set[int]], sources: list[tuple[str, int]]) -> bool:
+    """True when this offer is one of the manuals and pages the reply named."""
+    if cites and _offer_matches_cited_page(item, cites):
+        blob = " ".join(
+            str(item.get(key) or "")
+            for key in ("title", "caption", "label", "doc_number", "clean_title", "file_path")
+        )
+        if _doc_tokens(blob) & set(cites):
+            return True
+    for title, page in sources or []:
+        if _row_on_source(item, title, page):
+            return True
+    return False
+
+
+def _cited_page_offers(rows, cites: dict[str, set[int]], sources: list[tuple[str, int]]) -> list[dict]:
+    """Every figure on a cited page. The page image is used only when that page has no figure."""
+    grouped: dict[tuple, list] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        hit = False
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "clean_title", "file_path", "doc_number", "caption", "label")
+        )
+        tokens = _doc_tokens(blob) & set(cites or {})
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if tokens and any(page in (cites or {}).get(token, ()) for token in tokens):
+            hit = True
+        if any(_row_on_source(row, title, want) for title, want in sources or []):
+            hit = True
+        if not hit:
+            continue
+        if not (row.get("png") or row.get("image_path") or row.get("file_path")):
+            continue
+        grouped.setdefault((int(row.get("document_id") or 0), page, (row.get("title") or "")), []).append(row)
+    offers = []
+    for bucket in grouped.values():
+        figures = [row for row in bucket if (row.get("kind") or "figure") == "figure"]
+        pages = [row for row in bucket if row.get("kind") == "page"]
+        picked = figures or pages[:1]
+        offers.extend(_offer_from_asset(row) for row in picked)
+    return offers
+
+
+def gd_figures_under_step(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
+    """Figures for one Guided Diagnostics step. Empty when this case has none.
+
+    Cited document and page win. Another brand, another model, or another page
+    is left out. A missing crop returns nothing instead of raising.
+    """
+    try:
+        reply = reply or ""
+        user_msg = user_msg or ""
+        category = category or ""
+        model = model or ""
+        safe_rows = [row for row in (rows or []) if isinstance(row, dict)]
+        cites = _cited_doc_pages(reply)
+        sources = _source_cites(reply)
+        if cites or sources:
+            chosen = [
+                item
+                for item in _cited_page_offers(safe_rows, cites, sources)
+                if _gd_same_case(item, category, model, user_msg, reply)
+            ]
+            named = mf._numbers_named(reply)
+            if named and chosen:
+                matched = [
+                    item
+                    for item in chosen
+                    if any(number in mf._figure_numbers(item.get("label") or "") for number in named)
+                ]
+                if matched:
+                    chosen = matched
+                else:
+                    chosen = [item for item in chosen if (item.get("kind") or "") == "page"][:1]
+            if not chosen:
+                fallback = offers_for_turn(safe_rows, reply, user_msg, category, model)
+                chosen = [
+                    item
+                    for item in fallback or []
+                    if isinstance(item, dict)
+                    and _offer_is_cited(item, cites, sources)
+                    and _gd_same_case(item, category, model, user_msg, reply)
+                ]
+        else:
+            chosen = [
+                item
+                for item in offers_for_turn(safe_rows, reply, user_msg, category, model) or []
+                if isinstance(item, dict) and _gd_same_case(item, category, model, user_msg, reply)
+            ]
+        out = []
+        seen = set()
+        for item in chosen:
+            if not (item.get("png") or item.get("image_path") or item.get("file_path")):
+                continue
+            key = (
+                item.get("document_id"),
+                item.get("page"),
+                item.get("label") or "",
+                item.get("image_path") or "",
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            shown = dict(item)
+            shown["gd_caption"] = gd_figure_caption(shown)
+            out.append(shown)
+        return out
+    except Exception:
+        return []
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
