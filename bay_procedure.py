@@ -6424,6 +6424,73 @@ def cited_figure_count(proc: "BayProcedure") -> int:
     return total
 
 
+def _kit_topic_for_step(step: str) -> str:
+    """The kit crop this bay step can show. A supply mention of the water valve is not the kit."""
+    low = step or ""
+    if re.search(r"vacuum breaker|\b34122\b|\b34123\b", low, re.I):
+        return "breaker"
+    if re.search(r"\b42109\b|\bweep", low, re.I):
+        return "valve"
+    return ""
+
+
+def place_thetford_kit_crops(proc: BayProcedure) -> BayProcedure:
+    """Real 42109 and 34123 crops beside those steps.
+
+    The eight-field FIGURE line is text. The sheet still draws the kit crop.
+    A library crop already on the step is left in place.
+    """
+    import manual_figures as mf
+
+    if not proc.bay_order:
+        return proc
+    if not mf.job_is_thetford(proc.category, proc.brand, proc.model, proc.concern, proc.primary_cite):
+        return proc
+    packets = {}
+    for packet in mf.thetford_demo_packets():
+        title = (packet.get("title") or "").lower()
+        if "3412" in title or "breaker" in title:
+            packets["breaker"] = packet
+        if "42109" in title or "valve" in title:
+            packets["valve"] = packet
+    placed = [list(group) for group in (proc.step_figures or [])]
+    while len(placed) < len(proc.bay_order):
+        placed.append([])
+    for index, step in enumerate(proc.bay_order):
+        if any(
+            (fig.image_png or b"")
+            and not mf.png_is_blank(fig.image_png or b"")
+            and (fig.excerpt or "") != "bundled kit crop"
+            for fig in placed[index]
+        ):
+            continue
+        topic = _kit_topic_for_step(step)
+        packet = packets.get(topic)
+        if not packet:
+            continue
+        figure = next(
+            (
+                item
+                for item in packet.get("figures") or []
+                if item.get("png") and not mf.png_is_blank(item.get("png") or b"")
+            ),
+            None,
+        )
+        if not figure:
+            continue
+        placed[index] = [
+            BayFigure(
+                title=packet.get("title") or "",
+                page=figure.get("page") or 1,
+                caption=figure.get("label") or "Fig. 1",
+                excerpt="bundled kit crop",
+                image_png=figure.get("png") or b"",
+            )
+        ]
+    proc.step_figures = placed
+    return proc
+
+
 def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProcedure:
     """Put the same library figure rows Guided Diagnostics loads beside each step.
 
@@ -6448,8 +6515,16 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
     while len(placed) < len(proc.bay_order):
         placed.append([])
     for index, offers in enumerate(groups):
-        if any(getattr(fig, "image_png", b"") for fig in placed[index]):
+        library_already = any(
+            (getattr(fig, "image_png", b"") or b"")
+            and (getattr(fig, "excerpt", "") or "") != "bundled kit crop"
+            for fig in placed[index]
+        )
+        if library_already:
             continue
+        placed[index] = [
+            fig for fig in placed[index] if (getattr(fig, "excerpt", "") or "") != "bundled kit crop"
+        ]
         for offer in offers:
             png = offer.get("png") or b""
             if not png or mf.png_is_blank(png):
@@ -6465,7 +6540,7 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
             )
             break
     proc.step_figures = placed
-    return proc
+    return place_thetford_kit_crops(proc)
 
 
 def _plain_kit_procedures(packets, job: str) -> list:
@@ -6855,7 +6930,7 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
-    return apply_chunk_figures(proc, chunks)
+    return place_thetford_kit_crops(apply_chunk_figures(proc, chunks))
 
 
 def _is_fact12_job(model_text: str) -> bool:

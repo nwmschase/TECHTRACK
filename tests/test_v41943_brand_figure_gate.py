@@ -134,6 +134,14 @@ def _library():
             category_name="Leveling",
             models="PSX1",
         ),
+        _row(
+            9,
+            "Thetford Plastic Tank",
+            "Thetford",
+            "Fig. 1 plastic tank",
+            "Plastic tank waste",
+            category_name="Plumbing / Toilets",
+        ),
     ]
 
 
@@ -617,3 +625,144 @@ class TestBayFiguresComeFromTheMatchingDoc(unittest.TestCase):
             self.assertNotIn("Power Gear", text)
             self.assertNotIn("pump seal", text.lower())
             self.assertNotIn("motor brake", text.lower())
+            self.assertNotIn("Plastic Tank", text)
+
+
+class TestThetfordKitFiguresOnly(unittest.TestCase):
+    def test_valve_and_breaker_offers_are_the_kits(self):
+        rows = _library()
+        valve = fb.offers_for_turn(
+            rows, mf.thetford_proving_line("valve"), "show me the pedal", CAT, MODEL
+        )
+        breaker = fb.offers_for_turn(
+            rows, mf.thetford_proving_line("vacuum"), "show me", CAT, MODEL
+        )
+        valve_blob = _blob(valve)
+        breaker_blob = _blob(breaker)
+        self.assertIn("42109", valve_blob)
+        self.assertIn("34123", breaker_blob)
+        for blob in (valve_blob, breaker_blob):
+            self.assertNotIn("plastic tank", blob)
+            self.assertNotIn("motor brake", blob)
+            self.assertNotIn("tip sheet", blob)
+            self.assertNotIn("power gear", blob)
+        self.assertNotIn("34123", valve_blob)
+        self.assertNotIn("42109", breaker_blob)
+
+
+class TestValveFindingDoesNotReturnToVacuum(unittest.TestCase):
+    def _on_step_1(self):
+        history = [
+            {"role": "user", "content": "toilet leaks under the flush lever"},
+            {"role": "assistant", "content": "Back of the toilet: check the water supply line."},
+        ]
+        vacuum = _turn(
+            "Supply is tight. The water valve weeps at the pedal.",
+            history,
+            "Check whether the vacuum breaker leaks while flushing.",
+        )
+        history = history + [
+            {"role": "user", "content": "Supply is tight. The water valve weeps at the pedal."},
+            {"role": "assistant", "content": vacuum + HOW},
+        ]
+        step1 = _turn("No leak while flushing.", history)
+        self.assertIn("Step 1 of 14", step1)
+        history = history + [
+            {"role": "user", "content": "No leak while flushing."},
+            {"role": "assistant", "content": step1 + HOW},
+        ]
+        return history
+
+    def test_a_leak_after_the_valve_finding_stays_on_the_valve_kit(self):
+        history = self._on_step_1()
+        for answer in ("It still leaks.", "Leak at the pedal.", "The water valve still weeps."):
+            nxt = _turn(answer, history)
+            self.assertIn("Step 2 of 14", nxt, answer)
+            self.assertNotIn("of 13", nxt, answer)
+            self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", nxt, answer)
+            self.assertIn("42109", nxt, answer)
+            self.assertNotIn("34123", nxt, answer)
+
+
+class TestBayPdfShowsKitCrops(unittest.TestCase):
+    def test_steps_get_real_crops_not_a_text_only_figure_line(self):
+        import pymupdf
+        from PIL import Image as PilImage
+
+        proc = compile_bay_procedure(
+            concern="Thetford 42070 leaks under the flush lever",
+            brand="Thetford",
+            model="42070",
+            category=CAT,
+            chunks=[
+                {
+                    "title": "Thetford Style II OM Permanent RV Toilet 42088",
+                    "page": 3,
+                    "excerpt": "Check the water supply line connection.",
+                }
+            ],
+        )
+        self.assertEqual(proc.procedures, [])
+        vacuum = next(i for i, step in enumerate(proc.bay_order) if "vacuum breaker" in step.lower())
+        valve = next(i for i, step in enumerate(proc.bay_order) if "42109" in step)
+        for index, needle in ((vacuum, "34123"), (valve, "42109")):
+            self.assertTrue(proc.step_figures[index], needle)
+            fig = proc.step_figures[index][0]
+            self.assertIn(needle, fig.title)
+            self.assertFalse(mf.png_is_blank(fig.image_png))
+            image = PilImage.open(io.BytesIO(fig.image_png))
+            self.assertGreater(image.size[0], 80, needle)
+            self.assertGreater(image.size[1], 80, needle)
+        doc = pymupdf.open(stream=render_bay_procedure_pdf(proc), filetype="pdf")
+        widths = []
+        for page in doc:
+            for info in page.get_images():
+                extracted = doc.extract_image(info[0])
+                widths.append(extracted["width"])
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        self.assertGreaterEqual(len(widths), 2)
+        self.assertTrue(all(width > 80 for width in widths))
+        self.assertNotIn("Tip Sheet", text)
+        self.assertNotIn("Power Gear", text)
+        self.assertNotIn("Plastic Tank", text)
+        self.assertNotIn("motor brake", text.lower())
+
+
+class TestS09Turn2StaysClean(unittest.TestCase):
+    def test_peacemaker_bypass_reply_has_no_off_brand_block(self):
+        history = [
+            {"role": "user", "content": "AC turns on but will not blow cold."},
+            {
+                "role": "assistant",
+                "content": (
+                    "Confirm the fan runs, then do the Peacemaker bypass at the rooftop unit "
+                    "and report whether it cools."
+                ),
+            },
+        ]
+        latest = "Peacemaker bypass at the rooftop unit cools."
+        reply = avoid_duplicate_reply(
+            "Do the Peacemaker bypass at the rooftop unit Check the ceiling selector.",
+            history,
+            latest,
+            "Air Conditioning",
+            "B57915E711J0EMX",
+        )
+        low = reply.lower()
+        self.assertIn("ceiling", low)
+        for banned in ("tip sheet", "power gear", "motor brake", "pump seal", "plastic tank", "thetford", "42109", "34123"):
+            self.assertNotIn(banned, low, banned)
+        self.assertNotIn("How (Tip Sheet", reply)
+        offers = fb.offers_for_turn(
+            _library(),
+            reply,
+            latest,
+            "Air Conditioning",
+            "B57915E711J0EMX",
+        )
+        blob = _blob(offers)
+        for banned in ("tip sheet", "power gear", "motor brake", "pump seal", "plastic tank", "thetford", "42109", "34123"):
+            self.assertNotIn(banned, blob, banned)
+        if offers:
+            self.assertIn("dometic", blob)
