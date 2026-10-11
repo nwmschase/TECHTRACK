@@ -51,7 +51,8 @@ class TestReadability(unittest.TestCase):
                     self.assertIn(number, step["fields"]["FIGURE"])
                 else:
                     self.assertIsNone(step.get("figure"))
-                    self.assertEqual(step["fields"]["FIGURE"], "UNCONFIRMED")
+                    self.assertEqual(step["fields"]["FIGURE"], "Not stated in this sheet.")
+                    self.assertNotIn("UNCONFIRMED", joined)
             blob = " ".join(
                 " ".join(step.get("actions") or [step["text"]]).lower()
                 for step in layout["steps"]

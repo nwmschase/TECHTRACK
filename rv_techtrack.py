@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.42
-- v4.19.42: Bulk import streams the ZIP to disk. Each page image is uploaded and released before the next page. A long manual continues from a page cursor, and a batch starts two files, so a 136-page owner's manual does not hold every page in memory. After the lead-jack cartridge repair is named, the next turn gives the numbered R&R and the parts-list figure, then bleed and resync with a yes or no.
+- v4.19.42: Bulk import streams the ZIP to disk. Each page image is uploaded and released before the next page. A long manual continues from a page cursor, and a batch starts two files, so a 136-page owner's manual does not hold every page in memory. After the lead-jack cartridge repair is named, the next turn gives the numbered R&R and the parts-list figure, then bleed and resync with a yes or no. A check that already shipped advances on the next real answer, including a Thetford flush check. That internal marker is not printed in the reply, the bay order, or the do-not list. The Bay PDF uses the same library figure rows as the chat, beside the step they match, and a vacuum-breaker step shows the vacuum-breaker figure. A figure that already loaded does not add a failed download caption. The Girard hose sentence stays on the sheet when the same line names the blower. Ground Control's level reply says zero-point calibration is the repair. Drain, pan, fan, pressures, and a freeze sensor at 2k at 25C authorize the rooftop repair by turn 5.
 - v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Every library document stores a rendered page image and each figure crop in cloud storage. The database keeps the key, the caption, the page, the box, and the link to the chunk. Guided Diagnostics and the Bay PDF show those figures for any brand. A bundled Thetford kit image is a last resort only, and its caption says it is not from the shop library. A manager can backfill figures for manuals already loaded, including a Lippert bulk import, and can resume that job. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading. The BAL troubleshooting page and the Girard pressure-switch hose sentence stay on the Bay sheet. A cooktop reply does not repeat a library-excerpt instruction. Level Up replies do not repeat the same line. Ground Control says zero-point calibration is the repair, and its NO label sits off the node. Bulk import Auto-continue keeps loading the next batch.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
@@ -454,6 +454,7 @@ from bay_procedure import (
     apply_chunk_figures,
     compile_bay_procedure,
     crop_page_png_to_figure,
+    paint_library_step_figures,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
     suggested_pdf_filename,
@@ -3566,7 +3567,7 @@ def render_on_demand_library_pages(pages: list):
         return
     shown_pdf = set()
     for i, src in enumerate(pages[:3]):
-        render_library_page_image(src, f"ondemand_{i}")
+        rendered = render_library_page_image(src, f"ondemand_{i}")
         excerpt = (src.get("excerpt") or "").strip()
         if excerpt:
             with st.expander("Text from this page", expanded=False):
@@ -3574,12 +3575,16 @@ def render_on_demand_library_pages(pages: list):
         fpath = src.get("file_path")
         if fpath and fpath not in shown_pdf:
             shown_pdf.add(fpath)
-            r2_download_button(
-                "⬇️ Download this PDF",
-                fpath,
-                f"{(src.get('title') or 'manual')[:40]}.pdf",
-                f"ask_ondemand_dl_{i}",
-            )
+            data = r2_download_bytes(fpath)
+            if data:
+                st.download_button(
+                    "⬇️ Download this PDF",
+                    data=data,
+                    file_name=f"{(src.get('title') or 'manual')[:40]}.pdf",
+                    key=f"ask_ondemand_dl_{i}",
+                )
+            elif not rendered:
+                st.caption("Storage not configured" if not get_r2_client() else "Could not download file")
 
 
 def clear_ask_source_state():
@@ -5929,9 +5934,16 @@ def _merge_stored_figures(proc, chunks):
             kept.append(figure)
         packet["figures"] = kept
     packets = [packet for packet in packets if packet.get("figures")]
-    if not packets:
-        return proc
-    return apply_chunk_figures(proc, packets)
+    if packets:
+        proc = apply_chunk_figures(proc, packets)
+    groups = fb.figures_beside_steps(rows, proc.bay_order, proc.category, proc.model)
+    pending = [offer for group in groups for offer in group if not offer.get("png")]
+    if pending:
+        try:
+            fb.attach_pngs(session, pending, read_local=True, download=r2_download_bytes)
+        except Exception:
+            pass
+    return paint_library_step_figures(proc, rows, groups)
 
 
 def _attach_bay_figure_images(proc, chunks=None):

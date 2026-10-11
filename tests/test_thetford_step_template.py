@@ -2,7 +2,7 @@
 
 WHERE, SAFETY, TOOLS / METER SETTING, HOW, GOOD vs BAD, NEXT, FIGURE, and
 PHOTO come from the owner manual or the kit sheet. A value those documents
-do not state is the word UNCONFIRMED.
+do not state is omitted from the shop text. The internal marker is not printed.
 """
 import unittest
 
@@ -38,7 +38,8 @@ def _packet(title, path):
 def _assert_fields(case, text):
     for name in mf.STEP_FIELDS:
         case.assertIn(f"{name}:", text, name)
-    case.assertIn("UNCONFIRMED", text)
+        case.assertNotIn("UNCONFIRMED", text)
+        case.assertIn("Not stated in this sheet", text)
 
 
 class TestThetfordStepTemplate(unittest.TestCase):
@@ -50,9 +51,10 @@ class TestThetfordStepTemplate(unittest.TestCase):
             THETFORD_FLANGE_LINE,
         ):
             _assert_fields(self, line)
-            self.assertIn("Meter setting: UNCONFIRMED", line)
-            self.assertIn("Power off: UNCONFIRMED", line)
-            self.assertIn("Propane off: UNCONFIRMED", line)
+            self.assertIn("Meter setting: Not stated in this sheet.", line)
+            self.assertIn("Power off: Not stated in this sheet.", line)
+            self.assertIn("Propane off: Not stated in this sheet.", line)
+            self.assertNotIn("UNCONFIRMED", line)
             self.assertIn("Take a photo", line)
             self.assertIn("A photo is optional.", line)
 
@@ -92,8 +94,10 @@ class TestThetfordStepTemplate(unittest.TestCase):
                 shown.append(mf.format_one_step(step, 1, len(procedure["steps"])))
                 self.assertLessEqual(mf._word_count(step["fields"]["HOW"]), 15, step["text"])
                 self.assertNotIn("It looks right", text)
-        self.assertTrue(any(step["fields"]["WHERE"] == "UNCONFIRMED" for procedure in proc.procedures for step in procedure["steps"]))
-        self.assertTrue(any("until" in (step.get("source") or "").lower() and "Good: UNCONFIRMED" not in step["fields"]["GOOD vs BAD"] for procedure in proc.procedures for step in procedure["steps"]))
+        self.assertTrue(any(step["fields"]["WHERE"] == "Not stated in this sheet." for procedure in proc.procedures for step in procedure["steps"]))
+        self.assertTrue(any("until" in (step.get("source") or "").lower() and "Good: Not stated in this sheet." not in step["fields"]["GOOD vs BAD"] for procedure in proc.procedures for step in procedure["steps"]))
+        self.assertNotIn("UNCONFIRMED", " ".join(proc.bay_order))
+        self.assertNotIn("UNCONFIRMED", " ".join(proc.do_not))
         import pymupdf
 
         doc = pymupdf.open(stream=render_bay_procedure_pdf(proc), filetype="pdf")
@@ -101,6 +105,7 @@ class TestThetfordStepTemplate(unittest.TestCase):
         doc.close()
         for name in mf.STEP_FIELDS:
             self.assertIn(name.lower() + ":", pdf, name)
+        self.assertNotIn("unconfirmed", pdf)
 
 
 if __name__ == "__main__":

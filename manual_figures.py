@@ -786,12 +786,22 @@ _WHERE_RULES = (
 )
 
 
+NOT_STATED = "Not stated in this sheet."
+
+
+def hide_internal_marker(text: str) -> str:
+    """The shop never prints the internal blank-field marker."""
+    cleaned = re.sub(r"\bUNCONFIRMED\b\.?", NOT_STATED, text or "", flags=re.I)
+    cleaned = re.sub(r"(?:Not stated in this sheet\.\s*){2,}", "Not stated in this sheet. ", cleaned)
+    return re.sub(r"[ \t]{2,}", " ", cleaned)
+
+
 def format_step_fields(fields: dict) -> str:
-    """The fixed shop template. A blank value is UNCONFIRMED."""
+    """The fixed shop template. A blank value is not stated in this sheet."""
     lines = []
     for name in STEP_FIELDS:
         value = re.sub(r"\s+", " ", str((fields or {}).get(name) or "")).strip()
-        lines.append(f"{name}: {value or 'UNCONFIRMED'}")
+        lines.append(f"{name}: {value or NOT_STATED}")
     lines.append(YES_LINE)
     lines.append(NO_LINE)
     return "\n".join(lines)
@@ -807,7 +817,7 @@ def _where_field(source: str) -> str:
             found.append(phrase)
         if len(found) == 2:
             break
-    return " ".join(found) if found else "UNCONFIRMED"
+    return " ".join(found) if found else NOT_STATED
 
 
 def _safety_field(sheet: str) -> str:
@@ -817,15 +827,15 @@ def _safety_field(sheet: str) -> str:
     if re.search(r"turn off rv water supply|turn off (?:the )?(?:rv )?water\b", text, re.I):
         bits.append("Turn the RV water off before this work.")
     else:
-        bits.append("Water off: UNCONFIRMED.")
+        bits.append(f"Water off: {NOT_STATED}")
     if re.search(r"turn off (?:the )?power\b", text, re.I):
         bits.append("Turn the power off before this work.")
     else:
-        bits.append("Power off: UNCONFIRMED.")
+        bits.append(f"Power off: {NOT_STATED}")
     if re.search(r"\bpropane\b|\blp gas\b", text, re.I):
         bits.append("The sheet names propane.")
     else:
-        bits.append("Propane off: UNCONFIRMED.")
+        bits.append(f"Propane off: {NOT_STATED}")
     if re.search(r"\bgloves\b", text, re.I):
         bits.append("Put on gloves and glasses.")
     return " ".join(bits)
@@ -838,14 +848,14 @@ def _tools_field(sheet: str, source: str) -> str:
         word = re.sub(r"\s+", " ", hit).strip()
         if word.lower() not in {item.lower() for item in tools}:
             tools.append(word)
-    tool_bit = ", ".join(tools) if tools else "UNCONFIRMED"
+    tool_bit = ", ".join(tools) if tools else NOT_STATED
     meter = ""
     for blob in (source or "", sheet or ""):
         hit = _METER_RE.search(blob)
         if hit:
             meter = hit.group(0)
             break
-    return f"Tools: {tool_bit}. Meter setting: {meter or 'UNCONFIRMED'}."
+    return f"Tools: {tool_bit}. Meter setting: {meter or NOT_STATED}"
 
 
 def _result_clause(text: str) -> str:
@@ -871,26 +881,26 @@ def _good_bad_field(source: str, action: str) -> str:
         bad = "Leaks at all connections"
     if re.search(r"if leak persists", blob, re.I):
         bad = "The leak persists from the water valve"
-    return f"Good: {good or 'UNCONFIRMED'}. Bad: {bad or 'UNCONFIRMED'}."
+    return f"Good: {good or NOT_STATED} Bad: {bad or NOT_STATED}" if (good or "").endswith(".") or not good else f"Good: {good}. Bad: {bad or NOT_STATED}"
 
 
 def _next_field(next_how: str) -> str:
     """The next sheet step is the good path. A bad path the sheet omits stays UNCONFIRMED."""
-    good = (next_how or "").strip() or "UNCONFIRMED"
-    return f"On good: {good} On bad: UNCONFIRMED."
+    good = (next_how or "").strip() or NOT_STATED
+    return f"On good: {good} On bad: {NOT_STATED}"
 
 
 def _figure_field(step: dict, doc: str) -> str:
     figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
     if not figure:
-        return "UNCONFIRMED"
+        return NOT_STATED
     label = (figure.get("label") or "").strip()
     title = (figure.get("title") or doc or "").strip()
     page = figure.get("page")
     bits = [bit for bit in (label, title) if bit]
     if page:
         bits.append(f"page {page}")
-    return ", ".join(bits) if bits else "UNCONFIRMED"
+    return ", ".join(bits) if bits else NOT_STATED
 
 
 def _photo_field(how: str) -> str:
@@ -902,7 +912,7 @@ def _photo_field(how: str) -> str:
 def fill_step_fields(step: dict, sheet: str, doc: str, next_how: str = "") -> dict:
     """Fill the template from this sheet. Do not invent a missing value."""
     source = step.get("source") or ""
-    how = (step.get("text") or "").strip() or "UNCONFIRMED"
+    how = (step.get("text") or "").strip() or NOT_STATED
     return {
         "WHERE": _where_field(source),
         "SAFETY": _safety_field(sheet),
@@ -929,11 +939,11 @@ def step_field_lines(step: dict) -> list[str]:
     lines = []
     for name in STEP_FIELDS:
         if name == "HOW":
-            lines.append(f"HOW: {actions[0] if actions else 'UNCONFIRMED'}")
+            lines.append(f"HOW: {actions[0] if actions else NOT_STATED}")
             for extra in actions[1:]:
                 lines.append(extra)
             continue
-        lines.append(f"{name}: {(fields.get(name) or '').strip() or 'UNCONFIRMED'}")
+        lines.append(f"{name}: {(fields.get(name) or '').strip() or NOT_STATED}")
     lines.append(YES_LINE)
     lines.append(NO_LINE)
     return lines
@@ -1450,7 +1460,7 @@ def _group_procedure_steps(steps: list) -> list:
             if not caution and step.get("caution"):
                 caution = step["caution"]
             gb = ((step.get("fields") or {}).get("GOOD vs BAD") or "")
-            if not good and gb and "Good: UNCONFIRMED" not in gb:
+            if not good and gb and f"Good: {NOT_STATED}" not in gb:
                 good = gb
         lead["actions"] = actions or [lead.get("text") or ""]
         lead["text"] = lead["actions"][0]
@@ -1671,6 +1681,25 @@ def thetford_demo_packets() -> list:
     return built
 
 
+def part_topic(text: str) -> str:
+    """Which Thetford part this step is about. The reply wins over an older fact."""
+    low = (text or "").lower()
+    breaker = bool(re.search(r"vacuum breaker|\b34122\b|\b34123\b", low))
+    valve = bool(re.search(r"\b42109\b|\b42049\b|water valve", low))
+    if breaker and valve:
+        breaker_at = low.find("vacuum breaker")
+        valve_at = min(
+            (index for index in (low.find("water valve"), low.find("42109"), low.find("42049")) if index >= 0),
+            default=10**9,
+        )
+        return "breaker" if 0 <= breaker_at <= valve_at else "valve"
+    if breaker:
+        return "breaker"
+    if valve:
+        return "valve"
+    return ""
+
+
 def bundled_thetford_offers(
     reply: str = "",
     user_msg: str = "",
@@ -1680,19 +1709,15 @@ def bundled_thetford_offers(
     """Page images and figure crops for a Thetford turn. Empty for every other job.
 
     Each offer carries the PNG, so the chat can show it without a library row.
+    The figure follows the reply's part. A vacuum-breaker step does not show the water valve kit.
     """
     if not job_is_thetford(reply, user_msg, category, model):
         return []
-    blob = f"{reply or ''}\n{user_msg or ''}"
-    low = blob.lower()
-    names_valve = bool(re.search(r"water valve|42109|42049|weep|pedal|retainer|pocket", low))
-    names_breaker = bool(re.search(r"vacuum|breaker|34122|34123", low))
-    if names_breaker and not names_valve:
-        want = "breaker"
-    elif names_valve:
-        want = "valve"
-    else:
-        want = ""
+    want = part_topic(reply) or part_topic(user_msg)
+    if not want:
+        blob = f"{reply or ''}\n{user_msg or ''}".lower()
+        if re.search(r"pedal|retainer|pocket", blob):
+            want = "valve"
     named = _numbers_named(reply or "") or _numbers_named(user_msg or "")
     offers = []
     for packet in thetford_demo_packets():
@@ -1755,10 +1780,10 @@ _PROVING_PHOTO_LEAK = (
     "Take a photo of the leak. A photo is optional. You can type what you see."
 )
 _PROVING_SAFETY = (
-    "Water off: UNCONFIRMED. Power off: UNCONFIRMED. Propane off: UNCONFIRMED."
+    f"Water off: {NOT_STATED} Power off: {NOT_STATED} Propane off: {NOT_STATED}"
 )
-_PROVING_TOOLS = "Tools: UNCONFIRMED. Meter setting: UNCONFIRMED."
-_OM_FIGURE = "UNCONFIRMED. Thetford Style II OM Permanent RV Toilet 42088, page 3."
+_PROVING_TOOLS = f"Tools: {NOT_STATED} Meter setting: {NOT_STATED}"
+_OM_FIGURE = f"{NOT_STATED} Thetford Style II OM Permanent RV Toilet 42088, page 3."
 _THETFORD_PROVING = {
     "supply": {
         "WHERE": "Back of the toilet.",
@@ -1769,8 +1794,8 @@ _THETFORD_PROVING = {
             "Secure or tighten it as necessary."
         ),
         "GOOD vs BAD": (
-            "Good: UNCONFIRMED. Bad: the leak persists from the water valve. "
-            "A leak at the back, low, with the lever at rest, is the fitting. UNCONFIRMED."
+            f"Good: {NOT_STATED} Bad: the leak persists from the water valve. "
+            f"A leak at the back, low, with the lever at rest, is the fitting. {NOT_STATED}"
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -1785,8 +1810,8 @@ _THETFORD_PROVING = {
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Check whether the vacuum breaker leaks while flushing.",
         "GOOD vs BAD": (
-            "Good: UNCONFIRMED. Bad: it leaks while flushing. "
-            "Leaks only while flushing. That limit is UNCONFIRMED."
+            f"Good: {NOT_STATED} Bad: it leaks while flushing. "
+            f"Leaks only while flushing. That limit is {NOT_STATED}"
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -1799,11 +1824,11 @@ _THETFORD_PROVING = {
     },
     "vacuum_replace": {
         "WHERE": "At the vacuum breaker on the flush hose.",
-        "SAFETY": "Turn the RV water off before this work. Power off: UNCONFIRMED. Propane off: UNCONFIRMED.",
+        "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Replace the vacuum breaker or the water module, depending on model.",
-        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: it leaks while flushing.",
-        "NEXT": "On good: UNCONFIRMED. On bad: UNCONFIRMED.",
+        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it leaks while flushing.",
+        "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1, Thetford Vacuum Breaker Kit 34123/34122, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
     },
@@ -1816,8 +1841,8 @@ _THETFORD_PROVING = {
             "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109."
         ),
         "GOOD vs BAD": (
-            "Good: UNCONFIRMED. "
-            "Bad: a weep at the cartridge, the drive arm, or a cracked housing. UNCONFIRMED."
+            f"Good: {NOT_STATED} "
+            f"Bad: a weep at the cartridge, the drive arm, or a cracked housing. {NOT_STATED}"
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -1830,11 +1855,11 @@ _THETFORD_PROVING = {
     },
     "valve_replace": {
         "WHERE": "At the pedal.",
-        "SAFETY": "Turn the RV water off before this work. Power off: UNCONFIRMED. Propane off: UNCONFIRMED.",
+        "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.",
-        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: it weeps at the pedal. UNCONFIRMED.",
-        "NEXT": "On good: UNCONFIRMED. On bad: UNCONFIRMED.",
+        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it weeps at the pedal. {NOT_STATED}",
+        "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
     },
@@ -1847,12 +1872,12 @@ _THETFORD_PROVING = {
             "If the leak continues, check the flange height. "
             "It is 7/16 inch above the floor. Replace the flange seal."
         ),
-        "GOOD vs BAD": "Good: UNCONFIRMED. Bad: the leak continues.",
+        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: the leak continues.",
         "NEXT": (
             "On good: the leak checks are done. "
             "On bad: if the leak continues, replace the flange seal. "
             "Closet flange seal 02125 is on the kits. "
-            "Flange seal 33239 is UNCONFIRMED. Pedal part 42067 is UNCONFIRMED."
+            "Flange seal 33239 is not on this sheet. Pedal part 42067 is not on this sheet."
         ),
         "FIGURE": _OM_FIGURE,
         "PHOTO": _PROVING_PHOTO_LEAK,
@@ -1870,12 +1895,12 @@ _THETFORD_PROVING_CITE = {
 
 def thetford_proving_body(key: str) -> str:
     """The eight shop fields for one Thetford leak check. No source line."""
-    return format_step_fields(_THETFORD_PROVING[key])
+    return hide_internal_marker(format_step_fields(_THETFORD_PROVING[key]))
 
 
 def thetford_proving_line(key: str) -> str:
     """The same check, plus the document cite Guided Diagnostics keeps."""
-    return f"{thetford_proving_body(key)}\n{_THETFORD_PROVING_CITE[key]}"
+    return hide_internal_marker(f"{thetford_proving_body(key)}\n{_THETFORD_PROVING_CITE[key]}")
 
 
 def procedure_handoff(layout: dict) -> str:
