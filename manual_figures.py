@@ -421,9 +421,12 @@ def detect_page_figures(page, page_png: bytes) -> list[dict]:
         box = _figure_above_caption(page, rect)
         if box is None or any(_overlaps(box, prior) for prior in claimed):
             continue
-        # The caption is drawn as text under the figure. Baking it into a
-        # narrow crop makes that caption fill the page when the crop is scaled.
-        png = _render_figure_png(page, page_png, box, float(box.y1))
+        # A wide crop keeps the caption line. A narrow crop does not: scaled to
+        # 75% of the page, that caption fills the sheet. The caption is painted
+        # as type under the figure either way.
+        width_pt = float(box.x1) - float(box.x0)
+        clip_bottom = float(box.y1) if width_pt < 160 else float(bottom)
+        png = _render_figure_png(page, page_png, box, clip_bottom)
         if not png or png_is_blank(png):
             continue
         width, height = _png_size(png)
