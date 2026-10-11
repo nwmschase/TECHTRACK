@@ -810,6 +810,19 @@ class TestS09Turn2StaysClean(unittest.TestCase):
             self.assertIn("dometic", blob)
 
 
+def _stored_live_step(step: str, how: str, figure: str) -> str:
+    """One stored turn: flattened eight fields, the live How block, then the caption.
+
+    Live joins the shop lines onto one line and appends How (title): plus
+    "Title / page N / Fig. ...". The title's ")" must not hide the step number.
+    """
+    return (
+        " ".join(step.splitlines())
+        + how
+        + f" Thetford Water Valve Kit 42109 / page 1 / {figure}"
+    )
+
+
 def _live_how(title="(Discontinued) Atwood Manual Tongue Jack Bevel Gear"):
     """The block live appends: a How title that contains ")", then a caption."""
     return (
@@ -834,27 +847,44 @@ class TestLiveThetfordTranscript(unittest.TestCase):
         self.assertIn("Step 1 of 14", step)
         self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step)
         self.assertNotIn("Step 2 of", step)
-        stored = " ".join(step.splitlines()) + " Thetford Water Valve Kit 42109 / page 1 / Fig. 3 WATER"
+        seen = [1]
         history = history + [
             {"role": "user", "content": "water valve body weeps at the drive arm"},
-            {"role": "assistant", "content": stored},
+            {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 3 WATER")},
         ]
-        for number, answer in enumerate(
-            ("Water is off.", "The bolt covers are off.", "Yes.", "Pedal is off."),
-            start=2,
-        ):
+        # Each real answer leaves the step that already shipped and opens the next one.
+        facts = (
+            "Water is off.",
+            "The bolt covers are off.",
+            "The floor seal is off.",
+            "Pedal is off.",
+            "Thumb is in the low spot.",
+            "The retainer is held.",
+            "The inlet seal is out.",
+            "The inlet seal is in.",
+            "The new valve is in.",
+            "The drive pin is closed.",
+            "The pedal is on the pivot.",
+            "The toilet is stood up.",
+            "The toilet is on the bolts.",
+        )
+        for number, answer in enumerate(facts, start=2):
             step = _turn(answer, history)
             self.assertIn(f"Step {number} of 14", step, answer)
-            self.assertNotRegex(step, rf"Step {number - 1} of 14")
-            self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step)
+            self.assertNotRegex(step, rf"Step {number - 1} of 14", answer)
+            self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", step, answer)
+            self.assertNotIn("of 13", step, answer)
+            seen.append(number)
             history = history + [
                 {"role": "user", "content": answer},
-                {
-                    "role": "assistant",
-                    "content": " ".join(step.splitlines())
-                    + " Thetford Water Valve Kit 42109 / page 1 / Fig. 1",
-                },
+                {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 1")},
             ]
+        self.assertEqual(seen, list(range(1, 15)))
+        done = _turn("The water is on.", history)
+        self.assertIn("The repair procedure is done.", done)
+        self.assertNotIn("Step 14 of", done)
+        self.assertNotIn("Step 1 of", done)
+        self.assertNotIn("Check whether the vacuum breaker leaks while flushing.", done)
 
 
 class TestMissingStorageUsesTheBundledCrop(unittest.TestCase):
