@@ -207,7 +207,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(
             loaded.skip_unity_for_water_heater("", "Girard GSWH-2", "water heater stopped working E8")
         )
-        self.assertEqual(loaded.COACH_REVISION, "v4.19.43")
+        self.assertEqual(loaded.COACH_REVISION, "v4.19.44")
         self.assertTrue(
             loaded.is_dometic_b57915_nocoool_context(
                 "Air Conditioning",
@@ -235,7 +235,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             ns,
         )
         loaded = ns["_gdc"]
-        self.assertEqual(loaded.COACH_REVISION, "v4.19.43")
+        self.assertEqual(loaded.COACH_REVISION, "v4.19.44")
         self.assertIsNot(loaded, stale)
         self.assertTrue(
             loaded.is_dometic_b57915_nocoool_context(
