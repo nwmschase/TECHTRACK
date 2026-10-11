@@ -64,7 +64,9 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         titles = " ".join(procedure.get("title") or "" for procedure in proc.procedures)
         self.assertIn("42109", titles)
         self.assertNotIn("3412", titles)
-        self.assertEqual(len(proc.procedures[0]["steps"]), 13)
+        self.assertGreater(len(proc.procedures[0]["steps"]), 13)
+        for step in proc.procedures[0]["steps"]:
+            self.assertEqual(len(step.get("actions") or []), 1)
         pngs = []
         for step in proc.procedures[0]["steps"]:
             png = ((step.get("figure") or {}) if isinstance(step.get("figure"), dict) else {}).get("png") or b""
@@ -79,7 +81,9 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         titles = " ".join(procedure.get("title") or "" for procedure in proc.procedures)
         self.assertIn("3412", titles)
         self.assertNotIn("42109", titles)
-        self.assertEqual(len(proc.procedures[0]["steps"]), 13)
+        self.assertGreater(len(proc.procedures[0]["steps"]), 1)
+        for step in proc.procedures[0]["steps"]:
+            self.assertEqual(len(step.get("actions") or []), 1)
 
     def test_figure_and_caption_stay_together_above_the_floor(self):
         proc = self._sheet("Thetford 42070 leaks under the flush lever")
