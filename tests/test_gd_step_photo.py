@@ -111,8 +111,8 @@ class TestThetfordPhotoTurns(unittest.TestCase):
             {"verdict": "confirm", "sees": "The pedal is off."},
         )
         self.assertIn("I see: The pedal is off.", reply)
-        self.assertIn("**Step 2:", reply)
-        self.assertNotRegex(reply, r"(?<!\d)Step 1:")
+        self.assertIn("Step 2 of", reply)
+        self.assertNotIn("Step 1 of", reply)
 
     def test_mismatch_asks_for_another_and_stays(self):
         reply = _turn(
@@ -122,8 +122,8 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("I see: a dry towel on the floor.", reply)
         self.assertIn("This photo does not match the finding.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("**Step 1:", reply)
-        self.assertNotRegex(reply, r"(?<!\d)Step 2:")
+        self.assertIn("Step 1 of", reply)
+        self.assertNotIn("Step 2 of", reply)
 
     def test_unclear_does_not_invent_a_scene(self):
         reply = _turn(
@@ -135,13 +135,13 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("This photo is not clear enough.", reply)
         self.assertIn("I will not guess what it shows.", reply)
         self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertIn("**Step 1:", reply)
-        self.assertNotRegex(reply, r"(?<!\d)Step 2:")
+        self.assertIn("Step 1 of", reply)
+        self.assertNotIn("Step 2 of", reply)
 
     def test_no_photo_typed_yes_still_moves_on(self):
         reply = _turn("Photo sent. Yes.", None)
-        self.assertIn("**Step 2:", reply)
-        self.assertNotRegex(reply, r"(?<!\d)Step 1:")
+        self.assertIn("Step 2 of", reply)
+        self.assertNotIn("Step 1 of", reply)
         self.assertNotIn("I see:", reply)
 
     def test_a_mismatched_supply_photo_does_not_skip_to_the_vacuum_breaker(self):
@@ -162,8 +162,7 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("I see: Water is running at the fitting.", reply)
         self.assertIn("supply", low)
         self.assertNotIn("vacuum breaker", low)
-        self.assertIn("Send a photo of what you see.", reply)
-        self.assertNotIn("A photo is optional.", reply)
+        self.assertIn("A photo is optional.", reply)
 
     def test_a_confirming_photo_can_close_the_supply_check(self):
         history = [

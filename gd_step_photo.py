@@ -12,7 +12,7 @@ import json
 import re
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.53"
+MODULE_REVISION = "v4.19.52"
 
 # Groq retired this id (HTTP 404). Step photos do not call Groq at all.
 DEAD_GROQ_SCOUT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
