@@ -1,6 +1,6 @@
 """
 RV TechTrack v4.19.55
-- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Version stamp so this deploy is distinct from v4.19.54.
+- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Each Guided Diagnostics step shows the cited manual figure under the step text, full chat width, same brand and model only. Version stamp so this deploy is distinct from v4.19.54.
 - v4.19.54: Live v4.19.53 is reverted. Shop behavior is known-good-v41952 again. Version stamp so this deploy is distinct from v4.19.53.
 - v4.19.53: Every Bay step and Guided Diagnostics reply uses one short layout. Backfill is per case for CCD-0008666, CCD-0007990, and the Thetford Style II docs. Version stamp so this deploy is distinct from v4.19.52.
 - v4.19.52: Live v4.19.51 is reverted. Shop behavior is known-good-v41950 again. Version stamp so this deploy is distinct from v4.19.51.
@@ -3614,6 +3614,24 @@ def _figures_for_session(offers) -> list:
     return kept
 
 
+def _render_gd_figures_under_step(figures, key_prefix: str) -> None:
+    """Full-width figures directly under this step. A missing file stays blank."""
+    import library_figure_backfill as fb
+
+    for index, src in enumerate(figures or []):
+        if not isinstance(src, dict):
+            continue
+        shown = dict(src)
+        try:
+            shown["caption"] = shown.get("gd_caption") or fb.gd_figure_caption(shown)
+        except Exception:
+            shown["caption"] = shown.get("caption") or ""
+        try:
+            render_library_page_image(shown, f"{key_prefix}_{index}")
+        except Exception:
+            continue
+
+
 def render_on_demand_library_pages(pages: list):
     """Show only the requested shop-library page(s). No source-menu forest."""
     st.markdown("#### Shop library page")
@@ -3710,7 +3728,7 @@ def render_library_page_image(src: dict, key_suffix: str):
     except Exception:
         page = 1
     label = src.get("label") or ""
-    caption = src.get("caption") or mf.display_caption(title, page, label or "page")
+    caption = src.get("gd_caption") or src.get("caption") or mf.display_caption(title, page, label or "page")
     def _usable(blob) -> bool:
         if not blob:
             return False
@@ -6320,20 +6338,46 @@ with tab_ask:
     history = st.session_state.get("ask_chat") or []
     if history:
         st.markdown("#### Conversation")
-        for m in history:
+        _gd_rows = None
+        for index, m in enumerate(history):
             role = m.get("role") or "user"
             content = m.get("content") or ""
             label = "You" if role == "user" else "Guided Diagnostics"
             with st.container(border=True):
                 st.caption(label)
                 st.markdown(content)
+                if role == "user":
+                    continue
+                if isinstance(m, dict) and "figures" in m:
+                    step_figs = m.get("figures") or []
+                elif re.search(r"Step\s+\d+\s*:", content or ""):
+                    if _gd_rows is None:
+                        try:
+                            import library_figure_backfill as fb
+
+                            _gd_rows = fb.meta_rows(session)
+                        except Exception:
+                            _gd_rows = []
+                    try:
+                        import library_figure_backfill as fb
+
+                        step_figs = fb.gd_figures_under_step(
+                            _gd_rows, content, "", category_name, ask_model or ""
+                        )
+                    except Exception:
+                        step_figs = []
+                else:
+                    step_figs = []
+                _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
         st.session_state["ask_input"] = ""
 
+    _last_message = history[-1] if history else {}
+    _last_has_figures = bool(isinstance(_last_message, dict) and _last_message.get("figures"))
     auto_pages = st.session_state.get("ask_auto_show") or []
-    if auto_pages:
+    if auto_pages and not _last_has_figures:
         render_on_demand_library_pages(auto_pages)
     elif st.session_state.pop("ask_auto_show_failed", None):
         fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note(
@@ -6441,7 +6485,19 @@ with tab_ask:
             history = list(history)
             stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
             history.append({"role": "user", "content": stored_msg})
-            history.append({"role": "assistant", "content": reply})
+            try:
+                import library_figure_backfill as fb
+
+                _step_figs = fb.gd_figures_under_step(
+                    fb.meta_rows(session), reply, msg, category_name, ask_model or ""
+                )
+            except Exception:
+                _step_figs = []
+            history.append({
+                "role": "assistant",
+                "content": reply,
+                "figures": _figures_for_session(_step_figs),
+            })
             st.session_state["ask_chat"] = history
             st.session_state["ask_photo_gen"] = _photo_gen + 1
             st.session_state["ask_chat_id"] = persist_ask_turn(
@@ -6455,7 +6511,11 @@ with tab_ask:
             import manual_figures as _mf
             _asked_image = wants_library_page_shown(msg) or _mf.wants_manual_image(msg)
             _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
-            if _offers and (_asked_image or _offers):
+            if _step_figs:
+                st.session_state.pop("ask_auto_show", None)
+                st.session_state["ask_auto_show_failed"] = False
+                st.session_state.pop("ask_auto_show_fail_note", None)
+            elif _offers and (_asked_image or _offers):
                 st.session_state["ask_auto_show"] = _figures_for_session(
                     _offers[:3] if _asked_image else _offers[:1]
                 )

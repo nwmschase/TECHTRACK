@@ -406,5 +406,156 @@ class TestFigureUnderTheStep(unittest.TestCase):
         self.assertLess(captions[0].y, drawn.y)
 
 
+_LABEL_ORDER = (
+    "Safety:",
+    "Where:",
+    "Tools:",
+    "Do this:",
+    "Good looks like:",
+    "Bad looks like:",
+    "Next:",
+    "Figure:",
+)
+
+
+class TestGdStepLayout(unittest.TestCase):
+    def test_every_step_uses_the_same_label_order(self):
+        groups = (
+            mf.thetford_kit_layout("valve")["steps"],
+            mf.thetford_kit_layout("breaker")["steps"],
+            mf.facr_proving_layout()["steps"],
+            mf.facr_rr_layout()["steps"],
+        )
+        for steps in groups:
+            self.assertGreater(len(steps), 1)
+            for index, step in enumerate(steps, 1):
+                text = mf.format_one_step(
+                    step, index, len(steps), show_safety=mf.show_safety_for(steps, index)
+                )
+                heading = text.find(f"**Step {index}:")
+                self.assertGreaterEqual(heading, 0, text[:80])
+                spots = [text.find(label) for label in _LABEL_ORDER if text.find(label) >= 0]
+                self.assertEqual(spots, sorted(spots), text)
+                self.assertLess(heading, spots[0])
+                do_this = text.find("Do this:")
+                action = text.find("\n1. ")
+                good = text.find("Good looks like:")
+                self.assertGreater(action, do_this)
+                self.assertGreater(good, action)
+                self.assertEqual(len(re.findall(r"(?m)^\d+\. ", text)), 1)
+                if "Bad looks like:" in text:
+                    self.assertLess(text.find("Good looks like:"), text.find("Bad looks like:"))
+                    self.assertLess(text.find("Bad looks like:"), text.find("Next:"))
+
+    def test_the_chat_draws_figures_under_the_step_text(self):
+        source = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
+            "rv_techtrack.py"
+        ).read_text(encoding="utf-8")
+        loop = source.split("for index, m in enumerate(history):", 1)[1].split(
+            "Describe the symptom", 1
+        )[0]
+        self.assertLess(loop.find("st.markdown(content)"), loop.find("_render_gd_figures_under_step"))
+        image = source.split("def render_library_page_image", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("use_container_width=True", image)
+        self.assertIn("gd_caption", image)
+
+
+def _gd_row(doc_id, title, brand, page, label, *, kind="figure", models="", category="Plumbing / Toilets"):
+    return {
+        "id": doc_id * 10 + page,
+        "document_id": doc_id,
+        "kind": kind,
+        "title": title,
+        "brand": brand,
+        "page": page,
+        "label": label,
+        "caption": f"{title} {label}",
+        "png": TINY,
+        "image_path": f"docs/{doc_id}/p{page}.png",
+        "category_name": category,
+        "models": models,
+    }
+
+
+class TestGdFigureSelection(unittest.TestCase):
+    def test_cited_page_and_brand_win(self):
+        reply = (
+            "**Step 4: Push the filter plate tabs.**\n\n"
+            "Do this:\n1. Push the filter plate tabs.\n"
+            "Good looks like: The tabs are pushed.\n"
+            "Next: Drop the filter plate.\n"
+            "📖 Source: Furrion Chill FACR CCD-0008666, page 19"
+        )
+        rows = [
+            _gd_row(1, "Furrion Chill FACR CCD-0008666", "Furrion", 19, "Fig. 28", category="Air Conditioning"),
+            _gd_row(1, "Furrion Chill FACR CCD-0008666", "Furrion", 4, "Fig. 2", category="Air Conditioning"),
+            _gd_row(2, "Dometic thermostat", "Dometic", 19, "Fig. 28", category="Air Conditioning"),
+            _gd_row(3, "Power Gear tip sheet", "Power Gear", 1, "Fig. 1", category="Leveling"),
+        ]
+        offers = fb.gd_figures_under_step(
+            rows, reply, "yes", "Air Conditioning", "Furrion FACR08HESA2-PS"
+        )
+        self.assertEqual(len(offers), 1)
+        self.assertEqual(offers[0]["page"], 19)
+        self.assertIn("Furrion", offers[0]["title"])
+        self.assertIn("CCD-0008666", offers[0]["gd_caption"])
+        self.assertIn("page 19", offers[0]["gd_caption"])
+        self.assertNotIn("Dometic", offers[0]["gd_caption"])
+
+    def test_a_second_figure_on_the_cited_page_is_kept(self):
+        reply = (
+            "**Step 2: Look at both views.**\n\n"
+            "Do this:\n1. Look at both views.\n"
+            "Fig. 1 and Fig. 2.\n"
+            "📖 Source: Thetford Water Valve Kit 42109, page 1"
+        )
+        rows = [
+            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 1, "Fig. 1 PEDAL REMOVED"),
+            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 1, "Fig. 2 INSERTING"),
+            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 7, "Fig. 9 parts"),
+        ]
+        offers = fb.gd_figures_under_step(
+            rows, reply, "show the figures", "Plumbing / Toilets", "Thetford 42070"
+        )
+        labels = " ".join(item["label"] for item in offers)
+        self.assertIn("Fig. 1", labels)
+        self.assertIn("Fig. 2", labels)
+        self.assertNotIn("Fig. 9", labels)
+        self.assertTrue(all(int(item["page"]) == 1 for item in offers))
+        self.assertTrue(all("page 1" in item["gd_caption"] for item in offers))
+
+    def test_wrong_page_and_wrong_model_show_nothing(self):
+        reply = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+        wrong_page = _gd_row(9, "Thetford Style II OM Permanent RV Toilet 42088", "Thetford", 7, "parts")
+        self.assertEqual(
+            fb.gd_figures_under_step([wrong_page], reply, "show me", "Plumbing / Toilets", "Thetford 42070"),
+            [],
+        )
+        wrong_model = _gd_row(
+            9,
+            "Thetford Style II OM Permanent RV Toilet 42088",
+            "Thetford",
+            3,
+            "page",
+            kind="page",
+            models="99999-OTHER",
+        )
+        self.assertEqual(
+            fb.gd_figures_under_step(
+                [wrong_model], reply, "show me", "Plumbing / Toilets", "Thetford 42070"
+            ),
+            [],
+        )
+
+    def test_a_missing_figure_does_not_raise(self):
+        self.assertEqual(fb.gd_figures_under_step(None, None, None, None, None), [])
+        self.assertEqual(fb.gd_figures_under_step("nope", "Step 1: Look.", "", "", ""), [])
+        broken = [{"kind": "figure", "title": "Thetford 42109", "page": "nope"}]
+        self.assertEqual(
+            fb.gd_figures_under_step(broken, "Source: Thetford 42109, page 1", "yes", "Plumbing / Toilets", "42070"),
+            [],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
