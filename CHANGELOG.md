@@ -678,3 +678,11 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Established profiles v1.0 (2026-10-11) are the standard in docs/profiles. scripts/profile_check.py scores a gate PDF or transcript PASS or FAIL per rule.
 - Still in this draft: one action per HOW line, cited-page image (42088 p3), a specific or omitted Bad line, no stray "2.", and per-document backfill counts.
 - Current main remains v4.19.54 until this draft merges.
+
+### v4.19.56 — draft — stacked on PR #85 — not merged
+- A past Guided Diagnostics session, including one marked complete, opens from history and continues with the same messages, facts, case fields, and cited pages.
+- Not fixed / reopen, or a line such as "wasn't the fix" or "it came back", rechecks the earlier reading and then the next likely cause. The reply does not blame the tech or the program.
+- Each reopen is logged (who, when, reason, session id) and flagged for review. Manager Tools lists those flags.
+- Regenerate Bay PDF writes the new finding into the concern and keeps the repair branches.
+- Scripted case: Thetford lever leak came back after the vacuum breaker. Cross-session facts do not leak.
+- Current main remains v4.19.54 until PR #85 and this draft merge. PR #75 and LEVELING stay on hold.
