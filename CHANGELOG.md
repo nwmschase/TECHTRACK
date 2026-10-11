@@ -686,3 +686,10 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Revert reason (v41955-gate, live library path): Thetford GD show-me leaked a template block and a page-7 caption on a page-3 cite. The Bay PDF printed 2 of 4 flowchart branches, a vacuum-breaker branch with no Installation, garbled "Put the vot.", towel-only tools, Bad lines that only negate Good, a glued "Flush 3 times. dry", off-case Do Not lines, and 4 figure cites with 1 image. profile_check scored that PDF 5/10 with an automatic FAIL
 - Version stamp v4.19.56 so this deploy is distinct from v4.19.55
 - Known-good tags: `known-good-v41954` → `a76c68f`
+
+### v4.19.57 — 2026-10-11 — draft, live Thetford library path
+- The figure-attach path no longer replaces the four Thetford repair branches. Supply, vacuum breaker 34123/34122, water valve 42109, and the flange seal each keep Removal, Installation, and a confirm step
+- A Guided Diagnostics show-me names the supply connection at the back of the toilet and does not paste the How template. A figure caption follows the cited page (42088 page 3), not page 7 / Step 1
+- Valve tools come from the kit Needed list. A Bad line names a real failure or stays off. The flush check no longer glues "Flush 3 times. dry". The Do Not list drops the winterizing antifreeze and ice lines
+- Proof is the live retrieval shape: tests/fixtures/thetford_live_retrieval.json (900/120 windows from 42088, 42109, and 34123/34122). Live R2 was not reachable. 42110 and the Thetford parts list have no local PDF
+- Bay tab copy describes repair branches. Version stamp v4.19.57

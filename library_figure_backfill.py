@@ -1,4 +1,7 @@
-"""Page images and figure crops for every document in the shop library.
+"""Page images and figure crops for the case manuals a manager selects.
+
+Backfill covers CCD-0008666, CCD-0007990, and the Thetford Style II docs.
+It does not queue the rest of the library.
 
 Rendering uses the same 150 dpi cropper as a single upload. The PNG is stored
 in R2 at image_path. The database row keeps that key, the caption, the page,
@@ -17,7 +20,7 @@ from sqlalchemy import text
 import manual_figures as mf
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.56"
+MODULE_REVISION = "v4.19.57"
 
 # Measured at 150 dpi from the two kit fixtures (42109 one page, 34123 two
 # pages). Mean page PNG 519584 bytes. Mean of five crops 82040 bytes.
@@ -226,17 +229,20 @@ def _insert_asset(session, document_id, page, kind, label, path, width, height, 
     )
 
 
-def _ship_png(png: bytes, path: str, upload_png, root) -> None:
-    """Upload one PNG, optionally cache it, then the caller drops the bytes."""
+def _ship_png(png: bytes, path: str, upload_png, root) -> bool:
+    """Upload one PNG. False means R2 refused it, so the caller must not store the key."""
     if root is not None and png and path:
         dest = Path(root) / path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(png)
     if upload_png and png and path:
         try:
-            upload_png(png, path, "image/png")
+            uploaded = upload_png(png, path, "image/png")
         except Exception:
-            pass
+            return False
+        if uploaded is False:
+            return False
+    return True
 
 
 def store_pdf_figures(
@@ -283,7 +289,8 @@ def store_pdf_figures(
         png = rendered.get("png") or b""
         stored_bytes += len(png)
         path = mf.asset_path(int(document_id), last_page, "page", "page")
-        _ship_png(png, path, upload_png, root)
+        if png and not _ship_png(png, path, upload_png, root):
+            raise RuntimeError("could not store the page image in R2")
         label = "page"
         caption = mf.display_caption(title, last_page, label) if title else ""
         width = int(rendered.get("width") or 0)
@@ -299,7 +306,8 @@ def store_pdf_figures(
             stored_bytes += len(fig_png)
             fig_label = figure.get("label") or ""
             fig_path = mf.asset_path(int(document_id), last_page, "figure", fig_label or "fig")
-            _ship_png(fig_png, fig_path, upload_png, root)
+            if fig_png and not _ship_png(fig_png, fig_path, upload_png, root):
+                raise RuntimeError("could not store the figure image in R2")
             fig_caption = mf.display_caption(title, last_page, fig_label) if title else (fig_label or "")
             _insert_asset(
                 session,
@@ -318,6 +326,7 @@ def store_pdf_figures(
         rendered["figures"] = []
         gc.collect()
     link_chunk_ids(session, int(document_id))
+    refresh_document_asset_note(session, int(document_id))
     next_page = last_page + 1 if page_count else 1
     done = page_count == 0 or next_page > page_count
     whole = max_pages is None or (start <= 1 and done)
@@ -335,7 +344,10 @@ def store_pdf_figures(
 def _pdf_documents(session) -> list[dict]:
     rows = _all(
         session,
-        "SELECT id, title, file_path, file_type FROM documents ORDER BY id",
+        """
+        SELECT id, title, file_path, file_type, brand, clean_title, doc_number, models
+        FROM documents ORDER BY id
+        """,
     )
     kept = []
     for row in rows:
@@ -344,6 +356,90 @@ def _pdf_documents(session) -> list[dict]:
         if kind == "pdf" or path.endswith(".pdf"):
             kept.append(row)
     return kept
+
+
+_CASE_CCD_RE = re.compile(r"CCD-?0*8666|CCD-?0*7990|\b0008666\b|\b0007990\b", re.I)
+_CASE_PART_RE = re.compile(r"\b(?:42088|42109|42110|42049|34122|34123)\b")
+_CASE_STYLE_RE = re.compile(r"style\s*ii", re.I)
+_CASE_PARTS_LIST_RE = re.compile(r"parts\s*list", re.I)
+_THETFORD_RE = re.compile(r"thetford", re.I)
+
+
+def case_backfill_document(doc: dict) -> bool:
+    """True for the Furrion FACR manuals and the Thetford Style II docs.
+
+    CCD-0008666, CCD-0007990, the Style II owner manual, the 42109 water
+    valve kit, the 42110 parts sheet, the 34123/34122 vacuum breaker, and
+    a Thetford parts list. Other manuals stay out.
+    """
+    blob = " ".join(
+        str(doc.get(key) or "")
+        for key in ("title", "clean_title", "file_path", "brand", "doc_number", "models")
+    )
+    if _CASE_CCD_RE.search(blob) or _CASE_PART_RE.search(blob):
+        return True
+    if _CASE_PARTS_LIST_RE.search(blob) and (
+        _THETFORD_RE.search(blob) or re.search(r"toilet|aqua-magic|style\s*ii", blob, re.I)
+    ):
+        return True
+    return bool(_THETFORD_RE.search(blob) and _CASE_STYLE_RE.search(blob))
+
+
+def case_backfill_documents(session) -> list[dict]:
+    """PDFs the per-case backfill is allowed to render."""
+    return [doc for doc in _pdf_documents(session) if case_backfill_document(doc)]
+
+
+def document_asset_counts(session) -> dict[int, dict]:
+    """Page-image and figure counts stored for each document. Missing docs are absent."""
+    ensure_ready(session)
+    rows = _all(
+        session,
+        """
+        SELECT document_id,
+               SUM(CASE WHEN kind = 'page' THEN 1 ELSE 0 END) AS pages,
+               SUM(CASE WHEN kind = 'figure' THEN 1 ELSE 0 END) AS figures
+        FROM doc_assets
+        GROUP BY document_id
+        """,
+    )
+    return {
+        int(row["document_id"]): {
+            "pages": int(row["pages"] or 0),
+            "figures": int(row["figures"] or 0),
+        }
+        for row in rows
+    }
+
+
+def index_status_line(title: str, indexed: bool, index_note: str = "", pages: int = 0, figures: int = 0) -> str:
+    """Index status includes the stored page-image count and the figure count."""
+    note = (index_note or "").strip() or ("indexed" if indexed else "not indexed")
+    mark = "OK" if indexed else "MISSING"
+    return (
+        f"{mark} {title} - {note} - {int(pages)} page images, {int(figures)} figures"
+    )
+
+
+def refresh_document_asset_note(session, document_id: int) -> str:
+    """Write the stored page-image and figure counts onto the document."""
+    counts = document_asset_counts(session).get(int(document_id), {"pages": 0, "figures": 0})
+    note = f"{counts['pages']} page images, {counts['figures']} figures"
+    session.execute(
+        text("UPDATE documents SET index_note = :note WHERE id = :id"),
+        {"note": _clip(note, 250), "id": int(document_id)},
+    )
+    return note
+
+
+def backfill_batch_message(result: dict) -> str:
+    """Pages stored this click, manuals finished, and what is still queued."""
+    return (
+        f"This batch: {int((result or {}).get('pages_stored') or 0)} page images stored, "
+        f"{int((result or {}).get('done') or 0)} manuals finished, "
+        f"{int((result or {}).get('failed') or 0)} failed. "
+        f"Remaining {int((result or {}).get('pending') or 0)}."
+    )
 
 
 def estimated_figure_count(pages: int) -> int:
@@ -418,14 +514,15 @@ def format_r2_projection(est: dict) -> str:
 
 
 def estimate_backfill(session) -> dict:
-    """Bytes the backfill would write for the PDFs already in this database.
+    """Bytes the per-case backfill would write.
 
+    Only CCD-0008666, CCD-0007990, and the Thetford Style II docs are counted.
     Page images are one PNG per page (the highest chunk page, or 1). Figure
     crops use the kit-sheet rate from the measured sample, which is higher
     than a text manual. The bytes are the R2 objects only.
     """
     ensure_ready(session)
-    docs = _pdf_documents(session)
+    docs = case_backfill_documents(session)
     pages = 0
     for doc in docs:
         row = _one(
@@ -474,7 +571,7 @@ def estimate_caption(est: dict) -> str:
     rate = float(est.get("crops_per_page") or 0)
     if docs == 0 or pages == 0:
         return (
-            "No manuals are in this database, so the backfill would store 0 bytes in R2. "
+            "No case manual is selected, so the backfill would store 0 bytes in R2. "
             f"A 150 dpi page image is about {page_kb:.0f} KB and a figure crop is about {crop_kb:.0f} KB. "
             "The database stores the key, caption, page, box, and chunk link, not a second copy of the PNG. "
             f"The kit sheets used for that measurement averaged {rate:.1f} crops per page. "
@@ -489,7 +586,7 @@ def estimate_caption(est: dict) -> str:
         "The database stores the key, caption, page, box, and chunk link, not the PNG. "
         f"Measured page image about {page_kb:.0f} KB, crop about {crop_kb:.0f} KB. "
         "A text manual has fewer crops than those kit sheets. "
-        "This count is the manuals in this database."
+        "This count is CCD-0008666, CCD-0007990, and the Thetford Style II docs."
     )
 
 
@@ -540,10 +637,39 @@ def open_job(session):
     return row
 
 
-def ensure_job(session) -> int:
-    """Open a backfill for every PDF, or return the job that still has work."""
+def _job_document_ids(session, job_id: int) -> set[int]:
+    rows = _all(
+        session,
+        "SELECT document_id FROM figure_backfill_items WHERE job_id = :id",
+        {"id": int(job_id)},
+    )
+    return {int(row["document_id"]) for row in rows}
+
+
+def pdf_choices(session) -> list[dict]:
+    """Case manuals a manager can backfill. The rest of the library is not listed."""
+    return [
+        {"id": int(doc["id"]), "title": (doc.get("title") or f"Document {doc['id']}").strip()}
+        for doc in case_backfill_documents(session)
+    ]
+
+
+def ensure_job(session, document_ids=None) -> int:
+    """Open a backfill for the selected case manuals.
+
+    A missing selection does not queue the library. Ids outside CCD-0008666,
+    CCD-0007990, and the Thetford Style II docs are dropped. A new selection
+    does not resume a job for a different set of manuals.
+    """
+    catalog = case_backfill_documents(session)
+    allowed = {int(doc["id"]) for doc in catalog}
+    if not document_ids:
+        return 0
+    wanted = {int(doc_id) for doc_id in document_ids} & allowed
+    if not wanted:
+        return 0
     current = open_job(session)
-    if current:
+    if current and _job_document_ids(session, int(current["id"])) == wanted:
         return int(current["id"])
     now = _now()
     session.execute(
@@ -559,7 +685,9 @@ def ensure_job(session) -> int:
     session.commit()
     job = _one(session, "SELECT id FROM figure_backfill_jobs ORDER BY id DESC LIMIT 1")
     job_id = int(job["id"])
-    for doc in _pdf_documents(session):
+    for doc in catalog:
+        if int(doc["id"]) not in wanted:
+            continue
         session.execute(
             text(
                 """
@@ -606,6 +734,7 @@ def process_backfill_batch(
             "total": 0,
             "status": "missing",
             "busy": False,
+            "pages_stored": 0,
             "error": "Figure backfill job not found.",
         }
     now_ts = time.time()
@@ -621,6 +750,7 @@ def process_backfill_batch(
             "total": counts["total"],
             "status": job["status"],
             "busy": True,
+            "pages_stored": 0,
             "error": "This backfill is already running.",
         }
     batch = batch_size if batch_size is not None else job.get("batch_size") or _BATCH
@@ -656,7 +786,7 @@ def process_backfill_batch(
         """,
         {"id": int(job_id), "batch": batch},
     )
-    done = failed = processed = 0
+    done = failed = processed = pages_stored = 0
     for index, item in enumerate(pending, 1):
         title = item.get("title") or ""
         session.execute(
@@ -680,6 +810,7 @@ def process_backfill_batch(
             )
             del data
             gc.collect()
+            pages_stored += len(indexed.get("pages") or [])
             page_count = int(indexed.get("page_count") or 0)
             figure_count = int(item.get("figure_count") or 0) + len(indexed.get("figures") or [])
             nbytes = int(item.get("byte_size") or 0) + int(indexed.get("stored_bytes") or 0)
@@ -770,6 +901,7 @@ def process_backfill_batch(
         "total": counts["total"],
         "status": status,
         "busy": False,
+        "pages_stored": pages_stored,
         "error": "",
     }
 
@@ -1276,12 +1408,313 @@ def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> li
     return groups
 
 
+def _om_page_caption(item: dict) -> bool:
+    """The Style II owner manual page caption is not a kit figure label."""
+    blob = f"{item.get('title') or ''} {item.get('caption') or ''} {item.get('label') or ''}"
+    if re.search(r"\b42088\b", blob) and re.search(r"/\s*page\b", item.get("caption") or "", re.I):
+        return True
+    return (item.get("label") or "") == "page" and bool(re.search(r"\b42088\b", blob))
+
+
+_DOC_TOKEN_RE = re.compile(
+    r"CCD-0*(\d{4,})|\b(42088|42109|42110|42049|34122|34123)\b",
+    re.I,
+)
+
+
+def _doc_tokens(text: str) -> set[str]:
+    found = set()
+    for match in _DOC_TOKEN_RE.finditer(text or ""):
+        found.add((match.group(1) or match.group(2) or "").lstrip("0").lower() or "0")
+    return found
+
+
+def _cited_doc_pages(reply: str) -> dict[str, set[int]]:
+    """Pages this reply names for a manual. Another page of that manual is not a substitute."""
+    found: dict[str, set[int]] = {}
+    blob = reply or ""
+    for match in re.finditer(
+        r"(CCD-0*\d{4,}|\b(?:42088|42109|42110|42049|34122|34123)\b)([^\n]{0,160})",
+        blob,
+        re.I,
+    ):
+        pages = {int(number) for number in re.findall(r"\bpage\s*(\d+)", match.group(2), flags=re.I)}
+        if not pages:
+            continue
+        for token in _doc_tokens(match.group(1)):
+            found.setdefault(token, set()).update(pages)
+    return found
+
+
+def _offer_from_asset(row: dict) -> dict:
+    kind = row.get("kind") or "figure"
+    label = row.get("label") or ("page" if kind == "page" else "")
+    return {
+        "id": row.get("id"),
+        "title": row.get("title") or "",
+        "page": row.get("page"),
+        "label": label,
+        "caption": row.get("caption")
+        or mf.display_caption(row.get("title") or "", row.get("page"), label),
+        "bbox": row.get("bbox") or "",
+        "png": row.get("png") or b"",
+        "file_path": row.get("file_path") or "",
+        "document_id": row.get("document_id") or 0,
+        "chunk_id": row.get("chunk_id"),
+        "kind": kind,
+        "image_path": row.get("image_path") or "",
+        "bundled": False,
+        "brand": row.get("brand") or "",
+        "product_line": row.get("product_line") or "",
+        "models": row.get("models") or "",
+        "keywords": row.get("keywords") or "",
+        "category_name": row.get("category_name") or "",
+        "clean_title": row.get("clean_title") or "",
+        "doc_number": row.get("doc_number") or "",
+    }
+
+
+def _offers_for_cited_pages(rows, cites: dict[str, set[int]]) -> list[dict]:
+    """The cited page's figure, or that same page's image when the page has no figure."""
+    by_key: dict[tuple, list] = {}
+    for row in rows or []:
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "clean_title", "file_path", "doc_number", "caption", "label")
+        )
+        tokens = _doc_tokens(blob) & set(cites)
+        if not tokens:
+            continue
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not any(page in cites[token] for token in tokens):
+            continue
+        if not (row.get("png") or row.get("image_path")):
+            continue
+        by_key.setdefault((int(row.get("document_id") or 0), page), []).append(row)
+    offers = []
+    for grouped in by_key.values():
+        figures = [row for row in grouped if (row.get("kind") or "figure") == "figure"]
+        pages = [row for row in grouped if row.get("kind") == "page"]
+        chosen = figures[:1] or pages[:1]
+        offers.extend(_offer_from_asset(row) for row in chosen)
+    return offers
+
+
+def _offer_matches_cited_page(item: dict, cites: dict[str, set[int]]) -> bool:
+    """A cited manual may only show a page the reply named."""
+    blob = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "caption", "label", "doc_number", "clean_title", "file_path")
+    )
+    tokens = _doc_tokens(blob) & set(cites)
+    if not tokens:
+        return True
+    try:
+        page = int(item.get("page") or 0)
+    except (TypeError, ValueError):
+        return False
+    return any(page in cites[token] for token in tokens)
+
+
+def gd_figure_caption(item: dict) -> str:
+    """Caption under a Guided Diagnostics figure: the document and the page."""
+    item = item or {}
+    title = str(item.get("title") or "Manual").strip() or "Manual"
+    try:
+        page = int(item.get("page") or 0)
+    except (TypeError, ValueError):
+        page = 0
+    label = str(item.get("label") or "").strip()
+    if re.fullmatch(r"step\s+\d+", label, re.I):
+        label = "page"
+    try:
+        if page:
+            return mf.display_caption(title, page, label)
+        return title
+    except Exception:
+        if page:
+            return f"{title}, page {page}"
+        return title
+
+
+def _source_cites(reply: str) -> list[tuple[str, int]]:
+    """'Source: <manual>, page N' lines. The page number is part of the cite."""
+    found = []
+    for match in re.finditer(r"Source:\s*([^,\n]{3,160}),\s*page\s+(\d+)", reply or "", re.I):
+        title = re.sub(r"^[\s📖*]+", "", match.group(1)).strip()
+        if title:
+            found.append((title, int(match.group(2))))
+    return found
+
+
+def _row_on_source(row: dict, title: str, page: int) -> bool:
+    try:
+        row_page = int(row.get("page") or 0)
+    except (TypeError, ValueError):
+        return False
+    if row_page != int(page):
+        return False
+    row_title = (row.get("title") or "").strip().lower()
+    want = (title or "").strip().lower()
+    if not row_title or not want:
+        return False
+    if want in row_title or row_title in want:
+        return True
+    return bool(_doc_tokens(want) & _doc_tokens(row_title))
+
+
+def _gd_same_case(item: dict, category: str, model: str, user_msg: str, reply: str) -> bool:
+    """Same brand and model as this case. A bad row is skipped, not raised."""
+    try:
+        if off_brand_figure(item, category, model, user_msg, reply):
+            return False
+        return bool(fits_case(item, category, model, user_msg, reply))
+    except Exception:
+        return False
+
+
+def _offer_is_cited(item: dict, cites: dict[str, set[int]], sources: list[tuple[str, int]]) -> bool:
+    """True when this offer is one of the manuals and pages the reply named."""
+    if cites and _offer_matches_cited_page(item, cites):
+        blob = " ".join(
+            str(item.get(key) or "")
+            for key in ("title", "caption", "label", "doc_number", "clean_title", "file_path")
+        )
+        if _doc_tokens(blob) & set(cites):
+            return True
+    for title, page in sources or []:
+        if _row_on_source(item, title, page):
+            return True
+    return False
+
+
+def _cited_page_offers(rows, cites: dict[str, set[int]], sources: list[tuple[str, int]]) -> list[dict]:
+    """Every figure on a cited page. The page image is used only when that page has no figure."""
+    grouped: dict[tuple, list] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        hit = False
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "clean_title", "file_path", "doc_number", "caption", "label")
+        )
+        tokens = _doc_tokens(blob) & set(cites or {})
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if tokens and any(page in (cites or {}).get(token, ()) for token in tokens):
+            hit = True
+        if any(_row_on_source(row, title, want) for title, want in sources or []):
+            hit = True
+        if not hit:
+            continue
+        if not (row.get("png") or row.get("image_path") or row.get("file_path")):
+            continue
+        grouped.setdefault((int(row.get("document_id") or 0), page, (row.get("title") or "")), []).append(row)
+    offers = []
+    for bucket in grouped.values():
+        figures = [row for row in bucket if (row.get("kind") or "figure") == "figure"]
+        pages = [row for row in bucket if row.get("kind") == "page"]
+        picked = figures or pages[:1]
+        offers.extend(_offer_from_asset(row) for row in picked)
+    return offers
+
+
+def gd_figures_under_step(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
+    """Figures for one Guided Diagnostics step. Empty when this case has none.
+
+    Cited document and page win. Another brand, another model, or another page
+    is left out. A missing crop returns nothing instead of raising.
+    """
+    try:
+        reply = reply or ""
+        user_msg = user_msg or ""
+        category = category or ""
+        model = model or ""
+        safe_rows = [row for row in (rows or []) if isinstance(row, dict)]
+        cites = _cited_doc_pages(reply)
+        sources = _source_cites(reply)
+        if cites or sources:
+            chosen = [
+                item
+                for item in _cited_page_offers(safe_rows, cites, sources)
+                if _gd_same_case(item, category, model, user_msg, reply)
+            ]
+            named = mf._numbers_named(reply)
+            if named and chosen:
+                matched = [
+                    item
+                    for item in chosen
+                    if any(number in mf._figure_numbers(item.get("label") or "") for number in named)
+                ]
+                if matched:
+                    chosen = matched
+                else:
+                    chosen = [item for item in chosen if (item.get("kind") or "") == "page"][:1]
+            if not chosen:
+                fallback = offers_for_turn(safe_rows, reply, user_msg, category, model)
+                chosen = [
+                    item
+                    for item in fallback or []
+                    if isinstance(item, dict)
+                    and _offer_is_cited(item, cites, sources)
+                    and _gd_same_case(item, category, model, user_msg, reply)
+                ]
+        else:
+            chosen = [
+                item
+                for item in offers_for_turn(safe_rows, reply, user_msg, category, model) or []
+                if isinstance(item, dict) and _gd_same_case(item, category, model, user_msg, reply)
+            ]
+        out = []
+        seen = set()
+        for item in chosen:
+            if not (item.get("png") or item.get("image_path") or item.get("file_path")):
+                continue
+            key = (
+                item.get("document_id"),
+                item.get("page"),
+                item.get("label") or "",
+                item.get("image_path") or "",
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            shown = dict(item)
+            shown["gd_caption"] = gd_figure_caption(shown)
+            out.append(shown)
+        return out
+    except Exception:
+        return []
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
-    A bundled kit sheet is not a caption the tech sees.
+    A bundled kit sheet is not a caption the tech sees. A numbered valve step
+    shows the kit label, not the owner-manual page caption. A cited page with
+    no figure shows that page image, not a figure from another page.
     """
-    chosen = select_library_figures(rows, reply, user_msg, category, model)
+    cites = _cited_doc_pages(reply)
+    cited = _offers_for_cited_pages(rows, cites) if cites else []
+    if cites:
+        # The reply named a page. Another page of that manual is not a substitute,
+        # including a "Step 1" crop on page 7 when the cite is page 3.
+        chosen = list(cited or [])
+        if not chosen:
+            chosen = [
+                item
+                for item in select_library_figures(rows, reply, user_msg, category, model) or []
+                if _offer_matches_cited_page(item, cites)
+            ]
+    else:
+        chosen = select_library_figures(rows, reply, user_msg, category, model)
+    kit_caption = mf.thetford_procedure_show_caption(reply)
     visible = []
     for item in chosen or []:
         if item.get("bundled"):
@@ -1289,7 +1722,25 @@ def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) 
         caption = item.get("caption") or ""
         if re.search(r"bundled kit sheet", caption, re.I):
             continue
+        if kit_caption and (_om_page_caption(item) or (item.get("label") or "") == "page"):
+            continue
+        if kit_caption and "42109" not in f"{item.get('title') or ''} {caption} {item.get('label') or ''}":
+            continue
+        if kit_caption:
+            item = dict(item)
+            item["caption"] = kit_caption
+            item["label"] = kit_caption
         visible.append(item)
+    if kit_caption and not visible:
+        offer = mf.thetford_procedure_show_offer(reply)
+        if offer:
+            visible = [offer]
+    asked = mf.wants_manual_image(user_msg) or bool(re.search(r"\bshow\b", user_msg or "", re.I))
+    has_art = any((row or {}).get("png") for row in (rows or []))
+    if not visible and asked and not has_art:
+        offer = mf.thetford_show_offer(reply, user_msg)
+        if offer and offer.get("png"):
+            visible = [offer]
     return visible
 
 
