@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.54"
+COACH_REVISION = "v4.19.56"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -258,7 +258,16 @@ _INSTRUCTION_LEAK_RE = re.compile(
     r"|not a chat photo embed"
     r"|use download pdf"
     r"|say so and use download pdf"
-    r"|bundled kit sheet",
+    r"|bundled kit sheet"
+    r"|will display the shop"
+    r"|document library pdf page below"
+    r"|shop library pdf page below"
+    r"|absent from the docs"
+    r"|ohms spec and the pressure spec",
+    re.I,
+)
+_NO_DIAGRAM_SENTENCE_RE = re.compile(
+    r"[^.?!\n]*\b(?:the cited page|that page|this page) has no diagram\b[^.?!\n]*[.?!]?",
     re.I,
 )
 
@@ -284,6 +293,9 @@ def strip_leaked_prompt(text: str) -> str:
     raw = (text or "").strip()
     if not raw:
         return text or ""
+    original = raw
+    raw = _NO_DIAGRAM_SENTENCE_RE.sub(" ", raw)
+    raw = re.sub(r"[ \t]{2,}", " ", raw).strip()
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", raw) if part.strip()]
     while paragraphs and _paragraph_is_prompt_echo(paragraphs[0]):
         paragraphs.pop(0)
@@ -292,7 +304,9 @@ def strip_leaked_prompt(text: str) -> str:
     paragraphs = [part for part in paragraphs if not _INSTRUCTION_LEAK_RE.search(part)]
     cleaned = "\n\n".join(paragraphs).strip()
     cleaned = _strip_excerpt_guard(cleaned)
-    if not cleaned and _INSTRUCTION_LEAK_RE.search(raw):
+    if not cleaned and (
+        _INSTRUCTION_LEAK_RE.search(original) or _NO_DIAGRAM_SENTENCE_RE.search(original)
+    ):
         return ""
     return cleaned or raw
 
@@ -316,7 +330,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
-- If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
+- If the tech asks to see a figure/diagram/page, describe the check in shop words. Do not say a PDF page will appear below. Do not invent markdown images.
 - If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
 - When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
 """
@@ -2752,6 +2766,8 @@ def ensure_facr_early_pressure_ask(
     """
     if _job_key(history, latest_msg, category_name, model_text) != "facr":
         return reply or ""
+    if "Here is the repair procedure." in (reply or "") and re.search(r"Step \d+(?::| of\b)", reply or ""):
+        return reply or ""
     facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
     text = (reply or "").strip()
     pressures_in = facts.get("facr_pressure") == "ok"
@@ -4956,6 +4972,11 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("dataline")
     if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
         found.add("ceiling")
+    if re.search(r"\bpeacemaker\b", low) and re.search(
+        r"\bcompressor\b|\bshaft\b|\blocked\b|\bcool|\b\d+(?:\.\d+)?\s*a\b",
+        low,
+    ):
+        found.add("peacemaker")
     if _levelup_firefly_confirmed(low):
         found.add("can")
     return found
@@ -4997,6 +5018,12 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         low,
     ):
         return True
+    if "peacemaker" in answered and re.search(
+        r"\b(?:do|run|repeat|perform)\b.{0,48}\b(?:peacemaker|bypass)\b"
+        r"|\b(?:peacemaker|bypass)\b.{0,48}\b(?:report|again)\b",
+        low,
+    ):
+        return True
     return False
 
 
@@ -5017,9 +5044,14 @@ def _repeats_last_body(text: str, history: list = None) -> bool:
     return bool(body) and body == _reply_body(prev)
 
 
+def _strip_list_marker(text: str) -> str:
+    """'2. Replace the valve.' is the action, not a sentence that starts with 2."""
+    return re.sub(r"^\d+\.\s+", "", (text or "").strip())
+
+
 def _as_repair_statement(sentence: str) -> str:
     """'Reseat it…' becomes 'The repair is to reseat it…', not 'The repair is reseat it…'."""
-    chosen = (sentence or "").strip()
+    chosen = _strip_list_marker(sentence)
     if not chosen.endswith("."):
         chosen += "."
     if re.match(r"(?i)^the repair\b", chosen):
@@ -5034,10 +5066,10 @@ def _as_repair_statement(sentence: str) -> str:
 
 def _direct_repair_sentence(sentence: str, job: str, answered: set[str]) -> bool:
     """A firm repair is an imperative, not a check and not an If-sentence."""
-    text = (sentence or "").strip()
+    text = _strip_list_marker(sentence)
     if not text or text.startswith("📖") or "?" in text:
         return False
-    if re.match(r"(?i)^if\b", text) or re.search(r"\bif\b", text):
+    if re.match(r"(?i)^if\b", text) or re.search(r"\bif\b", text, re.I):
         return False
     if not _is_repair_sentence(text) or not _line_fits_job(text, job):
         return False
@@ -5343,16 +5375,14 @@ LEADJACK_RR_BODY = (
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_BODY = (
-    "Bleed and resync the jacks.\n"
-    "Did the drift stop?\n"
-    "Yes, go to the next step.\n"
-    "No, do this step again.\n"
+    "Bleed and resync the jacks. "
+    "A good result is the drift stopped. "
+    "What do you see?\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_WAIT = (
-    "Report whether the drift stopped after the bleed and resync.\n"
-    "Yes, go to the next step.\n"
-    "No, do this step again.\n"
+    "Bleed and resync the jacks. "
+    "Tell me whether the drift stopped after the bleed and resync.\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
@@ -5829,6 +5859,8 @@ def _thetford_valve_repair_started(history: list = None) -> bool:
         shop = _shop_text_without_how(message.get("content") or "")
         if re.search(r"Step \d+ of 14\b", shop):
             return True
+        if "Here is the repair procedure." in shop and re.search(r"(?<!\d)Step \d+:", shop):
+            return True
     return False
 
 
@@ -5941,13 +5973,25 @@ def _thetford_text_confirms(content: str) -> bool:
 
 
 def _thetford_wait_shown(history: list, number: int) -> bool:
+    """A hold already followed this step. The next hold moves on.
+
+    The photo line is not the marker. A step that never asked for a photo
+    still holds once.
+    """
     import manual_figures as mf
 
+    seen = False
     for message in _thetford_history(history):
-        if (message.get("role") or "") != "assistant":
+        role = message.get("role") or ""
+        content = message.get("content") or ""
+        if role == "assistant":
+            shop = _shop_text_without_how(content)
+            if mf.reply_shows_step(shop, number):
+                seen = True
+            elif re.search(r"Step \d+(?::| of\b)", shop):
+                seen = False
             continue
-        content = _shop_text_without_how(message.get("content") or "")
-        if f"Step {number} of" in content and mf.PHOTO_WAIT in content:
+        if seen and role == "user" and _thetford_step_hold(content):
             return True
     return False
 
@@ -5958,6 +6002,7 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
     'Not yet' holds the step once. The same hold after that ask moves on.
     """
     import gd_step_photo as _photos
+    import manual_figures as mf
 
     seen = False
     for message in _thetford_history(history):
@@ -5965,7 +6010,7 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
         content = message.get("content") or ""
         if role == "assistant":
             content = _shop_text_without_how(content)
-        if role == "assistant" and f"Step {number} of" in content:
+        if role == "assistant" and mf.reply_shows_step(content, number):
             seen = True
             continue
         if seen and role == "user" and _thetford_text_confirms(content):
@@ -6000,14 +6045,24 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
             "Flush the toilet.\n"
             "Look for leaks."
         )
-    text = mf.format_one_step(steps[number - 1], number, len(steps))
+    text = mf.format_chat_turn(
+        steps[number - 1],
+        number,
+        len(steps),
+        show_safety=mf.show_safety_for(steps, number),
+    )
     already = any(
-        f"Step {number} of" in _shop_text_without_how(message.get("content") or "")
+        mf.reply_shows_step(_shop_text_without_how(message.get("content") or ""), number)
         for message in _thetford_history(history)
         if (message.get("role") or "") == "assistant"
     )
-    # The photo line is optional and is added once. A typed answer does not see it again.
-    if already and _thetford_step_hold(latest_msg) and not _thetford_wait_shown(history, number):
+    # A photo reminder is added once, and only when this step asked for a photo.
+    if (
+        already
+        and _thetford_step_hold(latest_msg)
+        and not _thetford_wait_shown(history, number)
+        and mf.step_needs_photo(steps[number - 1])
+    ):
         text = f"{text}\n{mf.PHOTO_WAIT}"
     if kind == "valve":
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
@@ -6073,7 +6128,7 @@ def _thetford_procedure_catalog(stage: str) -> str:
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
     parts = []
     for kind in kinds:
-        text = mf.procedure_handoff(mf.thetford_kit_layout(kind))
+        text = mf.procedure_chat_text(mf.thetford_kit_layout(kind))
         if text:
             parts.append(text)
     if not parts:
@@ -6095,6 +6150,8 @@ def ensure_thetford_flush_reply(
     """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
+    reply = strip_leaked_prompt(reply or "")
+    original = strip_leaked_prompt(original or "")
     stage = _thetford_stage(history, latest_msg)
     if _thetford_asks_procedure_list(latest_msg):
         listed = _thetford_procedure_catalog(stage)
@@ -6271,6 +6328,13 @@ def _final_shop_line(
     return _with_cite(chosen, job)
 
 
+def _restore_look_for_leaks(text: str) -> str:
+    """The filler trim eats a trailing period. The closing leak line stays whole."""
+    if (text or "").rstrip().endswith("Look for leaks"):
+        return text.rstrip() + "."
+    return text
+
+
 def without_reading_filler(
     reply: str,
     history: list = None,
@@ -6283,14 +6347,14 @@ def without_reading_filler(
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n *", "\n", text).strip(" \n.")
     if text and not _FILLER_RE.search(text):
-        return text
+        return _restore_look_for_leaks(text)
     miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
     if miss and not _FILLER_RE.search(miss):
-        return miss
+        return _restore_look_for_leaks(miss)
     fallback = _final_shop_line(history, latest_msg, category_name, model_text)
     fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
     if fallback and not _FILLER_RE.search(fallback):
-        return fallback
+        return _restore_look_for_leaks(fallback)
     return ""
 
 
@@ -6902,6 +6966,70 @@ def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
     return _has_pan_on_flameout_marker(blob or "")
 
 
+def _facr_walk_started(history: list = None) -> bool:
+    """True once an assistant turn has shown a numbered FACR removal step."""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        if "2024006031" in content and (
+            re.search(r"<!--\s*gd-step:\d+\s*-->", content)
+            or (
+                "Here is the repair procedure." in content
+                and re.search(r"Step \d+(?::| of\b)", content)
+            )
+        ):
+            return True
+    return False
+
+
+def _facr_procedure_turn(history: list = None, latest_msg: str = "", prefix: str = "") -> str:
+    """One R&R step after authorization. Yes or no moves on. A hold stays put."""
+    import manual_figures as mf
+
+    steps = list(mf.facr_rr_layout().get("steps") or [])
+    if not steps:
+        return ""
+    number = 1
+    while number <= len(steps) and _thetford_step_confirmed(history, latest_msg, number):
+        number += 1
+    if number > len(steps):
+        return (
+            "The repair procedure is done.\n"
+            "Retest for no drip and no frost.\n"
+            "Cooling amps stay at or under 8.2 A."
+        )
+    shown = any(
+        mf.reply_shows_step(_shop_text_without_how(message.get("content") or ""), number)
+        for message in _thetford_history(history)
+        if (message.get("role") or "") == "assistant"
+    )
+    lead = ""
+    if number == 1 and prefix and not shown:
+        lead = prefix.strip() + "\n"
+    text = lead + mf.format_chat_turn(
+        steps[number - 1],
+        number,
+        len(steps),
+        show_safety=mf.show_safety_for(steps, number),
+    )
+    if (
+        shown
+        and _thetford_step_hold(latest_msg)
+        and not _thetford_wait_shown(history, number)
+        and mf.step_needs_photo(steps[number - 1])
+    ):
+        text = f"{text}\n{mf.PHOTO_WAIT}"
+    text = f"{text}\nPart 2024006031."
+    figure = steps[number - 1].get("figure") if isinstance(steps[number - 1].get("figure"), dict) else {}
+    title = (figure or {}).get("title") or "Furrion Chill FACR CCD-0008666"
+    page = (figure or {}).get("page")
+    cite = f"📖 Source: {title}, page {page}" if page else f"📖 Source: {title}"
+    if cite not in text:
+        text = f"{text}\n{cite}"
+    return text
+
+
 def _facr_rr_already_sent(history: list = None) -> bool:
     for message in history or []:
         if (message.get("role") or "") != "assistant":
@@ -6954,10 +7082,18 @@ def _live_close_reply(
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
     if job == "facr":
+        # A yes or no on a removal step stays on that procedure. It is not a new prove.
+        if _facr_walk_started(history):
+            walked = _facr_procedure_turn(history, latest_msg)
+            if walked:
+                return walked
         facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
             follow = _facr_follow_after_authorization(history, latest_msg)
             if follow:
+                walked = _facr_procedure_turn(history, latest_msg, prefix=follow)
+                if walked:
+                    return walked
                 return follow
             return facr_pressure_rr_line(facts)
         if facr_gate_turn_authorizes(facts, history, latest_msg):

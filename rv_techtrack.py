@@ -1,6 +1,9 @@
 """
-RV TechTrack v4.19.54
+RV TechTrack v4.19.56
+- v4.19.56: A past Guided Diagnostics session, including one marked complete, opens from history and continues with the same messages, facts, case, and cited pages. Not fixed, or a line such as it came back, rechecks the earlier reading and then the next likely cause. The reopen is logged and flagged for review. The Bay PDF for that job regenerates with the new finding and the repair branches. Version stamp so this deploy is distinct from v4.19.55.
+- v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Guided Diagnostics replies are plain sentences with no label block and no step counter, and a manual figure appears only when the tech asks. The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Established profiles v1.0 are in docs/profiles. Each repair branch has Before you start with the safety note once, numbered Removal and Installation, and a verify step with a pass or fail. A Guided Diagnostics photo is asked only when it would help. Version stamp so this deploy is distinct from v4.19.54.
 - v4.19.54: Live v4.19.53 is reverted. Shop behavior is known-good-v41952 again. Version stamp so this deploy is distinct from v4.19.53.
+- v4.19.53: Every Bay step and Guided Diagnostics reply uses one short layout. Backfill is per case for CCD-0008666, CCD-0007990, and the Thetford Style II docs. Version stamp so this deploy is distinct from v4.19.52.
 - v4.19.52: Live v4.19.51 is reverted. Shop behavior is known-good-v41950 again. Version stamp so this deploy is distinct from v4.19.51.
 - v4.19.50: The Thetford leak test turns the RV water back on, names the pedal and the valve, and gives a good versus bad flush check. The closing line keeps Look for leaks. A page-image instruction and a bundled kit sheet caption stay off the reply. The pedal pull is one step. A bad supply connection says to fix or tighten it, and the flange line drops off-sheet part numbers. REMOVAL stays with its first step. A Brisk II sentence keeps the period before Next. A cited-figure count matches the images drawn. A sources block does not open a near-empty last page. FACR holds rooftop assembly R&R until refrigerant pressures are reported, then the next fact moves to the R&R and the verify. Version stamp so this deploy is distinct from v4.19.49.
 - v4.19.49: A Thetford figure caption stays under its figure on the same page. A water-valve finding prints the 14-step valve repair only, and a vacuum-breaker finding prints the 13-step repair only. The same crop is not drawn twice. The flush-leak sheet does not say Not stated in this sheet, and a diagnosis line does not end at That limit is. FACR short turns authorize the rooftop repair by turn 5. The Girard pressure-switch hose sentence stays on page 23. A source quote keeps Fig. 12 and does not stop at Fig. Version stamp so this deploy is distinct from v4.19.48.
@@ -226,7 +229,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.54"
+_GDC_REQUIRED_REVISION = "v4.19.56"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
@@ -237,6 +240,8 @@ _APP_MODULES = (
     "gd_library_coach",
     "library_figure_backfill",
     "bay_procedure",
+    "gd_session_store",
+    "gd_reopen",
 )
 
 
@@ -1064,6 +1069,11 @@ class AskChat(Base):
     model_text = Column(String(250), default="")
     title = Column(String(250), default="")
     final_story = Column(Text, default="")
+    status = Column(String(40), default="in_progress")
+    concern = Column(Text, default="")
+    facts_json = Column(Text, default="[]")
+    cited_json = Column(Text, default="[]")
+    case_json = Column(Text, default="{}")
     created_date = Column(DateTime, default=func.now())
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -1075,6 +1085,18 @@ class AskMessage(Base):
     role = Column(String(20), nullable=False)
     content = Column(Text, default="")
     created_date = Column(DateTime, default=func.now())
+
+
+class GdReopenLog(Base):
+    """Who reopened a Guided Diagnostics session, when, and why."""
+    __tablename__ = "gd_reopen_log"
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("ask_chats.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    who_name = Column(String(150), default="")
+    reason = Column(Text, default="")
+    status = Column(String(40), default="flagged_for_review")
+    opened_at = Column(DateTime, default=func.now())
 
 
 Base.metadata.create_all(engine)
@@ -1103,6 +1125,12 @@ def _ensure_schema_upgrades():
         import library_figure_backfill as _figure_backfill
 
         _figure_backfill.ensure_schema(engine)
+    except Exception:
+        pass
+    try:
+        import gd_session_store as _gd_sessions
+
+        _gd_sessions.ensure_schema(engine)
     except Exception:
         pass
 
@@ -1273,7 +1301,18 @@ def persist_ask_turn(user_id: int, chat_id, category_name: str, model_text: str,
             chat.model_text = model_text
     session.add(AskMessage(chat_id=chat.id, role="user", content=user_msg or ""))
     session.add(AskMessage(chat_id=chat.id, role="assistant", content=reply or ""))
+    if (getattr(chat, "status", None) or "") == "complete":
+        chat.status = "in_progress"
     session.commit()
+    try:
+        import gd_session_store as _gd_sessions
+
+        _gd_sessions.sync_context(session, chat.id)
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
     return chat.id
 
 
@@ -1837,13 +1876,16 @@ def _store_pdf_assets(doc: Document, file_bytes: bytes):
 
 
 def backfill_missing_page_assets() -> int:
-    """Render page images and figure crops for every PDF already in the library.
+    """Render page images for the Thetford Style II docs and the two Furrion FACR manuals.
 
-    The Manager Tools button runs the same job a few manuals at a time.
+    Other library manuals are not queued.
     """
     import library_figure_backfill as fb
 
-    job_id = fb.ensure_job(session)
+    ids = [int(doc["id"]) for doc in fb.case_backfill_documents(session)]
+    job_id = fb.ensure_job(session, ids)
+    if not job_id:
+        return 0
     done = 0
     while True:
         result = fb.process_backfill_batch(
@@ -3609,6 +3651,24 @@ def _figures_for_session(offers) -> list:
     return kept
 
 
+def _render_gd_figures_under_step(figures, key_prefix: str) -> None:
+    """Full-width figures directly under this step. A missing file stays blank."""
+    import library_figure_backfill as fb
+
+    for index, src in enumerate(figures or []):
+        if not isinstance(src, dict):
+            continue
+        shown = dict(src)
+        try:
+            shown["caption"] = shown.get("gd_caption") or fb.gd_figure_caption(shown)
+        except Exception:
+            shown["caption"] = shown.get("caption") or ""
+        try:
+            render_library_page_image(shown, f"{key_prefix}_{index}")
+        except Exception:
+            continue
+
+
 def render_on_demand_library_pages(pages: list):
     """Show only the requested shop-library page(s). No source-menu forest."""
     st.markdown("#### Shop library page")
@@ -3684,6 +3744,8 @@ def reset_guided_diagnostics_session():
     st.session_state["ask_input"] = ""
     st.session_state.pop("ask_pending_answer", None)
     st.session_state.pop("ask_force_send", None)
+    st.session_state.pop("ask_reopen_pdf", None)
+    st.session_state.pop("ask_facts", None)
     st.session_state["ask_model"] = ""
     st.session_state["gd_model_memory"] = ""
     st.session_state["ask_cat"] = "(any)"
@@ -3705,7 +3767,7 @@ def render_library_page_image(src: dict, key_suffix: str):
     except Exception:
         page = 1
     label = src.get("label") or ""
-    caption = src.get("caption") or mf.display_caption(title, page, label or "page")
+    caption = src.get("gd_caption") or src.get("caption") or mf.display_caption(title, page, label or "page")
     def _usable(blob) -> bool:
         if not blob:
             return False
@@ -5112,8 +5174,8 @@ Rules:
 18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Order is the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do not authorize rooftop assembly replacement until refrigerant pressures have been reported. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. Furrion FCR08/FCR10 dial/control OFF with the compressor still running or the box overcooling (won't shut off, runs when Off, freezer frozen solid with control Off): do NOT open fuse p.19, 12V continuity p.20, or LED / inverter control voltage p.18. Leave the dial fully OFF, seat the probe and wires (p.43), open C (blue) and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → part G 2021128850 / C-FCR10DCGTA-007, p.43–45. Compressor keeps running with C/T open → inverter/harness. Cite p.31 and p.43–45 only for this prove. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
-20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
-21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
+20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Stay on the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not say a PDF page will appear below. Do not instruct them to open a Source pages dropdown or list every linked page.
+21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. Do not say a library page will appear below. Do not draw a fake picture.
 22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
 23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping.
 24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels).
@@ -6237,36 +6299,51 @@ with tab_ask:
         st.session_state["ask_flow"] = None
 
     with st.expander("Recent chats (saved 30 days)", expanded=False):
-        qch = session.query(AskChat)
-        if not is_manager:
-            qch = qch.filter_by(user_id=user["id"])
-        recents = qch.order_by(AskChat.updated_date.desc()).limit(20).all()
+        import gd_session_store as _gd_sessions
+
+        recents = _gd_sessions.list_sessions(session, None if is_manager else user["id"])[:20]
         if not recents:
             st.caption("No saved chats yet. Send a message and it stays here.")
+        else:
+            st.caption("Any past session can be opened, including one marked complete.")
         for ch in recents:
-            owner = session.query(User).get(ch.user_id)
-            when = (ch.updated_date or ch.created_date)
-            when_s = when.strftime("%b %d %I:%M %p") if when else ""
+            owner = session.query(User).get(ch.get("user_id"))
+            when = ch.get("updated_date") or ch.get("created_date")
+            when_s = when.strftime("%b %d %I:%M %p") if hasattr(when, "strftime") else str(when or "")[:16]
             who = f" · {owner.full_name}" if is_manager and owner else ""
-            label = f"{(ch.title or 'Chat')[:60]} · {ch.category_name or 'any'}{who} · {when_s}"
+            status = (ch.get("status") or "in_progress").replace("_", " ")
+            label = (
+                f"{(ch.get('title') or 'Chat')[:60]} · {status} · "
+                f"{ch.get('category_name') or 'any'}{who} · {when_s}"
+            )
             cols = st.columns([4, 1])
             cols[0].write(label)
-            if cols[1].button("Open", key=f"open_ask_{ch.id}"):
-                loaded, hist = load_ask_chat(ch.id)
-                st.session_state["ask_chat_id"] = ch.id
+            if cols[1].button("Open", key=f"open_ask_{ch.get('id')}"):
+                loaded = _gd_sessions.load_session(session, ch.get("id"))
+                if not loaded:
+                    continue
+                hist = loaded.get("messages") or []
+                st.session_state["ask_chat_id"] = ch.get("id")
                 st.session_state["ask_chat"] = hist
+                st.session_state["ask_facts"] = list(loaded.get("facts") or [])
                 st.session_state["ask_sources"] = []
-                st.session_state["ask_cited_log"] = []
+                st.session_state["ask_cited_log"] = list(loaded.get("cited") or [])
                 st.session_state["ask_flow"] = None
                 st.session_state.pop("ask_auto_show", None)
                 for m in hist:
                     if (m.get("role") or "") == "assistant":
                         record_cited_pages(m.get("content") or "")
+                case = loaded.get("case") or {}
+                st.session_state["gd_category_memory"] = case.get("category") or "(any)"
+                st.session_state["gd_model_memory"] = case.get("model") or ""
+                st.session_state.pop("ask_cat", None)
+                st.session_state.pop("ask_model", None)
                 st.session_state.pop("ask_story_out", None)
                 st.session_state.pop("ask_story_area", None)
                 st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
-                if loaded and loaded.final_story:
-                    st.session_state["ask_story_out"] = loaded.final_story
+                story_row = session.query(AskChat).get(ch.get("id"))
+                if story_row and story_row.final_story:
+                    st.session_state["ask_story_out"] = story_row.final_story
                 st.rerun()
 
     cats = session.query(Category).order_by(Category.name).all()
@@ -6315,20 +6392,28 @@ with tab_ask:
     history = st.session_state.get("ask_chat") or []
     if history:
         st.markdown("#### Conversation")
-        for m in history:
+        for index, m in enumerate(history):
             role = m.get("role") or "user"
             content = m.get("content") or ""
             label = "You" if role == "user" else "Guided Diagnostics"
             with st.container(border=True):
                 st.caption(label)
-                st.markdown(content)
+                st.markdown(re.sub(r"<!--\s*gd-step:\d+\s*-->", "", content).strip())
+                if role == "user":
+                    continue
+                # Figures render only when this turn stored them. A step reply
+                # does not pull a manual image until the tech asks.
+                step_figs = (m.get("figures") or []) if isinstance(m, dict) else []
+                _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
         st.session_state["ask_input"] = ""
 
+    _last_message = history[-1] if history else {}
+    _last_has_figures = bool(isinstance(_last_message, dict) and _last_message.get("figures"))
     auto_pages = st.session_state.get("ask_auto_show") or []
-    if auto_pages:
+    if auto_pages and not _last_has_figures:
         render_on_demand_library_pages(auto_pages)
     elif st.session_state.pop("ask_auto_show_failed", None):
         fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note(
@@ -6384,6 +6469,13 @@ with tab_ask:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
     with b3:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
+    reopen_col, complete_col, pdf_col = st.columns(3)
+    with reopen_col:
+        reopen_click = st.button("Not fixed / reopen", key="ask_reopen", use_container_width=True)
+    with complete_col:
+        complete_click = st.button("Mark session complete", key="ask_complete", use_container_width=True)
+    with pdf_col:
+        regen_click = st.button("Regenerate Bay PDF", key="ask_regen_pdf", use_container_width=True)
 
     if new_chat:
         # Flag only. Widget keys are reset on the next run, before history is read.
@@ -6398,6 +6490,54 @@ with tab_ask:
         st.session_state["gd_unity_memory"] = "Not sure"
         st.session_state["ask_photo_gen"] = int(st.session_state.get("ask_photo_gen") or 0) + 1
         st.rerun()
+
+    if reopen_click:
+        import gd_reopen as _gd_reopen
+
+        st.session_state["ask_pending_answer"] = _gd_reopen.BUTTON_MESSAGE
+        st.session_state["ask_force_send"] = True
+        st.rerun()
+
+    if complete_click:
+        import gd_session_store as _gd_sessions
+
+        cid = st.session_state.get("ask_chat_id")
+        if not cid:
+            st.warning("Send a message first, then mark the session complete.")
+        else:
+            _gd_sessions.mark_complete(session, cid)
+            st.rerun()
+
+    if regen_click:
+        import gd_reopen as _gd_reopen
+        import gd_session_store as _gd_sessions
+
+        cid = st.session_state.get("ask_chat_id")
+        if not cid:
+            st.warning("Send a message first, then regenerate the Bay PDF.")
+        else:
+            loaded = _gd_sessions.load_session(session, cid) or {}
+            reason = _gd_sessions.latest_reason(session, cid)
+            try:
+                with st.spinner("Regenerating the Bay PDF…"):
+                    st.session_state["ask_reopen_pdf"] = _gd_reopen.regenerate_bay_pdf(
+                        loaded.get("case") or {},
+                        loaded.get("messages") or st.session_state.get("ask_chat") or [],
+                        reason,
+                    )
+            except Exception:
+                st.error("The Bay PDF could not be regenerated.")
+            else:
+                st.rerun()
+
+    if st.session_state.get("ask_reopen_pdf"):
+        st.download_button(
+            "Download regenerated Bay PDF",
+            data=st.session_state["ask_reopen_pdf"],
+            file_name="bay_procedure_reopen.pdf",
+            mime="application/pdf",
+            key="ask_reopen_pdf_dl",
+        )
 
     if send or st.session_state.pop("ask_force_send", False):
         msg = (st.session_state.pop("ask_pending_answer", None) or st.session_state.get("ask_input") or "").strip()
@@ -6422,21 +6562,48 @@ with tab_ask:
                     photo_review = _photos.review_step_photo(
                         photo_bytes, photo_mime, asked, msg
                     )
+            import gd_reopen as _gd_reopen
+
             with st.spinner("Searching manuals and thinking…"):
-                reply, new_flow = guided_diagnostics_reply(
-                    msg,
-                    category_name,
-                    ask_model or "",
-                    history,
-                    unity_gate=unity_gate,
-                    ask_flow=st.session_state.get("ask_flow"),
-                    photo_review=photo_review,
-                )
+                if _gd_reopen.is_reopen_phrase(msg):
+                    reply = _gd_reopen.neutral_reopen_reply(
+                        history,
+                        msg,
+                        category_name,
+                        ask_model or "",
+                    )
+                    new_flow = st.session_state.get("ask_flow")
+                else:
+                    reply, new_flow = guided_diagnostics_reply(
+                        msg,
+                        category_name,
+                        ask_model or "",
+                        history,
+                        unity_gate=unity_gate,
+                        ask_flow=st.session_state.get("ask_flow"),
+                        photo_review=photo_review,
+                    )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
             stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
             history.append({"role": "user", "content": stored_msg})
-            history.append({"role": "assistant", "content": reply})
+            import manual_figures as _mf
+            _asked_image = wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg)
+            _step_figs = []
+            if _asked_image:
+                try:
+                    import library_figure_backfill as fb
+
+                    _step_figs = fb.gd_figures_under_step(
+                        fb.meta_rows(session), reply, msg, category_name, ask_model or ""
+                    )
+                except Exception:
+                    _step_figs = []
+            history.append({
+                "role": "assistant",
+                "content": reply,
+                "figures": _figures_for_session(_step_figs),
+            })
             st.session_state["ask_chat"] = history
             st.session_state["ask_photo_gen"] = _photo_gen + 1
             st.session_state["ask_chat_id"] = persist_ask_turn(
@@ -6447,10 +6614,22 @@ with tab_ask:
                 stored_msg,
                 reply,
             )
-            import manual_figures as _mf
-            _asked_image = wants_library_page_shown(msg) or _mf.wants_manual_image(msg)
+            if _gd_reopen.is_reopen_phrase(msg):
+                import gd_session_store as _gd_sessions
+
+                _gd_sessions.record_reopen(
+                    session,
+                    st.session_state.get("ask_chat_id"),
+                    user["id"],
+                    user.get("full_name") or user.get("username") or "",
+                    msg,
+                )
             _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
-            if _offers and (_asked_image or _offers):
+            if _step_figs:
+                st.session_state.pop("ask_auto_show", None)
+                st.session_state["ask_auto_show_failed"] = False
+                st.session_state.pop("ask_auto_show_fail_note", None)
+            elif _asked_image and _offers:
                 st.session_state["ask_auto_show"] = _figures_for_session(
                     _offers[:3] if _asked_image else _offers[:1]
                 )
@@ -6695,6 +6874,23 @@ if is_manager and tab_mgr is not None:
         doc_count = session.query(Document).count()
         st.info(f"Library right now: **{doc_count}** document record(s) in the database.")
 
+        with st.expander("Reopened sessions flagged for review", expanded=False):
+            import gd_session_store as _gd_sessions
+
+            try:
+                flags = _gd_sessions.list_flags(session)
+            except Exception:
+                flags = []
+            if not flags:
+                st.caption("No sessions flagged for review.")
+            for flag in flags:
+                st.write(
+                    f"{flag.get('who_name') or 'Unknown'} · {flag.get('opened_at') or ''} · "
+                    f"session {flag.get('session_id')} · flagged for review"
+                )
+                if flag.get("reason"):
+                    st.caption(flag["reason"])
+
         try:
             _bulk_open = library_bulk_import.latest_open_job(session)
         except Exception:
@@ -6855,9 +7051,9 @@ if is_manager and tab_mgr is not None:
                     prog.progress((i + 1) / max(len(docs), 1))
                 st.success(f"Indexed OK: {ok_n} · Skipped/failed: {fail_n}")
             st.caption(
-                "Page images and figure crops are stored for every manual, with the caption, "
-                "page, and box linked to the chunk. "
-                "The backfill renders manuals already in the library, including a Lippert bulk import. "
+                "Backfill is per case. It renders page images and figure crops for "
+                "CCD-0008666, CCD-0007990, and the Thetford Style II docs. "
+                "Select those manuals below. Other library manuals are not queued. "
                 "Each click does a few manuals and saves progress, so you can leave and continue."
             )
             import library_figure_backfill as _fb
@@ -6874,14 +7070,26 @@ if is_manager and tab_mgr is not None:
                     )
             except Exception as exc:
                 st.error(f"Could not read the figure backfill: {exc}")
-            _backfill_label = (
-                "Continue figure backfill" if _open else "Backfill page images and figures"
-            )
-            if st.button(_backfill_label):
-                _job_id = _fb.ensure_job(session)
+            _pdf_choices = []
+            try:
+                _pdf_choices = _fb.pdf_choices(session)
+            except Exception:
+                _pdf_choices = []
+            _picked = []
+            if _pdf_choices:
+                _choice_labels = {int(row["id"]): row["title"] for row in _pdf_choices}
+                _picked = st.multiselect(
+                    "Backfill selected manuals",
+                    options=list(_choice_labels),
+                    format_func=lambda doc_id: _choice_labels.get(int(doc_id), str(doc_id)),
+                    key="figure_backfill_docs",
+                    help="CCD-0008666, CCD-0007990, Thetford 42088, 42109, 42110, 34123, 34122, and the Thetford parts list.",
+                )
+            if _picked and st.button("Backfill selected manuals"):
+                _job_id = _fb.ensure_job(session, _picked)
                 _bar = st.progress(0.0)
 
-                def _tick(index, total, title):
+                def _tick_selected(index, total, title):
                     _bar.progress(min(1.0, index / max(total, 1)), text=title or "Rendering")
 
                 _result = _fb.process_backfill_batch(
@@ -6890,20 +7098,49 @@ if is_manager and tab_mgr is not None:
                     download_pdf=_download_library_pdf,
                     upload_png=r2_put_bytes,
                     batch_size=2,
-                    progress=_tick,
+                    progress=_tick_selected,
+                )
+                if _result.get("busy"):
+                    st.warning("This backfill is already running.")
+                elif not _job_id:
+                    st.warning("Select at least one manual.")
+                else:
+                    st.success(_fb.backfill_batch_message(_result))
+            elif _open and not _picked and st.button("Continue figure backfill"):
+                _bar = st.progress(0.0)
+
+                def _tick_open(index, total, title):
+                    _bar.progress(min(1.0, index / max(total, 1)), text=title or "Rendering")
+
+                _result = _fb.process_backfill_batch(
+                    session,
+                    int(_open["id"]),
+                    download_pdf=_download_library_pdf,
+                    upload_png=r2_put_bytes,
+                    batch_size=2,
+                    progress=_tick_open,
                 )
                 if _result.get("busy"):
                     st.warning("This backfill is already running.")
                 else:
-                    st.success(
-                        f"This batch: {_result.get('done', 0)} rendered, "
-                        f"{_result.get('failed', 0)} failed. "
-                        f"Remaining {_result.get('pending', 0)}."
-                    )
+                    st.success(_fb.backfill_batch_message(_result))
 
             st.markdown("#### Index status by document")
+            try:
+                _asset_counts = _fb.document_asset_counts(session)
+            except Exception:
+                _asset_counts = {}
             for d in session.query(Document).order_by(Document.title).all():
-                st.write(f"{'✅' if d.indexed else '⚠️'} **{d.title}** - {d.index_note or ('indexed' if d.indexed else 'not indexed')}")
+                _counts = _asset_counts.get(int(d.id), {"pages": 0, "figures": 0})
+                st.write(
+                    _fb.index_status_line(
+                        d.title,
+                        bool(d.indexed),
+                        d.index_note or "",
+                        _counts["pages"],
+                        _counts["figures"],
+                    )
+                )
 
         with st.expander("✏️ Manage Documents (Rename / Edit / Delete)", expanded=False):
             cats = session.query(Category).order_by(Category.name).all()
