@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.41
+RV TechTrack v4.19.42
+- v4.19.42: Bulk import streams the ZIP to disk. Each page image is uploaded and released before the next page. A long manual continues from a page cursor, and a batch starts two files, so a 136-page owner's manual does not hold every page in memory.
 - v4.19.41: A Thetford flush leak follows the shop sheet. The checks go supply connection, then the vacuum breaker while flushing, then the water valve body and drive-arm seal, then the flange. A weep at the pedal does not skip the vacuum breaker. A fact the manual does not state is marked UNCONFIRMED. Guided Diagnostics can take an optional step photo. xAI vision states what it sees. An unclear or mismatched photo asks for another and does not count as the finding. The tech can type the finding instead. Each Thetford check and each repair step uses the same fields: where, safety, tools and meter setting, how, good versus bad, next, the manual figure, and a photo ask. A field the document does not state says UNCONFIRMED. Every library document stores a rendered page image and each figure crop in cloud storage. The database keeps the key, the caption, the page, the box, and the link to the chunk. Guided Diagnostics and the Bay PDF show those figures for any brand. A bundled Thetford kit image is a last resort only, and its caption says it is not from the shop library. A manager can backfill figures for manuals already loaded, including a Lippert bulk import, and can resume that job. Those steps are grouped into short sections. A typed yes, no, or short answer moves to the next step, and the photo ask is not repeated. Asking for the repair procedure returns that numbered list. A freeze sensor report such as 2k at 25C counts as the sensor reading. The BAL troubleshooting page and the Girard pressure-switch hose sentence stay on the Bay sheet. A cooktop reply does not repeat a library-excerpt instruction. Level Up replies do not repeat the same line. Ground Control says zero-point calibration is the repair, and its NO label sits off the node. Bulk import Auto-continue keeps loading the next batch.
 - v4.19.40: Guided Diagnostics and the Bay PDF say how to do each test from the cited manual page, and they show that page's cropped figure. Library indexing stores a 150 dpi page image and each Fig. crop with the chunks. A value the manual does not state is marked not stated in that document. A FACR turn does not condemn the rooftop before the pressures and does not print the internal prove note. Coleman and rear-wall ice turns do not repeat the last line. The tongue-jack part waits for the 12V reading. The dial-off prompt is not pasted twice. Ground Control reaches the manual-level step. A loose lead-jack cartridge is the 177094 repair. A Thetford flush leak starts at the supply connection, then water valve 42049/42109, then the vacuum breaker, then the flange. Once that fault is proven, Guided Diagnostics hands off one short repair step at a time and waits for a photo. The Bay procedure uses those same short Removal and Installation steps, read from the library sheet, with the kit figure beside the step and a yes or no check under it.
 - v4.19.39: A Thetford 'Not checked yet' advances to the next unasked check: supply, water valve, vacuum breaker, then the flange seal. FACR pressures reported by turn 4 authorize rooftop assembly R&R on turn 5 once the drain, pan, fan, and freeze sensor are in. A Level Up lead-jack turn does not ask the plumbing question again after the cartridge.
@@ -215,7 +216,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.41"
+_GDC_REQUIRED_REVISION = "v4.19.42"
 # Coach first: bay_procedure imports gd_library_coach while it loads.
 _APP_MODULES = ("gd_library_coach", "gd_llm", "bay_procedure")
 
@@ -694,6 +695,27 @@ def r2_download_bytes(key: str):
         return obj["Body"].read()
     except Exception:
         return None
+
+
+def r2_download_to_file(key: str, dest) -> bool:
+    """Stream one object to disk. Used for a staging ZIP so it is not held in memory."""
+    client = get_r2_client()
+    if not client or not key:
+        return False
+    path = Path(dest)
+    try:
+        obj = client.get_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=key)
+        body = obj["Body"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as out:
+            while True:
+                chunk = body.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        return path.is_file() and path.stat().st_size > 0
+    except Exception:
+        return False
 
 
 def r2_download_button(label: str, key: str, filename: str, button_key: str):
@@ -1720,22 +1742,21 @@ def _download_library_pdf(file_path: str):
     return None
 
 
-def _bulk_index_figures(document_id, pdf_bytes, title):
-    """Page images and figure crops for one bulk-import file. A failure returns ''."""
+def _bulk_index_figures(document_id, pdf_bytes, title, start_page=1, max_pages=None):
+    """Render one page window for a bulk-import file. The caller resumes the cursor."""
     import library_figure_backfill as fb
 
     if not document_id or not pdf_bytes:
         return ""
-    indexed = fb.store_pdf_figures(
+    window = fb.PAGES_PER_STEP if max_pages is None else max_pages
+    return fb.store_pdf_figures(
         session,
         int(document_id),
         pdf_bytes,
         title=title or "",
         upload_png=r2_put_bytes,
-    )
-    return (
-        f"{len(indexed.get('pages') or [])} page images, "
-        f"{len(indexed.get('figures') or [])} figures"
+        start_page=int(start_page or 1),
+        max_pages=window,
     )
 
 
@@ -2676,6 +2697,8 @@ def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
     """Return PNG bytes for a 1-based page number, or None."""
     if not PYMUPDF_AVAILABLE:
         return None
+    doc = None
+    pix = None
     try:
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         idx = max(0, min(page_num - 1, doc.page_count - 1))
@@ -2685,6 +2708,21 @@ def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
         return pix.tobytes("png")
     except Exception:
         return None
+    finally:
+        if pix is not None:
+            try:
+                pix.close()
+            except Exception:
+                pass
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+        try:
+            fitz.TOOLS.store_shrink(100)
+        except Exception:
+            pass
 
 
 CITED_PAGE_RE = re.compile(
@@ -3498,6 +3536,16 @@ def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> 
             _add_page(p)
 
     return out[:3]
+
+
+def _figures_for_session(offers) -> list:
+    """Figure metadata for the next rerun. PNG bytes stay in R2, not in session_state."""
+    kept = []
+    for item in offers or []:
+        if not isinstance(item, dict):
+            continue
+        kept.append({key: value for key, value in item.items() if key != "png"})
+    return kept
 
 
 def render_on_demand_library_pages(pages: list):
@@ -6295,7 +6343,9 @@ with tab_ask:
             _asked_image = wants_library_page_shown(msg) or _mf.wants_manual_image(msg)
             _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
             if _offers and (_asked_image or _offers):
-                st.session_state["ask_auto_show"] = _offers[:3] if _asked_image else _offers[:1]
+                st.session_state["ask_auto_show"] = _figures_for_session(
+                    _offers[:3] if _asked_image else _offers[:1]
+                )
                 st.session_state["ask_auto_show_failed"] = False
                 st.session_state.pop("ask_auto_show_fail_note", None)
             elif _asked_image:
@@ -6307,7 +6357,7 @@ with tab_ask:
                             coach_for_pages = m.get("content") or coach_for_pages
                             break
                 pages = resolve_requested_library_pages(msg, coach_for_pages)
-                st.session_state["ask_auto_show"] = pages
+                st.session_state["ask_auto_show"] = _figures_for_session(pages)
                 st.session_state["ask_auto_show_failed"] = not bool(pages)
                 if not pages:
                     cited = parse_cited_pages_from_text(coach_for_pages)
@@ -6554,6 +6604,7 @@ if is_manager and tab_mgr is not None:
                 r2_ready=r2_available(),
                 delete_bytes=r2_delete_object,
                 index_figures=_bulk_index_figures,
+                stream_download=r2_download_to_file,
             )
 
         with st.expander("👤 User Management", expanded=False):

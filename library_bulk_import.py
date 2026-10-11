@@ -12,9 +12,12 @@ panel is the only caller, and it runs only after that section is selected.
 from __future__ import annotations
 
 import csv
+import gc
 import hashlib
+import inspect
 import io
 import re
+import shutil
 import time
 import zipfile
 from datetime import datetime
@@ -27,7 +30,7 @@ CHUNK_OVERLAP = 120
 NEEDS_OCR_NOTE = "needs OCR"
 BAD_PDF_NOTE = "bad PDF"
 DEFAULT_CATEGORY = "Lippert Unsorted"
-DEFAULT_BATCH = 8
+DEFAULT_BATCH = 2
 MAX_BATCH = 40
 LOCK_SECONDS = 600
 R2_SUMMARY_PREFIXES = (
@@ -515,7 +518,7 @@ def _apply_schema(conn) -> None:
             zip_r2_key TEXT DEFAULT '',
             zip_local_path TEXT DEFAULT '',
             manifest_name VARCHAR(250) DEFAULT '',
-            batch_size INTEGER DEFAULT 8,
+            batch_size INTEGER DEFAULT 2,
             total_files INTEGER DEFAULT 0,
             note VARCHAR(400) DEFAULT '',
             lock_until REAL DEFAULT 0
@@ -546,7 +549,9 @@ def _apply_schema(conn) -> None:
             models TEXT DEFAULT '',
             doc_number VARCHAR(80) DEFAULT '',
             revision_date VARCHAR(40) DEFAULT '',
-            keywords TEXT DEFAULT ''
+            keywords TEXT DEFAULT '',
+            figure_page INTEGER DEFAULT 0,
+            page_count INTEGER DEFAULT 0
         )
         """
     )
@@ -562,6 +567,8 @@ def _apply_schema(conn) -> None:
         ("doc_number", "VARCHAR(80)"),
         ("revision_date", "VARCHAR(40)"),
         ("keywords", "TEXT"),
+        ("figure_page", "INTEGER DEFAULT 0"),
+        ("page_count", "INTEGER DEFAULT 0"),
     ):
         if name not in item_cols:
             conn.exec_driver_sql(f"ALTER TABLE bulk_import_items ADD COLUMN {name} {ddl}")
@@ -663,9 +670,10 @@ def storage_summary_lines(local: dict, r2_totals, r2_error: str = "") -> list:
     return lines
 
 
-def _pdf_members(data: bytes):
+def _pdf_members_in(path: Path):
+    """List PDF names from a ZIP already on disk. The archive is not read into memory."""
     found = []
-    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+    with zipfile.ZipFile(path) as zf:
         for info in zf.infolist():
             name = (info.filename or "").replace("\\", "/")
             if not name or name.endswith("/") or info.is_dir():
@@ -677,6 +685,23 @@ def _pdf_members(data: bytes):
                 continue
             found.append((name, int(info.file_size or 0)))
     return found
+
+
+def _write_zip_source(source, dest: Path) -> str:
+    """Copy a ZIP to disk in 1 MB blocks and return its sha256."""
+    digest = hashlib.sha256()
+    with dest.open("wb") as out:
+        if isinstance(source, (bytes, bytearray)):
+            digest.update(source)
+            out.write(source)
+        else:
+            while True:
+                block = source.read(1024 * 1024)
+                if not block:
+                    break
+                digest.update(block)
+                out.write(block)
+    return digest.hexdigest()
 
 
 def _stage_fail(message: str) -> dict:
@@ -909,11 +934,56 @@ def stage_zip_bytes(
     upload_staging=None,
 ) -> dict:
     """Write the ZIP locally, record one row per PDF, and keep an open job resumable."""
-    if not zip_bytes:
+    return stage_zip_source(
+        session,
+        zip_bytes,
+        zip_name=zip_name,
+        manifest_bytes=manifest_bytes,
+        manifest_name=manifest_name,
+        uploaded_by=uploaded_by,
+        batch_size=batch_size,
+        staging_dir=staging_dir,
+        upload_staging=upload_staging,
+    )
+
+
+def stage_zip_source(
+    session,
+    source,
+    *,
+    zip_name: str,
+    manifest_bytes: bytes | None = None,
+    manifest_name: str = "",
+    uploaded_by: int | None = None,
+    batch_size: int = DEFAULT_BATCH,
+    staging_dir="bulk_imports",
+    upload_staging=None,
+) -> dict:
+    """Stream a ZIP onto disk, then record one row per PDF.
+
+    ``source`` may be bytes or a binary file. The archive is not held in a
+    second memory copy while its members are listed.
+    """
+    if source is None or (isinstance(source, (bytes, bytearray)) and not source):
         return _stage_fail("Choose a ZIP of PDFs.")
-    sha = hashlib.sha256(zip_bytes).hexdigest()
+    folder = Path(staging_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    incoming = folder / f"incoming-{time.time_ns()}.zip"
     try:
-        members = _pdf_members(zip_bytes)
+        sha = _write_zip_source(source, incoming)
+    except Exception as exc:
+        incoming.unlink(missing_ok=True)
+        return _stage_fail(f"Could not store the ZIP: {exc}")
+    if not incoming.is_file() or incoming.stat().st_size <= 0:
+        incoming.unlink(missing_ok=True)
+        return _stage_fail("Choose a ZIP of PDFs.")
+    local = folder / f"{sha}.zip"
+    if local.exists():
+        incoming.unlink()
+    else:
+        incoming.replace(local)
+    try:
+        members = _pdf_members_in(local)
     except zipfile.BadZipFile:
         return _stage_fail("That file is not a ZIP archive.")
     manifest = Manifest()
@@ -925,10 +995,6 @@ def stage_zip_bytes(
     if not members and not manifest.rows:
         return _stage_fail("The ZIP has no PDF files.")
     batch = max(1, min(int(batch_size or DEFAULT_BATCH), MAX_BATCH))
-    folder = Path(staging_dir)
-    folder.mkdir(parents=True, exist_ok=True)
-    local = folder / f"{sha}.zip"
-    local.write_bytes(zip_bytes)
     existing = _one(
         session,
         """
@@ -1054,7 +1120,11 @@ def stage_zip_bytes(
     if upload_staging is not None:
         r2_key = f"imports/bulk/{sha}.zip"
         try:
-            saved = bool(upload_staging(zip_bytes, r2_key, "application/zip"))
+            if isinstance(source, (bytes, bytearray)):
+                saved = bool(upload_staging(source, r2_key, "application/zip"))
+            else:
+                with local.open("rb") as handle:
+                    saved = bool(upload_staging(handle, r2_key, "application/zip"))
         except Exception:
             saved = False
         if saved:
@@ -1090,23 +1160,38 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _resolve_zip(job: dict, download_zip):
+def _resolve_zip(job: dict, download_zip, stream_download=None):
     path = Path(job.get("zip_local_path") or "")
     if path.is_file() and path.stat().st_size > 0:
         return path, ""
     key = (job.get("zip_r2_key") or "").strip()
+    sha = job.get("zip_sha256") or ""
+    if not path and sha:
+        path = Path("bulk_imports") / f"{sha}.zip"
+    if key and stream_download is not None and path:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            ok = bool(stream_download(key, path))
+        except Exception:
+            ok = False
+        if ok and path.is_file() and path.stat().st_size > 0:
+            if _sha256_file(path) != sha:
+                return None, "The cloud copy of the ZIP does not match this import."
+            return path, ""
     if key and download_zip is not None:
         try:
             data = download_zip(key)
         except Exception:
             data = None
         if data:
-            if hashlib.sha256(data).hexdigest() != (job.get("zip_sha256") or ""):
+            if hashlib.sha256(data).hexdigest() != sha:
                 return None, "The cloud copy of the ZIP does not match this import."
             if not path:
-                path = Path("bulk_imports") / f"{job['zip_sha256']}.zip"
+                path = Path("bulk_imports") / f"{sha}.zip"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
+            del data
+            gc.collect()
             return path, ""
     return None, "The ZIP is not on this server. Upload the same ZIP again to continue."
 
@@ -1232,8 +1317,86 @@ def _set_item(session, item_id: int, **fields) -> None:
 
 
 def _read_member(zip_path: Path, name: str) -> bytes:
-    with zipfile.ZipFile(zip_path) as archive:
-        return archive.read(name)
+    """Stream one ZIP member to a temp file, then return that file's bytes.
+
+    The rest of the archive stays on disk.
+    """
+    dest = Path(zip_path).with_suffix(".member")
+    try:
+        with zipfile.ZipFile(zip_path) as archive, archive.open(name, "r") as src, dest.open("wb") as out:
+            shutil.copyfileobj(src, out, 1024 * 1024)
+        return dest.read_bytes()
+    finally:
+        dest.unlink(missing_ok=True)
+
+
+def _call_index_figures(index_figures, document_id, data, title, start_page):
+    """Pass the page cursor when the renderer accepts it. Older callbacks stay whole-file."""
+    if index_figures is None:
+        return None
+    params = inspect.signature(index_figures).parameters
+    if "start_page" in params or any(
+        param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()
+    ):
+        return index_figures(document_id, data, title, start_page=start_page)
+    return index_figures(document_id, data, title)
+
+
+def _figure_step(session, item, doc_id, data, title, needs: bool, note: str, index_figures, sha: str):
+    """Render the next page window. A long manual stays pending at the page cursor."""
+    start = int(item.get("figure_page") or 0) or 1
+    try:
+        result = _call_index_figures(index_figures, doc_id, data, title, start)
+    except Exception:
+        result = ""
+    if isinstance(result, dict) and not result.get("done", True):
+        next_page = int(result.get("next_page") or (start + 1))
+        page_count = int(result.get("page_count") or 0)
+        progress = f"Figures through page {max(1, next_page - 1)} of {page_count or '?'}"
+        _set_item(
+            session,
+            item["id"],
+            status="pending",
+            sha256=sha,
+            document_id=int(doc_id),
+            byte_size=len(data),
+            figure_page=next_page,
+            page_count=page_count,
+            index_note=_clip(progress, 250),
+            error="",
+        )
+        return "partial"
+    figure_note = ""
+    if isinstance(result, dict):
+        page_count = int(result.get("page_count") or len(result.get("pages") or []))
+        fig_n = session.execute(
+            text(
+                "SELECT COUNT(*) FROM doc_assets WHERE document_id = :id AND kind = 'figure'"
+            ),
+            {"id": int(doc_id)},
+        ).scalar()
+        figure_note = f"{page_count} page images, {int(fig_n or 0)} figures"
+    elif result:
+        figure_note = str(result)
+    if figure_note:
+        note = _clip(f"{note}; {figure_note}", 250)
+        session.execute(
+            text("UPDATE documents SET index_note = :note WHERE id = :id"),
+            {"note": note, "id": int(doc_id)},
+        )
+    _set_item(
+        session,
+        item["id"],
+        status="needs_ocr" if needs else "imported",
+        sha256=sha,
+        document_id=int(doc_id),
+        byte_size=len(data),
+        figure_page=0,
+        page_count=int(item.get("page_count") or 0),
+        index_note=_clip(note, 250),
+        error="",
+    )
+    return "needs_ocr" if needs else "imported"
 
 
 def _import_one(
@@ -1245,6 +1408,31 @@ def _import_one(
     uploaded_by,
     index_figures=None,
 ) -> str:
+    cursor = int(item.get("figure_page") or 0)
+    if item.get("document_id") and cursor > 0:
+        data = _read_member(zip_path, item["filename"])
+        doc = _one(
+            session,
+            "SELECT needs_ocr, index_note FROM documents WHERE id = :id",
+            {"id": int(item["document_id"])},
+        ) or {}
+        needs = bool(doc.get("needs_ocr"))
+        note = doc.get("index_note") or ""
+        try:
+            return _figure_step(
+                session,
+                item,
+                int(item["document_id"]),
+                data,
+                item.get("title") or "",
+                needs,
+                note,
+                index_figures,
+                item.get("sha256") or hashlib.sha256(data).hexdigest(),
+            )
+        finally:
+            del data
+            gc.collect()
     data = _read_member(zip_path, item["filename"])
     sha = hashlib.sha256(data).hexdigest()
     duplicate = _find_duplicate(session, sha)
@@ -1357,28 +1545,23 @@ def _import_one(
                 "keywords": keywords,
             },
         )
-    if index_figures is not None:
-        try:
-            figure_note = index_figures(doc_id, data, title) or ""
-        except Exception:
-            figure_note = ""
-        if figure_note:
-            note = _clip(f"{note}; {figure_note}", 250)
-            session.execute(
-                text("UPDATE documents SET index_note = :note WHERE id = :id"),
-                {"note": note, "id": doc_id},
-            )
-    _set_item(
-        session,
-        item["id"],
-        status="needs_ocr" if needs else "imported",
-        sha256=sha,
-        document_id=doc_id,
-        byte_size=len(data),
-        index_note=_clip(note, 250),
-        error="",
-    )
-    return "needs_ocr" if needs else "imported"
+    if index_figures is None:
+        _set_item(
+            session,
+            item["id"],
+            status="needs_ocr" if needs else "imported",
+            sha256=sha,
+            document_id=doc_id,
+            byte_size=len(data),
+            index_note=_clip(note, 250),
+            error="",
+        )
+        return "needs_ocr" if needs else "imported"
+    try:
+        return _figure_step(session, item, doc_id, data, title, needs, note, index_figures, sha)
+    finally:
+        del data
+        gc.collect()
 
 
 def _empty_result(job_id, status: str, *, error: str = "", busy: bool = False, progress=None) -> dict:
@@ -1420,6 +1603,7 @@ def process_next_batch(
     batch_size: int | None = None,
     progress=None,
     index_figures=None,
+    stream_download=None,
 ) -> dict:
     """Import the next N pending files. Commits each file, then asks for a DB backup.
 
@@ -1470,7 +1654,7 @@ def process_next_batch(
             {"id": job_id},
         )
         session.commit()
-        path, zip_error = _resolve_zip(job, download_zip)
+        path, zip_error = _resolve_zip(job, download_zip, stream_download=stream_download)
         if path is not None and _sha256_file(path) != job["zip_sha256"]:
             path = None
             zip_error = "The ZIP on disk does not match this import."
@@ -1486,7 +1670,10 @@ def process_next_batch(
                 """
                 SELECT * FROM bulk_import_items
                 WHERE job_id = :id AND status = 'pending'
-                ORDER BY tier ASC, ordinal ASC, id ASC
+                ORDER BY CASE
+                    WHEN COALESCE(figure_page, 0) > 0 AND document_id IS NOT NULL THEN 0
+                    ELSE 1
+                END, tier ASC, ordinal ASC, id ASC
                 LIMIT :batch
                 """,
                 {"id": job_id, "batch": batch},
@@ -1508,7 +1695,10 @@ def process_next_batch(
                 """
                 SELECT * FROM bulk_import_items
                 WHERE job_id = :id AND status = 'working'
-                ORDER BY tier ASC, ordinal ASC, id ASC
+                ORDER BY CASE
+                    WHEN COALESCE(figure_page, 0) > 0 AND document_id IS NOT NULL THEN 0
+                    ELSE 1
+                END, tier ASC, ordinal ASC, id ASC
                 """,
                 {"id": job_id},
             )
@@ -1542,8 +1732,15 @@ def process_next_batch(
                     needs += 1
                 elif status == "duplicate":
                     duplicates += 1
-                else:
+                elif status != "partial":
                     failed += 1
+                if status == "partial":
+                    if progress:
+                        try:
+                            progress(index, len(working), item.get("filename") or "")
+                        except Exception:
+                            pass
+                    break
                 if progress:
                     try:
                         progress(index, len(working), item.get("filename") or "")
@@ -1621,6 +1818,7 @@ def render_manager_bulk_panel(
     staging_dir="bulk_imports",
     delete_bytes=None,
     index_figures=None,
+    stream_download=None,
 ) -> None:
     """Draw the Manager Tools bulk-import panel.
 
@@ -1691,6 +1889,8 @@ def render_manager_bulk_panel(
         pick = st.selectbox("In-progress import", labels, key="bulk_job_pick")
         job = opens[labels.index(pick)]
 
+    if st.session_state.pop("bulk_drop_zip", False):
+        st.session_state.pop("bulk_zip", None)
     if "bulk_batch_size" not in st.session_state:
         st.session_state["bulk_batch_size"] = DEFAULT_BATCH
     batch_size = int(
@@ -1700,7 +1900,7 @@ def render_manager_bulk_panel(
             max_value=MAX_BATCH,
             step=1,
             key="bulk_batch_size",
-            help="Each run imports this many PDFs, then saves the database.",
+            help="Each run starts this many PDFs, then saves the database. A long manual renders a few pages and continues on the next run.",
         )
     )
     auto = st.checkbox(
@@ -1728,6 +1928,19 @@ def render_manager_bulk_panel(
             f"duplicates {counts['duplicate']} · failed {counts['failed']} · "
             f"remaining {counts['pending']}"
         )
+        rendering = _all(
+            session,
+            """
+            SELECT filename, index_note
+            FROM bulk_import_items
+            WHERE job_id = :id AND COALESCE(figure_page, 0) > 0
+            ORDER BY ordinal ASC
+            LIMIT 3
+            """,
+            {"id": int(job["id"])},
+        )
+        for item in rendering:
+            st.write(f"Rendering figures: {item.get('filename')} {item.get('index_note') or ''}".rstrip())
         pace = import_pace_line(st.session_state, counts["done_files"], time.time())
         if pace:
             st.write(pace)
@@ -1766,6 +1979,7 @@ def render_manager_bulk_panel(
                 reset_pace=bool(go),
                 delete_zip=delete_bytes,
                 index_figures=index_figures,
+                stream_download=stream_download,
             )
         elif should_run and not r2_ready:
             st.session_state["bulk_run_chain"] = False
@@ -1778,9 +1992,10 @@ def render_manager_bulk_panel(
         elif zip_up is None:
             st.warning("Choose a ZIP of PDFs.")
         else:
-            staged = stage_zip_bytes(
+            zip_up.seek(0)
+            staged = stage_zip_source(
                 session,
-                zip_up.getvalue(),
+                zip_up,
                 zip_name=zip_up.name,
                 manifest_bytes=manifest.getvalue() if manifest is not None else None,
                 manifest_name=manifest.name if manifest is not None else "",
@@ -1789,6 +2004,14 @@ def render_manager_bulk_panel(
                 staging_dir=staging_dir,
                 upload_staging=upload_bytes,
             )
+            try:
+                zip_up.seek(0)
+                zip_up.truncate(0)
+                zip_up.close()
+            except Exception:
+                pass
+            st.session_state["bulk_drop_zip"] = True
+            gc.collect()
             if not staged["ok"]:
                 st.error(staged["error"])
             else:
@@ -1808,6 +2031,7 @@ def render_manager_bulk_panel(
                     reset_pace=True,
                     delete_zip=delete_bytes,
                     index_figures=index_figures,
+                    stream_download=stream_download,
                 )
 
 
@@ -1825,6 +2049,7 @@ def _run_batch(
     reset_pace=False,
     delete_zip=None,
     index_figures=None,
+    stream_download=None,
 ) -> None:
     before = job_progress(session, job_id)
     arm_import_pace(st.session_state, before["done_files"], time.time(), reset=reset_pace)
@@ -1851,6 +2076,7 @@ def _run_batch(
                 batch_size=batch_size,
                 progress=_tick,
                 index_figures=index_figures,
+                stream_download=stream_download,
             )
         except Exception as exc:
             st.session_state["bulk_run_chain"] = False
