@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.50
+RV TechTrack v4.19.51
+- v4.19.51: The FACR08 bay sheet carries the numbered proving checks and the rooftop removal. Each step is one short action with where, safety, how, good versus bad, and next. A library figure sits beside a step that cites CCD-0008666 or CCD-0007990 by document and page. Guided Diagnostics walks that removal after the pressure authorization. Look for leaks keeps its period. The DO NOT list stays together. The step 4 show-me caption uses the kit label. Cited figures match the images drawn. The kit crop keeps its caption. S20 keeps item F, part. S02 does not re-ask the Peacemaker bypass. Version stamp so this deploy is distinct from v4.19.50.
 - v4.19.50: The Thetford leak test turns the RV water back on, names the pedal and the valve, and gives a good versus bad flush check. The closing line keeps Look for leaks. A page-image instruction and a bundled kit sheet caption stay off the reply. The pedal pull is one step. A bad supply connection says to fix or tighten it, and the flange line drops off-sheet part numbers. REMOVAL stays with its first step. A Brisk II sentence keeps the period before Next. A cited-figure count matches the images drawn. A sources block does not open a near-empty last page. FACR holds rooftop assembly R&R until refrigerant pressures are reported, then the next fact moves to the R&R and the verify. Version stamp so this deploy is distinct from v4.19.49.
 - v4.19.49: A Thetford figure caption stays under its figure on the same page. A water-valve finding prints the 14-step valve repair only, and a vacuum-breaker finding prints the 13-step repair only. The same crop is not drawn twice. The flush-leak sheet does not say Not stated in this sheet, and a diagnosis line does not end at That limit is. FACR short turns authorize the rooftop repair by turn 5. The Girard pressure-switch hose sentence stays on page 23. A source quote keeps Fig. 12 and does not stop at Fig. Version stamp so this deploy is distinct from v4.19.48.
 - v4.19.48: The Thetford Bay PDF carries the numbered 14-step water-valve repair, with a manual figure only beside a step the sheet cites. HappiJac stays off the PSX1 sheet. Level Up drops LCD tables, header strips, and off-topic same-family crops. Ground Control draws one crop. FACR authorizes the rooftop repair by turn 5. The Girard pressure-switch hose sentence stays. Empty fields stay off the reply, and the filler sentence is said at most once. The lead-jack bleed answer is yes or no. Version stamp so this deploy is distinct from v4.19.47.
@@ -224,7 +225,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.50"
+_GDC_REQUIRED_REVISION = "v4.19.51"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
