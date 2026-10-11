@@ -956,6 +956,12 @@ def _facr_path() -> dict:
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
+            "Do not condemn the unit on pressures alone.",
+            "Do not run the unit without filters.",
+            "Do not use an open flame near R32.",
+            "Do not slide the unit.",
+            "Do not change DIP switches with the power on.",
+            "Do not use the troubleshooting manual part numbers on this 8K unit.",
         ],
         "sources": [
             {
@@ -6597,10 +6603,18 @@ def _confirmed_thetford_kind(proc: BayProcedure, history=None) -> str:
     return marks[-1][1]
 
 
+def _procedure_keeps_repeated_figures(procedure: dict) -> bool:
+    """FACR cites the same library page on more than one step. Each cite keeps the image."""
+    title = (procedure or {}).get("title") or ""
+    return bool(re.search(r"FACR08|2024006031", title))
+
+
 def _drop_repeated_procedure_figures(procedures: list) -> None:
     """The first step that uses a crop keeps it. Later steps stay text."""
     seen = set()
     for procedure in procedures or []:
+        if _procedure_keeps_repeated_figures(procedure):
+            continue
         for step in procedure.get("steps") or []:
             figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
             png = (figure or {}).get("png") or b""
@@ -6635,6 +6649,88 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     if layout.get("steps"):
         proc.procedures = [layout]
     _drop_repeated_procedure_figures(proc.procedures)
+    return proc
+
+
+def _facr_doc_token(text: str) -> str:
+    """8666 or 7990 when this title is one of the two FACR library docs."""
+    raw = text or ""
+    low = re.sub(r"[\s_]", "", raw.lower())
+    if "ccd-0008666" in raw.lower() or "ccd0008666" in low:
+        return "8666"
+    if "ccd-0007990" in raw.lower() or "ccd0007990" in low:
+        return "7990"
+    return ""
+
+
+def place_facr_library_figures(proc: BayProcedure, rows) -> BayProcedure:
+    """Copy a library PNG onto the procedure step that cites that doc and page.
+
+    A row for another document or another page is left unused. No bundled crop
+    is read from disk. A step that names a figure without a page stays text.
+    """
+    import manual_figures as mf
+
+    if not proc.procedures or not rows:
+        return proc
+    if not any(_procedure_keeps_repeated_figures(item) for item in proc.procedures):
+        return proc
+    indexed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        png = row.get("png") or row.get("image_png") or b""
+        if not png or mf.png_is_blank(png):
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "file_path", "caption", "label")
+        )
+        doc = _facr_doc_token(blob)
+        if not doc:
+            continue
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if page <= 0:
+            continue
+        indexed.append((doc, page, png))
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            page = figure.get("page")
+            if not page:
+                continue
+            doc = _facr_doc_token(figure.get("title") or "")
+            if not doc:
+                continue
+            try:
+                want = int(page)
+            except (TypeError, ValueError):
+                continue
+            for idoc, ipage, png in indexed:
+                if idoc == doc and ipage == want:
+                    figure["png"] = png
+                    break
+    return proc
+
+
+def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
+    """Proving checks and rooftop R&R. Attached after the sheet scrub so cites stay.
+
+    The short bay order and the flowchart stay the diagnosis. The numbered
+    checks live on the procedure, which the scrub does not rewrite.
+    """
+    import manual_figures as mf
+
+    if not is_facr_rooftop_freeze_context(proc.category, proc.model, proc.concern):
+        return proc
+    proving = mf.facr_proving_layout()
+    repair = mf.facr_rr_layout()
+    proc.procedures = [item for item in (proving, repair) if item.get("steps")]
     return proc
 
 
@@ -6773,7 +6869,7 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
             )
             break
     proc.step_figures = placed
-    return place_thetford_kit_crops(proc)
+    return place_facr_library_figures(place_thetford_kit_crops(proc), rows)
 
 
 def _plain_kit_procedures(packets, job: str) -> list:
@@ -7167,9 +7263,11 @@ def compile_bay_procedure(
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
     return dedupe_sheet_figures(
-        attach_thetford_repair_procedures(
-            place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
-            history=history,
+        attach_facr_procedures(
+            attach_thetford_repair_procedures(
+                place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
+                history=history,
+            )
         )
     )
 
@@ -8879,7 +8977,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     import manual_figures as mf
 
     title = procedure.get("title") or "Repair procedure"
-    _add_plain_item(body, "REPAIR PROCEDURE", size=10, gap=2)
+    _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
     if before:
@@ -8892,7 +8990,11 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         section_label = ""
         if step.get("section") != section:
             section = step.get("section") or ""
-            section_label = "REMOVAL" if section == "removal" else "INSTALLATION"
+            section_label = {
+                "removal": "REMOVAL",
+                "installation": "INSTALLATION",
+                "prove": "PROVING CHECKS",
+            }.get(section, "")
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
