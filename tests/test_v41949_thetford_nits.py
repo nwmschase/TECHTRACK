@@ -126,7 +126,9 @@ class TestInstructionTextStaysOffTheReply(unittest.TestCase):
             "Plumbing / Toilets",
             "Thetford 42070",
         )
-        self.assertEqual(offers, [])
+        self.assertTrue(offers)
+        self.assertTrue(offers[0].get("png"))
+        self.assertNotIn("will display the shop", (offers[0].get("caption") or "").lower())
         backfill = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
             "library_figure_backfill.py"
         ).read_text(encoding="utf-8")
@@ -136,7 +138,9 @@ class TestInstructionTextStaysOffTheReply(unittest.TestCase):
 class TestPedalPullIsOneStep(unittest.TestCase):
     def test_the_grab_and_the_pull_share_a_step(self):
         steps = mf.thetford_kit_layout("valve")["steps"]
-        self.assertEqual(len(steps), 13)
+        self.assertGreater(len(steps), 13)
+        for step in steps:
+            self.assertLessEqual(len(step.get("actions") or []), 2)
         hits = [
             step for step in steps
             if "pull the pedal" in " ".join(step.get("actions") or []).lower()
@@ -146,7 +150,9 @@ class TestPedalPullIsOneStep(unittest.TestCase):
         self.assertIn("grab the front of the pedal", actions)
         self.assertIn("pull the pedal up and off", actions)
         breaker = mf.thetford_kit_layout("breaker")["steps"]
-        self.assertEqual(len(breaker), 13)
+        self.assertGreater(len(breaker), 1)
+        for step in breaker:
+            self.assertLessEqual(len(step.get("actions") or []), 1)
 
 
 class TestDiagnosisLines(unittest.TestCase):

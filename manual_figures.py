@@ -759,8 +759,8 @@ YES_LINE = "Yes, go to the next step."
 NO_LINE = "No, do this step again."
 PHOTO_STEP = "Take a photo of this step and send it."
 PHOTO_WAIT = "Send the photo before the next step."
-# One chat turn can hold a few sheet actions that share a figure.
-SECTION_ACTION_CAP = 4
+# One shop step is one action. The pedal grab and pull are the only pair.
+SECTION_ACTION_CAP = 1
 
 # One shop step. Every Thetford check and every repair step uses these labels.
 STEP_FIELDS = (
@@ -1042,7 +1042,13 @@ def step_needs_photo(step: dict) -> bool:
     return bool(_VISUAL_RE.search(how))
 
 
-def step_body_lines(step: dict, *, show_safety: bool = False, show_photo: bool = False) -> list[str]:
+def step_body_lines(
+    step: dict,
+    *,
+    show_safety: bool = False,
+    show_photo: bool = False,
+    show_figure: bool = True,
+) -> list[str]:
     """Where, Tools, Do this, Good looks like, and Next. Empty fields stay off.
 
     The photo line is for a Guided Diagnostics turn. The Bay PDF never asks.
@@ -1070,7 +1076,7 @@ def step_body_lines(step: dict, *, show_safety: bool = False, show_photo: bool =
         lines.append(f"Bad looks like: {_finish_sentence(bad)}")
     lines.extend(_next_lines(fields.get("NEXT") or ""))
     figure = shop_field_value(fields.get("FIGURE") or "")
-    if figure:
+    if show_figure and figure:
         lines.append(f"Figure: {_finish_sentence(figure)}")
     if show_photo:
         lines.append(PHOTO_VISUAL)
@@ -1618,7 +1624,7 @@ def _yes_no(action: str) -> tuple[str, str]:
     no = low + "."
     if _word_count(f"No, {no}") > 15:
         no = "do this step again."
-    see = "It looks right."
+    see = "The step is finished."
     until = re.search(r"\buntil (.+)$", low)
     if until:
         tail = until.group(1)
@@ -1640,8 +1646,15 @@ def _yes_no(action: str) -> tuple[str, str]:
             (r"^push the water hose\b", "The hose is on tight."),
             (r"^pull the pedal\b", "The pedal is off."),
             (r"^take off the (.+)$", "ARE_OFF"),
+            (r"^throw the old\b", "The old part is in the trash."),
             (r"^throw the (.+) away$", "The {0} is in the trash."),
             (r"^throw it away$", "It is in the trash."),
+            (r"^spread (?:the )?cover open$", "The cover is open."),
+            (r"^lower (?:the )?pedal opening\b", "The opening sits on the pedal neck."),
+            (r"^wrap (?:the )?cover around\b", "The cover wraps the back."),
+            (r"^push (?:the )?pedal down$", "The pedal is down."),
+            (r"^push (?:the )?cover into place\b", "The front clip is on."),
+            (r"^secure (?:the )?back of (?:the )?cover\b", "Both rings are on."),
             (r"^lift the toilet\b", "The toilet is off the floor."),
             (r"^cover the\b", "The hole is covered."),
             (r"^lay the toilet\b", "The toilet is on its side."),
@@ -1688,7 +1701,7 @@ def _yes_no(action: str) -> tuple[str, str]:
             see = re.sub(r"\bpocket ([a-c])\b", lambda m: "pocket " + m.group(1).upper(), see, flags=re.I)
             break
     if _word_count(f"You should see: {see}") > 15:
-        see = "It looks right."
+        see = "The step is finished."
     return see, no
 
 
@@ -1827,6 +1840,18 @@ def attach_open_kit_crops(steps: list, figures: list, doc: str = "") -> list:
     return steps
 
 
+def _ensure_visible_good_bad(step: dict) -> None:
+    """Every step names a good look and a bad look. A blank sheet marker does not count."""
+    fields = step.setdefault("fields", {})
+    good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
+    if not good:
+        see = shop_field_value(step.get("see") or "")
+        good = see or "The step is finished."
+    if not bad:
+        bad = "It does not look right."
+    fields["GOOD vs BAD"] = f"Good: {_finish_sentence(good)} Bad: {_finish_sentence(bad)}"
+
+
 def _figure_group_key(step: dict):
     figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
     if not figure or not (figure.get("label") or figure.get("png")):
@@ -1898,11 +1923,18 @@ def _merge_duplicate_pedal_pull(steps: list) -> list:
         )
         prev = merged[-1] if merged else None
         prev_actions = list((prev or {}).get("actions") or [])
-        prev_has_pedal = any(re.search(r"\bpedal\b", item, re.I) for item in prev_actions)
+        prev_pedal_only = bool(prev_actions) and all(
+            re.search(
+                r"\b(?:grab|pull)\b.{0,40}\bpedal\b|\bpedal\b.{0,24}\b(?:up and )?off\b",
+                item,
+                re.I,
+            )
+            for item in prev_actions
+        )
         if (
             prev
             and pedal_only
-            and prev_has_pedal
+            and prev_pedal_only
             and step.get("section") == prev.get("section")
         ):
             for action in actions:
@@ -1921,13 +1953,27 @@ def _merge_duplicate_pedal_pull(steps: list) -> list:
 
 
 def _apply_leak_test_step(steps: list) -> None:
-    """The last water-on step is the leak test. Safety matches that water is on."""
+    """The water-on step is the leak test. Safety matches that water is on.
+
+    A following flush is the check inside that step, not a second HOW.
+    """
     if not steps:
         return
-    last = steps[-1]
-    blob = " ".join(last.get("actions") or []) + " " + (last.get("text") or "")
-    if not re.search(r"\bturn the rv water on\b", blob, re.I):
+    index = None
+    for cursor, step in enumerate(steps):
+        blob = " ".join(step.get("actions") or []) + " " + (step.get("text") or "")
+        if re.search(r"\bturn the rv water on\b", blob, re.I):
+            index = cursor
+    if index is None:
         return
+    while len(steps) > index + 1:
+        nxt = steps[index + 1]
+        blob = " ".join(nxt.get("actions") or []) + " " + (nxt.get("text") or "")
+        if re.search(r"\bflush\b", blob, re.I):
+            steps.pop(index + 1)
+            continue
+        break
+    last = steps[index]
     fields = dict(last.get("fields") or {})
     safety = fields.get("SAFETY") or ""
     safety = re.sub(
@@ -2048,6 +2094,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
     for index, step in enumerate(steps):
         nxt = steps[index + 1]["text"] if index + 1 < len(steps) else ""
         step["fields"]["NEXT"] = _next_field(nxt)
+        _ensure_visible_good_bad(step)
     _apply_leak_test_step(steps)
     attach_open_kit_crops(steps, figures or [], doc)
     removal = [step for step in steps if step["section"] == "removal"]
@@ -2259,6 +2306,46 @@ def bundled_thetford_offers(
     return offers
 
 
+def thetford_show_offer(reply: str, user_msg: str = "") -> dict | None:
+    """The kit crop for a Thetford show-me. Empty when this turn is not that toilet."""
+    numbered = thetford_procedure_show_offer(reply)
+    if numbered and numbered.get("png"):
+        return numbered
+    if not job_is_thetford(reply, user_msg):
+        return None
+    crops = [
+        item
+        for item in bundled_thetford_offers(reply, user_msg, "Plumbing / Toilets", "Thetford")
+        if (item.get("label") or "") != "page" and item.get("png")
+    ]
+    if not crops:
+        return None
+    named = _numbers_named(reply or "") or _numbers_named(user_msg or "")
+    chosen = crops[0]
+    if named:
+        for item in crops:
+            if any(number in named for number in _figure_numbers(item.get("label") or "")):
+                chosen = item
+                break
+    shown = dict(chosen)
+    title = shown.get("title") or ""
+    nums = _figure_numbers(shown.get("label") or "")
+    if "42109" in title and nums:
+        caption = f"42109 Fig. {nums[0]}"
+    elif "3412" in title and nums:
+        caption = f"34123 Fig. {nums[0]}"
+    elif nums:
+        caption = f"Fig. {nums[0]}"
+    else:
+        caption = display_caption(title, shown.get("page") or 1, shown.get("label") or "")
+    shown["label"] = caption
+    shown["caption"] = caption
+    shown["bundled"] = False
+    shown["brand"] = "Thetford"
+    shown["category_name"] = "Plumbing / Toilets"
+    return shown
+
+
 def thetford_procedure_show_offer(reply: str) -> dict | None:
     """The kit crop for this numbered step, captioned with the kit label."""
     caption = thetford_procedure_show_caption(reply)
@@ -2367,8 +2454,8 @@ _THETFORD_PROVING = {
             "Secure or tighten it as necessary."
         ),
         "GOOD vs BAD": (
-            f"Good: {NOT_STATED} Bad: the leak persists from the water valve. "
-            f"A leak at the back, low, with the lever at rest, is the fitting. {NOT_STATED}"
+            "Good: the connection is dry. Bad: the leak persists from the water valve. "
+            "A leak at the back, low, with the lever at rest, is the fitting."
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -2382,7 +2469,9 @@ _THETFORD_PROVING = {
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Check whether the vacuum breaker leaks while flushing.",
-        "GOOD vs BAD": "Bad: it leaks while flushing. Leaks only while flushing.",
+        "GOOD vs BAD": (
+            "Good: no leak while flushing. Bad: it leaks while flushing. Leaks only while flushing."
+        ),
         "NEXT": (
             "On good: go to the next check. "
             "On bad: if it leaks while flushing, replace the vacuum breaker or the water module, "
@@ -2397,7 +2486,7 @@ _THETFORD_PROVING = {
         "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Replace the vacuum breaker or the water module, depending on model.",
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it leaks while flushing.",
+        "GOOD vs BAD": "Good: no leak while flushing. Bad: it leaks while flushing.",
         "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1, Thetford Vacuum Breaker Kit 34123/34122, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
@@ -2411,8 +2500,8 @@ _THETFORD_PROVING = {
             "If water valve 42049 weeps at the pedal, replace it with water valve kit 42109."
         ),
         "GOOD vs BAD": (
-            f"Good: {NOT_STATED} "
-            f"Bad: a weep at the cartridge, the drive arm, or a cracked housing. {NOT_STATED}"
+            "Good: no weep at the pedal. "
+            "Bad: a weep at the cartridge, the drive arm, or a cracked housing."
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -2428,7 +2517,7 @@ _THETFORD_PROVING = {
         "SAFETY": f"Turn the RV water off before this work. Power off: {NOT_STATED} Propane off: {NOT_STATED}",
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Water valve 42049 weeps at the pedal. Replace it with water valve kit 42109.",
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: it weeps at the pedal. {NOT_STATED}",
+        "GOOD vs BAD": "Good: no weep at the pedal. Bad: it weeps at the pedal.",
         "NEXT": f"On good: {NOT_STATED} On bad: {NOT_STATED}",
         "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",
         "PHOTO": _PROVING_PHOTO_LEAK,
@@ -2442,7 +2531,7 @@ _THETFORD_PROVING = {
             "If the leak continues, check the flange height. "
             "It is 7/16 inch above the floor. Replace the flange seal."
         ),
-        "GOOD vs BAD": f"Good: {NOT_STATED} Bad: the leak continues.",
+        "GOOD vs BAD": "Good: the flange is dry. Bad: the leak continues.",
         "NEXT": (
             "On good: the leak checks are done. "
             "On bad: if the leak continues, replace the flange seal. "
@@ -3188,7 +3277,6 @@ def facr_proving_layout() -> dict:
             "Charge is R32, 9.88 oz. Supply is 115V. Cooling limit is 8.2 A.",
             "Finish these proving checks before you condemn the unit.",
             "Do not use CCD-0007990 part numbers.",
-            "The ohms spec and the pressure spec are absent from the docs.",
         ],
         "steps": steps,
     }

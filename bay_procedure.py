@@ -826,11 +826,10 @@ def _facr_path() -> dict:
     return {
         "primary_cite": "Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.",
         "pattern_means": (
-            "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Melt water that cannot leave the evaporator pan ices the pan, "
-            "backs up, and drips into the coach. Prove the evaporator pan, the condensate drain, "
-            "the base-pan slope, and suction-line icing before you condemn the sealed system. "
-            "A clear drain and a dry interior after a full cool cycle is a passed assembly prove."
+            "A rooftop freeze or interior drip is condensate. "
+            "Melt water ices the pan and drips in. "
+            "Prove the pan, drain, slope, and suction line. "
+            "A clear drain after a cool cycle passes."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -946,13 +945,14 @@ def _facr_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the drain, then retest cooling. If the pan is dry and the drain is open, go to the drain-path confirm next.",
-            "Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up, clear the trough and the hose, then retest cooling. Water leaving freely is a pass: run cooling and watch the pan. Water that stands or overflows is a fail: stay on the drain until it leaves.",
-            "Watch the pan and the freeze-sensor area through a full cool cycle. If ice reforms in the pan or the drain ices shut, clear it again and prove the drain remains clear on the next cycle. If the drain remains clear and the pan stays dry, check the base-pan slope next.",
-            "Check the base-pan slope. If the pan is tilted so water cannot reach the drain, correct the slope and retest cooling. If the pan is level and water still reaches the drain, check suction-line icing next.",
-            "Check the suction line for icing. If the suction line is iced, correct that icing and retest cooling. If the suction line is clear, run a full cool cycle and watch the interior.",
-            "Retest cooling and watch the pan and the interior. If the freeze or leak is gone, the correction is the drain, pan, slope, or suction work you just proved. You are done.",
-            "If ice or drip returns with a clear drain, a level base pan, and a clear suction line, replace the rooftop unit after that assembly prove. That is the confirmed correction.",
+            "Inspect the rooftop pan and the condensate drain.",
+            "Clean the drainage openings if the drain is restricted.",
+            "Clear ice in the drain. Confirm water leaves.",
+            "Watch the pan through a full cool cycle.",
+            "Check the base-pan slope.",
+            "Check the suction-line for icing.",
+            "Retest cooling. Watch the pan and the interior.",
+            "Replace the rooftop unit after that assembly prove. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
@@ -6715,7 +6715,7 @@ def place_facr_library_figures(proc: BayProcedure, rows) -> BayProcedure:
                 if idoc == doc and ipage == want:
                     figure["png"] = png
                     break
-    return proc
+    return apply_bay_oem_fallback(proc, rows)
 
 
 def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
@@ -6731,6 +6731,68 @@ def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
     proving = mf.facr_proving_layout()
     repair = mf.facr_rr_layout()
     proc.procedures = [item for item in (proving, repair) if item.get("steps")]
+    return apply_bay_oem_fallback(proc, None)
+
+
+# Same OEM doc and page as the crops already in assets/bay-oem.
+_BAY_OEM_PAGE = {
+    ("7990", 7): "ccd7990-p7.png",
+    ("7990", 4): "ccd7990-p4.png",
+    ("8666", 10): "ccd8666-p10.png",
+    ("8666", 19): "ccd8666-p19.png",
+    ("8122", 36): "ccd8122-fig36.png",
+}
+
+
+def _doc_has_figure_rows(rows, doc_token: str) -> bool:
+    """True when this document already has a stored page image or figure crop."""
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        png = row.get("png") or row.get("image_png") or b""
+        if not png:
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "file_path", "caption", "label")
+        )
+        if _facr_doc_token(blob) == doc_token:
+            return True
+    return False
+
+
+def apply_bay_oem_fallback(proc: BayProcedure, rows) -> BayProcedure:
+    """Draw the bay-oem crop until that document has figure rows.
+
+    The caption is the OEM doc and page. A step with no crop stays without a
+    text-only figure line.
+    """
+    import manual_figures as mf
+
+    if not proc.procedures:
+        return proc
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            png = figure.get("png") or b""
+            if png and not mf.png_is_blank(png):
+                continue
+            doc = _facr_doc_token(figure.get("title") or "")
+            try:
+                page = int(figure.get("page") or 0)
+            except (TypeError, ValueError):
+                page = 0
+            if not doc or page <= 0:
+                continue
+            if _doc_has_figure_rows(rows, doc):
+                continue
+            name = _BAY_OEM_PAGE.get((doc, page))
+            if not name:
+                continue
+            figure["png"] = _cropped_oem_png(name) if name in _OEM_FIGURE_CROP else load_oem_figure_png(name)
+            figure["label"] = f"CCD-000{doc}, page {page}"
     return proc
 
 
@@ -8997,7 +9059,9 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
                 fig_h = 150.0
                 fig_w = max(120.0, 150.0 * width / max(height, 1))
             label = re.sub(r"\s+", " ", ((figure or {}).get("label") or "")).strip()
-            if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
+            if re.fullmatch(r"CCD-000\d+, page \d+", label):
+                cap = label
+            elif re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
                 cap = label
             else:
                 cap = mf.display_caption(
@@ -9014,7 +9078,9 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             safety_line = f"Safety: {safety_line}"
             shown_safety = safety
         heading = mf.step_heading(step, index)
-        body_lines = mf.step_body_lines(step, show_safety=False, show_photo=False)
+        body_lines = mf.step_body_lines(
+            step, show_safety=False, show_photo=False, show_figure=False
+        )
         if safety_line:
             body_lines = [safety_line, *body_lines]
 
@@ -9031,7 +9097,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         head_m, body_m, text_h = _measure_step(text_w)
         caption_h = (cap_m.height + 6.0) if cap_m else 0.0
         pair_h = (fig_h + caption_h) if has else 0.0
-        row = max(text_h + 10.0, pair_h + 6.0)
+        row = max(text_h + 6.0, pair_h + 4.0)
         if step.get("caution"):
             row += 22.0
         heading_h = 0.0
@@ -9052,7 +9118,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             pair_h = fig_h + caption_h
             text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
             head_m, body_m, text_h = _measure_step(text_w)
-            row = max(text_h + 10.0, pair_h + 6.0)
+            row = max(text_h + 6.0, pair_h + 4.0)
             if step.get("caution"):
                 row += 22.0
             if row + heading_h + 8 > body.remaining():

@@ -5111,8 +5111,8 @@ Rules:
 18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Order is the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do not authorize rooftop assembly replacement until refrigerant pressures have been reported. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
 18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
 19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. Furrion FCR08/FCR10 dial/control OFF with the compressor still running or the box overcooling (won't shut off, runs when Off, freezer frozen solid with control Off): do NOT open fuse p.19, 12V continuity p.20, or LED / inverter control voltage p.18. Leave the dial fully OFF, seat the probe and wires (p.43), open C (blue) and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → part G 2021128850 / C-FCR10DCGTA-007, p.43–45. Compressor keeps running with C/T open → inverter/harness. Cite p.31 and p.43–45 only for this prove. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
-20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Tell them the shop Document Library PDF page is displayed below from the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not instruct them to open a Source pages dropdown or list every linked page.
-21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. If a figure is needed, say TechTrack will display the shop Document Library page below. Do not draw a fake picture.
+20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Stay on the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not say a PDF page will appear below. Do not instruct them to open a Source pages dropdown or list every linked page.
+21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. Do not say a library page will appear below. Do not draw a fake picture.
 22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
 23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping.
 24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels).
@@ -6899,6 +6899,48 @@ if is_manager and tab_mgr is not None:
                         f"{_result.get('failed', 0)} failed. "
                         f"Remaining {_result.get('pending', 0)}."
                     )
+            _pdf_choices = []
+            try:
+                _pdf_choices = _fb.pdf_choices(session)
+            except Exception:
+                _pdf_choices = []
+            if _pdf_choices:
+                _choice_labels = {int(row["id"]): row["title"] for row in _pdf_choices}
+                _picked = st.multiselect(
+                    "Backfill selected manuals",
+                    options=list(_choice_labels),
+                    format_func=lambda doc_id: _choice_labels.get(int(doc_id), str(doc_id)),
+                    key="figure_backfill_docs",
+                    help="CCD-0008666, CCD-0007990, and the Thetford kits can run alone. The whole library stays on the button above.",
+                )
+                if st.button("Backfill selected manuals"):
+                    if not _picked:
+                        st.warning("Select at least one manual.")
+                    else:
+                        _job_id = _fb.ensure_job(session, _picked)
+                        _bar = st.progress(0.0)
+
+                        def _tick_selected(index, total, title):
+                            _bar.progress(min(1.0, index / max(total, 1)), text=title or "Rendering")
+
+                        _result = _fb.process_backfill_batch(
+                            session,
+                            _job_id,
+                            download_pdf=_download_library_pdf,
+                            upload_png=r2_put_bytes,
+                            batch_size=2,
+                            progress=_tick_selected,
+                        )
+                        if _result.get("busy"):
+                            st.warning("This backfill is already running.")
+                        elif not _job_id:
+                            st.warning("Select at least one manual.")
+                        else:
+                            st.success(
+                                f"This batch: {_result.get('done', 0)} rendered, "
+                                f"{_result.get('failed', 0)} failed. "
+                                f"Remaining {_result.get('pending', 0)}."
+                            )
 
             st.markdown("#### Index status by document")
             for d in session.query(Document).order_by(Document.title).all():

@@ -258,7 +258,12 @@ _INSTRUCTION_LEAK_RE = re.compile(
     r"|not a chat photo embed"
     r"|use download pdf"
     r"|say so and use download pdf"
-    r"|bundled kit sheet",
+    r"|bundled kit sheet"
+    r"|will display the shop"
+    r"|document library pdf page below"
+    r"|shop library pdf page below"
+    r"|absent from the docs"
+    r"|ohms spec and the pressure spec",
     re.I,
 )
 
@@ -316,7 +321,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
-- If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
+- If the tech asks to see a figure/diagram/page, describe the check in shop words. Do not say a PDF page will appear below. Do not invent markdown images.
 - If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
 - When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
 """
@@ -6143,6 +6148,8 @@ def ensure_thetford_flush_reply(
     """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
+    reply = strip_leaked_prompt(reply or "")
+    original = strip_leaked_prompt(original or "")
     stage = _thetford_stage(history, latest_msg)
     if _thetford_asks_procedure_list(latest_msg):
         listed = _thetford_procedure_catalog(stage)

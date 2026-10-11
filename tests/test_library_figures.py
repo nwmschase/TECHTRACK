@@ -334,6 +334,23 @@ class TestBackfillJob(FigureCase):
         )
         module = (ROOT / "library_figure_backfill.py").read_text(encoding="utf-8")
         self.assertNotIn("import streamlit", module)
+        app = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
+        self.assertIn("Backfill selected manuals", app)
+        self.assertIn("pdf_choices", app)
+
+    def test_selected_manuals_do_not_queue_the_whole_library(self):
+        first = self.add_document("Furrion Chill FACR CCD-0008666", "Furrion", "library/8666.pdf")
+        second = self.add_document(
+            "Furrion Rooftop HVAC CCD-0007990", "Furrion", "library/7990.pdf"
+        )
+        third = self.add_document("Thetford Water Valve Kit 42109", "Thetford", "library/valve.pdf")
+        whole = fb.ensure_job(self.session)
+        self.assertEqual(fb._job_document_ids(self.session, whole), {first, second, third})
+        picked = fb.ensure_job(self.session, [first, second])
+        self.assertNotEqual(picked, whole)
+        self.assertEqual(fb._job_document_ids(self.session, picked), {first, second})
+        again = fb.ensure_job(self.session, [first, second])
+        self.assertEqual(again, picked)
 
 
 class TestBulkImportFigures(unittest.TestCase):

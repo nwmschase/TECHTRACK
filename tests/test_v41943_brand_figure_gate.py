@@ -547,7 +547,9 @@ class TestThetfordCursorWalksAllFourteen(unittest.TestCase):
             {"role": "user", "content": "No leak while flushing."},
             {"role": "assistant", "content": nxt + HOW},
         ]
-        for number in range(2, 14):
+        total = len(mf.thetford_kit_layout("valve")["steps"])
+        self.assertGreater(total, 13)
+        for number in range(2, total + 1):
             nxt = _turn("Yes.", history)
             self.assertIn(f"**Step {number}:", nxt)
             self.assertNotRegex(nxt, rf"(?<!\d)Step {number - 1}:")
@@ -849,22 +851,10 @@ class TestLiveThetfordTranscript(unittest.TestCase):
             {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 3 WATER")},
         ]
         # Each real answer leaves the step that already shipped and opens the next one.
-        # The pedal pull shares the floor-seal step, so it is not its own answer.
-        facts = (
-            "Water is off.",
-            "The bolt covers are off.",
-            "The floor seal is off.",
-            "Thumb is in the low spot.",
-            "The retainer is held.",
-            "The inlet seal is out.",
-            "The inlet seal is in.",
-            "The new valve is in.",
-            "The drive pin is closed.",
-            "The pedal is on the pivot.",
-            "The toilet is stood up.",
-            "The toilet is on the bolts.",
-        )
-        for number, answer in enumerate(facts, start=2):
+        total = len(mf.thetford_kit_layout("valve")["steps"])
+        self.assertGreater(total, 13)
+        for number in range(2, total + 1):
+            answer = "Yes."
             step = _turn(answer, history)
             self.assertIn(f"**Step {number}:", step, answer)
             self.assertNotRegex(step, rf"(?<!\d)Step {number - 1}:", answer)
@@ -875,7 +865,7 @@ class TestLiveThetfordTranscript(unittest.TestCase):
                 {"role": "user", "content": answer},
                 {"role": "assistant", "content": _stored_live_step(step, how, "Fig. 1")},
             ]
-        self.assertEqual(seen, list(range(1, 14)))
+        self.assertEqual(seen, list(range(1, total + 1)))
         done = _turn("The water is on.", history)
         self.assertIn("The repair procedure is done.", done)
         self.assertIn("Look for leaks.", done)
@@ -1078,5 +1068,5 @@ class TestThetfordProcedureStepsOneAndFour(unittest.TestCase):
         self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
-        self.assertEqual(steps.index(water) + 1, 1)
-        self.assertEqual(steps.index(pedal) + 1, 3)
+        self.assertEqual(steps.index(water), 0)
+        self.assertLess(steps.index(pedal), steps.index(thumb))

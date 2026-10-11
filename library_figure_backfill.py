@@ -17,7 +17,7 @@ from sqlalchemy import text
 import manual_figures as mf
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.52"
+MODULE_REVISION = "v4.19.51"
 
 # Measured at 150 dpi from the two kit fixtures (42109 one page, 34123 two
 # pages). Mean page PNG 519584 bytes. Mean of five crops 82040 bytes.
@@ -540,10 +540,39 @@ def open_job(session):
     return row
 
 
-def ensure_job(session) -> int:
-    """Open a backfill for every PDF, or return the job that still has work."""
+def _job_document_ids(session, job_id: int) -> set[int]:
+    rows = _all(
+        session,
+        "SELECT document_id FROM figure_backfill_items WHERE job_id = :id",
+        {"id": int(job_id)},
+    )
+    return {int(row["document_id"]) for row in rows}
+
+
+def pdf_choices(session) -> list[dict]:
+    """Manuals a manager can backfill one at a time."""
+    return [
+        {"id": int(doc["id"]), "title": (doc.get("title") or f"Document {doc['id']}").strip()}
+        for doc in _pdf_documents(session)
+    ]
+
+
+def ensure_job(session, document_ids=None) -> int:
+    """Open a backfill for every PDF, or only the manuals the manager selected.
+
+    A selected job does not resume the whole-library job, and the whole-library
+    button does not resume a one-manual job.
+    """
+    catalog = _pdf_documents(session)
+    all_ids = {int(doc["id"]) for doc in catalog}
+    if document_ids is None:
+        wanted = set(all_ids)
+    else:
+        wanted = {int(doc_id) for doc_id in document_ids} & all_ids
+        if not wanted:
+            return 0
     current = open_job(session)
-    if current:
+    if current and _job_document_ids(session, int(current["id"])) == wanted:
         return int(current["id"])
     now = _now()
     session.execute(
@@ -559,7 +588,9 @@ def ensure_job(session) -> int:
     session.commit()
     job = _one(session, "SELECT id FROM figure_backfill_jobs ORDER BY id DESC LIMIT 1")
     job_id = int(job["id"])
-    for doc in _pdf_documents(session):
+    for doc in catalog:
+        if int(doc["id"]) not in wanted:
+            continue
         session.execute(
             text(
                 """
@@ -1276,12 +1307,22 @@ def figures_beside_steps(rows, steps, category: str = "", model: str = "") -> li
     return groups
 
 
+def _om_page_caption(item: dict) -> bool:
+    """The Style II owner manual page caption is not a kit figure label."""
+    blob = f"{item.get('title') or ''} {item.get('caption') or ''} {item.get('label') or ''}"
+    if re.search(r"\b42088\b", blob) and re.search(r"/\s*page\b", item.get("caption") or "", re.I):
+        return True
+    return (item.get("label") or "") == "page" and bool(re.search(r"\b42088\b", blob))
+
+
 def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) -> list[dict]:
     """Library figures for this turn. A missing library figure shows nothing.
 
-    A bundled kit sheet is not a caption the tech sees.
+    A bundled kit sheet is not a caption the tech sees. A numbered valve step
+    shows the kit label, not the owner-manual page caption.
     """
     chosen = select_library_figures(rows, reply, user_msg, category, model)
+    kit_caption = mf.thetford_procedure_show_caption(reply)
     visible = []
     for item in chosen or []:
         if item.get("bundled"):
@@ -1289,7 +1330,25 @@ def offers_for_turn(rows, reply: str, user_msg: str, category: str, model: str) 
         caption = item.get("caption") or ""
         if re.search(r"bundled kit sheet", caption, re.I):
             continue
+        if kit_caption and (_om_page_caption(item) or (item.get("label") or "") == "page"):
+            continue
+        if kit_caption and "42109" not in f"{item.get('title') or ''} {caption} {item.get('label') or ''}":
+            continue
+        if kit_caption:
+            item = dict(item)
+            item["caption"] = kit_caption
+            item["label"] = kit_caption
         visible.append(item)
+    if kit_caption and not visible:
+        offer = mf.thetford_procedure_show_offer(reply)
+        if offer:
+            visible = [offer]
+    asked = mf.wants_manual_image(user_msg) or bool(re.search(r"\bshow\b", user_msg or "", re.I))
+    has_art = any((row or {}).get("png") for row in (rows or []))
+    if not visible and asked and not has_art:
+        offer = mf.thetford_show_offer(reply, user_msg)
+        if offer and offer.get("png"):
+            visible = [offer]
     return visible
 
 

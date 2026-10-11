@@ -115,7 +115,11 @@ class TestSharedStepStructure(unittest.TestCase):
         self.assertIn("Here is the repair procedure.", shown)
         self.assertRegex(shown, r"\*\*Step 4: .+\*\*")
         self.assertIn("\n\nDo this:\n1. ", shown)
-        self.assertIn("Where:", shown)
+        located = next(
+            step for step in valve
+            if any(line.startswith("Where:") for line in mf.step_body_lines(step))
+        )
+        self.assertIn("Where:", mf.format_one_step(located, 1, len(valve)))
         self.assertNotIn("Yes, go to the next step.", shown)
         self.assertNotIn("A photo is optional.", shown)
         self.assertNotIn("PHOTO:", shown)
@@ -132,6 +136,28 @@ class TestSharedStepStructure(unittest.TestCase):
         visual = mf.format_one_step(look, 4, 32)
         self.assertEqual(visual.count(mf.PHOTO_VISUAL), 1)
         self.assertIn("\n\nDo this:\n1. Look for drip on the coil.", visual)
+        first = valve[0]
+        shown_first = mf.format_one_step(first, 1, len(valve), show_safety=True)
+        self.assertIn("Good looks like:", shown_first)
+        self.assertIn("Bad looks like:", shown_first)
+        self.assertEqual(shown_first.count("\n1. "), 1)
+        self.assertNotIn("\n2. ", shown_first)
+        vacuum = mf.thetford_proving_line("vacuum")
+        import library_figure_backfill as fb
+        offers = fb.offers_for_turn([], vacuum, "show me", "Plumbing / Toilets", "Thetford 42070")
+        self.assertTrue(offers and offers[0].get("png"))
+        leaked = __import__("gd_library_coach").strip_leaked_prompt(
+            "TechTrack will display the shop Document Library PDF page below.\n\n"
+            "Check the vacuum breaker."
+        )
+        self.assertNotIn("will display the shop", leaked.lower())
+        self.assertIn("vacuum breaker", leaked.lower())
+        self.assertNotIn(
+            "ohms spec",
+            __import__("gd_library_coach").strip_leaked_prompt(
+                "The ohms spec and the pressure spec are absent from the docs."
+            ).lower(),
+        )
 
     def test_other_bay_order_steps_use_the_same_heading(self):
         proc = compile_bay_procedure(

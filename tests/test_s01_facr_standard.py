@@ -170,7 +170,14 @@ class TestFacrSheet(unittest.TestCase):
         proc = _sheet()
         for step in _steps(proc):
             figure = step.get("figure") or {}
-            self.assertFalse((figure or {}).get("png"))
+            page = figure.get("page")
+            title = figure.get("title") or ""
+            label = figure.get("label") or ""
+            if "7990" in title and page == 7 or "8666" in title and page == 19:
+                self.assertTrue(figure.get("png"), (title, page, label))
+                self.assertRegex(label, r"CCD-000\d+, page \d+")
+            elif not page:
+                self.assertFalse(figure.get("png"))
         png20 = _png((10, 10, 10))
         png7 = _png((20, 20, 80))
         png_other = _png((80, 20, 20))
@@ -207,6 +214,7 @@ class TestFacrSheet(unittest.TestCase):
         proc = _sheet()
         pages = compose_sheet(proc)
         self.assertGreaterEqual(len(pages), 4)
+        self.assertLess(len(pages), 12)
         text = "\n".join(item.text for page in pages for item in page.texts).lower()
         self.assertIn("proving checks", text)
         self.assertIn("removal", text)
@@ -231,6 +239,13 @@ class TestFacrSheet(unittest.TestCase):
         self.assertIn("2024006031", text)
         self.assertNotIn("unconfirmed", text)
         self.assertNotIn("not stated", text)
+        self.assertNotIn("absent from the docs", text)
+        self.assertNotIn("will display the shop", text)
+        self.assertNotIn("\nfigure:", "\n" + text)
+        for sentence in re.split(r"(?<=[.!?])\s+", " ".join(proc.bay_order)):
+            self.assertLessEqual(mf._word_count(sentence), 12, sentence)
+        for sentence in re.split(r"(?<=[.!?])\s+", proc.pattern_means):
+            self.assertLessEqual(mf._word_count(sentence), 12, sentence)
         trace = []
         render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])

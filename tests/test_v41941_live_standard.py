@@ -61,7 +61,9 @@ class TestBundledThetfordFigures(unittest.TestCase):
             CAT,
             MODEL,
         )
-        self.assertEqual(offers, [])
+        self.assertTrue(offers)
+        self.assertTrue(offers[0].get("png"))
+        self.assertNotIn("will display the shop", " ".join(item.get("caption") or "" for item in offers).lower())
         note = figure_render_honesty_note("Thetford Water Valve Kit 42109", True)
         self.assertIn("could not load", note.lower())
         miss = fb.offers_for_turn(
@@ -103,7 +105,9 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
             for procedure in proc.procedures
             if "42109" in (procedure.get("title") or "")
         )
-        self.assertEqual(len(valve["steps"]), 13)
+        self.assertGreater(len(valve["steps"]), 13)
+        for step in valve["steps"]:
+            self.assertLessEqual(len(step.get("actions") or []), 2)
         blob = " ".join(proc.bay_order).lower()
         self.assertIn("supply", blob)
         self.assertIn("vacuum", blob)

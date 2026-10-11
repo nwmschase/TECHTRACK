@@ -91,7 +91,9 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         self.assertFalse(any("3412" in title for title in titles))
         self.assertEqual(len(proc.procedures), 1)
         valve = proc.procedures[0]
-        self.assertEqual(len(valve["steps"]), 13)
+        self.assertGreater(len(valve["steps"]), 13)
+        for step in valve["steps"]:
+            self.assertLessEqual(len(step.get("actions") or []), 2)
         water = valve["steps"][0]
         pedal = next(
             step for step in valve["steps"]
