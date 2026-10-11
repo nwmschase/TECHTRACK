@@ -61,7 +61,9 @@ class TestBundledThetfordFigures(unittest.TestCase):
             CAT,
             MODEL,
         )
-        self.assertEqual(offers, [])
+        self.assertTrue(offers)
+        self.assertTrue(offers[0].get("png"))
+        self.assertNotIn("will display the shop", " ".join(item.get("caption") or "" for item in offers).lower())
         note = figure_render_honesty_note("Thetford Water Valve Kit 42109", True)
         self.assertIn("could not load", note.lower())
         miss = fb.offers_for_turn(
@@ -78,7 +80,8 @@ class TestBundledThetfordFigures(unittest.TestCase):
         source = root.joinpath("rv_techtrack.py").read_text(encoding="utf-8")
         backfill = root.joinpath("library_figure_backfill.py").read_text(encoding="utf-8")
         self.assertIn("offers_for_turn", source)
-        self.assertIn("Backfill page images and figures", source)
+        self.assertIn("Backfill selected manuals", source)
+        self.assertNotIn("Backfill page images and figures", source)
         self.assertNotIn('st.button("Backfill page images")', source)
         self.assertIn("st.file_uploader(", source)
         self.assertIn("Photo (optional)", source)
@@ -103,7 +106,9 @@ class TestBayProcedureWithoutLibraryCrops(unittest.TestCase):
             for procedure in proc.procedures
             if "42109" in (procedure.get("title") or "")
         )
-        self.assertEqual(len(valve["steps"]), 13)
+        self.assertGreater(len(valve["steps"]), 13)
+        for step in valve["steps"]:
+            self.assertEqual(len(step.get("actions") or []), 1)
         blob = " ".join(proc.bay_order).lower()
         self.assertIn("supply", blob)
         self.assertIn("vacuum", blob)
@@ -138,33 +143,36 @@ class TestOptionalPhotoAndProcedureList(unittest.TestCase):
         self.history = _procedure_history(first)
 
     def test_typed_yes_no_and_a_short_answer_advance_once(self):
-        self.assertIn("Step 1 of", self.first)
-        self.assertIn("Yes, go to the next step.", self.first)
-        self.assertIn("No, do this step again.", self.first)
-        self.assertLess(int(self.first.split("Step 1 of ", 1)[1].split(".", 1)[0]), 20)
+        self.assertIn("**Step 1:", self.first)
+        self.assertIn("Do this:", self.first)
+        self.assertNotIn("Yes, go to the next step.", self.first)
+        self.assertNotIn("No, do this step again.", self.first)
+        self.assertRegex(self.first, r"\*\*Step 1: \S+")
         for answer in ("Yes.", "No.", "Water is off."):
             reply = _turn(answer, self.history)
-            self.assertIn("Step 2 of", reply, answer)
+            self.assertIn("**Step 2:", reply, answer)
+            self.assertNotRegex(reply, r"(?<!\d)Step 1:", answer)
             self.assertNotIn("Send the photo before the next step.", reply, answer)
         held = _turn("Not yet.", self.history)
-        self.assertIn("Step 1 of", held)
-        self.assertIn("Send the photo before the next step.", held)
-        self.assertEqual(held.count("Send the photo before the next step."), 1)
+        self.assertIn("**Step 1:", held)
+        self.assertNotIn("Send the photo before the next step.", held)
+        self.assertNotRegex(held, r"(?<!\d)Step 2:")
         again = _turn("Not yet.", self.history + [
             {"role": "user", "content": "Not yet."},
             {"role": "assistant", "content": held},
         ])
-        self.assertIn("Step 2 of", again)
+        self.assertIn("**Step 2:", again)
         self.assertNotIn("Send the photo before the next step.", again)
         shown = _turn("show me the figure", self.history)
-        self.assertIn("Step 1 of", shown)
-        self.assertNotIn("Step 2 of", shown)
+        self.assertIn("**Step 1:", shown)
+        self.assertNotRegex(shown, r"(?<!\d)Step 2:")
 
     def test_repair_procedure_is_the_numbered_list(self):
         reply = _turn("What is the repair procedure?", self.history)
         self.assertIn("REMOVAL", reply)
         self.assertIn("INSTALLATION", reply)
         self.assertIn("\n1.", reply)
+        self.assertIn("**Step 1:", reply)
         self.assertNotIn("Step 1 of", reply)
         self.assertLess(reply.lower().find("removal"), reply.lower().find("installation"))
         low = reply.lower()
