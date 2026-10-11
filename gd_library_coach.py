@@ -5226,6 +5226,39 @@ LEADJACK_CARTRIDGE_FOLLOW = (
     + "\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
+LEADJACK_RR_BODY = (
+    "1. Remove the front lead-jack cartridge valve, part 177094.\n"
+    "2. Install the new cartridge valve, part 177094.\n"
+    "3. Use the parts-list figure, item F.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+LEADJACK_VERIFY_BODY = (
+    "Bleed and resync the jacks.\n"
+    "Did the drift stop?\n"
+    "Yes, go to the next step.\n"
+    "No, do this step again.\n"
+    "Part 177094 is the cartridge valve.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
+LEADJACK_VERIFY_WAIT = (
+    "Report whether the drift stopped after the bleed and resync.\n"
+    "Yes, go to the next step.\n"
+    "No, do this step again.\n"
+    "Part 177094 is the cartridge valve.\n"
+    + LEADJACK_CARTRIDGE_CITE_TOWABLE
+    + "\n"
+    + LEADJACK_CARTRIDGE_CITE_FW
+    + "\n"
+    "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
+)
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
 
 
@@ -5420,17 +5453,68 @@ def _leadjack_pushes_forward(latest_msg: str) -> bool:
     return bool(words) and len(words) <= 4 and _leadjack_affirmed(latest_msg)
 
 
+def _leadjack_ack(latest_msg: str) -> str:
+    """One short line for the fact just reported. It does not restate the last reply."""
+    low = _norm(latest_msg)
+    if _leadjack_override_out(latest_msg):
+        return "Override screw is backed out."
+    if _leadjack_plumbing_stated(latest_msg) or "plumbing checked" in low:
+        return "Plumbing checks correct."
+    if _leadjack_loose_cartridge(latest_msg):
+        return "The cartridge was loose."
+    if re.search(r"\bnot checked yet\b", low):
+        return "That check is still open."
+    if re.search(r"\bwhat(?:'s| is) the repair\b", low):
+        return "The repair is part 177094."
+    if low and _leadjack_affirmed(latest_msg) and len(low.split()) <= 4:
+        return "That check is good."
+    return "That fact is in."
+
+
+def _leadjack_post_body(history: list = None) -> str:
+    """After the repair is named: R&R and the figure, then bleed and resync."""
+    blob = _norm(_prior_assistant_text(history))
+    if "report whether the drift stopped" in blob:
+        return LEADJACK_VERIFY_WAIT
+    if "bleed and resync" in blob:
+        return LEADJACK_VERIFY_WAIT
+    if "parts-list figure" in blob:
+        return LEADJACK_VERIFY_BODY
+    return LEADJACK_RR_BODY
+
+
+def _leadjack_post_repair(history: list = None, latest_msg: str = "") -> str:
+    """The latest tech message picks the next stage. The previous line does not."""
+    ack = _leadjack_ack(latest_msg)
+    body = _leadjack_post_body(history)
+    line = f"{ack}\n{body}"
+    last = _norm(_last_assistant_text(history))
+    if last and _norm(line) == last:
+        if body == LEADJACK_RR_BODY:
+            body = LEADJACK_VERIFY_BODY
+        elif body == LEADJACK_VERIFY_BODY:
+            body = LEADJACK_VERIFY_WAIT
+        else:
+            body = LEADJACK_RR_BODY
+        line = f"{ack}\n{body}"
+    return line
+
+
 def _leadjack_shop_line(history: list = None, latest_msg: str = "") -> str:
-    """The next lead-jack step. A repeated ask moves one stage forward."""
+    """The next lead-jack step. A new tech message after the repair moves forward.
+
+    There is no reply cache. The old line was chosen from the previous assistant
+    text and ignored the latest tech message, so the same cartridge sentence
+    shipped again.
+    """
+    if _leadjack_cartridge_already_given(history):
+        return _leadjack_post_repair(history, latest_msg)
     stage = _leadjack_stage(history, latest_msg)
     shipped = _leadjack_shipped_stage(history)
     if _leadjack_rank(shipped) > _leadjack_rank(stage):
         stage = shipped
     line = _leadjack_line_for(stage)
-    last_raw = _last_assistant_text(history)
-    last = _norm(last_raw)
-    if last == _norm(LEADJACK_CARTRIDGE_FOLLOW):
-        return LEADJACK_CARTRIDGE_FOLLOW
+    last = _norm(_last_assistant_text(history))
     if last and last == _norm(line) and _leadjack_pushes_forward(latest_msg):
         index = _leadjack_rank(stage)
         if index + 1 < len(_LEADJACK_STAGES):

@@ -230,6 +230,36 @@ class TestLeadJackReplay(unittest.TestCase):
         self.assertIn("177094", repair)
         self.assertIn("cartridge valve", repair.lower())
 
+    def test_s20_live_turns_move_past_the_repair_call(self):
+        """The live v4.19.41 transcript. T4 and T5 must not reprint T3."""
+        history = []
+        repair = self._turn(
+            "Cartridge was loose; snugged, bled and resynced; still drifts.",
+            history,
+        )
+        plumbing = self._turn(
+            "Plumbing checked: manifold hose in notched port, follow-leg in non-notched, "
+            "orange/black correct, no needed port plugged.",
+            history,
+        )
+        override = self._turn("Override screw is backed out.", history)
+        self.assertIn("177094", repair)
+        self.assertIn("cartridge valve", repair.lower())
+        _assert_177094_is_cited(self, repair)
+        self.assertNotEqual(plumbing.strip().lower(), repair.strip().lower())
+        self.assertNotEqual(override.strip().lower(), repair.strip().lower())
+        self.assertNotEqual(override.strip().lower(), plumbing.strip().lower())
+        self.assertIn("Plumbing checks correct.", plumbing)
+        self.assertIn("1. Remove the front lead-jack cartridge valve, part 177094.", plumbing)
+        self.assertIn("parts-list figure", plumbing.lower())
+        self.assertIn("177094", plumbing)
+        _assert_177094_is_cited(self, plumbing)
+        self.assertIn("Override screw is backed out.", override)
+        self.assertIn("Bleed and resync the jacks.", override)
+        self.assertIn("Yes, go to the next step.", override)
+        self.assertIn("No, do this step again.", override)
+        self.assertNotIn("1. Remove the front lead-jack cartridge valve", override)
+
     def test_s20_does_not_borrow_a_furnace_chat(self):
         history = [
             {"role": "user", "content": "Suburban furnace. Will not blow warm; fan turns on then shuts off."},
