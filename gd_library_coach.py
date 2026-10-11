@@ -6180,10 +6180,17 @@ def ensure_thetford_flush_reply(
         return nxt
     if _is_thetford_miss_line(reply) or _is_thetford_miss_line(original):
         kept = reply if _is_thetford_miss_line(reply) else original
-        return _thetford_keep(kept)
+        return _thetford_without_template(_thetford_keep(kept), nxt)
     if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
-        return _thetford_keep(reply)
+        return _thetford_without_template(_thetford_keep(reply), nxt)
     return nxt
+
+
+def _thetford_without_template(text: str, fallback: str) -> str:
+    """A How block or a 'not stated' filler is not a shop sentence."""
+    if re.search(r"\bhow\s*\(|\bnot stated\b", text or "", re.I):
+        return fallback
+    return text
 
 
 def _prove_lines(

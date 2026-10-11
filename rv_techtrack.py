@@ -5007,6 +5007,7 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
             detail
             and detail not in (reply or "")
             and not re.match(r"how\s*\(", detail.strip(), re.I)
+            and not re.search(r"\bnot stated\b", detail, re.I)
         ):
             extra.append(detail)
     for item in chosen[:limit]:

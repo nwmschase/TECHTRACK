@@ -6821,6 +6821,32 @@ def hoist_branch_safety(procedure: dict) -> dict:
     return procedure
 
 
+def _with_removal_line(procedure: dict) -> dict:
+    """A branch with nothing to take off still names Removal."""
+    steps = list((procedure or {}).get("steps") or [])
+    if any((step.get("section") or "") == "removal" for step in steps):
+        return procedure
+    where = "At the repair."
+    for step in steps:
+        named = ((step.get("fields") or {}).get("WHERE") or "").strip()
+        if named:
+            where = named
+            break
+    cloned = dict(procedure)
+    cloned["steps"] = [
+        _branch_step(
+            "Removal: none.",
+            where,
+            "No part comes off.",
+            "",
+            "Go to installation.",
+            section="removal",
+        ),
+        *steps,
+    ]
+    return cloned
+
+
 def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
     """Diagnosis stays in the flowchart. Every supported repair is its own branch.
 
@@ -6849,7 +6875,7 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
             branched["heading"] = "REPAIR BRANCH"
             branches.append(branched)
     branches.append(hoist_branch_safety(_flange_branch()))
-    proc.procedures = branches
+    proc.procedures = [_with_removal_line(item) for item in branches]
     _drop_repeated_procedure_figures(proc.procedures)
     return proc
 
