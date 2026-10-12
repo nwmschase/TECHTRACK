@@ -4512,6 +4512,9 @@ def _reply_has_body(text: str) -> bool:
         return True
     if _has_shop_step(text):
         return True
+    # Flush and watch is a complete check. It is not in the shop-verb list.
+    if _observation_reply_complete(text):
+        return True
     return bool(re.search(r"\brepair stands\b|\brepair is unchanged\b", text or "", re.I))
 
 
@@ -4831,6 +4834,17 @@ def _chunk_fields(chunk) -> tuple:
 
 
 _CASE_CHUNKS: contextvars.ContextVar = contextvars.ContextVar("tt_case_chunks", default=None)
+_GUARD_FIRED: contextvars.ContextVar = contextvars.ContextVar("tt_guard_fired", default="")
+
+
+def last_guard_name() -> str:
+    """The guard that replaced the draft on the last avoid_duplicate_reply call."""
+    return _GUARD_FIRED.get() or ""
+
+
+def _mark_guard(name: str) -> None:
+    if name:
+        _GUARD_FIRED.set(name)
 _DOC_TOKEN_RE = re.compile(r"\bCCD-\d{4,}\b|\b\d{4,8}\b", re.I)
 
 
@@ -6289,8 +6303,40 @@ def _thetford_sentence_ok(reply: str) -> bool:
     return _reply_asks_back(raw) and bool(re.search(r"\byou\b", raw, re.I))
 
 
+def _observation_reply_complete(reply: str) -> bool:
+    """An observation check is complete with no tool.
+
+    Where, what to look for, a good result, a bad result, and a report-back
+    are enough. A flush-and-watch that names a wrench, pliers, or screwdriver
+    is not this shape.
+    """
+    raw = reply or ""
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
+    if _observation_names_a_tool(raw):
+        return False
+    where = bool(
+        re.search(
+            r"\b(at the|on the|back of|go to|water valve|vacuum breaker|flush hose|pedal)\b",
+            raw,
+            re.I,
+        )
+    )
+    look = bool(re.search(r"\b(flush|watch|look|check|leak|weep|dry)\b", raw, re.I))
+    good = bool(re.search(r"\b(?:a )?good result\b", raw, re.I))
+    bad = bool(re.search(r"\b(?:a )?bad result\b", raw, re.I))
+    return bool(
+        where and look and good and bad and _reply_asks_back(raw) and re.search(r"\byou\b", raw, re.I)
+    )
+
+
 def _thetford_draft_clean(reply: str) -> bool:
-    """A model sentence the shop can send without rewriting it."""
+    """A model sentence the shop can send without rewriting it.
+
+    A hands-on step still names its tool. An observation-only check does not.
+    """
+    if _observation_reply_complete(reply):
+        return True
     return _thetford_sentence_ok(reply) and bool(
         re.search(r"\b(wrench|pliers?|flashlight)\b", reply or "", re.I)
     )
@@ -6315,13 +6361,18 @@ def _observation_names_a_tool(reply: str) -> bool:
 
 
 def _thetford_show_draft_ok(reply: str) -> bool:
+    """A show-me that adds a place the previous turn did not already name."""
     raw = reply or ""
     low = raw.lower()
+    new_place = bool(
+        re.search(r"\b(inlet side|supply hose|connects to|fitting|collar)\b", low)
+    )
     return (
         _thetford_draft_clean(raw)
         and "back of the toilet" in low
         and "water valve" in low
         and "42088" in raw
+        and new_place
     )
 
 
@@ -6362,9 +6413,28 @@ def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
     return False
 
 
+def _collapse_repeated_water_off(text: str) -> str:
+    """Keep the first 'Turn the RV water off' sentence and drop later copies."""
+    if len(re.findall(r"turn the rv water off", text or "", re.I)) < 2:
+        return text or ""
+    seen = False
+    kept = []
+    for line in (text or "").splitlines():
+        if re.search(r"turn the rv water off", line, re.I):
+            if seen:
+                continue
+            seen = True
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _thetford_kept_draft(draft: str) -> str:
     kept = _thetford_without_template(_thetford_keep(draft), "")
-    return kept if kept and _reply_has_body(kept) else ""
+    if not kept:
+        return ""
+    if _reply_has_body(kept) or _observation_reply_complete(kept):
+        return kept
+    return ""
 
 
 def _thetford_flush_body(
@@ -6384,6 +6454,7 @@ def _thetford_flush_body(
     if _thetford_asks_procedure_list(latest_msg):
         listed = _thetford_procedure_catalog(stage)
         if listed:
+            _mark_guard("procedure list")
             return listed
     draft = (original or reply or "").strip()
     # A complete model reply is the reply. The shop line is only the backstop.
@@ -6392,30 +6463,46 @@ def _thetford_flush_body(
             kept = _thetford_kept_draft(draft)
             if kept:
                 return kept
+        _mark_guard("show reply")
         return _thetford_show_reply(history, latest_msg)
     if _thetford_repair_draft_ok(draft, stage):
         kept = _thetford_kept_draft(draft)
         if kept:
+            collapsed = _collapse_repeated_water_off(kept)
+            if collapsed != kept:
+                _mark_guard("repeated water off")
+                return collapsed
             return kept
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)
         if turned:
+            _mark_guard("procedure turn")
             return turned
     nxt = _thetford_shop_line(history, latest_msg)
     stage = _thetford_stage(history, latest_msg)
     stage_slot = {"valve_replace": "valve", "vacuum_replace": "vacuum"}.get(stage, stage)
     asked = _thetford_line_slot(reply) or _thetford_line_slot(original)
+
+    def _shop(name: str) -> str:
+        leaked = re.search(
+            r"\bhow\s*\(|\bnot stated\b",
+            f"{original or ''}\n{reply or ''}",
+            re.I,
+        )
+        _mark_guard("how block" if leaked else name)
+        return nxt
+
     # A draft for another check does not ship. Open order is supply, vacuum, valve, flange.
     if asked and asked != stage_slot:
-        return nxt
+        return _shop("wrong check")
     if _thetford_not_checked(latest_msg):
-        return nxt
+        return _shop("not checked")
     closed = _thetford_closed_slots(history, latest_msg)
     if asked and asked in closed:
-        return nxt
+        return _shop("already checked")
     if _thetford_source_only(original) or _thetford_source_only(reply):
-        return nxt
+        return _shop("source only")
     if _is_thetford_miss_line(reply) or _is_thetford_miss_line(original):
         # A How block is rewritten to the miss line before this guard. That
         # rewrite is still the leak. The shop check is the reply.
@@ -6425,7 +6512,7 @@ def _thetford_flush_body(
             re.I,
         )
         if leaked:
-            return nxt
+            return _shop("how block")
         # The manuals are already in the chat. Do not tell the tech they are missing.
         if _case_doc_cited(
             original,
@@ -6441,26 +6528,35 @@ def _thetford_flush_body(
                     kept_draft = _thetford_kept_draft(candidate)
                     if kept_draft:
                         return kept_draft
-            return nxt
+            return _shop("library miss")
         kept = reply if _is_thetford_miss_line(reply) else original
+        _mark_guard("library miss")
         return _thetford_without_template(_thetford_keep(kept), nxt)
     if stage == "vacuum" and _vacuum_reply_incomplete(reply):
-        return nxt
+        return _shop("vacuum incomplete")
     if _thetford_pages_clash(reply):
-        return nxt
+        return _shop("pages clash")
     if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
-        return _thetford_without_template(_thetford_keep(reply), nxt)
-    return nxt
+        kept = _thetford_without_template(_thetford_keep(reply), nxt)
+        if re.sub(r"\s+", " ", kept).strip() != re.sub(r"\s+", " ", draft).strip():
+            _mark_guard("shop polish")
+        return kept
+    return _shop("thetford shop line")
 
 
 def _thetford_where_answer() -> str:
-    """Where the supply fitting is. Not a second copy of the first check."""
+    """Where the supply fitting is. New place detail, not a copy of the first check.
+
+    Page 3 of 42088 has no figure in this library, so this card does not invent one.
+    """
     return (
-        "That supply fitting sits at the back of the toilet, on the water valve.\n"
-        "Owner manual 42088 page 3 draws that connection.\n"
+        "That fitting is at the back of the toilet, on the inlet side.\n"
+        "The supply hose connects to the water valve there.\n"
+        "It looks like a small collar where the hose meets the valve.\n"
+        "Use a flashlight.\n"
         "A good result is a dry fitting while the lever rests.\n"
         "A bad result is a drip on that fitting.\n"
-        "What do you see at the fitting?\n\n"
+        "Tell me what you see.\n\n"
         "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
     )
 
@@ -7462,10 +7558,15 @@ def avoid_duplicate_reply(
 
     photo_token = _photos.activate(photo_review)
     chunk_token = _CASE_CHUNKS.set(chunks)
+    _GUARD_FIRED.set("")
     try:
-        return _avoid_duplicate_reply_body(
+        result = _avoid_duplicate_reply_body(
             reply, history, latest_msg, category_name, model_text, photo_review
         )
+        if re.sub(r"\s+", " ", result or "").strip() != re.sub(r"\s+", " ", reply or "").strip():
+            if not _GUARD_FIRED.get():
+                _mark_guard("shop polish")
+        return result
     finally:
         _CASE_CHUNKS.reset(chunk_token)
         _photos.deactivate(photo_token)

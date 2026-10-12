@@ -227,7 +227,10 @@ class TestShowMeReply(unittest.TestCase):
             "Plumbing / Toilets",
             "Thetford 42070",
         )
-        self.assertIn("back of the toilet, on the water valve", reply)
+        self.assertIn("back of the toilet", reply)
+        self.assertIn("inlet side", reply)
+        self.assertIn("supply hose connects to the water valve", reply)
+        self.assertIn("small collar", reply)
         self.assertNotIn("How (", reply)
         self.assertNotIn("Meter setting: not stated", reply)
         page7 = {

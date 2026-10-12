@@ -143,7 +143,8 @@ class TestGdProfile(unittest.TestCase):
         asked = [line for line in lines if mf.PHOTO_VISUAL in line]
         self.assertLess(len(asked), len(lines))
         self.assertNotIn(mf.PHOTO_VISUAL, mf.thetford_proving_line("valve"))
-        self.assertIn(mf.PHOTO_VISUAL, mf.thetford_proving_line("vacuum"))
+        self.assertNotIn(mf.PHOTO_VISUAL, mf.thetford_proving_line("vacuum"))
+        self.assertIn("Tell me what you see.", mf.thetford_proving_line("vacuum"))
 
     def test_the_checker_rejects_a_form_and_an_unasked_figure(self):
         form = _transcript([

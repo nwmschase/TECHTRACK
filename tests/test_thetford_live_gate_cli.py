@@ -96,6 +96,10 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertEqual(report.count("Result: 10/10."), 2)
         self.assertIn("How (", raw)
         self.assertIn("guards rewrote 4 of 4 turns", report)
+        self.assertIn("T1 guard:", report)
+        self.assertNotIn("T1 guard: none", report)
+        self.assertIn("T3 guard:", report)
+        self.assertNotIn("T3 guard: none", report)
         self.assertIn("RAW model reply", report)
         self.assertRegex(report, r"(?m)^FAIL\b|^\d+\. FAIL\b|^PF-\d+ FAIL\b")
 
@@ -120,13 +124,10 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                     fields[key.strip().lower()] = value.strip()
             cite = fields.get("cite") or "the manual"
             if "42109" in cite:
-                safety = fields.get("safety") or "Turn the RV water off."
-                if not safety.endswith("."):
-                    safety += "."
-                tool = fields.get("tool") or "a 1/2-inch wrench and pliers"
+                tool = fields.get("tool") or "a 1/2-inch wrench"
                 parts = [
                     "This is the water valve kit 42109 job at the pedal.",
-                    safety,
+                    "Turn the RV water off.",
                     "Take the toilet off the bolts.",
                     f"Use {tool}.",
                     f"A good result is {fields.get('good') or 'the toilet is off the bolts and the water is off'}.",
@@ -210,6 +211,28 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("plier", vacuum)
         self.assertIn("Do not name pliers", systems[2])
         self.assertIn("do not check for that weep", systems[3].lower())
+        self.assertIn("which side", systems[1].lower())
+        self.assertIn("what it connects to", systems[1].lower())
+        self.assertIn("what it looks like", systems[1].lower())
+        self.assertIn("do not invent a figure", systems[1].lower())
+        self.assertIn("said once", systems[3].lower())
+        self.assertIn("do not name pliers", systems[3].lower())
+        self.assertIn("do not seat the cartridge", systems[3].lower())
+        self.assertNotIn("wrench and pliers", systems[3].lower())
+        self.assertEqual(raw.lower().count("turn the rv water off"), 1)
+        self.assertNotIn("plier", raw.lower())
+        self.assertNotIn("seat the", raw.lower())
+        self.assertIn("inlet side", raw.lower())
+        self.assertIn("supply hose", raw.lower())
+        for label in ("T1", "T2", "T3", "T4"):
+            self.assertIn(f"{label} guard: none", report)
+        import scripts.profile_check as profile_check
+
+        bodies = [
+            profile_check._assistant_body(part)
+            for part in raw.split("ASSISTANT:")[1:]
+        ]
+        self.assertFalse(profile_check._near_duplicate(bodies[:2]))
 
     def test_manual_lines_do_not_fail_the_exit(self):
         from scripts.profile_check import Rule
@@ -412,6 +435,156 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         )
         named = {rule.name: rule for rule in profile_check.check_transcript(asked)}
         self.assertTrue(named["figures_only_when_asked"].ok)
+
+    def test_a_complete_flush_and_watch_is_not_rewritten(self):
+        """rev6 live1 T3. The review pack was not in this checkout.
+
+        The quoted raw reply started 'Flush and watch that vacuum breaker' and
+        ended 'Tell me what you see.', citing 34123. The review abbreviated the
+        middle. The where, good, and bad lines are that complete observation.
+        It correctly names no tool.
+        """
+        from gd_library_coach import avoid_duplicate_reply, last_guard_name
+        import scripts.profile_check as profile_check
+
+        history = [
+            {"role": "user", "content": "Thetford 42070 leaks under the flush lever"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Go to the water valve for the supply connection.\n"
+                    "Use a flashlight.\n"
+                    "A good result is the supply connection stays dry.\n"
+                    "A bad result is water comes out of the supply connection.\n"
+                    "Tell me what you see.\n"
+                    "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+                ),
+            },
+            {"role": "user", "content": "Show me where that connection is"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Go to the back of the toilet, on the inlet side, "
+                    "where the supply hose connects to the water valve.\n"
+                    "The fitting is a small collar.\n"
+                    "Use a flashlight.\n"
+                    "Tell me what you see.\n"
+                    "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+                ),
+            },
+        ]
+        chunks = [
+            {"title": "Thetford Style II OM Permanent RV Toilet 42088", "brand": "Thetford"},
+            {"title": "Thetford Vacuum Breaker Kit 34123/34122", "brand": "Thetford"},
+        ]
+        raw = (
+            "Flush and watch that vacuum breaker on the flush hose.\n"
+            "A good result is no leak while flushing.\n"
+            "A bad result is it leaks only while flushing.\n"
+            "Tell me what you see.\n\n"
+            "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1"
+        )
+        reply = avoid_duplicate_reply(
+            raw,
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            chunks=chunks,
+        )
+        self.assertIn("Flush and watch that vacuum breaker", reply)
+        self.assertIn("Tell me what you see.", reply)
+        self.assertIn("34123", reply)
+        self.assertNotIn("What do you see?", reply)
+        self.assertNotIn("Send a photo of what you see.", reply)
+        self.assertEqual(last_guard_name(), "")
+        named = avoid_duplicate_reply(
+            raw.replace(
+                "Flush and watch that vacuum breaker",
+                "Flush and watch that vacuum breaker with pliers",
+            ),
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            chunks=chunks,
+        )
+        self.assertNotIn("pliers", named.lower())
+        self.assertNotEqual(last_guard_name(), "")
+        copied = (
+            "Go to the water valve for the supply connection.\n"
+            "Use a flashlight.\n"
+            "Check the supply connection at the water valve.\n"
+            "A good result is the supply connection stays dry.\n"
+            "A bad result is water comes out of the supply connection.\n"
+            "Tell me what you see.\n"
+            "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+        )
+        detailed = (
+            "That fitting is at the back of the toilet, on the inlet side.\n"
+            "The supply hose connects to the water valve there.\n"
+            "It looks like a small collar where the hose meets the valve.\n"
+            "Use a flashlight.\n"
+            "A good result is a dry fitting while the lever rests.\n"
+            "A bad result is a drip on that fitting.\n"
+            "Tell me what you see.\n"
+            "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+        )
+        self.assertTrue(
+            profile_check._near_duplicate([
+                profile_check._assistant_body(history[1]["content"]),
+                profile_check._assistant_body(copied),
+            ])
+        )
+        self.assertFalse(
+            profile_check._near_duplicate([
+                profile_check._assistant_body(history[1]["content"]),
+                profile_check._assistant_body(detailed),
+            ])
+        )
+        shown = avoid_duplicate_reply(
+            detailed,
+            history[:2],
+            "Show me where that connection is",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            chunks=chunks,
+        )
+        self.assertIn("inlet side", shown.lower())
+        self.assertIn("supply hose", shown.lower())
+        self.assertIn("small collar", shown.lower())
+        self.assertNotIn("Fig.", shown)
+        doubled = (
+            "This is the water valve kit 42109 job at the pedal.\n"
+            "Turn the RV water off.\n"
+            "Turn the RV water off.\n"
+            "Take the toilet off the bolts.\n"
+            "Use a 1/2-inch wrench.\n"
+            "A good result is the toilet is off the bolts and the water is off.\n"
+            "A bad result is the toilet is still on the bolts, or water still comes out.\n"
+            "I can walk the rest with you, one step at a time.\n"
+            "The Bay PDF has the full list.\n"
+            "Tell me what you see.\n\n"
+            "📖 Source: Thetford Water Valve Kit 42109, page 1"
+        )
+        valve_history = history + [
+            {"role": "user", "content": "The supply connection is dry."},
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": "No leak while flushing. The water valve weeps at the pedal."},
+        ]
+        collapsed = avoid_duplicate_reply(
+            doubled,
+            valve_history,
+            "No leak while flushing. The water valve weeps at the pedal.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            chunks=chunks + [{"title": "Thetford Water Valve Kit 42109", "brand": "Thetford"}],
+        )
+        self.assertEqual(collapsed.lower().count("turn the rv water off"), 1)
+        self.assertIn("1/2-inch wrench", collapsed.lower())
+        self.assertNotIn("plier", collapsed.lower())
+        self.assertNotIn("seat the", collapsed.lower())
+        self.assertEqual(last_guard_name(), "repeated water off")
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."

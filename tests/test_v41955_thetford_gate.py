@@ -456,7 +456,12 @@ class TestGdStepLayout(unittest.TestCase):
                 self.assertNotIn(label, line, key)
             self.assertNotRegex(line, r"Step \d+ of \d+")
             self.assertNotIn("<!--gd-step:", line)
-            self.assertIn("What do you see?", line)
+            if key in ("supply", "vacuum"):
+                self.assertIn("Tell me what you see.", line)
+                self.assertNotIn("What do you see?", line)
+                self.assertNotIn("Send a photo of what you see.", line)
+            else:
+                self.assertIn("What do you see?", line)
 
     def test_pdf_steps_keep_the_label_order(self):
         steps = mf.thetford_kit_layout("valve")["steps"]

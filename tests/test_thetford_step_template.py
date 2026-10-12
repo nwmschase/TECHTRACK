@@ -62,7 +62,10 @@ def _assert_chat(case, text):
     case.assertNotIn("A photo is optional.", text)
     case.assertNotIn("UNCONFIRMED", text)
     case.assertNotIn("Not stated in this sheet", text)
-    case.assertIn("What do you see?", text)
+    case.assertTrue(
+        "What do you see?" in text or "Tell me what you see." in text,
+        text,
+    )
 
 
 class TestThetfordStepTemplate(unittest.TestCase):
@@ -78,7 +81,11 @@ class TestThetfordStepTemplate(unittest.TestCase):
             self.assertNotIn("Safety:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
             step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
-            if mf.step_needs_photo(step):
+            if key in ("supply", "vacuum"):
+                self.assertIn("Tell me what you see.", line, key)
+                self.assertNotIn("What do you see?", line, key)
+                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
+            elif mf.step_needs_photo(step):
                 self.assertEqual(line.count(mf.PHOTO_VISUAL), 1, key)
             else:
                 self.assertNotIn(mf.PHOTO_VISUAL, line, key)

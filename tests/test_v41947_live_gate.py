@@ -190,7 +190,10 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             self.assertNotIn("Good looks like:", line)
             self.assertNotRegex(line, r"Step \d+ of")
             step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
-            if mf.step_needs_photo(step):
+            if key in ("supply", "vacuum"):
+                self.assertIn("Tell me what you see.", line, key)
+                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
+            elif mf.step_needs_photo(step):
                 self.assertIn(mf.PHOTO_VISUAL, line, key)
             else:
                 self.assertNotIn(mf.PHOTO_VISUAL, line, key)
