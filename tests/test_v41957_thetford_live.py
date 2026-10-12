@@ -147,7 +147,14 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         ]
         self.assertIn(("removal", "Lift the toilet off the floor"), flange_actions)
         self.assertIn(("removal", "Take off the old floor seal"), flange_actions)
-        self.assertIn(("removal", "Cover the tank hole with a towel"), flange_actions)
+        self.assertIn(("removal", "Pull the water hose off the toilet"), flange_actions)
+        self.assertIn(("removal", "Cover the holding tank opening at the closet flange with a towel"), flange_actions)
+        self.assertIn(("installation", "Uncover the holding tank opening at the closet flange"), flange_actions)
+        self.assertIn(("installation", "Push the water hose onto the toilet"), flange_actions)
+        hose_off = next(i for i, (section, action) in enumerate(flange_actions) if action == "Pull the water hose off the toilet")
+        self.assertLess(hose_off, next(i for i, (_section, action) in enumerate(flange_actions) if action == "Lift the toilet off the floor"))
+        hose_on = next(i for i, (section, action) in enumerate(flange_actions) if action == "Push the water hose onto the toilet")
+        self.assertLess(next(i for i, (_section, action) in enumerate(flange_actions) if action == "Lift the toilet off the floor"), hose_on)
         height = next(i for i, (section, action) in enumerate(flange_actions) if "7/16" in action)
         install = next(i for i, (section, _action) in enumerate(flange_actions) if section == "installation")
         self.assertLess(height, install)
@@ -327,6 +334,25 @@ class TestReviewDefectsFail(unittest.TestCase):
         rule = profile_check._fastener_sequence(lifted)
         self.assertFalse(rule.ok, rule.detail)
         self.assertIn("lifted", rule.detail)
+        bare_flange = (
+            "Thetford 42070\nREPAIR BRANCH\nFlange and seal\nREMOVAL\n"
+            "Step 1: Take the nuts off the floor bolts\nDo this:\n"
+            "1. Take the nuts off the floor bolts.\n"
+            "Step 2: Lift the toilet off the floor\nDo this:\n"
+            "1. Lift the toilet off the floor.\n"
+            "Step 3: Cover the holding tank opening at the closet flange with a towel\nDo this:\n"
+            "1. Cover the holding tank opening at the closet flange with a towel.\n"
+            "INSTALLATION\n"
+            "Step 4: Uncover the holding tank opening at the closet flange\nDo this:\n"
+            "1. Uncover the holding tank opening at the closet flange.\n"
+            "Step 5: Set the toilet on the floor bolts\nDo this:\n"
+            "1. Set the toilet on the floor bolts.\n"
+            "Step 6: Tighten the nuts until the toilet does not rock\nDo this:\n"
+            "1. Tighten the nuts until the toilet does not rock.\n"
+        )
+        rule = profile_check._fastener_sequence(bare_flange)
+        self.assertFalse(rule.ok, rule.detail)
+        self.assertIn("water hose", rule.detail)
         high = (
             "Thetford 42070\nREPAIR BRANCH\nFlange\nREMOVAL\n"
             "Step 1: Take the nuts off the floor bolts\nDo this:\n"
@@ -375,12 +401,26 @@ class TestReviewDefectsFail(unittest.TestCase):
         own = (
             "42109\nSOURCES (SHOP DOCUMENT LIBRARY)\n"
             "- Thetford Style II OM Permanent RV Toilet 42088 page 3\n"
-            "Check the water supply line connection at the water valve.\n"
+            "Back of toilet: check water supply line connection at water valve.\n"
+            "- Thetford Vacuum Breaker Kit 34123/34122 page 1\n"
+            "With pliers, slide clamp A down inlet tube, then remove inlet tube from vacuum breaker.\n"
             "- Thetford Water Valve Kit 42109 page 1\n"
-            "Lay the toilet on its side with the pedal up.\n"
+            "Insert new Water Valve Cartridge Assembly until fully seated.\n"
         )
         rule = profile_check._source_doc_quotes(own)
         self.assertTrue(rule.ok, rule.detail)
+        paraphrase = (
+            "42109\nSOURCES (SHOP DOCUMENT LIBRARY)\n"
+            "- Thetford Style II OM Permanent RV Toilet 42088 page 3\n"
+            "Check the water supply line connection at the water valve.\n"
+            "- Thetford Vacuum Breaker Kit 34123/34122 page 1\n"
+            "Slide clamp A down the inlet tube.\n"
+            "- Thetford Water Valve Kit 42109 page 1\n"
+            "Lay the toilet on its side with the pedal up.\n"
+        )
+        rule = profile_check._source_doc_quotes(paraphrase)
+        self.assertFalse(rule.ok, rule.detail)
+        self.assertIn("verbatim", rule.detail)
 
     def test_a_bare_valve_start_fails_and_a_tall_crop_fails(self):
         bare = (

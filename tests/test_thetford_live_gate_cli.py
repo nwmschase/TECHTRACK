@@ -87,7 +87,7 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                 os.environ.pop("XAI_API_KEY", None)
             else:
                 os.environ["XAI_API_KEY"] = saved
-        self.assertEqual(code, 0, report)
+        self.assertEqual(code, 1, report)
         self.assertEqual(len(calls), 4)
         self.assertEqual(calls[0]["providers"], ["xai"])
         self.assertEqual(calls[0]["models"], {"xai": ["grok-4.6"]})
@@ -97,6 +97,85 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertIn("How (", raw)
         self.assertIn("guards rewrote 4 of 4 turns", report)
         self.assertIn("RAW model reply", report)
+        self.assertRegex(report, r"(?m)^FAIL\b|^\d+\. FAIL\b|^PF-\d+ FAIL\b")
+
+    def test_a_prompt_follower_keeps_the_raw_reply(self):
+        import tempfile
+
+        calls = []
+
+        def fake_complete(messages, **kwargs):
+            calls.append({"messages": messages, "kwargs": kwargs})
+            system = messages[0]["content"]
+            fields = {}
+            grab = False
+            for line in system.splitlines():
+                if line.strip() == "THIS TURN":
+                    grab = True
+                    continue
+                if grab and not line.strip():
+                    break
+                if grab and ":" in line:
+                    key, value = line.split(":", 1)
+                    fields[key.strip().lower()] = value.strip()
+            parts = []
+            safety = fields.get("safety") or ""
+            if safety:
+                parts.append(safety if safety.endswith(".") else safety + ".")
+            parts.append(f"Go to {fields.get('where') or 'the part'}.")
+            tool = fields.get("tool") or ""
+            if tool:
+                parts.append(f"Use {tool}.")
+            parts.append(f"Check {fields.get('look') or 'the part'}.")
+            parts.append(f"A good result is {fields.get('good') or 'it is dry'}.")
+            parts.append(f"A bad result is {fields.get('bad') or 'it leaks'}.")
+            parts.append("What do you see?")
+            parts.append("")
+            parts.append(f"📖 Source: {fields.get('cite') or 'the manual'}")
+            return "\n".join(parts)
+
+        saved = os.environ.get("XAI_API_KEY")
+        os.environ["XAI_API_KEY"] = "test-key"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                with patch("gd_llm.complete_chat", fake_complete):
+                    code = main([
+                        "--live-llm",
+                        "--db", str(DB),
+                        "--cache", str(CACHE),
+                        "--out", str(out),
+                    ])
+                report = (out / "report.txt").read_text(encoding="utf-8")
+                raw = (out / "transcript-raw.txt").read_text(encoding="utf-8")
+        finally:
+            if saved is None:
+                os.environ.pop("XAI_API_KEY", None)
+            else:
+                os.environ["XAI_API_KEY"] = saved
+        self.assertEqual(code, 0, report)
+        self.assertEqual(len(calls), 4)
+        systems = [call["messages"][0]["content"] for call in calls]
+        self.assertIn("Address the technician as you", systems[0])
+        self.assertIn("DIAGNOSIS ORDER", systems[0])
+        excerpts = systems[0].split("MANUAL EXCERPTS", 1)[1]
+        self.assertLess(excerpts.find("42088"), excerpts.find("42109"))
+        self.assertIn("supply connection is dry", systems[2].lower())
+        self.assertIn("vacuum breaker", systems[2].lower())
+        self.assertIn("water off", systems[3].lower())
+        self.assertIn("wrench", systems[3].lower())
+        raw_at = report.find("RAW model reply")
+        self.assertIn("Result: 10/10.", report[raw_at:])
+        self.assertNotRegex(report[raw_at:], r"(?m)^\d+\. FAIL\b")
+        self.assertRegex(report, r"guards rewrote [01] of 4 turns")
+        self.assertNotIn("the tech", raw.lower())
+        self.assertIn("42088", raw.split("ASSISTANT:")[1])
+        self.assertNotIn("42109", raw.split("ASSISTANT:")[1].split("USER:")[0])
+        self.assertIn("vacuum breaker", raw.lower())
+        self.assertIn("34123", raw)
+        self.assertIn("flashlight", raw.lower())
+        self.assertIn("wrench", raw.lower())
+        self.assertIn("water off", raw.lower())
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."

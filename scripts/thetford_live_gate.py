@@ -29,10 +29,10 @@ Writes ``thetford-bay.pdf``, ``transcript.txt``, ``transcript-profile.txt``,
 writes ``transcript-raw.txt``, the model's reply before the shop guards, and
 the report says how many turns the guards rewrote. The report includes
 profile_check for the PDF, the guarded transcript, and the raw transcript.
-Exit 0 when the sheet and
-the transcript pass, including 10/10 on both scorecards. Exit 1 when a check
-fails. Exit 2 when the database, the cache, or (with ``--live-llm``) the
-xAI key cannot be used.
+Exit 0 when the sheet, the guarded transcript, and (with ``--live-llm``) the
+raw reply pass, including 10/10 on the scorecards. A raw FAIL is a failed
+check. Exit 1 when a check fails. Exit 2 when the database, the cache, or
+(with ``--live-llm``) the xAI key cannot be used.
 """
 from __future__ import annotations
 
@@ -287,14 +287,15 @@ def _keep_figure_detail(detail: str, reply: str) -> str:
 
 
 def _append_figure_detail(reply: str, user_msg: str, rows, chunks) -> str:
-    """Headless stand-in for the stored-figure offer that runs after the coach."""
-    physical = bool(re.search(
-        r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
-        reply or "",
-        re.I,
-    ))
+    """Headless stand-in for the stored-figure offer that runs after the coach.
+
+    A reply that already names the tool and cites the manual is left alone.
+    The figure line is only for a turn that asked and still has no procedure.
+    """
     asked = mf.wants_manual_image(user_msg) or mf.tech_asked_for_manual_figure(user_msg)
-    if not physical and not asked:
+    if not asked:
+        return reply
+    if "📖" in (reply or "") and re.search(r"\b(wrench|pliers?|flashlight)\b", reply or "", re.I):
         return reply
     chosen = fb.select_library_figures(rows, reply, user_msg, CATEGORY, f"{BRAND} {MODEL}") or []
     if not chosen:
@@ -325,23 +326,177 @@ def _append_figure_detail(reply: str, user_msg: str, rows, chunks) -> str:
     return ((reply or "").rstrip() + "\n\n" + detail).strip()
 
 
+def _user_facts(history: list, message: str) -> str:
+    """Facts the technician already reported. Later turns must move past them."""
+    said = []
+    for item in history or []:
+        if (item.get("role") or "") == "user":
+            said.append(item.get("content") or "")
+    said.append(message or "")
+    blob = " ".join(said)
+    facts = []
+    if re.search(r"supply connection is dry", blob, re.I):
+        facts.append("The supply connection is dry. Do not repeat that check.")
+    if re.search(r"no leak while flushing", blob, re.I):
+        facts.append("There is no leak while flushing. The vacuum breaker passed. Do not repeat that check.")
+    if re.search(r"weeps at the pedal", blob, re.I):
+        facts.append("The water valve weeps at the pedal. The next step is the water valve cartridge.")
+    if re.search(r"\bshow me\b", message or "", re.I):
+        facts.append("This turn asks where the supply connection is.")
+    if not facts:
+        facts.append("The leak is under the flush lever. No check is finished yet.")
+    return "\n".join(f"- {fact}" for fact in facts)
+
+
+def _turn_plan(history: list, message: str) -> dict:
+    """The one check this turn is allowed to ask, in the 42088 order."""
+    said = " ".join(
+        (item.get("content") or "")
+        for item in history or []
+        if (item.get("role") or "") == "user"
+    )
+    blob = f"{said} {message or ''}"
+    show = bool(re.search(r"\bshow me\b", message or "", re.I))
+    if re.search(r"weeps at the pedal", message or "", re.I):
+        focus = "valve"
+    elif re.search(r"supply connection is dry", blob, re.I):
+        focus = "vacuum"
+    else:
+        focus = "supply"
+    cite_42088 = "Thetford Style II OM Permanent RV Toilet 42088, page 3"
+    cite_34123 = "Thetford Vacuum Breaker Kit 34123/34122, page 1"
+    cite_42109 = "Thetford Water Valve Kit 42109, page 1"
+    if focus == "valve":
+        plan = {
+            "focus": focus,
+            "cite": cite_42109,
+            "where": "the water valve at the pedal",
+            "tool": "a 1/2-inch wrench and pliers",
+            "look": "the cartridge for a weep",
+            "good": "a dry pedal",
+            "bad": "a weep at the pedal",
+            "safety": "Turn the RV water off before you work on the cartridge.",
+            "advance": "The vacuum breaker already passed. Do not restate that check. Cite 42109 only.",
+        }
+    elif focus == "vacuum":
+        plan = {
+            "focus": focus,
+            "cite": cite_34123,
+            "where": "the vacuum breaker on the flush hose",
+            "tool": "pliers",
+            "look": "the vacuum breaker while you flush",
+            "good": "no leak while flushing",
+            "bad": "it leaks only while flushing",
+            "safety": "",
+            "advance": "The supply connection is already dry. Do not cite kit 42109 on this turn.",
+        }
+    elif show:
+        plan = {
+            "focus": focus,
+            "cite": cite_42088,
+            "where": "the back of the toilet, on the water valve",
+            "tool": "a flashlight",
+            "look": "the supply fitting while the lever rests",
+            "good": "a dry fitting",
+            "bad": "a drip on that fitting",
+            "safety": "",
+            "advance": "Name the place on the water valve. Do not cite kit 42109.",
+        }
+    else:
+        plan = {
+            "focus": focus,
+            "cite": cite_42088,
+            "where": "the water valve for the supply connection",
+            "tool": "a flashlight",
+            "look": "the supply connection at the water valve",
+            "good": "the supply connection stays tight",
+            "bad": "water comes out of the supply connection",
+            "safety": "",
+            "advance": "Start with owner manual 42088. Do not cite kit 42109 on this turn.",
+        }
+    return plan
+
+
+def _ordered_excerpts(chunks, focus: str) -> list[str]:
+    """Owner-manual troubleshooting first, then the kit for this step.
+
+    The ranked Bay list leads with the water-valve kit. This selection does
+    not. Page 3 of 42088 stays in front even when it is outside those 12.
+    """
+
+    def title_of(chunk) -> str:
+        return chunk.get("title") or ""
+
+    def is_trouble(chunk) -> bool:
+        page = int(chunk.get("page") or 0)
+        text = chunk.get("excerpt") or ""
+        return (
+            "42088" in title_of(chunk)
+            and page == 3
+            and bool(re.search(r"water supply line|vacuum breaker", text, re.I))
+        )
+
+    def is_focus(chunk) -> bool:
+        title = title_of(chunk).lower()
+        if focus == "vacuum":
+            return bool(re.search(r"3412|vacuum", title))
+        if focus == "valve":
+            return "42109" in title
+        return "42088" in title
+
+    trouble = [chunk for chunk in chunks or [] if is_trouble(chunk)][:2]
+    focused = [chunk for chunk in chunks or [] if is_focus(chunk) and chunk not in trouble][:2]
+    breaker = [chunk for chunk in chunks or [] if re.search(r"3412", title_of(chunk))][:1]
+    valve = [chunk for chunk in chunks or [] if "42109" in title_of(chunk)][:1]
+    ordered = []
+    for group in (trouble, focused, breaker, valve):
+        for chunk in group:
+            if chunk not in ordered:
+                ordered.append(chunk)
+    lines = []
+    for chunk in ordered[:6]:
+        lines.append(
+            f"Manual: {title_of(chunk) or 'manual'} Page: {chunk.get('page')}\n"
+            f"{(chunk.get('excerpt') or '')[:700]}"
+        )
+    return lines
+
+
 def _live_draft(message: str, history: list, chunks) -> str:
     import gd_llm
 
-    excerpts = []
-    for chunk in (chunks or [])[:8]:
-        excerpts.append(
-            f"Manual: {chunk.get('title') or 'manual'} Page: {chunk.get('page')}\n"
-            f"{(chunk.get('excerpt') or '')[:500]}"
-        )
+    plan = _turn_plan(history, message)
+    excerpts = _ordered_excerpts(chunks, plan["focus"])
     system = (
-        "You are the shop Guided Diagnostics coach. Use only the manual excerpts. "
-        "Cite a manual as a Source line with its page. Write plain sentences. "
+        "You are the shop Guided Diagnostics coach for one Thetford 42070 flush-lever leak. "
+        "Address the technician as you. "
+        "Use only the manual excerpts. Write plain sentences. "
         "Do not use Where, Do this, Good, Bad, or Next labels. "
         "Do not print a How (...) block and do not print the words not stated. "
-        "If the manual does not give a tool or a setting, leave it out. "
-        "Say where the part is, what to look for, what good and bad look like, "
-        "and ask what the tech sees.\n\n"
+        "Do not print a step counter. Do not put a page number in the sentences. "
+        "Put the page only on the Source line. "
+        "Every reply names the tool, says where to go, what to check, a good result, "
+        "a bad result, and asks what you see.\n\n"
+        "DIAGNOSIS ORDER from owner manual 42088 page 3. Follow this order. Do not skip ahead.\n"
+        "1. Supply connection at the water valve. Cite 42088 page 3. The manual names no tool "
+        "for this look, so use a flashlight.\n"
+        "2. Vacuum breaker while flushing. Cite 34123/34122 page 1. Use pliers.\n"
+        "3. Water valve cartridge at the pedal. Cite 42109 page 1. "
+        "Turn the RV water off. Use a 1/2-inch wrench and pliers.\n"
+        "4. Closet flange only after those three.\n\n"
+        "ESTABLISHED FACTS\n"
+        f"{_user_facts(history, message)}\n\n"
+        "THIS TURN\n"
+        f"Cite: {plan['cite']}\n"
+        f"Where: {plan['where']}\n"
+        f"Tool: {plan['tool']}\n"
+        f"Look: {plan['look']}\n"
+        f"Good: {plan['good']}\n"
+        f"Bad: {plan['bad']}\n"
+        f"Safety: {plan['safety']}\n"
+        f"Advance: {plan['advance']}\n\n"
+        "Write the reply from THIS TURN. Cite only the Cite line. "
+        "If Safety is not empty, say that sentence before the work.\n\n"
         "MANUAL EXCERPTS:\n" + "\n\n".join(excerpts)
     )
     messages = [{"role": "system", "content": system}]
@@ -382,6 +537,44 @@ def _score_gap(rules, label: str) -> list[str]:
     return problems
 
 
+def _raw_manual_problems(raw_profile: str) -> list[str]:
+    """The human read of the raw reply. profile_check does not cover these."""
+    pairs = profile_check._pairs(raw_profile)
+    problems = []
+    if len(pairs) < len(TURNS):
+        problems.append("RAW transcript does not have 4 turns")
+        return problems
+    for index, (_user, assistant) in enumerate(pairs, 1):
+        low = assistant.lower()
+        if "the tech" in low:
+            problems.append(f"RAW T{index} says the tech")
+        if not re.search(r"\byou\b", low):
+            problems.append(f"RAW T{index} does not address you")
+        if not re.search(r"\b(wrench|pliers?|flashlight)\b", low):
+            problems.append(f"RAW T{index} names no tool")
+    turns = [pair[1] for pair in pairs[: len(TURNS)]]
+    t1, _t2, t3, t4 = turns
+    if "42088" not in t1 or "42109" in t1:
+        problems.append("RAW T1 does not cite 42088 ahead of the water valve kit")
+    t3_low = t3.lower()
+    if "34123" not in t3 or "vacuum breaker" not in t3_low or "42109" in t3:
+        problems.append("RAW T3 skips the vacuum breaker")
+    t4_low = t4.lower()
+    if "42109" not in t4 or not re.search(r"wrench|plier", t4_low) or "water off" not in t4_low:
+        problems.append("RAW T4 misses the water-valve safety or the tool")
+    if profile_check._assistant_body(t4) == profile_check._assistant_body(t3):
+        problems.append("RAW T4 restates T3")
+    return problems
+
+
+_REPORT_FAIL_RE = re.compile(r"^(?:FAIL\b|\d+\. FAIL\b|PF-\d+ FAIL\b)")
+
+
+def _report_has_fail(text: str) -> bool:
+    """A real FAIL line. 'Automatic FAIL: no.' is not one."""
+    return any(_REPORT_FAIL_RE.match(line.strip()) for line in (text or "").splitlines())
+
+
 def _render_pages(pdf: bytes, out: Path) -> None:
     import pymupdf
 
@@ -400,7 +593,7 @@ def _same_reply(left: str, right: str) -> bool:
     return norm(left) == norm(right)
 
 
-def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str], str, int]:
+def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str], str, int]:
     from gd_library_coach import avoid_duplicate_reply, ensure_thetford_flush_reply
 
     history = []
@@ -412,7 +605,7 @@ def _play(rows, chunks, *, live: bool) -> tuple[str, str, list[str], str, int]:
     for label, message in TURNS:
         if live:
             try:
-                draft = _live_draft(message, history, chunks)
+                draft = _live_draft(message, history, library if library is not None else chunks)
             except Exception as exc:
                 problems.append(f"{label} model call failed: {exc}")
                 draft = ""
@@ -526,7 +719,9 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     if packets:
         proc = apply_chunk_figures(proc, packets)
     pdf = render_bay_procedure_pdf(proc)
-    transcript, profile, gd_problems, raw_profile, rewrites = _play(rows, chunks, live=live)
+    transcript, profile, gd_problems, raw_profile, rewrites = _play(
+        rows, chunks, live=live, library=found
+    )
     pdf_rules = profile_check.check_pdf_bytes(pdf)
     gd_rules = profile_check.check_transcript(profile)
     problems = (
@@ -557,6 +752,10 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
         profile_check.format_report(gd_rules),
     ]
     if live:
+        problems.extend(_score_gap(raw_rules, "RAW"))
+        problems.extend(_raw_manual_problems(raw_profile))
+        if rewrites > 1:
+            problems.append(f"guards rewrote {rewrites} of {len(TURNS)} turns")
         report.extend([
             "",
             f"guards rewrote {rewrites} of {len(TURNS)} turns",
@@ -571,7 +770,7 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     text_out = "\n".join(report) + "\n"
     (out / "report.txt").write_text(text_out, encoding="utf-8")
     print(text_out, end="")
-    return 1 if problems else 0
+    return 1 if problems or _report_has_fail(text_out) else 0
 
 
 def main(argv=None) -> int:

@@ -6190,6 +6190,58 @@ def ensure_thetford_flush_reply(
     )
 
 
+def _thetford_draft_clean(reply: str) -> bool:
+    """A model sentence the shop can send without rewriting it."""
+    raw = reply or ""
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
+    if "?" not in raw or not re.search(r"\byou\b", raw, re.I):
+        return False
+    return bool(re.search(r"\b(wrench|pliers?|flashlight)\b", raw, re.I))
+
+
+def _thetford_show_draft_ok(reply: str) -> bool:
+    raw = reply or ""
+    low = raw.lower()
+    return (
+        _thetford_draft_clean(raw)
+        and "back of the toilet" in low
+        and "water valve" in low
+        and "42088" in raw
+    )
+
+
+def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
+    """True when this draft already is the check the stage is on."""
+    if not _thetford_draft_clean(reply):
+        return False
+    raw = reply or ""
+    low = raw.lower()
+    if stage == "valve_replace":
+        return bool(
+            "42109" in raw
+            and re.search(r"water off", low)
+            and re.search(r"water valve|pedal|cartridge", low)
+        )
+    if stage == "vacuum_replace":
+        return "34123" in raw and "vacuum breaker" in low and not _vacuum_reply_incomplete(raw)
+    if stage == "vacuum":
+        return (
+            "34123" in raw
+            and "vacuum breaker" in low
+            and "42109" not in raw
+            and not _vacuum_reply_incomplete(raw)
+        )
+    if stage == "supply":
+        return "42088" in raw and "42109" not in raw and "supply" in low
+    return False
+
+
+def _thetford_kept_draft(draft: str) -> str:
+    kept = _thetford_without_template(_thetford_keep(draft), "")
+    return kept if kept and _reply_has_body(kept) else ""
+
+
 def _thetford_flush_body(
     reply: str,
     history: list = None,
@@ -6208,8 +6260,18 @@ def _thetford_flush_body(
         listed = _thetford_procedure_catalog(stage)
         if listed:
             return listed
+    draft = (original or reply or "").strip()
+    # A complete model reply is the reply. The shop line is only the backstop.
     if _thetford_show_ask(latest_msg):
+        if _thetford_show_draft_ok(draft):
+            kept = _thetford_kept_draft(draft)
+            if kept:
+                return kept
         return _thetford_show_reply(history, latest_msg)
+    if _thetford_repair_draft_ok(draft, stage):
+        kept = _thetford_kept_draft(draft)
+        if kept:
+            return kept
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)

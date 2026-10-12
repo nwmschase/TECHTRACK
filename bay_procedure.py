@@ -6786,9 +6786,19 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The nuts are off.",
                 "A nut is still on.",
-                "Lift the toilet.",
+                "Pull the water hose off.",
                 fail="Turn the nut the other way.",
                 tools="wrench",
+                section="removal",
+            ),
+            _branch_step(
+                "Pull the water hose off the toilet.",
+                "At the water hose on the toilet.",
+                "The hose is off.",
+                "The hose is still on.",
+                "Lift the toilet.",
+                fail="Loosen the clamp and pull the hose again.",
+                tools="pliers",
                 section="removal",
             ),
             _branch_step(
@@ -6805,17 +6815,17 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The old seal is off.",
                 "The old seal is still on.",
-                "Cover the tank hole.",
+                "Cover the holding tank opening.",
                 fail="Pull the old seal off.",
                 section="removal",
             ),
             _branch_step(
-                "Cover the tank hole with a towel.",
-                "Over the tank hole in the floor.",
-                "The hole is covered.",
-                "The hole is still open.",
+                "Cover the holding tank opening at the closet flange with a towel.",
+                "At the closet flange.",
+                "The opening is covered.",
+                "The opening is still open.",
                 "Check the flange height.",
-                fail="Lay the towel over the hole.",
+                fail="Lay the towel over the opening.",
                 section="removal",
             ),
             _branch_step(
@@ -6829,12 +6839,12 @@ def _flange_branch() -> dict:
                 section="removal",
             ),
             _branch_step(
-                "Take the towel off the tank hole.",
-                "Over the tank hole in the floor.",
-                "The hole is open.",
+                "Uncover the holding tank opening at the closet flange.",
+                "At the closet flange.",
+                "The opening is open.",
                 "The towel is still on.",
                 "Put seal 02125 on.",
-                fail="Pull the towel out of the hole.",
+                fail="Pull the towel out of the opening.",
                 section="installation",
             ),
             _branch_step(
@@ -6860,9 +6870,19 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The toilet does not rock.",
                 "The toilet still rocks.",
-                "Confirm the flange.",
+                "Push the water hose on.",
                 fail="Turn the nuts until the toilet does not rock.",
                 tools="wrench",
+                section="installation",
+            ),
+            _branch_step(
+                "Push the water hose onto the toilet.",
+                "At the water hose on the toilet.",
+                "The hose is on.",
+                "The hose is still off.",
+                "Confirm the flange.",
+                fail="Push the hose on and tighten the clamp.",
+                tools="pliers",
                 section="installation",
             ),
             _confirm_step("At the closet flange, under the toilet."),
@@ -6991,6 +7011,18 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
         return ""
 
     def _kept_excerpt(title: str, page: int) -> str:
+        # Verbatim sentences from each document. A shortened step is not a quote.
+        verbatim = (
+            (r"\b42088\b", "Back of toilet: check water supply line connection at water valve."),
+            (
+                r"\b3412[23]\b",
+                "With pliers, slide clamp A down inlet tube, then remove inlet tube from vacuum breaker.",
+            ),
+            (r"\b42109\b", "Insert new Water Valve Cartridge Assembly until fully seated."),
+        )
+        for token, sentence in verbatim:
+            if re.search(token, title or ""):
+                return sentence
         for src in prior:
             if (src.get("title") or "") == title and src.get("page") == page:
                 excerpt = src.get("excerpt") or ""

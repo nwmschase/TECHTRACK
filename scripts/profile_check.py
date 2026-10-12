@@ -13,9 +13,11 @@ counter, a photo only when it helps, no figure without an ask, and no repeats.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -1045,10 +1047,27 @@ def _fastener_sequence(text: str) -> Rule:
         if any(re.search(r"\btake off the old floor seal\b|\btake off the old seal\b", action) for action in actions):
             if not any(re.search(r"\bfloor seal\b|\bflange seal\b", action) and re.search(r"\bput\b", action) for action in actions):
                 problems.append("the old seal comes off and no seal is put on")
-        if any(re.search(r"\bcover the tank hole\b", action) for action in actions) and not any(
-            re.search(r"\btake the towel off\b", action) for action in actions
+        if any(re.search(r"\bcover the (?:tank hole|holding tank opening)\b", action) for action in actions) and not any(
+            re.search(r"\btake the towel off\b|\buncover the holding tank\b", action) for action in actions
         ):
-            problems.append("a towel covers the tank hole and is not taken off")
+            problems.append("a towel covers the holding tank opening and is not taken off")
+        if "holding tank" in block.lower() and lift_at >= 0:
+            hose_off = next(
+                (i for i, action in enumerate(actions) if re.search(r"\bwater hose off\b|\bpull the water hose\b", action)),
+                -1,
+            )
+            hose_on = next(
+                (
+                    i
+                    for i, action in enumerate(actions)
+                    if re.search(r"\bwater hose onto\b|\bpush the water hose\b", action)
+                ),
+                -1,
+            )
+            if hose_off < 0 or hose_off > lift_at:
+                problems.append("the flange branch lifts the toilet before the water hose comes off")
+            elif hose_on < 0 or hose_on < lift_at:
+                problems.append("the flange branch does not put the water hose back on")
         if re.search(r"\bflange\b", block, re.I) and re.search(r"\b7/16\b", block):
             inst = block.upper().find("\nINSTALLATION")
             height = block.lower().find("7/16")
@@ -1086,8 +1105,52 @@ def _source_quote_rows(text: str) -> list[tuple[str, str]]:
     return rows
 
 
+def _folded_quote(text: str) -> str:
+    """Manual text with ligatures, soft hyphens, and line breaks folded out."""
+    raw = unicodedata.normalize("NFKC", text or "")
+    raw = raw.replace("\u00ad", "").replace("ﬁ", "fi").replace("ﬂ", "fl")
+    raw = raw.replace("\u2019", "'").replace("\u2018", "'")
+    raw = raw.replace("\u2013", "-").replace("\u2014", "-")
+    return re.sub(r"\s+", " ", raw).strip().casefold()
+
+
+_DOC_CORPUS: dict[str, str | None] = {}
+
+
+def _manual_corpus(doc: str) -> str | None:
+    """Folded text of one bundled manual. None when that file is not here."""
+    if doc in _DOC_CORPUS:
+        return _DOC_CORPUS[doc]
+    root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
+    folded = ""
+    if doc == "42088":
+        path = root / "om42088_pypdf_pages.json"
+        if path.is_file():
+            pages = json.loads(path.read_text(encoding="utf-8"))
+            folded = _folded_quote(" ".join(page.get("text") or "" for page in pages))
+    else:
+        name = {
+            "34123": "34123-34122-VacBrkr-1.pdf",
+            "42109": "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf",
+        }.get(doc, "")
+        path = root / name if name else None
+        if path is not None and path.is_file():
+            try:
+                import pymupdf
+            except Exception:
+                _DOC_CORPUS[doc] = None
+                return None
+            pdf = pymupdf.open(path)
+            try:
+                folded = _folded_quote("\n".join(page.get_text() for page in pdf))
+            finally:
+                pdf.close()
+    _DOC_CORPUS[doc] = folded or None
+    return _DOC_CORPUS[doc]
+
+
 def _source_doc_quotes(text: str) -> Rule:
-    """Each Sources quote comes from that document, not from a neighbor's line."""
+    """Each Sources quote is a verbatim sentence from that document."""
     if not re.search(r"\b42109\b", text or ""):
         return _rule("source_quotes", True, "no kit source quote on this sheet")
     found = {}
@@ -1117,7 +1180,17 @@ def _source_doc_quotes(text: str) -> Rule:
         return _rule("source_quotes", False, "42109 quote is the owner-manual supply line")
     if not re.search(r"water valve|pedal|inlet|retainer", valve):
         return _rule("source_quotes", False, "42109 quote does not come from the water valve kit")
-    return _rule("source_quotes", True, "each source quote comes from that document")
+    missing = []
+    for doc, quote in found.items():
+        corpus = _manual_corpus(doc)
+        if not corpus:
+            missing.append(doc)
+            continue
+        if _folded_quote(quote) not in corpus:
+            return _rule("source_quotes", False, f"{doc} quote is not a verbatim sentence from that document")
+    if missing and len(missing) == len(found):
+        return _rule("source_quotes", True, "source text is not in this checkout")
+    return _rule("source_quotes", True, "each source quote is a verbatim sentence from that document")
 
 
 def _kit_source_sentences() -> list[str]:
@@ -1224,7 +1297,7 @@ def _valve_start_bare(pairs: list[tuple[str, str]]) -> bool:
             continue
         low = assistant.lower()
         has_place = bool(re.search(r"\bgo to the water valve\b|\bat the water valve\b|\bat the pedal\b", low))
-        has_tool = bool(re.search(r"\b(wrench|plier|screwdriver|towel)\b", low))
+        has_tool = bool(re.search(r"\b(wrench|pliers?|screwdriver|towel)\b", low))
         if has_place and has_tool:
             continue
         return True
