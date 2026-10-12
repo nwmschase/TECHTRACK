@@ -167,7 +167,8 @@ class TestThetfordPhotoTurns(unittest.TestCase):
         self.assertIn("I see: Water is running at the fitting.", reply)
         self.assertIn("supply", low)
         self.assertNotIn("vacuum breaker", low)
-        self.assertIn("Send a photo of what you see.", reply)
+        self.assertIn("Send another photo, or type what you see.", reply)
+        self.assertNotIn("Send a photo of what you see.", reply)
         self.assertNotIn("A photo is optional.", reply)
 
     def test_a_confirming_photo_can_close_the_supply_check(self):
