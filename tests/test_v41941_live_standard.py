@@ -151,7 +151,8 @@ class TestOptionalPhotoAndProcedureList(unittest.TestCase):
         self.assertNotRegex(self.first, r"Step \d+ of")
         self.assertNotIn("Yes, go to the next step.", self.first)
         self.assertNotIn("No, do this step again.", self.first)
-        self.assertIn("What do you see?", self.first)
+        self.assertIn("Tell me what you see.", self.first)
+        self.assertNotIn("What do you see?", self.first)
         for answer in ("Yes.", "No.", "Water is off."):
             reply = _turn(answer, self.history)
             self.assertNotIn("<!--", reply, answer)
