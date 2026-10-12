@@ -4835,11 +4835,21 @@ def _chunk_fields(chunk) -> tuple:
 
 _CASE_CHUNKS: contextvars.ContextVar = contextvars.ContextVar("tt_case_chunks", default=None)
 _GUARD_FIRED: contextvars.ContextVar = contextvars.ContextVar("tt_guard_fired", default="")
+_SUPPLY_PAGE_ART: contextvars.ContextVar = contextvars.ContextVar("tt_supply_page_art", default=False)
 
 
 def last_guard_name() -> str:
     """The guard that replaced the draft on the last avoid_duplicate_reply call."""
     return _GUARD_FIRED.get() or ""
+
+
+def note_supply_page_art(has_art: bool):
+    """The supply show-me uses the page image when 42088 page 3 has one."""
+    return _SUPPLY_PAGE_ART.set(bool(has_art))
+
+
+def reset_supply_page_art(token) -> None:
+    _SUPPLY_PAGE_ART.reset(token)
 
 
 def _mark_guard(name: str) -> None:
@@ -6371,12 +6381,22 @@ def _observation_names_a_tool(reply: str) -> bool:
 
 
 def _thetford_show_draft_ok(reply: str) -> bool:
-    """A show-me that adds a place the previous turn did not already name."""
+    """A show-me that points at the page image, or says the manual has no picture.
+
+    Restating the supply check is not this reply. The good result still says dry.
+    """
     raw = reply or ""
     low = raw.lower()
     if re.search(r"\b(inlet side|small collar)\b", low):
         return False
+    if not re.search(r"\bdry\b", low):
+        return False
     # 42088: "Back of toilet: check water supply line connection at water valve."
+    pointed = "no picture" in low or bool(
+        re.search(r"\bon this page\b|\bon that image\b|\bpage image\b", low)
+    )
+    if not pointed:
+        return False
     return (
         _thetford_draft_clean(raw)
         and "back of the toilet" in low
@@ -6554,33 +6574,56 @@ def _thetford_flush_body(
     return _shop("thetford shop line")
 
 
+def _thetford_show_card(has_image: bool) -> str:
+    """The supply show-me. The good result stays dry.
+
+    With a page image, one short pointer in the words of 42088.
+    With none, say so, restate the location once, and ask for a photo.
+    """
+    cite = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+    if has_image:
+        body = (
+            "On this page, look at the back of the toilet, "
+            "at the water supply line connection on the water valve.\n"
+            "Use a flashlight.\n"
+            "A good result is the connection stays dry.\n"
+            "A bad result is the leak persists from the water valve.\n"
+            "Tell me what you see."
+        )
+    else:
+        body = (
+            "The manual has no picture of this spot.\n"
+            "The water supply line connection is at the back of the toilet, on the water valve.\n"
+            "Use a flashlight.\n"
+            "Send a photo of that connection.\n"
+            "A good result is the connection stays dry.\n"
+            "A bad result is the leak persists from the water valve.\n"
+            "Tell me what you see."
+        )
+    return f"{body}\n\n{cite}"
+
+
 def _thetford_where_answer() -> str:
     """Where the supply connection is, in the words of owner manual 42088.
 
     Page 3 says the water supply line connection is at the back of the toilet,
-    on the water valve. This card does not add a side or a shape, and it does
-    not invent a figure.
+    on the water valve. A stored page image gets a pointer. No image is said plainly.
+    This card does not add a side or a shape, and it does not invent a figure.
     """
-    return (
-        "The water supply line connection is at the back of the toilet, on the water valve.\n"
-        "Check that water supply line connection.\n"
-        "Use a flashlight.\n"
-        "A good result is the connection stays dry.\n"
-        "A bad result is the leak persists from the water valve.\n"
-        "Tell me what you see.\n\n"
-        "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
-    )
+    return _thetford_show_card(bool(_SUPPLY_PAGE_ART.get()))
 
 
 def _thetford_show_reply(history: list = None, latest_msg: str = "") -> str:
     """Answer 'show me where' without repeating the check the tech already has.
 
-    A repair step that is already on screen stays on that step. A proving
-    check that would come back word for word names the place on its own.
+    A repair step that is already on screen stays on that step. The supply
+    show-me is the page-image pointer, or the no-picture line.
     """
     line = _thetford_shop_line(history, latest_msg)
     if "<!--gd-step:" in (line or ""):
         return line
+    if _thetford_stage(history, latest_msg) == "supply":
+        return _thetford_where_answer()
     prev = _last_assistant_text(history)
     if not prev or _norm(prev) != _norm(line):
         return line

@@ -349,7 +349,26 @@ def _user_facts(history: list, message: str) -> str:
     return "\n".join(f"- {fact}" for fact in facts)
 
 
-def _turn_plan(history: list, message: str) -> dict:
+def _page_has_art(rows, token: str, page: int) -> bool:
+    """True when this manual page has a stored page image or figure."""
+    for row in rows or []:
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "caption", "label", "doc_number", "file_path", "clean_title")
+        )
+        if token not in blob:
+            continue
+        try:
+            if int(row.get("page") or 0) != int(page):
+                continue
+        except (TypeError, ValueError):
+            continue
+        if row.get("png") or row.get("image_path"):
+            return True
+    return False
+
+
+def _turn_plan(history: list, message: str, rows=None) -> dict:
     """The one check this turn is allowed to ask, in the 42088 order."""
     said = " ".join(
         (item.get("content") or "")
@@ -408,23 +427,51 @@ def _turn_plan(history: list, message: str) -> dict:
             ),
         }
     elif show:
-        plan = {
-            "focus": focus,
-            "cite": cite_42088,
-            "where": "the back of the toilet, at the water supply line connection on the water valve",
-            "tool": "a flashlight",
-            "look": "the water supply line connection at the water valve, and secure or tighten it as necessary",
-            "good": "it is secure",
-            "bad": "the leak persists from the water valve",
-            "safety": "",
-            "advance": (
-                "The tech asked where it is. Add location detail the previous turn did not already say. "
-                "Use only the manual's words: back of the toilet, water supply line connection, water valve. "
-                "Do not add a side, a shape, or a part the excerpt does not name. "
-                "Never reference a figure unless one is attached to this reply. "
-                "Do not cite kit 42109."
-            ),
-        }
+        has_art = _page_has_art(rows, "42088", 3)
+        if has_art:
+            plan = {
+                "focus": focus,
+                "cite": cite_42088,
+                "where": "the back of the toilet, on the attached page image",
+                "tool": "a flashlight",
+                "look": "the water supply line connection at the water valve on that image",
+                "good": "the connection stays dry",
+                "bad": "the leak persists from the water valve",
+                "safety": "",
+                "picture": "a page image of 42088 page 3 is attached",
+                "advance": (
+                    "A page image of this spot is attached to this reply. "
+                    "Do not repeat the supply check. "
+                    "Give one short pointer to where to look on that image, "
+                    "using only these manual words: back of the toilet, "
+                    "water supply line connection, water valve. "
+                    "Start that pointer with 'On this page'. "
+                    "The good result is the connection stays dry. "
+                    "Do not invent a side or a shape. Do not name a figure number. "
+                    "Do not cite kit 42109."
+                ),
+            }
+        else:
+            plan = {
+                "focus": focus,
+                "cite": cite_42088,
+                "where": "the back of the toilet",
+                "tool": "a flashlight",
+                "look": "the water supply line connection at the water valve",
+                "good": "the connection stays dry",
+                "bad": "the leak persists from the water valve",
+                "safety": "",
+                "picture": "none. The manual has no picture of this spot",
+                "advance": (
+                    "The manual has no picture of this spot. Say that plainly and briefly. "
+                    "Restate the location in one short line: the water supply line connection "
+                    "is at the back of the toilet, on the water valve. "
+                    "Offer a useful next move. You may ask the tech for a photo of that spot. "
+                    "The good result is the connection stays dry. "
+                    "Do not invent a side or a shape. Do not name a figure. "
+                    "Do not cite kit 42109."
+                ),
+            }
     else:
         plan = {
             "focus": focus,
@@ -485,11 +532,12 @@ def _ordered_excerpts(chunks, focus: str) -> list[str]:
     return lines
 
 
-def _live_draft(message: str, history: list, chunks) -> str:
+def _live_draft(message: str, history: list, chunks, rows=None) -> str:
     import gd_llm
 
-    plan = _turn_plan(history, message)
+    plan = _turn_plan(history, message, rows)
     excerpts = _ordered_excerpts(chunks, plan["focus"])
+    picture_line = f"Picture: {plan['picture']}\n" if plan.get("picture") else ""
     system = (
         "You are the shop Guided Diagnostics coach for one Thetford 42070 flush-lever leak. "
         "Address the technician as you. "
@@ -504,9 +552,15 @@ def _live_draft(message: str, history: list, chunks) -> str:
         "A flush-and-watch check does not name a wrench, pliers, or a screwdriver. "
         "An observation-only check is complete with where, what to look for, "
         "a good result, a bad result, and 'Tell me what you see.' It does not need a tool.\n"
-        "When the tech asks you to show them where something is, add location detail "
-        "from the manual excerpt or the figure caption that the previous turn did not already say. "
-        "Use the manual's words. Do not invent a side, a shape, or a part the excerpt does not name. "
+        "When the tech asks you to show them where something is, do not repeat the check you already gave. "
+        "If Picture says a page image is attached, give one short pointer to where to look on that image, "
+        "using only the manual's words, and start it with 'On this page'. "
+        "Do not name a figure number. The image is attached for you. "
+        "If Picture says the manual has no picture, say that plainly and briefly, "
+        "restate the location in one short line, and offer a useful next move. "
+        "You may ask for a photo of that spot. "
+        "Either way the good result for the supply connection stays dry. "
+        "Do not invent a side, a shape, or a part the excerpt does not name. "
         "Never reference a figure unless one is attached to this reply.\n"
         "When THIS TURN is kit 42109, write a conversation. "
         "Say this is the water valve kit 42109 job. The valve is at the pedal. "
@@ -545,6 +599,7 @@ def _live_draft(message: str, history: list, chunks) -> str:
         f"Good: {plan['good']}\n"
         f"Bad: {plan['bad']}\n"
         f"Safety: {plan['safety']}\n"
+        f"{picture_line}"
         f"Advance: {plan['advance']}\n\n"
         "Write the reply from THIS TURN. Cite only the Cite line. "
         "Move on once an established finding is in. Do not ask that check again. "
@@ -640,6 +695,10 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
         problems.append("RAW T2 invents a place the manual does not name")
     if "water supply line" not in t2_low or "back of the toilet" not in t2_low:
         problems.append("RAW T2 show-me does not use the manual's location words")
+    if not re.search(r"\bdry\b", t2_low):
+        problems.append("RAW T2 good line does not say dry")
+    if not re.search(r"no picture|on this page|on that image|page image", t2_low):
+        problems.append("RAW T2 does not point at the page image or say there is no picture")
     for sentence in re.split(r"[.\n]", t4):
         bit = sentence.lower()
         if re.search(r"\bbolt", bit) and re.search(r"water valve|\bpedal\b", bit):
@@ -681,84 +740,112 @@ def _same_reply(left: str, right: str) -> bool:
 
 
 def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str], str, int, list[str]]:
-    from gd_library_coach import avoid_duplicate_reply, ensure_thetford_flush_reply, last_guard_name
+    from gd_library_coach import (
+        avoid_duplicate_reply,
+        ensure_thetford_flush_reply,
+        last_guard_name,
+        note_supply_page_art,
+        reset_supply_page_art,
+    )
 
-    history = []
-    lines = []
-    pairs = []
-    raw_pairs = []
-    problems = []
-    rewrites = 0
-    guards = []
-    for label, message in TURNS:
-        if live:
-            try:
-                draft = _live_draft(message, history, library if library is not None else chunks)
-            except Exception as exc:
-                problems.append(f"{label} model call failed: {exc}")
-                draft = ""
-            guarded = avoid_duplicate_reply(
-                draft,
-                history,
-                message,
-                CATEGORY,
-                f"{BRAND} {MODEL}",
-                chunks=library if library is not None else chunks,
-            )
-            name = last_guard_name()
-            if _same_reply(draft, guarded):
-                name = "none"
-            elif not name:
-                name = "shop polish"
-            reply = _append_figure_detail(guarded, message, rows, chunks)
-            if name == "none" and not _same_reply(guarded, reply):
-                name = "figure detail"
-            if not _same_reply(draft, reply):
-                rewrites += 1
-            guards.append(f"{label} guard: {name}")
-            raw_pairs.append((message, draft or ""))
-        else:
-            reply = ensure_thetford_flush_reply(
-                "", history, message, CATEGORY, f"{BRAND} {MODEL}"
-            )
-        asked_figure = mf.wants_manual_image(message) or mf.tech_asked_for_manual_figure(message)
-        offers = []
-        if asked_figure:
-            offers = fb.offers_for_turn(rows, reply, message, CATEGORY, f"{BRAND} {MODEL}") or []
-        captions = []
-        for offer in offers:
-            caption = (offer.get("caption") or offer.get("gd_caption") or "").strip()
-            if not caption:
-                caption = fb.gd_figure_caption(offer)
-            if caption and caption not in captions:
-                captions.append(caption)
-        block = [f"{label} Tech: {message}", f"{label} Guided Diagnostics: {reply}"]
-        if captions:
-            block.append(f"{label} Figure: " + " | ".join(captions))
-        lines.extend(block)
-        lines.append("")
-        spoken = reply + "\n" + "\n".join(captions)
-        if _TEMPLATE.search(spoken):
-            problems.append(f"{label} leaks template text")
-        if label == "T2":
-            low_reply = reply.lower()
-            if "back of the toilet" not in low_reply or "water valve" not in low_reply:
-                problems.append("T2 does not say where the supply connection is")
-            if re.search(r"inlet side|small collar", low_reply):
-                problems.append("T2 invents a place the manual does not name")
-            if "water supply line" not in low_reply or "back of the toilet" not in low_reply:
-                problems.append("T2 show-me does not use the manual's location words")
-            blob = " ".join(captions).lower()
-            if "page 7" in blob or re.search(r"\bstep\s+1\b", blob):
-                problems.append("T2 figure caption is page 7 / Step 1")
-        history.append({"role": "user", "content": message})
-        history.append({"role": "assistant", "content": reply})
-        scored = reply
-        if captions:
-            scored = reply.rstrip() + "\n" + "\n".join(f"Figure: {caption}" for caption in captions)
-        pairs.append((message, scored))
-    raw_text = _profile_text(raw_pairs) if raw_pairs else ""
-    return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems, raw_text, rewrites, guards
+    art_token = note_supply_page_art(_page_has_art(rows, "42088", 3))
+    try:
+        history = []
+        lines = []
+        pairs = []
+        raw_pairs = []
+        problems = []
+        rewrites = 0
+        guards = []
+        for label, message in TURNS:
+            if live:
+                try:
+                    draft = _live_draft(
+                        message, history, library if library is not None else chunks, rows
+                    )
+                except Exception as exc:
+                    problems.append(f"{label} model call failed: {exc}")
+                    draft = ""
+                guarded = avoid_duplicate_reply(
+                    draft,
+                    history,
+                    message,
+                    CATEGORY,
+                    f"{BRAND} {MODEL}",
+                    chunks=library if library is not None else chunks,
+                )
+                name = last_guard_name()
+                if _same_reply(draft, guarded):
+                    name = "none"
+                elif not name:
+                    name = "shop polish"
+                reply = _append_figure_detail(guarded, message, rows, chunks)
+                if name == "none" and not _same_reply(guarded, reply):
+                    name = "figure detail"
+                if not _same_reply(draft, reply):
+                    rewrites += 1
+                guards.append(f"{label} guard: {name}")
+                raw_pairs.append((message, draft or ""))
+            else:
+                reply = ensure_thetford_flush_reply(
+                    "", history, message, CATEGORY, f"{BRAND} {MODEL}"
+                )
+            asked_figure = mf.wants_manual_image(message) or mf.tech_asked_for_manual_figure(message)
+            offers = []
+            if asked_figure:
+                offers = fb.offers_for_turn(rows, reply, message, CATEGORY, f"{BRAND} {MODEL}") or []
+            captions = []
+            for offer in offers:
+                caption = (offer.get("caption") or offer.get("gd_caption") or "").strip()
+                if not caption:
+                    caption = fb.gd_figure_caption(offer)
+                if caption and caption not in captions:
+                    captions.append(caption)
+            block = [f"{label} Tech: {message}", f"{label} Guided Diagnostics: {reply}"]
+            if captions:
+                block.append(f"{label} Figure: " + " | ".join(captions))
+            lines.extend(block)
+            lines.append("")
+            spoken = reply + "\n" + "\n".join(captions)
+            if _TEMPLATE.search(spoken):
+                problems.append(f"{label} leaks template text")
+            if label == "T2":
+                low_reply = reply.lower()
+                if "back of the toilet" not in low_reply or "water valve" not in low_reply:
+                    problems.append("T2 does not say where the supply connection is")
+                if re.search(r"inlet side|small collar", low_reply):
+                    problems.append("T2 invents a place the manual does not name")
+                if "water supply line" not in low_reply or "back of the toilet" not in low_reply:
+                    problems.append("T2 show-me does not use the manual's location words")
+                if not re.search(r"\bdry\b", low_reply):
+                    problems.append("T2 good line does not say dry")
+                if captions:
+                    if "no picture" in low_reply:
+                        problems.append("T2 says there is no picture when a page image is attached")
+                    if "on this page" not in low_reply and "on that image" not in low_reply:
+                        problems.append("T2 does not point at the attached page image")
+                elif "no picture" not in low_reply:
+                    problems.append("T2 does not say the manual has no picture")
+                elif "photo" not in low_reply:
+                    problems.append("T2 does not offer a photo when the manual has no picture")
+                blob = " ".join(captions).lower()
+                if "page 7" in blob or re.search(r"\bstep\s+1\b", blob):
+                    problems.append("T2 figure caption is page 7 / Step 1")
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": reply})
+            scored = reply
+            if captions:
+                figure_block = "\n".join(f"Figure: {caption}" for caption in captions)
+                scored = reply.rstrip() + "\n" + figure_block
+                # The attachment is part of the reply, not a guard rewrite.
+                if live and raw_pairs:
+                    user, draft_text = raw_pairs[-1]
+                    raw_pairs[-1] = (user, (draft_text or "").rstrip() + "\n" + figure_block)
+            pairs.append((message, scored))
+        raw_text = _profile_text(raw_pairs) if raw_pairs else ""
+        return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems, raw_text, rewrites, guards
+    finally:
+        reset_supply_page_art(art_token)
 
 
 def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:

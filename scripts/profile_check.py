@@ -414,6 +414,19 @@ def _token_set(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
 
 
+def _show_me_repeat_exempt(user: str, assistant: str) -> bool:
+    """A show-me may repeat the location when it shows the picture or says there is none.
+
+    Any other show-me still has to add new content.
+    """
+    if not ASK_RE.search(user or ""):
+        return False
+    raw = assistant or ""
+    if FIGURE_RE.search(raw) or _FIGURE_ATTACHED_RE.search(raw):
+        return True
+    return bool(re.search(r"\bno picture\b", raw, re.I))
+
+
 def _near_duplicate(bodies: list[str]) -> bool:
     """One extra sentence on a copied turn is still the same reply."""
     tokens = [_token_set(body) for body in bodies if body]
@@ -595,8 +608,20 @@ def check_transcript(text: str) -> list[Rule]:
     for user, assistant in pairs:
         if FIGURE_RE.search(assistant) and not ASK_RE.search(user):
             figure_problems.append("figure shown before the tech asked")
-    bodies = [_assistant_body(turn) for turn in assistants if _assistant_body(turn)]
-    repeated = len(bodies) != len(set(bodies)) or _near_duplicate(bodies)
+    bodies = []
+    comparable = []
+    if pairs:
+        for user, assistant in pairs:
+            body = _assistant_body(assistant)
+            if not body:
+                continue
+            bodies.append(body)
+            if not _show_me_repeat_exempt(user, assistant):
+                comparable.append(body)
+    else:
+        bodies = [_assistant_body(raw)] if _assistant_body(raw) else []
+        comparable = list(bodies)
+    repeated = len(bodies) != len(set(bodies)) or _near_duplicate(comparable)
     follow = all(_asks_follow_up(turn) for turn in assistants) if assistants else False
     rules = [
         _rule("no_label_block", label_hit is None, "" if label_hit is None else label_hit.group(0).strip()),

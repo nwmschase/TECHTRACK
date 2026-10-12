@@ -32,7 +32,13 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             self.assertNotIn("PF-08 MANUAL", report)
             self.assertTrue((out / "thetford-bay.pdf").stat().st_size > 1000)
             self.assertIn("T2 Tech: Show me where that connection is", transcript)
-            self.assertIn("back of the toilet", transcript.lower())
+            t2 = transcript.split("T2 Tech:", 1)[1].split("T3 Tech:", 1)[0]
+            self.assertIn("no picture", t2.lower())
+            self.assertIn("back of the toilet", t2.lower())
+            self.assertIn("water supply line", t2.lower())
+            self.assertIn("dry", t2.lower())
+            self.assertIn("photo", t2.lower())
+            self.assertNotIn("Figure:", t2)
             self.assertIn("water valve", transcript.lower())
             self.assertNotIn("not stated", transcript.lower())
             self.assertNotIn("How (", transcript)
@@ -123,6 +129,30 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                     key, value = line.split(":", 1)
                     fields[key.strip().lower()] = value.strip()
             cite = fields.get("cite") or "the manual"
+            picture = (fields.get("picture") or "").lower()
+            if picture:
+                if "no picture" in picture:
+                    return "\n".join([
+                        "The manual has no picture of this spot.",
+                        "The water supply line connection is at the back of the toilet, on the water valve.",
+                        "Use a flashlight.",
+                        "Send a photo of that connection.",
+                        "A good result is the connection stays dry.",
+                        "A bad result is the leak persists from the water valve.",
+                        "Tell me what you see.",
+                        "",
+                        f"📖 Source: {cite}",
+                    ])
+                return "\n".join([
+                    "On this page, look at the back of the toilet, "
+                    "at the water supply line connection on the water valve.",
+                    "Use a flashlight.",
+                    "A good result is the connection stays dry.",
+                    "A bad result is the leak persists from the water valve.",
+                    "Tell me what you see.",
+                    "",
+                    f"📖 Source: {cite}",
+                ])
             if "42109" in cite:
                 tool = fields.get("tool") or "a 1/2-inch wrench"
                 parts = [
@@ -216,6 +246,8 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertIn("water supply line", systems[1].lower())
         self.assertIn("do not invent a side", systems[1].lower())
         self.assertIn("never reference a figure", systems[1].lower())
+        self.assertIn("no picture", systems[1].lower())
+        self.assertIn("stays dry", systems[1].lower())
         self.assertIn("closet flange", systems[3].lower())
         self.assertIn("said once", systems[3].lower())
         self.assertIn("do not name pliers", systems[3].lower())
@@ -226,6 +258,7 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("seat the", raw.lower())
         self.assertIn("water supply line", raw.lower())
         self.assertIn("back of the toilet", raw.lower())
+        self.assertIn("no picture", raw.lower())
         self.assertNotIn("inlet side", raw.lower())
         self.assertNotIn("small collar", raw.lower())
         for label in ("T1", "T2", "T3", "T4"):
@@ -461,6 +494,48 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         named = {rule.name: rule for rule in profile_check.check_transcript(cited)}
         self.assertTrue(named["figure_named_only_when_attached"].ok)
 
+    def test_a_show_me_near_copy_is_exempt_only_with_a_picture_or_a_plain_statement(self):
+        import scripts.profile_check as profile_check
+
+        supply = (
+            "Go to the water valve for the supply connection.\n"
+            "Use a flashlight.\n"
+            "A good result is the supply connection stays dry.\n"
+            "A bad result is water comes out of the supply connection.\n"
+            "Tell me what you see.\n"
+        )
+        copied = (
+            "Go to the water valve for the supply connection.\n"
+            "Use a flashlight.\n"
+            "Check the supply connection at the water valve.\n"
+            "A good result is the supply connection stays dry.\n"
+            "A bad result is water comes out of the supply connection.\n"
+            "Tell me what you see.\n"
+        )
+        self.assertTrue(
+            profile_check._near_duplicate([
+                profile_check._assistant_body(supply),
+                profile_check._assistant_body(copied),
+            ])
+        )
+
+        def transcript(second: str) -> str:
+            return (
+                "USER: Thetford 42070 leaks under the flush lever\n"
+                f"ASSISTANT:\n{supply}\n"
+                "USER: Show me where that connection is\n"
+                f"ASSISTANT:\n{second}\n"
+            )
+
+        bare = {rule.name: rule for rule in profile_check.check_transcript(transcript(copied))}
+        self.assertFalse(bare["no_repeats"].ok)
+        stated = copied + "The manual has no picture of this spot.\n"
+        named = {rule.name: rule for rule in profile_check.check_transcript(transcript(stated))}
+        self.assertTrue(named["no_repeats"].ok, named["no_repeats"].detail)
+        attached = copied + "Figure: Thetford Style II OM Permanent RV Toilet 42088, page 3\n"
+        named = {rule.name: rule for rule in profile_check.check_transcript(transcript(attached))}
+        self.assertTrue(named["no_repeats"].ok, named["no_repeats"].detail)
+
     def test_a_complete_flush_and_watch_is_not_rewritten(self):
         """rev6 live1 T3. The review pack was not in this checkout.
 
@@ -666,6 +741,68 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         )
         self.assertIn("1/2-inch wrench", valve.lower())
         self.assertNotIn("plier", valve.lower())
+
+    def test_a_fake_page_image_is_attached_and_pointed_at(self):
+        """Live 42088 page 3 has a page image. The fixture does not, so this adds one."""
+        from scripts.thetford_live_gate import (
+            _asset_rows,
+            _connect,
+            _page_has_art,
+            _play,
+            _rank_chunks,
+            _thetford_chunks,
+        )
+        import library_figure_backfill as fb
+        import scripts.profile_check as profile_check
+
+        session = _connect(DB)
+        try:
+            found = _thetford_chunks(session)
+            chunks = _rank_chunks(found, 12)
+            doc_ids = {int(chunk["document_id"]) for chunk in chunks if chunk.get("document_id")}
+            rows = _asset_rows(session, doc_ids)
+        finally:
+            session.close()
+        fb.attach_pngs(None, rows, read_local=False, download=None, cache_root=CACHE)
+        self.assertFalse(_page_has_art(rows, "42088", 3))
+        _transcript, plain, plain_problems, _raw, _rewrites, _guards = _play(
+            rows, chunks, live=False, library=found
+        )
+        self.assertEqual(plain_problems, [], plain_problems)
+        plain_t2 = plain.split("Show me where that connection is", 1)[1].split("USER:", 1)[0]
+        self.assertIn("no picture", plain_t2.lower())
+        self.assertNotIn("Figure:", plain_t2)
+        rows.append({
+            "id": 99,
+            "document_id": 3,
+            "kind": "page",
+            "title": "Thetford Style II OM Permanent RV Toilet 42088",
+            "brand": "Thetford",
+            "page": 3,
+            "label": "page",
+            "caption": "Thetford Style II OM Permanent RV Toilet 42088, page 3",
+            "png": b"\x89PNG\r\n\x1a\nfake-page",
+            "image_path": "library/doc3-p3-page.png",
+            "category_name": "Plumbing / Toilets",
+        })
+        self.assertTrue(_page_has_art(rows, "42088", 3))
+        transcript, profile, problems, _raw, _rewrites, _guards = _play(
+            rows, chunks, live=False, library=found
+        )
+        self.assertEqual(problems, [], problems)
+        t2 = transcript.split("T2 Tech:", 1)[1].split("T3 Tech:", 1)[0]
+        self.assertIn("Figure:", t2)
+        self.assertIn("page 3", t2.lower())
+        self.assertIn("on this page", t2.lower())
+        self.assertIn("water supply line", t2.lower())
+        self.assertIn("back of the toilet", t2.lower())
+        self.assertIn("dry", t2.lower())
+        self.assertNotIn("no picture", t2.lower())
+        self.assertNotIn("page 7", t2.lower())
+        self.assertNotRegex(t2, r"Step 1")
+        named = {rule.name: rule for rule in profile_check.check_transcript(profile)}
+        self.assertTrue(named["no_repeats"].ok, named["no_repeats"].detail)
+        self.assertTrue(named["figures_only_when_asked"].ok)
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."

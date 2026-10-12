@@ -46,7 +46,7 @@ Cache crops, taken from the local kit PDFs with the same indexer the shop uses:
 
 Fig. 3 is the 400 dpi crop. The caption is the full manual label, not the cut-off word WATER.
 
-No 42088 page image. Live show-me can attach the stored page-3 image. This cache cannot.
+No 42088 page image. Live show-me can attach the stored page-3 image and point at it. This cache cannot, so the show-me says the manual has no picture of this spot.
 
 No page-7 "Step 1" row. A temporary database used while writing the gate added that row, with a stub PNG, to prove a caption stays on the cited page. It is not in this library, and the stub is not a live crop.
 
