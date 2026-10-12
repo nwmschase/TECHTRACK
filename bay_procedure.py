@@ -6833,7 +6833,7 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The flange is not 7/16 inch above the floor.",
-                "Put seal 02125 on.",
+                "Uncover the holding tank opening.",
                 fail="Add a spacer until the flange is 7/16 inch up.",
                 tools="ruler",
                 section="removal",
@@ -6841,7 +6841,7 @@ def _flange_branch() -> dict:
             _branch_step(
                 "Uncover the holding tank opening at the closet flange.",
                 "At the closet flange.",
-                "The opening is open.",
+                "The holding tank opening is clear.",
                 "The towel is still on.",
                 "Put seal 02125 on.",
                 fail="Pull the towel out of the opening.",

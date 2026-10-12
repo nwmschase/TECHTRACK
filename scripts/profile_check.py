@@ -451,6 +451,81 @@ def _bare_vacuum_turn(pairs: list[tuple[str, str]]) -> bool:
     return False
 
 
+_GOOD_LABEL_RE = re.compile(r"\b(?:a )?good result\b|\bgood looks like\b", re.I)
+_BAD_LABEL_RE = re.compile(r"\b(?:a )?bad result\b|\bbad looks like\b", re.I)
+_REPORT_BACK_RE = re.compile(
+    r"\b(?:report what you (?:see|find|hear)|what do you see|tell me what you see)\b",
+    re.I,
+)
+_ACTION_TURN_RE = re.compile(
+    r"\b(check|replace|remove|install|flush|go to|use a|use the|turn the|pull the|seat)\b",
+    re.I,
+)
+_WEEP_REASK_RE = re.compile(r"cartridge for a weep|\bcheck\b.{0,60}\bweep\b", re.I)
+
+
+def _repeats_established_finding(pairs: list[tuple[str, str]]) -> str:
+    """A later reply must not ask the tech to prove a result they already reported."""
+    for user, assistant in pairs:
+        body = assistant or ""
+        if re.search(r"weeps at the pedal", user or "", re.I) and _WEEP_REASK_RE.search(body):
+            if not re.search(r"\b(replace|remove|install|seat|pull the pedal)\b", body, re.I):
+                return "asks to check for a weep the tech already reported"
+        if re.search(r"no leak while flushing", user or "", re.I):
+            low = body.lower()
+            if (
+                "vacuum breaker" in low
+                and re.search(r"\b(check|watch|flush)\b", low)
+                and not re.search(r"\b(42109|replace|remove|install|water off)\b", low)
+            ):
+                return "asks the vacuum-breaker check again after it passed"
+        if re.search(r"supply connection is dry", user or "", re.I):
+            if (
+                re.search(r"\bcheck\b", body, re.I)
+                and re.search(r"supply connection", body, re.I)
+                and not re.search(r"vacuum breaker|34123", body, re.I)
+            ):
+                return "asks the supply check again after it was dry"
+    return ""
+
+
+def _labeled_good_bad(text: str, pairs: list[tuple[str, str]]) -> str:
+    """A Thetford check names a good result and a bad result in the sentences."""
+    if _case_kind(text) != "thetford":
+        return ""
+    for index, (_user, assistant) in enumerate(pairs, 1):
+        raw = assistant or ""
+        if not _ACTION_TURN_RE.search(raw):
+            continue
+        if _GOOD_LABEL_RE.search(raw) and _BAD_LABEL_RE.search(raw):
+            continue
+        return f"turn {index} does not label both a good result and a bad result"
+    return ""
+
+
+def _report_back_gap(pairs: list[tuple[str, str]]) -> str:
+    """Every reply ends by saying what the tech should report."""
+    for index, (_user, assistant) in enumerate(pairs, 1):
+        if not _REPORT_BACK_RE.search(assistant or ""):
+            return f"turn {index} does not say what to report back"
+    return ""
+
+
+def _tools_fit_the_action(pairs: list[tuple[str, str]]) -> str:
+    """A flush-and-watch of the vacuum breaker does not call for pliers."""
+    for user, assistant in pairs:
+        if not re.search(r"supply connection is dry", user or "", re.I):
+            continue
+        low = (assistant or "").lower()
+        if "vacuum breaker" not in low or not re.search(r"\b(flush|watch)\b", low):
+            continue
+        if re.search(r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum)\b", low):
+            continue
+        if re.search(r"\bpliers?\b", low):
+            return "pliers do not belong on a flush-and-watch check"
+    return ""
+
+
 def check_transcript(text: str) -> list[Rule]:
     """GD-profile rules for a USER / ASSISTANT transcript."""
     original = text or ""
@@ -485,6 +560,26 @@ def check_transcript(text: str) -> list[Rule]:
         ),
         _rule("no_repeats", not repeated, "a reply repeated" if repeated else f"{len(bodies)} distinct replies"),
         _rule("follow_up", follow, "each reply asks what the tech sees" if follow else "a reply has no follow-up question"),
+        _rule(
+            "repeats_established_finding",
+            not _repeats_established_finding(pairs),
+            _repeats_established_finding(pairs) or "later replies move past reported findings",
+        ),
+        _rule(
+            "labeled_good_bad",
+            not _labeled_good_bad(raw, pairs),
+            _labeled_good_bad(raw, pairs) or "each check labels a good result and a bad result",
+        ),
+        _rule(
+            "report_back",
+            not _report_back_gap(pairs),
+            _report_back_gap(pairs) or "each reply says what to report back",
+        ),
+        _rule(
+            "tools_fit_the_action",
+            not _tools_fit_the_action(pairs),
+            _tools_fit_the_action(pairs) or "tools match the action",
+        ),
     ]
     return rules + grade_gd(raw, rules)
 

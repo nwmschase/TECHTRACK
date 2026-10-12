@@ -120,6 +120,8 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
                 sheet.extend(mf.step_body_lines(step, show_figure=False))
         blob = "\n".join(sheet)
         self.assertNotIn("Flush 3 times. dry", blob)
+        self.assertNotIn("tank hole in the floor", blob.lower())
+        self.assertIn("holding tank opening at the closet flange", blob.lower())
         self.assertNotIn("Put the vot", blob)
         for line in blob.splitlines():
             if not line.startswith("Bad looks like:"):
@@ -150,6 +152,14 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         self.assertIn(("removal", "Pull the water hose off the toilet"), flange_actions)
         self.assertIn(("removal", "Cover the holding tank opening at the closet flange with a towel"), flange_actions)
         self.assertIn(("installation", "Uncover the holding tank opening at the closet flange"), flange_actions)
+        height_step = next(step for step in flange.get("steps") or [] if "7/16" in (step.get("text") or ""))
+        uncover_step = next(
+            step for step in flange.get("steps") or [] if (step.get("text") or "").startswith("Uncover")
+        )
+        self.assertIn("Uncover the holding tank opening", (height_step.get("fields") or {}).get("NEXT") or "")
+        self.assertNotIn("02125", (height_step.get("fields") or {}).get("NEXT") or "")
+        self.assertIn("holding tank opening is clear", (uncover_step.get("fields") or {}).get("GOOD vs BAD") or "")
+        self.assertNotIn("The opening is open", (uncover_step.get("fields") or {}).get("GOOD vs BAD") or "")
         self.assertIn(("installation", "Push the water hose onto the toilet"), flange_actions)
         hose_off = next(i for i, (section, action) in enumerate(flange_actions) if action == "Pull the water hose off the toilet")
         self.assertLess(hose_off, next(i for i, (_section, action) in enumerate(flange_actions) if action == "Lift the toilet off the floor"))
@@ -439,6 +449,63 @@ class TestReviewDefectsFail(unittest.TestCase):
         )
         named = {rule.name: rule for rule in profile_check.check_transcript(named_place)}
         self.assertNotEqual(named["score-2"].status, "FAIL")
+
+    def test_a_repeated_finding_unlabeled_result_and_pliers_fail(self):
+        weep = (
+            "USER: Thetford 42070 leaks under the flush lever\n"
+            "ASSISTANT:\n"
+            "Go to the water valve. A good result is it stays tight. "
+            "A bad result is water comes out. Report what you see?\n"
+            "📖 Source: 42088, page 3\n\n"
+            "USER: No leak while flushing. The water valve weeps at the pedal.\n"
+            "ASSISTANT:\n"
+            "Check the cartridge for a weep. A good result is a dry pedal. "
+            "A bad result is a weep at the pedal. Report what you see?\n"
+            "📖 Source: 42109, page 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(weep)}
+        self.assertFalse(named["repeats_established_finding"].ok)
+        plain = (
+            "USER: Thetford 42070 leaks under the flush lever\n"
+            "ASSISTANT:\n"
+            "Go to the water valve. It stays tight. Water comes out. What do you see?\n"
+            "📖 Source: 42088, page 3\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(plain)}
+        self.assertFalse(named["labeled_good_bad"].ok)
+        self.assertTrue(named["report_back"].ok)
+        silent = (
+            "USER: Thetford 42070 leaks under the flush lever\n"
+            "ASSISTANT:\n"
+            "Go to the water valve. A good result is it stays tight. "
+            "A bad result is water comes out.\n"
+            "📖 Source: 42088, page 3\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(silent)}
+        self.assertFalse(named["report_back"].ok)
+        pliers = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\n"
+            "Go to the vacuum breaker. Use pliers. You flush and watch it. "
+            "A good result is no leak. A bad result is it leaks. Report what you see?\n"
+            "📖 Source: 34123, page 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(pliers)}
+        self.assertFalse(named["tools_fit_the_action"].ok)
+        repair = (
+            "USER: Thetford 42070. No leak while flushing. The water valve weeps at the pedal.\n"
+            "ASSISTANT:\n"
+            "Turn the RV water off. Go to the water valve at the pedal. "
+            "Use a 1/2-inch wrench and pliers. Seat the new cartridge. "
+            "A good result is the new cartridge is seated. "
+            "A bad result is the old cartridge is still in. Report what you see?\n"
+            "📖 Source: 42109, page 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(repair)}
+        self.assertTrue(named["repeats_established_finding"].ok)
+        self.assertTrue(named["labeled_good_bad"].ok)
+        self.assertTrue(named["report_back"].ok)
+        self.assertTrue(named["tools_fit_the_action"].ok)
         import pymupdf
 
         doc = pymupdf.open()

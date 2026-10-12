@@ -4829,13 +4829,30 @@ def _chunk_fields(chunk) -> tuple:
     )
 
 
+_THETFORD_DOC_RE = re.compile(r"\b(?:42088|34123|34122|42109)\b")
+
+
+def _thetford_docs_cited(*blobs: str) -> bool:
+    """True when a shop reply already names a Thetford manual that was retrieved.
+
+    The model name and the tech's complaint are not a cite. 42070 in the unit
+    field does not prove the manual was opened.
+    """
+    return any(_THETFORD_DOC_RE.search(blob or "") for blob in blobs)
+
+
 def _unmatched_unit_line(
     history: list = None,
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    current: str = "",
 ) -> str:
-    """Miss line for a typed unit that has no job lock and no same-brand cite yet."""
+    """Miss line for a typed unit that has no job lock and no same-brand cite yet.
+
+    A reply that already cites 42088, 34123, 34122, or 42109 is not a miss.
+    The brand word is not required once those document numbers are in the chat.
+    """
     job = _job_key(history, latest_msg, category_name, model_text)
     if job and job != "thetford":
         return ""
@@ -4845,6 +4862,8 @@ def _unmatched_unit_line(
         return ""
     prior = _prior_assistant_text(history)
     if "📖" in prior and brand.lower() in _norm(prior):
+        return ""
+    if _thetford_docs_cited(prior, current):
         return ""
     return library_miss_shop_line(brand)
 
@@ -6190,14 +6209,29 @@ def ensure_thetford_flush_reply(
     )
 
 
-def _thetford_draft_clean(reply: str) -> bool:
-    """A model sentence the shop can send without rewriting it."""
+def _thetford_sentence_ok(reply: str) -> bool:
+    """Second person, a question, and no leaked template. A tool is separate."""
     raw = reply or ""
     if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
         return False
-    if "?" not in raw or not re.search(r"\byou\b", raw, re.I):
+    return "?" in raw and bool(re.search(r"\byou\b", raw, re.I))
+
+
+def _thetford_draft_clean(reply: str) -> bool:
+    """A model sentence the shop can send without rewriting it."""
+    return _thetford_sentence_ok(reply) and bool(
+        re.search(r"\b(wrench|pliers?|flashlight)\b", reply or "", re.I)
+    )
+
+
+def _flush_watch_names_pliers(reply: str) -> bool:
+    """Pliers belong on the vacuum-breaker repair, not the flush-and-watch check."""
+    low = (reply or "").lower()
+    if not re.search(r"\bpliers?\b", low) or "vacuum breaker" not in low:
         return False
-    return bool(re.search(r"\b(wrench|pliers?|flashlight)\b", raw, re.I))
+    if re.search(r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum)\b", low):
+        return False
+    return bool(re.search(r"\b(flush|watch)\b", low))
 
 
 def _thetford_show_draft_ok(reply: str) -> bool:
@@ -6213,11 +6247,27 @@ def _thetford_show_draft_ok(reply: str) -> bool:
 
 def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
     """True when this draft already is the check the stage is on."""
-    if not _thetford_draft_clean(reply):
-        return False
     raw = reply or ""
     low = raw.lower()
+    if stage == "vacuum":
+        if _flush_watch_names_pliers(raw):
+            return False
+        return (
+            _thetford_sentence_ok(raw)
+            and "34123" in raw
+            and "vacuum breaker" in low
+            and "42109" not in raw
+            and not _vacuum_reply_incomplete(raw)
+        )
+    if not _thetford_draft_clean(reply):
+        return False
     if stage == "valve_replace":
+        if re.search(r"cartridge for a weep", low):
+            return False
+        if re.search(r"\bcheck\b.{0,40}\bweep\b", low) and not re.search(
+            r"\b(replace|remove|install|seat|pull the pedal)\b", low
+        ):
+            return False
         return bool(
             "42109" in raw
             and re.search(r"water off", low)
@@ -6225,13 +6275,6 @@ def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
         )
     if stage == "vacuum_replace":
         return "34123" in raw and "vacuum breaker" in low and not _vacuum_reply_incomplete(raw)
-    if stage == "vacuum":
-        return (
-            "34123" in raw
-            and "vacuum breaker" in low
-            and "42109" not in raw
-            and not _vacuum_reply_incomplete(raw)
-        )
     if stage == "supply":
         return "42088" in raw and "42109" not in raw and "supply" in low
     return False
@@ -6300,6 +6343,16 @@ def _thetford_flush_body(
             re.I,
         )
         if leaked:
+            return nxt
+        # The manuals are already in the chat. Do not tell the tech they are missing.
+        if _thetford_docs_cited(original, reply, _prior_assistant_text(history)):
+            for candidate in (original, reply):
+                if not candidate or _is_thetford_miss_line(candidate):
+                    continue
+                if _thetford_repair_draft_ok(candidate, stage) or _thetford_show_draft_ok(candidate):
+                    kept_draft = _thetford_kept_draft(candidate)
+                    if kept_draft:
+                        return kept_draft
             return nxt
         kept = reply if _is_thetford_miss_line(reply) else original
         return _thetford_without_template(_thetford_keep(kept), nxt)
@@ -6422,6 +6475,7 @@ def _final_shop_line(
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    current: str = "",
 ) -> str:
     """A job-specific line. Never a cross-case repair and never a placeholder."""
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
@@ -6431,7 +6485,9 @@ def _final_shop_line(
     if proved and not _repeats_last_body(proved, history):
         return proved if "📖" in proved else _with_cite(proved, job)
     job = _job_key(history, latest_msg, category_name, model_text)
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=current
+    )
     if miss:
         return miss
     later = bool(_last_assistant_text(history))
@@ -6510,10 +6566,14 @@ def without_reading_filler(
     text = re.sub(r" *\n *", "\n", text).strip(" \n.")
     if text and not _FILLER_RE.search(text):
         return _restore_look_for_leaks(text)
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=reply
+    )
     if miss and not _FILLER_RE.search(miss):
         return _restore_look_for_leaks(miss)
-    fallback = _final_shop_line(history, latest_msg, category_name, model_text)
+    fallback = _final_shop_line(
+        history, latest_msg, category_name, model_text, current=reply
+    )
     fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
     if fallback and not _FILLER_RE.search(fallback):
         return _restore_look_for_leaks(fallback)
@@ -6544,7 +6604,9 @@ def _answer_latest(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=current
+    )
     if miss:
         return miss
     if _give_repair_now(latest_msg, history):
@@ -7037,15 +7099,21 @@ def polish_shop_reply(
         or re.search(r"report the result of that check", text or "", re.I)
         or asked
     ):
-        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        nxt = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
         if nxt and _line_fits_job(nxt, job):
             text = nxt
     if not (text or "").strip() or not _line_fits_job(text, job):
-        text = _final_shop_line(history, latest_msg, category_name, model_text)
+        text = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
     if text and "📖" not in text:
         text = _with_cite(text, job)
     if _repeats_last_body(text, history):
-        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        nxt = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
     text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())

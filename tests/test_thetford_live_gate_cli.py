@@ -124,12 +124,12 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                 parts.append(safety if safety.endswith(".") else safety + ".")
             parts.append(f"Go to {fields.get('where') or 'the part'}.")
             tool = fields.get("tool") or ""
-            if tool:
+            if tool and not tool.lower().startswith("none"):
                 parts.append(f"Use {tool}.")
             parts.append(f"Check {fields.get('look') or 'the part'}.")
             parts.append(f"A good result is {fields.get('good') or 'it is dry'}.")
             parts.append(f"A bad result is {fields.get('bad') or 'it leaks'}.")
-            parts.append("What do you see?")
+            parts.append("Report what you see?")
             parts.append("")
             parts.append(f"📖 Source: {fields.get('cite') or 'the manual'}")
             return "\n".join(parts)
@@ -176,6 +176,90 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertIn("flashlight", raw.lower())
         self.assertIn("wrench", raw.lower())
         self.assertIn("water off", raw.lower())
+        self.assertIn("Report what you see?", raw)
+        self.assertIn("seat", raw.lower())
+        self.assertNotIn("cartridge for a weep", raw.lower())
+        vacuum = raw.split("The supply connection is dry.", 1)[1].split("USER:", 1)[0].lower()
+        self.assertNotIn("plier", vacuum)
+        self.assertIn("Do not name pliers", systems[2])
+        self.assertIn("do not check for that weep", systems[3].lower())
+
+    def test_manual_lines_do_not_fail_the_exit(self):
+        from scripts.profile_check import Rule
+        from scripts.thetford_live_gate import _score_gap
+
+        manual = [
+            Rule("score-1", True, "human confirms", status="MANUAL", number=1, scorecard=True),
+            Rule("score-2", True, "shown", status="PASS", number=2, scorecard=True),
+            Rule("PF-32", True, "expert review", status="MANUAL"),
+        ]
+        self.assertEqual(_score_gap(manual, "GD"), [])
+        manual.append(Rule("labeled_good_bad", False, "turn 1 does not label both"))
+        self.assertEqual(len(_score_gap(manual, "GD")), 1)
+
+    def test_a_cited_vacuum_reply_is_not_called_a_library_miss(self):
+        """rev4 live2: a correct T3 was replaced with a false library-miss line.
+
+        The review pack was not in this checkout, so this uses the described
+        path: earlier replies cite 42088 without the word Thetford, and the
+        draft names the vacuum breaker and kit 34123.
+        """
+        from gd_library_coach import avoid_duplicate_reply, library_miss_shop_line
+
+        history = [
+            {"role": "user", "content": "Thetford 42070 leaks under the flush lever"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Go to the water valve. You use a flashlight. "
+                    "A good result is it stays tight. A bad result is water comes out. "
+                    "What do you see?\n"
+                    "📖 Source: 42088, page 3"
+                ),
+            },
+            {"role": "user", "content": "Show me where that connection is"},
+            {
+                "role": "assistant",
+                "content": (
+                    "Go to the back of the toilet, on the water valve. "
+                    "What do you see?\n"
+                    "📖 Source: 42088, page 3"
+                ),
+            },
+        ]
+        passing = (
+            "Go to the vacuum breaker on the flush hose.\n"
+            "You check it while you flush.\n"
+            "A good result is no leak while flushing.\n"
+            "A bad result is it leaks only while flushing.\n"
+            "Report what you see?\n\n"
+            "📖 Source: 34123, page 1"
+        )
+        reply = avoid_duplicate_reply(
+            passing,
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+        )
+        self.assertNotIn("no thetford document", reply.lower())
+        self.assertNotEqual(reply, library_miss_shop_line("Thetford"))
+        self.assertIn("vacuum breaker", reply.lower())
+        self.assertIn("34123", reply)
+        self.assertIn("You check it while you flush.", reply)
+        short = (
+            "Go to the vacuum breaker. Kit 34123. You should watch it while flushing.\n"
+            "📖 Source: 34123, page 1"
+        )
+        guarded = avoid_duplicate_reply(
+            short,
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+        )
+        self.assertNotIn("no thetford document", guarded.lower())
+        self.assertIn("vacuum breaker", guarded.lower())
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."
