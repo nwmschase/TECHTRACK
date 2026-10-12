@@ -750,6 +750,8 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertIn("1/2-inch wrench", valve.lower())
         self.assertNotIn("plier", valve.lower())
         show = cards[1]
+        self.assertIn("Send a photo if it helps.", show)
+        self.assertNotIn("Send a photo of that connection.", show)
         self.assertIn("then do that check and tell me what you see.", show.lower())
         self.assertNotIn("good result", show.lower())
         self.assertNotIn("bad result", show.lower())

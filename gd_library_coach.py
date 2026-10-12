@@ -6584,7 +6584,7 @@ def _thetford_show_card(has_image: bool) -> str:
     """The supply show-me answers where it is. It is not a new test.
 
     With a page image, one short pointer in the words of 42088.
-    With none, say so, restate the location once, and ask for a photo.
+    With none, say so, restate the location once, and offer a photo if it helps.
     It does not name a tool and it does not repeat the previous good or bad line.
     It ends by pointing back at the pending check.
     """
@@ -6600,7 +6600,7 @@ def _thetford_show_card(has_image: bool) -> str:
         body = (
             "The manual has no picture of this spot.\n"
             "The water supply line connection is at the back of the toilet, on the water valve.\n"
-            "Send a photo of that connection.\n"
+            "Send a photo if it helps.\n"
             f"{ending}"
         )
     return f"{body}\n\n{cite}"
