@@ -6381,15 +6381,19 @@ def _observation_names_a_tool(reply: str) -> bool:
 
 
 def _thetford_show_draft_ok(reply: str) -> bool:
-    """A show-me that points at the page image, or says the manual has no picture.
+    """A show-me answers where it is. It is not a new test.
 
-    Restating the supply check is not this reply. The good result still says dry.
+    It points at the page image, or says the manual has no picture.
+    It does not repeat a good result or a bad result, and it does not need a tool.
+    It ends by sending the tech back to the pending check.
     """
     raw = reply or ""
     low = raw.lower()
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
     if re.search(r"\b(inlet side|small collar)\b", low):
         return False
-    if not re.search(r"\bdry\b", low):
+    if re.search(r"\bgood result\b|\bbad result\b", low):
         return False
     # 42088: "Back of toilet: check water supply line connection at water valve."
     pointed = "no picture" in low or bool(
@@ -6397,12 +6401,14 @@ def _thetford_show_draft_ok(reply: str) -> bool:
     )
     if not pointed:
         return False
+    if "then do that check and tell me what you see" not in low:
+        return False
     return (
-        _thetford_draft_clean(raw)
-        and "back of the toilet" in low
+        "back of the toilet" in low
         and "water supply line" in low
         and "water valve" in low
         and "42088" in raw
+        and bool(re.search(r"\byou\b", raw, re.I))
     )
 
 
@@ -6575,30 +6581,27 @@ def _thetford_flush_body(
 
 
 def _thetford_show_card(has_image: bool) -> str:
-    """The supply show-me. The good result stays dry.
+    """The supply show-me answers where it is. It is not a new test.
 
     With a page image, one short pointer in the words of 42088.
     With none, say so, restate the location once, and ask for a photo.
+    It does not name a tool and it does not repeat the previous good or bad line.
+    It ends by pointing back at the pending check.
     """
     cite = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+    ending = "Then do that check and tell me what you see."
     if has_image:
         body = (
             "On this page, look at the back of the toilet, "
             "at the water supply line connection on the water valve.\n"
-            "Use a flashlight.\n"
-            "A good result is the connection stays dry.\n"
-            "A bad result is the leak persists from the water valve.\n"
-            "Tell me what you see."
+            f"{ending}"
         )
     else:
         body = (
             "The manual has no picture of this spot.\n"
             "The water supply line connection is at the back of the toilet, on the water valve.\n"
-            "Use a flashlight.\n"
             "Send a photo of that connection.\n"
-            "A good result is the connection stays dry.\n"
-            "A bad result is the leak persists from the water valve.\n"
-            "Tell me what you see."
+            f"{ending}"
         )
     return f"{body}\n\n{cite}"
 

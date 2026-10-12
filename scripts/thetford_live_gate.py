@@ -392,7 +392,7 @@ def _turn_plan(history: list, message: str, rows=None) -> dict:
             "cite": cite_42109,
             "where": "the closet bolts at the floor, on the closet flange",
             "tool": "a 1/2-inch wrench",
-            "look": "the toilet coming off the closet bolts",
+            "look": "Take the toilet off the closet bolts",
             "good": "the toilet is off the closet bolts and the water is off",
             "bad": "the toilet is still on the closet bolts, or water still comes out",
             "safety": "",
@@ -403,7 +403,9 @@ def _turn_plan(history: list, message: str, rows=None) -> dict:
                 "The first step is one sentence, said once: Turn the RV water off. "
                 "Do not repeat that sentence. "
                 "The closet bolts that hold the toilet are at the floor, on the closet flange. "
-                "Take the toilet off those closet bolts with a 1/2-inch wrench. "
+                "Write this as its own sentence: Take the toilet off the closet bolts. "
+                "Name the 1/2-inch wrench in the next sentence. "
+                "Do not start the bolt sentence with Check. "
                 "Do not name pliers. "
                 "The good result and the bad result describe that same bolt step, "
                 "not seating a cartridge. "
@@ -433,20 +435,22 @@ def _turn_plan(history: list, message: str, rows=None) -> dict:
                 "focus": focus,
                 "cite": cite_42088,
                 "where": "the back of the toilet, on the attached page image",
-                "tool": "a flashlight",
+                "tool": "none",
                 "look": "the water supply line connection at the water valve on that image",
-                "good": "the connection stays dry",
-                "bad": "the leak persists from the water valve",
+                "good": "none",
+                "bad": "none",
                 "safety": "",
                 "picture": "a page image of 42088 page 3 is attached",
                 "advance": (
                     "A page image of this spot is attached to this reply. "
-                    "Do not repeat the supply check. "
+                    "This turn answers where it is. It is not a new test. "
+                    "Do not repeat the supply check. Do not name a tool. "
+                    "Do not write a good result or a bad result. "
                     "Give one short pointer to where to look on that image, "
                     "using only these manual words: back of the toilet, "
                     "water supply line connection, water valve. "
                     "Start that pointer with 'On this page'. "
-                    "The good result is the connection stays dry. "
+                    "End with the exact sentence 'Then do that check and tell me what you see.' "
                     "Do not invent a side or a shape. Do not name a figure number. "
                     "Do not cite kit 42109."
                 ),
@@ -456,18 +460,20 @@ def _turn_plan(history: list, message: str, rows=None) -> dict:
                 "focus": focus,
                 "cite": cite_42088,
                 "where": "the back of the toilet",
-                "tool": "a flashlight",
+                "tool": "none",
                 "look": "the water supply line connection at the water valve",
-                "good": "the connection stays dry",
-                "bad": "the leak persists from the water valve",
+                "good": "none",
+                "bad": "none",
                 "safety": "",
                 "picture": "none. The manual has no picture of this spot",
                 "advance": (
                     "The manual has no picture of this spot. Say that plainly and briefly. "
                     "Restate the location in one short line: the water supply line connection "
                     "is at the back of the toilet, on the water valve. "
-                    "Offer a useful next move. You may ask the tech for a photo of that spot. "
-                    "The good result is the connection stays dry. "
+                    "You may ask the tech for a photo of that spot. "
+                    "This turn answers where it is. It is not a new test. "
+                    "Do not name a tool. Do not write a good result or a bad result. "
+                    "End with the exact sentence 'Then do that check and tell me what you see.' "
                     "Do not invent a side or a shape. Do not name a figure. "
                     "Do not cite kit 42109."
                 ),
@@ -546,20 +552,23 @@ def _live_draft(message: str, history: list, chunks, rows=None) -> str:
         "Do not print a How (...) block and do not print the words not stated. "
         "Do not print a step counter. Do not put a page number in the sentences. "
         "Put the page only on the Source line. "
-        "Every reply says where to go, what to check, the words 'A good result is', "
+        "A check reply says where to go, what to check, the words 'A good result is', "
         "the words 'A bad result is', and ends with the exact line 'Tell me what you see.' "
         "Name a tool only when THIS TURN gives one. If Tool is none, do not name a tool. "
+        "If Good is none, do not write a good result. If Bad is none, do not write a bad result. "
         "A flush-and-watch check does not name a wrench, pliers, or a screwdriver. "
         "An observation-only check is complete with where, what to look for, "
         "a good result, a bad result, and 'Tell me what you see.' It does not need a tool.\n"
-        "When the tech asks you to show them where something is, do not repeat the check you already gave. "
+        "When the tech asks where something is, that reply answers where it is. "
+        "It is not a new test. Do not repeat the previous good result or bad result. "
+        "Do not name a tool. "
         "If Picture says a page image is attached, give one short pointer to where to look on that image, "
         "using only the manual's words, and start it with 'On this page'. "
         "Do not name a figure number. The image is attached for you. "
         "If Picture says the manual has no picture, say that plainly and briefly, "
         "restate the location in one short line, and offer a useful next move. "
         "You may ask for a photo of that spot. "
-        "Either way the good result for the supply connection stays dry. "
+        "End with the exact sentence 'Then do that check and tell me what you see.' "
         "Do not invent a side, a shape, or a part the excerpt does not name. "
         "Never reference a figure unless one is attached to this reply.\n"
         "When THIS TURN is kit 42109, write a conversation. "
@@ -567,7 +576,9 @@ def _live_draft(message: str, history: list, chunks, rows=None) -> str:
         "The first step is one sentence, said once: Turn the RV water off. "
         "Do not say that sentence again. "
         "The closet bolts that hold the toilet are at the floor, on the closet flange. "
-        "Take the toilet off those closet bolts with a 1/2-inch wrench. "
+        "Write this as its own sentence: Take the toilet off the closet bolts. "
+        "Name the 1/2-inch wrench in the next sentence. "
+        "Do not start the bolt sentence with Check. "
         "Do not name pliers on this step. "
         "Do not tell them to seat the cartridge on this turn. "
         "The good result and the bad result match that bolt step. "
@@ -584,7 +595,9 @@ def _live_draft(message: str, history: list, chunks, rows=None) -> str:
         "Start the water valve kit 42109 job. The valve is at the pedal. Cite 42109 page 1. "
         "Say Turn the RV water off once. "
         "The closet bolts are at the floor, on the closet flange. "
-        "Take the toilet off those closet bolts with a 1/2-inch wrench only. "
+        "Write this as its own sentence: Take the toilet off the closet bolts. "
+        "Name the 1/2-inch wrench in the next sentence. "
+        "Do not start the bolt sentence with Check. "
         "Do not name pliers. Do not seat the cartridge on this turn. "
         "The result matches that bolt step. "
         "Offer to walk the rest one step at a time. The Bay PDF has the full list.\n"
@@ -653,13 +666,17 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
     if len(pairs) < len(TURNS):
         problems.append("RAW transcript does not have 4 turns")
         return problems
-    for index, (_user, assistant) in enumerate(pairs, 1):
+    for index, (user, assistant) in enumerate(pairs, 1):
         low = assistant.lower()
         if "the tech" in low:
             problems.append(f"RAW T{index} says the tech")
         if not re.search(r"\byou\b", low):
             problems.append(f"RAW T{index} does not address you")
-        if index == 3:
+        # A show-me answers where it is. It does not introduce a new test.
+        show = bool(profile_check.ASK_RE.search(user or ""))
+        if show:
+            pass
+        elif index == 3:
             if re.search(r"\b(wrench|pliers?|screwdriver)\b", low) and re.search(r"\b(flush|watch)\b", low):
                 if not re.search(
                     r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum|remove|install)\b",
@@ -695,10 +712,16 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
         problems.append("RAW T2 invents a place the manual does not name")
     if "water supply line" not in t2_low or "back of the toilet" not in t2_low:
         problems.append("RAW T2 show-me does not use the manual's location words")
-    if not re.search(r"\bdry\b", t2_low):
-        problems.append("RAW T2 good line does not say dry")
+    if re.search(r"\bgood result\b|\bbad result\b", t2_low):
+        problems.append("RAW T2 repeats a good or bad result")
+    if "then do that check and tell me what you see" not in t2_low:
+        problems.append("RAW T2 does not point back to the pending check")
     if not re.search(r"no picture|on this page|on that image|page image", t2_low):
         problems.append("RAW T2 does not point at the page image or say there is no picture")
+    if "take the toilet off the closet bolts" not in t4_low:
+        problems.append("RAW T4 does not say take the toilet off the closet bolts")
+    if re.search(r"check the toilet coming off", t4_low):
+        problems.append("RAW T4 checks the toilet coming off instead of taking it off")
     for sentence in re.split(r"[.\n]", t4):
         bit = sentence.lower()
         if re.search(r"\bbolt", bit) and re.search(r"water valve|\bpedal\b", bit):
@@ -817,8 +840,10 @@ def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str
                     problems.append("T2 invents a place the manual does not name")
                 if "water supply line" not in low_reply or "back of the toilet" not in low_reply:
                     problems.append("T2 show-me does not use the manual's location words")
-                if not re.search(r"\bdry\b", low_reply):
-                    problems.append("T2 good line does not say dry")
+                if re.search(r"\bgood result\b|\bbad result\b", low_reply):
+                    problems.append("T2 repeats a good or bad result")
+                if "then do that check and tell me what you see" not in low_reply:
+                    problems.append("T2 does not point back to the pending check")
                 if captions:
                     if "no picture" in low_reply:
                         problems.append("T2 says there is no picture when a page image is attached")

@@ -505,10 +505,16 @@ def _repeats_established_finding(pairs: list[tuple[str, str]]) -> str:
 
 
 def _labeled_good_bad(text: str, pairs: list[tuple[str, str]]) -> str:
-    """A Thetford check names a good result and a bad result in the sentences."""
+    """A Thetford check names a good result and a bad result in the sentences.
+
+    A show-me answers where the part is. It is not a new test, so it does not
+    need those lines.
+    """
     if _case_kind(text) != "thetford":
         return ""
-    for index, (_user, assistant) in enumerate(pairs, 1):
+    for index, (user, assistant) in enumerate(pairs, 1):
+        if ASK_RE.search(user or ""):
+            continue
         raw = assistant or ""
         if not _ACTION_TURN_RE.search(raw):
             continue
@@ -829,6 +835,14 @@ def _assistant_turns(text: str) -> list[str]:
     return [turn for _user, turn in pairs]
 
 
+def _checks_explain_how(pairs: list[tuple[str, str]], assistants: list[str]) -> bool:
+    """Each test explains the how. A show-me only answers where, so it is skipped."""
+    if pairs:
+        checks = [(user, assistant) for user, assistant in pairs if not ASK_RE.search(user or "")]
+        return bool(checks) and all(_turn_explains_how(assistant) for _user, assistant in checks)
+    return bool(assistants) and all(_turn_explains_how(turn) for turn in assistants)
+
+
 def _turn_explains_how(turn: str) -> bool:
     """Plain sentences cover where, what to look for, good and bad, and the report.
 
@@ -971,8 +985,8 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
         how_status, how_detail = "FAIL", "the vacuum-breaker turn has no bad line, no question, or cites 42088 instead of kit 34123"
     elif _valve_start_bare(_pairs(raw)):
         how_status, how_detail = "FAIL", "the water-valve turn names no place and no tool"
-    elif assistants and all(_turn_explains_how(turn) for turn in assistants):
-        how_status, how_detail = "PASS", "each reply says where, what to look for, good and bad, and what to report"
+    elif _checks_explain_how(_pairs(raw), assistants):
+        how_status, how_detail = "PASS", "each check says where, what to look for, good and bad, and what to report"
     else:
         how_status, how_detail = "MANUAL", "human confirms the how-to detail"
     if photo and not photo.ok:
