@@ -118,6 +118,26 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                 if grab and ":" in line:
                     key, value = line.split(":", 1)
                     fields[key.strip().lower()] = value.strip()
+            cite = fields.get("cite") or "the manual"
+            if "42109" in cite:
+                safety = fields.get("safety") or "Turn the RV water off."
+                if not safety.endswith("."):
+                    safety += "."
+                tool = fields.get("tool") or "a 1/2-inch wrench and pliers"
+                parts = [
+                    "This is the water valve kit 42109 job at the pedal.",
+                    safety,
+                    "Take the toilet off the bolts.",
+                    f"Use {tool}.",
+                    f"A good result is {fields.get('good') or 'the toilet is off the bolts and the water is off'}.",
+                    f"A bad result is {fields.get('bad') or 'the toilet is still on the bolts, or water still comes out'}.",
+                    "I can walk the rest with you, one step at a time.",
+                    "The Bay PDF has the full list.",
+                    "Tell me what you see.",
+                    "",
+                    f"📖 Source: {cite}",
+                ]
+                return "\n".join(parts)
             parts = []
             safety = fields.get("safety") or ""
             if safety:
@@ -129,9 +149,9 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             parts.append(f"Check {fields.get('look') or 'the part'}.")
             parts.append(f"A good result is {fields.get('good') or 'it is dry'}.")
             parts.append(f"A bad result is {fields.get('bad') or 'it leaks'}.")
-            parts.append("Report what you see?")
+            parts.append("Tell me what you see.")
             parts.append("")
-            parts.append(f"📖 Source: {fields.get('cite') or 'the manual'}")
+            parts.append(f"📖 Source: {cite}")
             return "\n".join(parts)
 
         saved = os.environ.get("XAI_API_KEY")
@@ -148,6 +168,7 @@ class TestThetfordLiveGateCli(unittest.TestCase):
                     ])
                 report = (out / "report.txt").read_text(encoding="utf-8")
                 raw = (out / "transcript-raw.txt").read_text(encoding="utf-8")
+                transcript = (out / "transcript.txt").read_text(encoding="utf-8")
         finally:
             if saved is None:
                 os.environ.pop("XAI_API_KEY", None)
@@ -176,9 +197,15 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertIn("flashlight", raw.lower())
         self.assertIn("wrench", raw.lower())
         self.assertIn("water off", raw.lower())
-        self.assertIn("Report what you see?", raw)
-        self.assertIn("seat", raw.lower())
+        self.assertIn("Tell me what you see.", raw)
+        self.assertNotIn("Report what you see?", raw)
+        self.assertIn("stays dry", raw.lower())
+        self.assertIn("42109", raw)
+        self.assertIn("off the bolts", raw.lower())
+        self.assertIn("bay pdf", raw.lower())
+        self.assertIn("one step at a time", raw.lower())
         self.assertNotIn("cartridge for a weep", raw.lower())
+        self.assertNotIn("Figure:", transcript)
         vacuum = raw.split("The supply connection is dry.", 1)[1].split("USER:", 1)[0].lower()
         self.assertNotIn("plier", vacuum)
         self.assertIn("Do not name pliers", systems[2])
@@ -196,6 +223,17 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertEqual(_score_gap(manual, "GD"), [])
         manual.append(Rule("labeled_good_bad", False, "turn 1 does not label both"))
         self.assertEqual(len(_score_gap(manual, "GD")), 1)
+        errored = [
+            Rule("PF-07", True, "checker error", status="ERROR"),
+            Rule("PF-32", True, "expert review", status="MANUAL"),
+        ]
+        gap = _score_gap(errored, "PF")
+        self.assertEqual(len(gap), 1)
+        self.assertIn("ERROR", gap[0])
+        self.assertEqual(
+            len(_score_gap([Rule("PF-03", True, "unknown", status="UNKNOWN")], "PF")),
+            1,
+        )
 
     def test_a_cited_vacuum_reply_is_not_called_a_library_miss(self):
         """rev4 live2: a correct T3 was replaced with a false library-miss line.
@@ -232,15 +270,40 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             "You check it while you flush.\n"
             "A good result is no leak while flushing.\n"
             "A bad result is it leaks only while flushing.\n"
-            "Report what you see?\n\n"
+            "Tell me what you see.\n\n"
             "📖 Source: 34123, page 1"
         )
+        chunks = [
+            {"title": "Thetford Style II OM Permanent RV Toilet 42088", "brand": "Thetford"},
+            {"title": "Thetford Vacuum Breaker Kit 34123/34122", "brand": "Thetford"},
+            {"title": "Thetford Water Valve Kit 42109", "brand": "Thetford"},
+        ]
+        from gd_library_coach import _unmatched_unit_line
+
+        bare = _unmatched_unit_line(
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            current=passing,
+        )
+        self.assertEqual(bare, library_miss_shop_line("Thetford"))
+        held = _unmatched_unit_line(
+            history,
+            "The supply connection is dry.",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            current=passing,
+            chunks=chunks,
+        )
+        self.assertEqual(held, "")
         reply = avoid_duplicate_reply(
             passing,
             history,
             "The supply connection is dry.",
             "Plumbing / Toilets",
             "Thetford 42070",
+            chunks=chunks,
         )
         self.assertNotIn("no thetford document", reply.lower())
         self.assertNotEqual(reply, library_miss_shop_line("Thetford"))
@@ -257,9 +320,98 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             "The supply connection is dry.",
             "Plumbing / Toilets",
             "Thetford 42070",
+            chunks=chunks,
         )
         self.assertNotIn("no thetford document", guarded.lower())
         self.assertIn("vacuum breaker", guarded.lower())
+
+    def test_a_number_only_cite_of_a_retrieved_doc_is_not_a_library_miss(self):
+        """S01, S09, and S20: a document number with no brand word is still a cite.
+
+        The model does not lock a job, so the miss path actually runs. The
+        Thetford number list would not recognize these documents.
+        """
+        from gd_library_coach import (
+            _job_key,
+            _unmatched_unit_line,
+            avoid_duplicate_reply,
+            library_miss_shop_line,
+        )
+
+        cases = (
+            (
+                "Furrion",
+                "Air Conditioning",
+                "Furrion",
+                "The fan is noisy.",
+                (
+                    "Check the connector and confirm the reading holds.\n"
+                    "What do you see?\n"
+                    "📖 Source: CCD-0008666, page 19"
+                ),
+                "CCD-0008666",
+                [{"title": "Furrion Chill FACR CCD-0008666", "brand": "Furrion"}],
+            ),
+            (
+                "Dometic",
+                "Air Conditioning",
+                "Dometic",
+                "The fan is noisy.",
+                (
+                    "Check the connector and confirm the reading holds.\n"
+                    "What do you see?\n"
+                    "📖 Source: 3311071, page 4"
+                ),
+                "3311071",
+                [{"title": "Dometic Brisk II diagnostic 3311071", "brand": "Dometic"}],
+            ),
+            (
+                "Lippert",
+                "Leveling",
+                "Lippert",
+                "The panel light is dim.",
+                (
+                    "Check the connector and confirm the reading holds.\n"
+                    "What do you see?\n"
+                    "📖 Source: 177094, page 12"
+                ),
+                "177094",
+                [{"title": "Lippert Level Up cartridge valve 177094", "brand": "Lippert"}],
+            ),
+        )
+        for brand, category, model, symptom, reply, number, chunks in cases:
+            with self.subTest(brand=brand):
+                self.assertEqual(_job_key([], symptom, category, model), "")
+                missed = _unmatched_unit_line([], symptom, category, model, current=reply)
+                self.assertEqual(missed, library_miss_shop_line(brand))
+                held = _unmatched_unit_line(
+                    [], symptom, category, model, current=reply, chunks=chunks
+                )
+                self.assertEqual(held, "")
+                kept = avoid_duplicate_reply(
+                    reply, [], symptom, category, model, chunks=chunks
+                )
+                self.assertNotIn(f"no {brand.lower()} document", kept.lower())
+                self.assertIn(number, kept)
+                self.assertIn("confirm the reading holds", kept.lower())
+
+    def test_an_unasked_figure_line_fails(self):
+        import scripts.profile_check as profile_check
+
+        unasked = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\nGo to the vacuum breaker. Tell me what you see.\n"
+            "Figure: Fig. 1\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(unasked)}
+        self.assertFalse(named["figures_only_when_asked"].ok)
+        asked = (
+            "USER: Show me where that connection is\n"
+            "ASSISTANT:\nGo to the water valve.\nFigure: Fig. 1\n"
+            "Tell me what you see.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(asked)}
+        self.assertTrue(named["figures_only_when_asked"].ok)
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."

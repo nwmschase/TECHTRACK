@@ -2495,8 +2495,17 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
                     for earlier in steps
                 ):
                     continue
+                if (
+                    short == "Take the towel off."
+                    and steps
+                    and (
+                        steps[-1]["text"].startswith("Take the towel off")
+                        or steps[-1]["text"].startswith("Uncover the holding tank opening")
+                    )
+                ):
+                    continue
                 if not re.match(
-                    r"^(?:turn|flush|take|unhook|pull|put|cover|throw|slide|tighten|set|stand|"
+                    r"^(?:turn|flush|take|uncover|unhook|pull|put|cover|throw|slide|tighten|set|stand|"
                     r"press|hit|grab|lay|lift|hold|push|wrap|spread|lower|secure)\b",
                     short,
                     re.I,

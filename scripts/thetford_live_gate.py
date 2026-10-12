@@ -373,12 +373,18 @@ def _turn_plan(history: list, message: str) -> dict:
             "where": "the water valve at the pedal",
             "tool": "a 1/2-inch wrench and pliers",
             "look": "the old cartridge and seat the new one",
-            "good": "the new cartridge is seated",
-            "bad": "the old cartridge is still in",
+            "good": "the toilet is off the bolts and the water is off",
+            "bad": "the toilet is still on the bolts, or water still comes out",
             "safety": "Turn the RV water off before you work on the cartridge.",
             "advance": (
                 "The tech already reported the weep at the pedal. "
-                "Do not check for that weep again. Start the kit 42109 replacement."
+                "Do not check for that weep again. "
+                "Say this is the water valve kit 42109 job at the pedal. "
+                "Then give the first steps in their own sentences: water off, "
+                "and the toilet off the bolts. "
+                "Offer to walk the rest one step at a time. "
+                "Say the Bay PDF has the full list. "
+                "Do not cram the replacement into one check clause."
             ),
         }
     elif focus == "vacuum":
@@ -415,7 +421,7 @@ def _turn_plan(history: list, message: str) -> dict:
             "where": "the water valve for the supply connection",
             "tool": "a flashlight",
             "look": "the supply connection at the water valve",
-            "good": "the supply connection stays tight",
+            "good": "the supply connection stays dry",
             "bad": "water comes out of the supply connection",
             "safety": "",
             "advance": "Start with owner manual 42088. Do not cite kit 42109 on this turn.",
@@ -482,17 +488,26 @@ def _live_draft(message: str, history: list, chunks) -> str:
         "Do not print a step counter. Do not put a page number in the sentences. "
         "Put the page only on the Source line. "
         "Every reply says where to go, what to check, the words 'A good result is', "
-        "the words 'A bad result is', and ends with the exact line 'Report what you see?'. "
+        "the words 'A bad result is', and ends with the exact line 'Tell me what you see.' "
         "Name a tool only when THIS TURN gives one. If Tool is none, do not name a tool. "
-        "A flush-and-watch check does not use pliers.\n\n"
+        "A flush-and-watch check does not name a wrench, pliers, or a screwdriver.\n"
+        "When THIS TURN is kit 42109, write a conversation. "
+        "Say this is the water valve kit 42109 job at the pedal. "
+        "Give the first steps as their own sentences: turn the RV water off, "
+        "then take the toilet off the bolts with the wrench and pliers. "
+        "The bad result names what is still wrong, such as the toilet still on the bolts "
+        "or water still coming out. "
+        "Offer to walk the rest one step at a time, and say the Bay PDF has the full list. "
+        "Do not put the whole replacement into one Check clause.\n\n"
         "DIAGNOSIS ORDER from owner manual 42088 page 3. Follow this order. Do not skip ahead.\n"
         "1. Supply connection at the water valve. Cite 42088 page 3. The manual names no tool "
         "for this look, so use a flashlight.\n"
         "2. Vacuum breaker while flushing. Cite 34123/34122 page 1. "
         "Flush and watch. Do not name pliers. Pliers are for the later repair.\n"
         "3. Once the tech reports a weep at the pedal, do not ask them to check for that weep. "
-        "Start the water valve cartridge replacement. Cite 42109 page 1. "
-        "Turn the RV water off. Use a 1/2-inch wrench and pliers.\n"
+        "Start the water valve kit 42109 job at the pedal. Cite 42109 page 1. "
+        "Turn the RV water off. Take the toilet off the bolts with a 1/2-inch wrench and pliers. "
+        "Offer to walk the rest one step at a time. The Bay PDF has the full list.\n"
         "4. Closet flange only after those three.\n\n"
         "ESTABLISHED FACTS\n"
         f"{_user_facts(history, message)}\n\n"
@@ -534,15 +549,18 @@ def _profile_text(pairs: list[tuple[str, str]]) -> str:
 
 
 def _score_gap(rules, label: str) -> list[str]:
-    """Real FAIL lines only. A MANUAL scorecard line does not fail the exit."""
+    """PASS and MANUAL do not fail the exit. FAIL, ERROR, and UNKNOWN do."""
     problems = []
     for rule in rules:
-        if rule.status != "FAIL":
+        status = (getattr(rule, "status", "") or "").upper()
+        if status in ("PASS", "MANUAL"):
             continue
+        detail = rule.detail or status or "not PASS"
+        shown = status or "FAIL"
         if rule.scorecard:
-            problems.append(f"{label} scorecard line {rule.number} FAIL: {rule.detail}")
+            problems.append(f"{label} scorecard line {rule.number} {shown}: {detail}")
         else:
-            problems.append(f"profile_check {rule.name} FAIL: {rule.detail}")
+            problems.append(f"profile_check {rule.name} {shown}: {detail}")
     return problems
 
 
@@ -560,9 +578,12 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
         if not re.search(r"\byou\b", low):
             problems.append(f"RAW T{index} does not address you")
         if index == 3:
-            if re.search(r"\bpliers?\b", low) and re.search(r"\b(flush|watch)\b", low):
-                if not re.search(r"\b(slide clamp|remove the inlet|pull the inlet)\b", low):
-                    problems.append("RAW T3 names pliers on a flush-and-watch check")
+            if re.search(r"\b(wrench|pliers?|screwdriver)\b", low) and re.search(r"\b(flush|watch)\b", low):
+                if not re.search(
+                    r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum|remove|install)\b",
+                    low,
+                ):
+                    problems.append("RAW T3 names a tool on a flush-and-watch check")
         elif not re.search(r"\b(wrench|pliers?|flashlight)\b", low):
             problems.append(f"RAW T{index} names no tool")
     turns = [pair[1] for pair in pairs[: len(TURNS)]]
@@ -573,12 +594,16 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
     if "34123" not in t3 or "vacuum breaker" not in t3_low or "42109" in t3:
         problems.append("RAW T3 skips the vacuum breaker")
     t4_low = t4.lower()
+    if not re.search(r"\bdry\b", t1.lower()):
+        problems.append("RAW T1 good line does not say dry")
     if "42109" not in t4 or not re.search(r"wrench|plier", t4_low) or "water off" not in t4_low:
         problems.append("RAW T4 misses the water-valve safety or the tool")
     if re.search(r"cartridge for a weep", t4_low):
         problems.append("RAW T4 repeats the weep instead of starting the 42109 repair")
-    if not re.search(r"\b(replace|remove|install|seat(?:ed)?|pull the pedal)\b", t4_low):
-        problems.append("RAW T4 does not start the 42109 replacement")
+    if not re.search(r"\bbolt", t4_low) or "bay pdf" not in t4_low:
+        problems.append("RAW T4 does not walk the 42109 job")
+    if not re.search(r"one step at a time|step by step", t4_low):
+        problems.append("RAW T4 does not offer to go step by step")
     if profile_check._assistant_body(t4) == profile_check._assistant_body(t3):
         problems.append("RAW T4 restates T3")
     return problems
@@ -627,7 +652,12 @@ def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str
                 problems.append(f"{label} model call failed: {exc}")
                 draft = ""
             reply = avoid_duplicate_reply(
-                draft, history, message, CATEGORY, f"{BRAND} {MODEL}"
+                draft,
+                history,
+                message,
+                CATEGORY,
+                f"{BRAND} {MODEL}",
+                chunks=library if library is not None else chunks,
             )
             reply = _append_figure_detail(reply, message, rows, chunks)
             if not _same_reply(draft, reply):
@@ -637,7 +667,10 @@ def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str
             reply = ensure_thetford_flush_reply(
                 "", history, message, CATEGORY, f"{BRAND} {MODEL}"
             )
-        offers = fb.offers_for_turn(rows, reply, message, CATEGORY, f"{BRAND} {MODEL}") or []
+        asked_figure = mf.wants_manual_image(message) or mf.tech_asked_for_manual_figure(message)
+        offers = []
+        if asked_figure:
+            offers = fb.offers_for_turn(rows, reply, message, CATEGORY, f"{BRAND} {MODEL}") or []
         captions = []
         for offer in offers:
             caption = (offer.get("caption") or offer.get("gd_caption") or "").strip()
@@ -661,7 +694,10 @@ def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str
                 problems.append("T2 figure caption is page 7 / Step 1")
         history.append({"role": "user", "content": message})
         history.append({"role": "assistant", "content": reply})
-        pairs.append((message, reply))
+        scored = reply
+        if captions:
+            scored = reply.rstrip() + "\n" + "\n".join(f"Figure: {caption}" for caption in captions)
+        pairs.append((message, scored))
     raw_text = _profile_text(raw_pairs) if raw_pairs else ""
     return "\n".join(lines).strip() + "\n", _profile_text(pairs), problems, raw_text, rewrites
 

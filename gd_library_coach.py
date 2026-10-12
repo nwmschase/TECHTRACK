@@ -11,6 +11,7 @@ Chase product (2026-09-12):
 """
 from __future__ import annotations
 
+import contextvars
 import re
 
 # Product path: hard tree is never exclusive GD chat.
@@ -4829,16 +4830,74 @@ def _chunk_fields(chunk) -> tuple:
     )
 
 
-_THETFORD_DOC_RE = re.compile(r"\b(?:42088|34123|34122|42109)\b")
+_CASE_CHUNKS: contextvars.ContextVar = contextvars.ContextVar("tt_case_chunks", default=None)
+_DOC_TOKEN_RE = re.compile(r"\bCCD-\d{4,}\b|\b\d{4,8}\b", re.I)
 
 
-def _thetford_docs_cited(*blobs: str) -> bool:
-    """True when a shop reply already names a Thetford manual that was retrieved.
+def _chunk_title(chunk) -> str:
+    if isinstance(chunk, dict):
+        return str(chunk.get("title") or "")
+    return str(getattr(chunk, "title", "") or "")
 
-    The model name and the tech's complaint are not a cite. 42070 in the unit
-    field does not prove the manual was opened.
+
+def _chunk_identity(chunk) -> str:
+    """Title, brand, filename, and document number. The excerpt is not an identity.
+
+    A page of prose contains unrelated numbers. Those are not a cite.
     """
-    return any(_THETFORD_DOC_RE.search(blob or "") for blob in blobs)
+    title, keywords, _excerpt, file_path = _chunk_fields(chunk)
+    keys = (
+        "brand",
+        "doc_number",
+        "document_number",
+        "filename",
+        "models",
+        "clean_title",
+        "product_line",
+    )
+    if isinstance(chunk, dict):
+        extra = [str(chunk.get(key) or "") for key in keys]
+    else:
+        extra = [str(getattr(chunk, key, "") or "") for key in keys]
+    return " ".join([title or "", keywords or "", library_filename_words(file_path), *extra])
+
+
+def _identity_matches_case(ident: str, brand: str, model_text: str) -> bool:
+    """The retrieved page is this unit's brand, or its document number is the model's."""
+    ident_l = (ident or "").lower()
+    brand_l = (brand or "").strip().lower()
+    if brand_l and brand_l not in {"this brand", "toilet"} and brand_l in ident_l:
+        return True
+    model_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(model_text or "")}
+    ident_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(ident or "")}
+    return bool(model_tokens & ident_tokens)
+
+
+def _case_doc_cited(*blobs: str, chunks=None, brand: str = "", model_text: str = "") -> bool:
+    """True when the reply cites a retrieved document for this case.
+
+    A cite is a document number or a title that appears on a retrieved page,
+    and that page's title, brand, or document number matches this case.
+    The unit model and the complaint are not a cite. 42070 in the model field
+    does not prove a manual was opened.
+    """
+    docs = list(chunks) if chunks is not None else list(_CASE_CHUNKS.get() or ())
+    if not docs:
+        return False
+    cited = "\n".join(blob or "" for blob in blobs)
+    cited_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(cited)}
+    cited_l = cited.lower()
+    for chunk in docs:
+        ident = _chunk_identity(chunk)
+        if not _identity_matches_case(ident, brand, model_text):
+            continue
+        ident_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(ident)}
+        if cited_tokens & ident_tokens:
+            return True
+        title = _chunk_title(chunk).strip().lower()
+        if len(title.split()) >= 3 and title in cited_l:
+            return True
+    return False
 
 
 def _unmatched_unit_line(
@@ -4847,11 +4906,13 @@ def _unmatched_unit_line(
     category_name: str = "",
     model_text: str = "",
     current: str = "",
+    chunks=None,
 ) -> str:
     """Miss line for a typed unit that has no job lock and no same-brand cite yet.
 
-    A reply that already cites 42088, 34123, 34122, or 42109 is not a miss.
-    The brand word is not required once those document numbers are in the chat.
+    A reply is not a miss when it cites a document this case retrieved, or a
+    title, brand, or document number that matches the case. A locked job other
+    than an open toilet stays on its own prove.
     """
     job = _job_key(history, latest_msg, category_name, model_text)
     if job and job != "thetford":
@@ -4861,9 +4922,10 @@ def _unmatched_unit_line(
     if not brand:
         return ""
     prior = _prior_assistant_text(history)
-    if "📖" in prior and brand.lower() in _norm(prior):
+    cited = f"{prior}\n{current}"
+    if "📖" in cited and brand.lower() in _norm(cited):
         return ""
-    if _thetford_docs_cited(prior, current):
+    if _case_doc_cited(prior, current, chunks=chunks, brand=brand, model_text=model_text):
         return ""
     return library_miss_shop_line(brand)
 
@@ -6190,7 +6252,7 @@ def _vacuum_reply_incomplete(text: str) -> bool:
     has_bad = bool(re.search(r"\bbad result\b|\bbad looks like\b", raw, re.I))
     cites_kit = bool(re.search(r"\b3412[23]\b", raw))
     cites_manual_only = bool(re.search(r"\b42088\b", raw)) and not cites_kit
-    return (not has_bad) or ("?" not in raw) or cites_manual_only or _thetford_pages_clash(raw)
+    return (not has_bad) or (not _reply_asks_back(raw)) or cites_manual_only or _thetford_pages_clash(raw)
 
 
 def ensure_thetford_flush_reply(
@@ -6209,12 +6271,22 @@ def ensure_thetford_flush_reply(
     )
 
 
+def _reply_asks_back(text: str) -> bool:
+    """A follow-up. 'Tell me what you see.' is one, with or without a question mark."""
+    raw = text or ""
+    if "?" in raw:
+        return True
+    return bool(
+        re.search(r"\b(?:tell me what you see|report what you see|what do you see)\b", raw, re.I)
+    )
+
+
 def _thetford_sentence_ok(reply: str) -> bool:
-    """Second person, a question, and no leaked template. A tool is separate."""
+    """Second person, a report-back, and no leaked template. A tool is separate."""
     raw = reply or ""
     if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
         return False
-    return "?" in raw and bool(re.search(r"\byou\b", raw, re.I))
+    return _reply_asks_back(raw) and bool(re.search(r"\byou\b", raw, re.I))
 
 
 def _thetford_draft_clean(reply: str) -> bool:
@@ -6224,14 +6296,22 @@ def _thetford_draft_clean(reply: str) -> bool:
     )
 
 
-def _flush_watch_names_pliers(reply: str) -> bool:
-    """Pliers belong on the vacuum-breaker repair, not the flush-and-watch check."""
-    low = (reply or "").lower()
-    if not re.search(r"\bpliers?\b", low) or "vacuum breaker" not in low:
+def _observation_names_a_tool(reply: str) -> bool:
+    """A flush-and-watch names no wrench, pliers, or screwdriver.
+
+    A flashlight is allowed. Hands-on work may name those tools.
+    """
+    raw = reply or ""
+    if not re.search(r"\b(wrench|pliers?|screwdriver)\b", raw, re.I):
         return False
-    if re.search(r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum)\b", low):
+    if re.search(
+        r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum|"
+        r"remove|install|tighten|seat|pull the pedal|take the toilet off)\b",
+        raw,
+        re.I,
+    ):
         return False
-    return bool(re.search(r"\b(flush|watch)\b", low))
+    return bool(re.search(r"\b(flush|watch)\b", raw, re.I))
 
 
 def _thetford_show_draft_ok(reply: str) -> bool:
@@ -6250,7 +6330,7 @@ def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
     raw = reply or ""
     low = raw.lower()
     if stage == "vacuum":
-        if _flush_watch_names_pliers(raw):
+        if _observation_names_a_tool(raw):
             return False
         return (
             _thetford_sentence_ok(raw)
@@ -6271,6 +6351,8 @@ def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
         return bool(
             "42109" in raw
             and re.search(r"water off", low)
+            and re.search(r"\bbolt", low)
+            and re.search(r"bay pdf|one step at a time|step by step", low)
             and re.search(r"water valve|pedal|cartridge", low)
         )
     if stage == "vacuum_replace":
@@ -6345,7 +6427,13 @@ def _thetford_flush_body(
         if leaked:
             return nxt
         # The manuals are already in the chat. Do not tell the tech they are missing.
-        if _thetford_docs_cited(original, reply, _prior_assistant_text(history)):
+        if _case_doc_cited(
+            original,
+            reply,
+            _prior_assistant_text(history),
+            brand="Thetford",
+            model_text=model_text,
+        ):
             for candidate in (original, reply):
                 if not candidate or _is_thetford_miss_line(candidate):
                     continue
@@ -7360,22 +7448,27 @@ def avoid_duplicate_reply(
     category_name: str = "",
     model_text: str = "",
     photo_review=None,
+    chunks=None,
 ) -> str:
     """Do not send the same reply twice, and do not ask a check that was already asked.
 
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     photo_review is the xAI read of an optional step photo. None keeps typed findings.
+    chunks are the documents retrieved for this case. A cite of one of them is
+    not a library miss.
     """
     import gd_step_photo as _photos
 
-    token = _photos.activate(photo_review)
+    photo_token = _photos.activate(photo_review)
+    chunk_token = _CASE_CHUNKS.set(chunks)
     try:
         return _avoid_duplicate_reply_body(
             reply, history, latest_msg, category_name, model_text, photo_review
         )
     finally:
-        _photos.deactivate(token)
+        _CASE_CHUNKS.reset(chunk_token)
+        _photos.deactivate(photo_token)
 
 
 def _avoid_duplicate_reply_body(

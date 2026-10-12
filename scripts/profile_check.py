@@ -404,6 +404,8 @@ def _assistant_body(text: str) -> str:
     body = re.sub(r"📖.*", "", body)
     body = re.sub(r"(?i)send a photo of what you see\.?", "", body)
     body = re.sub(r"(?i)what do you see\??", "", body)
+    body = re.sub(r"(?i)tell me what you see\.?", "", body)
+    body = re.sub(r"(?i)report what you see\??", "", body)
     body = re.sub(r"(?i)^ASSISTANT:\s*", "", body)
     return re.sub(r"\s+", " ", body).strip().lower()
 
@@ -445,7 +447,7 @@ def _bare_vacuum_turn(pairs: list[tuple[str, str]]) -> bool:
         low = assistant.lower()
         has_bad = bool(re.search(r"\bbad result\b|\bbad looks like\b", low))
         cites_kit = bool(re.search(r"\b3412[23]\b", low))
-        if has_bad and "?" in assistant and cites_kit and not _pages_clash(assistant):
+        if has_bad and _asks_follow_up(assistant) and cites_kit and not _pages_clash(assistant):
             continue
         return True
     return False
@@ -503,6 +505,12 @@ def _labeled_good_bad(text: str, pairs: list[tuple[str, str]]) -> str:
     return ""
 
 
+def _asks_follow_up(text: str) -> bool:
+    """A question, or the report-back line. The period form still counts."""
+    raw = text or ""
+    return "?" in raw or bool(_REPORT_BACK_RE.search(raw))
+
+
 def _report_back_gap(pairs: list[tuple[str, str]]) -> str:
     """Every reply ends by saying what the tech should report."""
     for index, (_user, assistant) in enumerate(pairs, 1):
@@ -511,18 +519,38 @@ def _report_back_gap(pairs: list[tuple[str, str]]) -> str:
     return ""
 
 
+_OBSERVATION_TOOL_RE = re.compile(r"\b(wrench|pliers?|screwdriver)\b", re.I)
+_HANDS_ON_TOOL_RE = re.compile(
+    r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum|"
+    r"remove|install|tighten|seat|pull the pedal|take the toilet off)\b",
+    re.I,
+)
+_FIGURE_ATTACH_RE = re.compile(
+    r"(?m)^(?:T\d+\s+)?Figure:\s|^\[figure\]|!\[[^\]]*\]\(|^(?:T\d+\s+)?Fig(?:ure)?\.?\s+\d+\b",
+    re.I,
+)
+
+
 def _tools_fit_the_action(pairs: list[tuple[str, str]]) -> str:
-    """A flush-and-watch of the vacuum breaker does not call for pliers."""
+    """An observation-only flush-and-watch names no wrench, pliers, or screwdriver.
+
+    A later 'if it is good, flush' confirm is not that check.
+    """
+    for _user, assistant in pairs:
+        raw = _action_without_next(assistant or "")
+        if not _OBSERVATION_TOOL_RE.search(raw) or not re.search(r"\b(flush|watch)\b", raw, re.I):
+            continue
+        if _HANDS_ON_TOOL_RE.search(raw):
+            continue
+        return "an observation-only check names a wrench, pliers, or a screwdriver"
+    return ""
+
+
+def _figures_only_when_asked(pairs: list[tuple[str, str]]) -> str:
+    """A figure line is attached only after the tech asked to see one."""
     for user, assistant in pairs:
-        if not re.search(r"supply connection is dry", user or "", re.I):
-            continue
-        low = (assistant or "").lower()
-        if "vacuum breaker" not in low or not re.search(r"\b(flush|watch)\b", low):
-            continue
-        if re.search(r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum)\b", low):
-            continue
-        if re.search(r"\bpliers?\b", low):
-            return "pliers do not belong on a flush-and-watch check"
+        if _FIGURE_ATTACH_RE.search(assistant or "") and not ASK_RE.search(user or ""):
+            return "figure attached before the tech asked to see it"
     return ""
 
 
@@ -543,7 +571,7 @@ def check_transcript(text: str) -> list[Rule]:
             figure_problems.append("figure shown before the tech asked")
     bodies = [_assistant_body(turn) for turn in assistants if _assistant_body(turn)]
     repeated = len(bodies) != len(set(bodies)) or _near_duplicate(bodies)
-    follow = all("?" in turn for turn in assistants) if assistants else False
+    follow = all(_asks_follow_up(turn) for turn in assistants) if assistants else False
     rules = [
         _rule("no_label_block", label_hit is None, "" if label_hit is None else label_hit.group(0).strip()),
         _rule("no_step_counter", counter_hit is None, "" if counter_hit is None else counter_hit.group(0)),
@@ -579,6 +607,11 @@ def check_transcript(text: str) -> list[Rule]:
             "tools_fit_the_action",
             not _tools_fit_the_action(pairs),
             _tools_fit_the_action(pairs) or "tools match the action",
+        ),
+        _rule(
+            "figures_only_when_asked",
+            not _figures_only_when_asked(pairs),
+            _figures_only_when_asked(pairs) or "figures only after the tech asked",
         ),
     ]
     return rules + grade_gd(raw, rules)
@@ -751,7 +784,7 @@ def _turn_explains_how(turn: str) -> bool:
         _WHERE_RE.search(body)
         and _GOODBAD_RE.search(body)
         and _LOOK_RE.search(body)
-        and "?" in body
+        and _asks_follow_up(body)
     )
 
 
@@ -761,6 +794,8 @@ def _photo_when_unneeded(text: str) -> bool:
             continue
         body = re.sub(r"(?i)send a photo of what you see\.?", "", assistant)
         body = re.sub(r"(?i)what do you see\??", "", body)
+        body = re.sub(r"(?i)tell me what you see\.?", "", body)
+        body = re.sub(r"(?i)report what you see\??", "", body)
         if ASK_RE.search(user) or _VISUAL_RE.search(user) or _VISUAL_RE.search(body):
             continue
         return True

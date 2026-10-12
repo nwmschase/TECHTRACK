@@ -122,6 +122,16 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         self.assertNotIn("Flush 3 times. dry", blob)
         self.assertNotIn("tank hole in the floor", blob.lower())
         self.assertIn("holding tank opening at the closet flange", blob.lower())
+        for kind in ("breaker", "valve"):
+            actions = [
+                step.get("text") or ""
+                for step in (mf.thetford_kit_layout(kind).get("steps") or [])
+            ]
+            self.assertIn(
+                "Uncover the holding tank opening at the closet flange.",
+                actions,
+                kind,
+            )
         self.assertNotIn("Put the vot", blob)
         for line in blob.splitlines():
             if not line.startswith("Bad looks like:"):
