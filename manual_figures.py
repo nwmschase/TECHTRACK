@@ -3246,8 +3246,9 @@ def thetford_proving_body(key: str) -> str:
 def thetford_proving_line(key: str) -> str:
     """One leak check in plain sentences.
 
-    An observation check (supply, vacuum) ends with 'Tell me what you see.'
-    and does not ask for a photo. A hands-on check still asks when a photo would help.
+    Every fallback card ends with 'Tell me what you see.'
+    An observation check (supply, vacuum) does not ask for a photo.
+    A hands-on check still asks when a photo would help.
     """
     step = _fields_as_step(_THETFORD_PROVING[key])
     observation = key in ("supply", "vacuum")
@@ -3259,8 +3260,7 @@ def thetford_proving_line(key: str) -> str:
         place = "The water supply connection is at the back of the toilet, on the water valve."
         if place not in lines:
             lines.insert(0, place)
-    if observation:
-        lines = ["Tell me what you see." if line == "What do you see?" else line for line in lines]
+    lines = ["Tell me what you see." if line == "What do you see?" else line for line in lines]
     body = "\n".join(lines)
     return hide_internal_marker(f"{body}\n\n{_THETFORD_PROVING_CITE[key]}")
 

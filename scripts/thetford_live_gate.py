@@ -371,20 +371,21 @@ def _turn_plan(history: list, message: str) -> dict:
         plan = {
             "focus": focus,
             "cite": cite_42109,
-            "where": "the water valve at the pedal",
+            "where": "the closet bolts at the floor, on the closet flange",
             "tool": "a 1/2-inch wrench",
-            "look": "the toilet coming off the bolts",
-            "good": "the toilet is off the bolts and the water is off",
-            "bad": "the toilet is still on the bolts, or water still comes out",
+            "look": "the toilet coming off the closet bolts",
+            "good": "the toilet is off the closet bolts and the water is off",
+            "bad": "the toilet is still on the closet bolts, or water still comes out",
             "safety": "",
             "advance": (
                 "The tech already reported the weep at the pedal. "
                 "Do not check for that weep again. Do not seat the cartridge on this turn. "
-                "Say this is the water valve kit 42109 job at the pedal. "
+                "Say this is the water valve kit 42109 job. The valve is at the pedal. "
                 "The first step is one sentence, said once: Turn the RV water off. "
                 "Do not repeat that sentence. "
-                "The next sentence takes the toilet off the bolts with a 1/2-inch wrench. "
-                "Do not name pliers. Pliers are not for the bolts. "
+                "The closet bolts that hold the toilet are at the floor, on the closet flange. "
+                "Take the toilet off those closet bolts with a 1/2-inch wrench. "
+                "Do not name pliers. "
                 "The good result and the bad result describe that same bolt step, "
                 "not seating a cartridge. "
                 "Offer to walk the rest one step at a time. "
@@ -410,18 +411,18 @@ def _turn_plan(history: list, message: str) -> dict:
         plan = {
             "focus": focus,
             "cite": cite_42088,
-            "where": "the back of the toilet, on the inlet side, where the supply hose connects to the water valve",
+            "where": "the back of the toilet, at the water supply line connection on the water valve",
             "tool": "a flashlight",
-            "look": "the fitting: a small collar where that hose meets the valve",
-            "good": "a dry fitting",
-            "bad": "a drip on that fitting",
+            "look": "the water supply line connection at the water valve, and secure or tighten it as necessary",
+            "good": "it is secure",
+            "bad": "the leak persists from the water valve",
             "safety": "",
             "advance": (
-                "The tech asked where it is. Add location detail the previous turn did not give: "
-                "which side, what the supply hose connects to, and what the fitting looks like. "
-                "Do not repeat the first check in the same words. "
-                "Name the figure only when the excerpts include one for this page. "
-                "Do not invent a figure. Do not cite kit 42109."
+                "The tech asked where it is. Add location detail the previous turn did not already say. "
+                "Use only the manual's words: back of the toilet, water supply line connection, water valve. "
+                "Do not add a side, a shape, or a part the excerpt does not name. "
+                "Never reference a figure unless one is attached to this reply. "
+                "Do not cite kit 42109."
             ),
         }
     else:
@@ -503,18 +504,20 @@ def _live_draft(message: str, history: list, chunks) -> str:
         "A flush-and-watch check does not name a wrench, pliers, or a screwdriver. "
         "An observation-only check is complete with where, what to look for, "
         "a good result, a bad result, and 'Tell me what you see.' It does not need a tool.\n"
-        "When the tech asks you to show them where something is, add NEW location detail "
-        "the previous turn did not give: which side, what it connects to, and what it looks like. "
-        "Name the figure only when the excerpts include one for that page. Do not invent a figure.\n"
+        "When the tech asks you to show them where something is, add location detail "
+        "from the manual excerpt or the figure caption that the previous turn did not already say. "
+        "Use the manual's words. Do not invent a side, a shape, or a part the excerpt does not name. "
+        "Never reference a figure unless one is attached to this reply.\n"
         "When THIS TURN is kit 42109, write a conversation. "
-        "Say this is the water valve kit 42109 job at the pedal. "
+        "Say this is the water valve kit 42109 job. The valve is at the pedal. "
         "The first step is one sentence, said once: Turn the RV water off. "
         "Do not say that sentence again. "
-        "Then take the toilet off the bolts with a 1/2-inch wrench. "
+        "The closet bolts that hold the toilet are at the floor, on the closet flange. "
+        "Take the toilet off those closet bolts with a 1/2-inch wrench. "
         "Do not name pliers on this step. "
         "Do not tell them to seat the cartridge on this turn. "
         "The good result and the bad result match that bolt step. "
-        "The bad result names what is still wrong, such as the toilet still on the bolts "
+        "The bad result names what is still wrong, such as the toilet still on the closet bolts "
         "or water still coming out. "
         "Offer to walk the rest one step at a time, and say the Bay PDF has the full list. "
         "Do not put the whole replacement into one Check clause.\n\n"
@@ -524,8 +527,10 @@ def _live_draft(message: str, history: list, chunks) -> str:
         "2. Vacuum breaker while flushing. Cite 34123/34122 page 1. "
         "Flush and watch. Do not name pliers. Pliers are for the later repair.\n"
         "3. Once the tech reports a weep at the pedal, do not ask them to check for that weep. "
-        "Start the water valve kit 42109 job at the pedal. Cite 42109 page 1. "
-        "Say Turn the RV water off once. Take the toilet off the bolts with a 1/2-inch wrench only. "
+        "Start the water valve kit 42109 job. The valve is at the pedal. Cite 42109 page 1. "
+        "Say Turn the RV water off once. "
+        "The closet bolts are at the floor, on the closet flange. "
+        "Take the toilet off those closet bolts with a 1/2-inch wrench only. "
         "Do not name pliers. Do not seat the cartridge on this turn. "
         "The result matches that bolt step. "
         "Offer to walk the rest one step at a time. The Bay PDF has the full list.\n"
@@ -631,8 +636,17 @@ def _raw_manual_problems(raw_profile: str) -> list[str]:
     if not re.search(r"\bbolt", t4_low) or "bay pdf" not in t4_low:
         problems.append("RAW T4 does not walk the 42109 job")
     t2_low = turns[1].lower()
-    if not re.search(r"\b(inlet side|supply hose|connects to|fitting|collar)\b", t2_low):
-        problems.append("RAW T2 show-me adds no new location detail")
+    if re.search(r"inlet side|small collar", t2_low):
+        problems.append("RAW T2 invents a place the manual does not name")
+    if "water supply line" not in t2_low or "back of the toilet" not in t2_low:
+        problems.append("RAW T2 show-me does not use the manual's location words")
+    for sentence in re.split(r"[.\n]", t4):
+        bit = sentence.lower()
+        if re.search(r"\bbolt", bit) and re.search(r"water valve|\bpedal\b", bit):
+            problems.append("RAW T4 puts the bolts at the water valve or the pedal")
+            break
+    if re.search(r"\bbolt", t4_low) and not re.search(r"closet flange|\bfloor\b", t4_low):
+        problems.append("RAW T4 does not put the bolts at the floor or the closet flange")
     if not re.search(r"one step at a time|step by step", t4_low):
         problems.append("RAW T4 does not offer to go step by step")
     if profile_check._assistant_body(t4) == profile_check._assistant_body(t3):
@@ -730,8 +744,10 @@ def _play(rows, chunks, *, live: bool, library=None) -> tuple[str, str, list[str
             low_reply = reply.lower()
             if "back of the toilet" not in low_reply or "water valve" not in low_reply:
                 problems.append("T2 does not say where the supply connection is")
-            if not re.search(r"\b(inlet side|supply hose|connects to|fitting|collar)\b", low_reply):
-                problems.append("T2 show-me adds no new location detail")
+            if re.search(r"inlet side|small collar", low_reply):
+                problems.append("T2 invents a place the manual does not name")
+            if "water supply line" not in low_reply or "back of the toilet" not in low_reply:
+                problems.append("T2 show-me does not use the manual's location words")
             blob = " ".join(captions).lower()
             if "page 7" in blob or re.search(r"\bstep\s+1\b", blob):
                 problems.append("T2 figure caption is page 7 / Step 1")

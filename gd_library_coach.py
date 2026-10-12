@@ -6152,7 +6152,16 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
             )
         tools = fields.get("TOOLS / METER SETTING") or ""
         if not re.search(r"wrench|plier|screwdriver|towel", tools, re.I):
-            fields["TOOLS / METER SETTING"] = "Tools: a 1/2-inch wrench and pliers."
+            fields["TOOLS / METER SETTING"] = "Tools: a 1/2-inch wrench."
+        action_blob = " ".join(step.get("actions") or [])
+        if re.search(r"turn off the water|turn the rv water off", action_blob, re.I):
+            # The kit sentence is the one water-off line. Safety must not say it again.
+            safety = re.sub(
+                r"Turn the RV water off before this work\.\s*",
+                "",
+                fields.get("SAFETY") or "",
+            )
+            fields["SAFETY"] = safety.strip()
         step["fields"] = fields
     text = mf.format_chat_turn(
         step,
@@ -6160,6 +6169,7 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
         len(steps),
         show_safety=mf.show_safety_for(steps, number),
     )
+    text = text.replace("What do you see?", "Tell me what you see.")
     already = any(
         mf.reply_shows_step(_shop_text_without_how(message.get("content") or ""), number)
         for message in _thetford_history(history)
@@ -6364,15 +6374,15 @@ def _thetford_show_draft_ok(reply: str) -> bool:
     """A show-me that adds a place the previous turn did not already name."""
     raw = reply or ""
     low = raw.lower()
-    new_place = bool(
-        re.search(r"\b(inlet side|supply hose|connects to|fitting|collar)\b", low)
-    )
+    if re.search(r"\b(inlet side|small collar)\b", low):
+        return False
+    # 42088: "Back of toilet: check water supply line connection at water valve."
     return (
         _thetford_draft_clean(raw)
         and "back of the toilet" in low
+        and "water supply line" in low
         and "water valve" in low
         and "42088" in raw
-        and new_place
     )
 
 
@@ -6545,17 +6555,18 @@ def _thetford_flush_body(
 
 
 def _thetford_where_answer() -> str:
-    """Where the supply fitting is. New place detail, not a copy of the first check.
+    """Where the supply connection is, in the words of owner manual 42088.
 
-    Page 3 of 42088 has no figure in this library, so this card does not invent one.
+    Page 3 says the water supply line connection is at the back of the toilet,
+    on the water valve. This card does not add a side or a shape, and it does
+    not invent a figure.
     """
     return (
-        "That fitting is at the back of the toilet, on the inlet side.\n"
-        "The supply hose connects to the water valve there.\n"
-        "It looks like a small collar where the hose meets the valve.\n"
+        "The water supply line connection is at the back of the toilet, on the water valve.\n"
+        "Check that water supply line connection.\n"
         "Use a flashlight.\n"
-        "A good result is a dry fitting while the lever rests.\n"
-        "A bad result is a drip on that fitting.\n"
+        "A good result is the connection stays dry.\n"
+        "A bad result is the leak persists from the water valve.\n"
         "Tell me what you see.\n\n"
         "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
     )

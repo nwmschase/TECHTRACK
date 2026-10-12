@@ -228,9 +228,9 @@ class TestShowMeReply(unittest.TestCase):
             "Thetford 42070",
         )
         self.assertIn("back of the toilet", reply)
-        self.assertIn("inlet side", reply)
-        self.assertIn("supply hose connects to the water valve", reply)
-        self.assertIn("small collar", reply)
+        self.assertIn("water supply line", reply)
+        self.assertNotIn("inlet side", reply)
+        self.assertNotIn("small collar", reply)
         self.assertNotIn("How (", reply)
         self.assertNotIn("Meter setting: not stated", reply)
         page7 = {
@@ -280,7 +280,11 @@ class TestShowMeReply(unittest.TestCase):
             "Thetford 42070",
         )
         self.assertIn("Go to the water valve.", reply)
-        self.assertIn("Use a 1/2-inch wrench and pliers.", reply)
+        self.assertIn("Use a 1/2-inch wrench.", reply)
+        self.assertNotIn("pliers", reply.lower())
+        self.assertEqual(reply.lower().count("turn the rv water off") + reply.lower().count("turn off the water"), 1)
+        self.assertIn("Tell me what you see.", reply)
+        self.assertNotIn("What do you see?", reply)
         self.assertNotIn("Where:", reply)
         self.assertNotIn("Tools:", reply)
 

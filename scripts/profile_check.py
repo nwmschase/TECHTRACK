@@ -554,6 +554,32 @@ def _figures_only_when_asked(pairs: list[tuple[str, str]]) -> str:
     return ""
 
 
+_FIGURE_MENTION_RE = re.compile(
+    r"\bfigure\s+\d+\b|\bas shown in\s+fig(?:ure)?\.?\s*\d+\b|\bfig\.\s*\d+\b",
+    re.I,
+)
+_SCRIPTED_FIG_CITE_RE = re.compile(r"the manual shows fig\.\s*\d+\b[^.]*\.", re.I)
+_FIGURE_ATTACHED_RE = re.compile(
+    r"(?m)^(?:T\d+\s+)?Figure:\s|^\[figure\]|!\[[^\]]*\]\(",
+    re.I,
+)
+
+
+def _figure_named_without_attachment(pairs: list[tuple[str, str]]) -> str:
+    """'Figure 1' or 'as shown in Figure N' needs the figure on this reply.
+
+    The scripted sentence 'The manual shows Fig. N.' is the cite, not this miss.
+    """
+    for index, (_user, assistant) in enumerate(pairs, 1):
+        raw = assistant or ""
+        if _FIGURE_ATTACHED_RE.search(raw):
+            continue
+        body = _SCRIPTED_FIG_CITE_RE.sub("", raw)
+        if _FIGURE_MENTION_RE.search(body):
+            return f"turn {index} names a figure that is not attached"
+    return ""
+
+
 def check_transcript(text: str) -> list[Rule]:
     """GD-profile rules for a USER / ASSISTANT transcript."""
     original = text or ""
@@ -612,6 +638,11 @@ def check_transcript(text: str) -> list[Rule]:
             "figures_only_when_asked",
             not _figures_only_when_asked(pairs),
             _figures_only_when_asked(pairs) or "figures only after the tech asked",
+        ),
+        _rule(
+            "figure_named_only_when_attached",
+            not _figure_named_without_attachment(pairs),
+            _figure_named_without_attachment(pairs) or "a named figure is attached",
         ),
     ]
     return rules + grade_gd(raw, rules)
@@ -948,7 +979,13 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
         (2, how_status, how_detail),
         (3, "PASS" if _ok(named, "no_repeats") and _ok(named, "follow_up") else "FAIL", "moved forward without a repeated reply"),
         (4, "PASS" if _ok(named, "no_label_block") and _ok(named, "no_step_counter") else "FAIL", "no label block and no step counter"),
-        (5, "PASS" if _ok(named, "no_figure_without_ask") else "FAIL", "figures only after the tech asked"),
+        (
+            5,
+            "PASS"
+            if _ok(named, "no_figure_without_ask") and _ok(named, "figure_named_only_when_attached")
+            else "FAIL",
+            "figures only after the tech asked, and a named figure is attached",
+        ),
         (6, photo_status, photo_detail),
         (7, "PASS" if _gd_web_ok(raw) else "FAIL", "web fallback is labeled, or there is no web content"),
         (8, safety_status, safety_detail),

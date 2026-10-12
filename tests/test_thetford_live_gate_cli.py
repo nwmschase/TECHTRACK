@@ -126,9 +126,10 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             if "42109" in cite:
                 tool = fields.get("tool") or "a 1/2-inch wrench"
                 parts = [
-                    "This is the water valve kit 42109 job at the pedal.",
+                    "This is the water valve kit 42109 job. The valve is at the pedal.",
                     "Turn the RV water off.",
-                    "Take the toilet off the bolts.",
+                    "The closet bolts are at the floor, on the closet flange.",
+                    "Take the toilet off the closet bolts.",
                     f"Use {tool}.",
                     f"A good result is {fields.get('good') or 'the toilet is off the bolts and the water is off'}.",
                     f"A bad result is {fields.get('bad') or 'the toilet is still on the bolts, or water still comes out'}.",
@@ -202,7 +203,8 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("Report what you see?", raw)
         self.assertIn("stays dry", raw.lower())
         self.assertIn("42109", raw)
-        self.assertIn("off the bolts", raw.lower())
+        self.assertIn("closet bolts", raw.lower())
+        self.assertIn("closet flange", raw.lower())
         self.assertIn("bay pdf", raw.lower())
         self.assertIn("one step at a time", raw.lower())
         self.assertNotIn("cartridge for a weep", raw.lower())
@@ -211,10 +213,10 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("plier", vacuum)
         self.assertIn("Do not name pliers", systems[2])
         self.assertIn("do not check for that weep", systems[3].lower())
-        self.assertIn("which side", systems[1].lower())
-        self.assertIn("what it connects to", systems[1].lower())
-        self.assertIn("what it looks like", systems[1].lower())
-        self.assertIn("do not invent a figure", systems[1].lower())
+        self.assertIn("water supply line", systems[1].lower())
+        self.assertIn("do not invent a side", systems[1].lower())
+        self.assertIn("never reference a figure", systems[1].lower())
+        self.assertIn("closet flange", systems[3].lower())
         self.assertIn("said once", systems[3].lower())
         self.assertIn("do not name pliers", systems[3].lower())
         self.assertIn("do not seat the cartridge", systems[3].lower())
@@ -222,8 +224,10 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertEqual(raw.lower().count("turn the rv water off"), 1)
         self.assertNotIn("plier", raw.lower())
         self.assertNotIn("seat the", raw.lower())
-        self.assertIn("inlet side", raw.lower())
-        self.assertIn("supply hose", raw.lower())
+        self.assertIn("water supply line", raw.lower())
+        self.assertIn("back of the toilet", raw.lower())
+        self.assertNotIn("inlet side", raw.lower())
+        self.assertNotIn("small collar", raw.lower())
         for label in ("T1", "T2", "T3", "T4"):
             self.assertIn(f"{label} guard: none", report)
         import scripts.profile_check as profile_check
@@ -435,6 +439,27 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         )
         named = {rule.name: rule for rule in profile_check.check_transcript(asked)}
         self.assertTrue(named["figures_only_when_asked"].ok)
+        loose = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\nFlush and watch the vacuum breaker as shown in Figure 1.\n"
+            "Tell me what you see.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(loose)}
+        self.assertFalse(named["figure_named_only_when_attached"].ok)
+        word = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\nLook at Figure 1 on the vacuum breaker.\n"
+            "Tell me what you see.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(word)}
+        self.assertFalse(named["figure_named_only_when_attached"].ok)
+        cited = (
+            "USER: The supply connection is dry.\n"
+            "ASSISTANT:\nThe manual shows Fig. 1. Kit 34123, page 1.\n"
+            "Tell me what you see.\n"
+        )
+        named = {rule.name: rule for rule in profile_check.check_transcript(cited)}
+        self.assertTrue(named["figure_named_only_when_attached"].ok)
 
     def test_a_complete_flush_and_watch_is_not_rewritten(self):
         """rev6 live1 T3. The review pack was not in this checkout.
@@ -521,12 +546,11 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
         )
         detailed = (
-            "That fitting is at the back of the toilet, on the inlet side.\n"
-            "The supply hose connects to the water valve there.\n"
-            "It looks like a small collar where the hose meets the valve.\n"
+            "The water supply line connection is at the back of the toilet, on the water valve.\n"
+            "Check that water supply line connection.\n"
             "Use a flashlight.\n"
-            "A good result is a dry fitting while the lever rests.\n"
-            "A bad result is a drip on that fitting.\n"
+            "A good result is the connection stays dry.\n"
+            "A bad result is the leak persists from the water valve.\n"
             "Tell me what you see.\n"
             "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
         )
@@ -550,10 +574,25 @@ class TestThetfordLiveGateCli(unittest.TestCase):
             "Thetford 42070",
             chunks=chunks,
         )
-        self.assertIn("inlet side", shown.lower())
-        self.assertIn("supply hose", shown.lower())
-        self.assertIn("small collar", shown.lower())
-        self.assertNotIn("Fig.", shown)
+        self.assertIn("water supply line", shown.lower())
+        self.assertIn("back of the toilet", shown.lower())
+        self.assertNotIn("inlet side", shown.lower())
+        self.assertNotIn("small collar", shown.lower())
+        invented = detailed.replace(
+            "The water supply line connection is at the back of the toilet, on the water valve.",
+            "That fitting is at the back of the toilet, on the inlet side. It looks like a small collar.",
+        )
+        rejected = avoid_duplicate_reply(
+            invented,
+            history[:2],
+            "Show me where that connection is",
+            "Plumbing / Toilets",
+            "Thetford 42070",
+            chunks=chunks,
+        )
+        self.assertNotIn("inlet side", rejected.lower())
+        self.assertNotIn("small collar", rejected.lower())
+        self.assertIn("water supply line", rejected.lower())
         doubled = (
             "This is the water valve kit 42109 job at the pedal.\n"
             "Turn the RV water off.\n"
@@ -585,6 +624,48 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         self.assertNotIn("plier", collapsed.lower())
         self.assertNotIn("seat the", collapsed.lower())
         self.assertEqual(last_guard_name(), "repeated water off")
+
+    def test_fallback_cards_follow_the_model_reply_rules(self):
+        """The card a tech sees when the model is down matches a model reply.
+
+        One water-off sentence, the wrench only, and 'Tell me what you see.'
+        """
+        from gd_library_coach import ensure_thetford_flush_reply
+        import manual_figures as mf
+
+        history = []
+        messages = [
+            "Thetford 42070 leaks under the flush lever",
+            "Show me where that connection is",
+            "The supply connection is dry.",
+            "No leak while flushing. The water valve weeps at the pedal.",
+        ]
+        cards = []
+        for message in messages:
+            reply = ensure_thetford_flush_reply(
+                "", history, message, "Plumbing / Toilets", "Thetford 42070"
+            )
+            cards.append(reply)
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": reply})
+        for key in ("supply", "vacuum", "valve", "flange"):
+            cards.append(mf.thetford_proving_line(key))
+        for card in cards:
+            self.assertIn("Tell me what you see.", card)
+            self.assertNotIn("What do you see?", card)
+            low = card.lower()
+            water_off = low.count("turn the rv water off") + low.count("turn off the water")
+            self.assertLessEqual(water_off, 1, card)
+            self.assertNotIn("wrench and pliers", low)
+            if "bolt" in low:
+                self.assertNotIn("plier", low)
+        valve = cards[3]
+        self.assertEqual(
+            valve.lower().count("turn the rv water off") + valve.lower().count("turn off the water"),
+            1,
+        )
+        self.assertIn("1/2-inch wrench", valve.lower())
+        self.assertNotIn("plier", valve.lower())
 
     def test_a_how_detail_is_not_appended(self):
         leaked = "How (Thetford, page 3): Tools: not stated. Meter setting: not stated."
