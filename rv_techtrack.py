@@ -6024,6 +6024,10 @@ def _merge_stored_figures(proc, chunks):
     if not rows:
         return proc
     job = f"{proc.category or ''} {proc.brand or ''} {proc.model or ''} {proc.concern or ''}"
+    try:
+        fb.complete_figure_rows(rows, chunks, download=r2_download_bytes)
+    except Exception:
+        pass
     packets = fb.figure_packets(rows, chunks, job)
     # An off-brand retrieval still leaves the matching library document to paint.
     # Stopping here was why a Bay sheet said Cited figures: 0.

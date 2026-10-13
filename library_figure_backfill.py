@@ -11,6 +11,7 @@ up the next read. This module does not import Streamlit.
 from __future__ import annotations
 
 import gc
+import io
 import re
 import time
 from pathlib import Path
@@ -948,6 +949,9 @@ def attach_pngs(session, offers, read_local: bool = False, download=None, cache_
         if not png:
             png = fetch_png(path, download=download, cache_root=cache_root)
         offer["png"] = png or b""
+    for offer in offers or []:
+        if offer.get("caption"):
+            offer["caption"] = clean_asset_caption(offer["caption"])
     return offers
 
 
@@ -1828,3 +1832,121 @@ def figure_packets(rows, chunks, job_text: str) -> list[dict]:
             bucket["page"] = bucket["figures"][0].get("page")
         packets.append(bucket)
     return packets
+
+
+# ---- Live-data repairs for figure rows (v4.19.58) ---------------------------
+# The library extractor sometimes keeps only the first line of a wrapped figure
+# caption ("FIGURE 3 - WATER" / "VALVE CLOSED" / "POSITION") and crops the image
+# through that first line. These helpers rebuild the full caption from the page
+# text and trim the stray caption text off the crop. They never write to the library.
+
+_FIG_LABEL_HEAD_RE = re.compile(r"^\s*fig(?:ure)?\.?\s*(\d+)\b\s*[-:]?\s*(.*)$", re.I)
+
+
+def clean_asset_caption(caption: str) -> str:
+    """'Manual / page 3 / page' -> 'Manual / page 3'. The trailing kind word is not a caption."""
+    text = str(caption or "").strip()
+    return re.sub(r"\s*/\s*page\s*$", "", text, flags=re.I) if re.search(r"/\s*page\s+\d+\s*/\s*page\s*$", text, re.I) else text
+
+
+def _caption_lines_after(page_text: str, number: str) -> list[str]:
+    lines = [line.strip() for line in (page_text or "").splitlines()]
+    for index, line in enumerate(lines):
+        match = re.match(rf"^FIGURE\s+{re.escape(number)}\s*[-:]\s*(.+)$", line, re.I)
+        if not match:
+            continue
+        found = [match.group(1).strip()]
+        for nxt in lines[index + 1:index + 5]:
+            if not nxt or re.match(r"^FIG(?:URE)?\b", nxt, re.I):
+                break
+            letters = re.sub(r"[^A-Za-z]", "", nxt)
+            if not letters or not letters.isupper():
+                break
+            found.append(nxt)
+        return found
+    return []
+
+
+def full_figure_label(label: str, page_text: str) -> str:
+    """Rebuild a wrapped figure caption. Returns '' when the label is already whole."""
+    match = _FIG_LABEL_HEAD_RE.match(label or "")
+    if not match:
+        return ""
+    number, shown = match.group(1), " ".join(match.group(2).split())
+    parts = _caption_lines_after(page_text, number)
+    if len(parts) < 2:
+        return ""
+    full = " ".join(" ".join(parts).split())
+    if not shown or not full.upper().startswith(shown.upper()) or len(full) <= len(shown):
+        return ""
+    return f"Fig. {number} {full}"
+
+
+def trim_caption_from_crop(crop_png: bytes, max_share: float = 0.3) -> bytes:
+    """Cut printed caption text off the bottom of a figure crop.
+
+    The extractor sometimes crops through the first caption line. The caption
+    is printed under the figure as text, so the image keeps only the drawing:
+    scan up from the bottom past the text rows to the first blank band.
+    Returns b'' when no caption band is found within ``max_share`` of the height.
+    """
+    from PIL import Image
+
+    try:
+        image = Image.open(io.BytesIO(crop_png))
+        gray = image.convert("L")
+    except Exception:
+        return b""
+    width, height = gray.size
+    if height < 40:
+        return b""
+    margin = max(1, width // 50)
+
+    def inked(y: int) -> bool:
+        return gray.crop((margin, y, width - margin, y + 1)).getextrema()[0] < 128
+
+    y = height - 1
+    while y > 0 and not inked(y):
+        y -= 1
+    seen_text = False
+    blank = 0
+    need = max(3, height // 60)
+    floor = int(height * (1 - max_share))
+    while y > floor:
+        if inked(y):
+            seen_text, blank = True, 0
+        else:
+            blank += 1
+            if seen_text and blank >= need:
+                top = y
+                while top > 0 and not inked(top - 1):
+                    top -= 1
+                cut = (top + y + blank) // 2
+                out = io.BytesIO()
+                image.crop((0, 0, width, cut)).save(out, format="PNG")
+                return out.getvalue()
+        y -= 1
+    return b""
+
+
+def complete_figure_rows(rows: list, chunks: list, download=None, cache_root=None) -> list:
+    """Fix wrapped captions and their cut-off crops in loaded asset rows (in memory only)."""
+    text_by_page: dict[tuple[int, int], str] = {}
+    for chunk in chunks or []:
+        key = (int(chunk.get("document_id") or 0), int(chunk.get("page") or 0))
+        text_by_page[key] = text_by_page.get(key, "") + "\n" + str(chunk.get("chunk_text") or chunk.get("excerpt") or chunk.get("text") or "")
+    for row in rows or []:
+        if row.get("caption"):
+            row["caption"] = clean_asset_caption(row["caption"])
+        if (row.get("kind") or "figure") != "figure":
+            continue
+        key = (int(row.get("document_id") or 0), int(row.get("page") or 0))
+        full = full_figure_label(row.get("label") or "", text_by_page.get(key, ""))
+        if not full:
+            continue
+        crop_png = row.get("png") or fetch_png(row.get("image_path") or "", download=download, cache_root=cache_root)
+        trimmed = trim_caption_from_crop(crop_png) if crop_png else b""
+        if trimmed:
+            row["png"] = trimmed
+            row["label"] = full
+    return rows

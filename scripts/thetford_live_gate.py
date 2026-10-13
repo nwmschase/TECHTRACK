@@ -195,6 +195,17 @@ def _asset_rows(session, document_ids: set[int]) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def _page_chunks(session, document_ids: set[int]) -> list[dict]:
+    """Every chunk of the cited documents. Figure captions can sit outside the ranked windows."""
+    if not document_ids:
+        return []
+    marks = ", ".join(str(int(item)) for item in sorted(document_ids))
+    rows = session.execute(
+        text(f"SELECT document_id, page, chunk_text FROM doc_chunks WHERE document_id IN ({marks})")
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 def _pdf_text(data: bytes) -> str:
     import pymupdf
 
@@ -900,9 +911,11 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
         )
         doc_ids = {int(chunk["document_id"]) for chunk in chunks if chunk.get("document_id")}
         rows = _asset_rows(session, doc_ids)
+        page_chunks = _page_chunks(session, doc_ids)
     finally:
         session.close()
     fb.attach_pngs(None, rows, read_local=False, download=None, cache_root=cache)
+    fb.complete_figure_rows(rows, page_chunks, download=None, cache_root=cache)
     loaded = sum(1 for row in rows if row.get("png"))
     job = f"{CATEGORY} {BRAND} {MODEL} {CONCERN}"
     figures_by_doc: dict[int, list] = {}

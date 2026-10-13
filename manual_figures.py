@@ -2445,7 +2445,7 @@ def _seat_pedal_removed_figure(steps: list) -> None:
                 return
 
 
-def procedure_from_sheet(text: str, figures: list | None = None, title: str = "") -> dict:
+def procedure_from_sheet(text: str, figures: list | None = None, title: str = "", doc_text: str = "") -> dict:
     """Turn one library sheet into short steps. Nothing is stored for one model."""
     parsed = factory_procedure(text or "", figures)
     raw_steps = list(parsed.get("removal") or []) + list(parsed.get("installation") or [])
@@ -2580,7 +2580,7 @@ def procedure_from_sheet(text: str, figures: list | None = None, title: str = ""
             spec = sentence.strip()
             break
     return {
-        "title": _display_title(title, text),
+        "title": _display_title(title, f"{text}\n{doc_text}" if doc_text else text),
         "doc": title or "the manual",
         "before": _kit_before(text or "", _short_before(parsed.get("before") or [])),
         "removal": removal,
@@ -2650,6 +2650,7 @@ def _english_body(text: str) -> str:
     """
     lines = []
     join_next = False
+    ascii_break = False
     for raw_line in (text or "").splitlines():
         hyphen_break = "\u00ad" in (raw_line or "")
         raw = _plain_sheet_line(raw_line)
@@ -2661,13 +2662,85 @@ def _english_body(text: str) -> str:
         cut = re.sub(r"\bENGLISH\b", "", cut, flags=re.I).strip()
         if not cut or not _line_is_english(cut):
             join_next = False
+            ascii_break = False
             continue
         if join_next and lines:
             lines[-1] = lines[-1] + cut
+        elif ascii_break and lines:
+            lines[-1] = rejoin_line_break_hyphen(lines[-1], cut)
         else:
             lines.append(cut)
         join_next = hyphen_break
-    return "\n".join(lines)
+        ascii_break = (not hyphen_break) and bool(re.search(r"[A-Za-z]{2,}-$", lines[-1]))
+    return "\n".join(rejoin_space_splits(line) for line in lines)
+
+
+_VOCAB: set[str] | None = None
+
+
+def _vocab() -> set[str]:
+    """The shop word list (bay_words.txt). Used only to decide OCR re-joins."""
+    global _VOCAB
+    if _VOCAB is None:
+        path = Path(__file__).with_name("bay_words.txt")
+        try:
+            _VOCAB = {
+                line.strip().lower()
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            }
+        except OSError:
+            _VOCAB = set()
+    return _VOCAB
+
+
+def rejoin_line_break_hyphen(head: str, tail: str) -> str:
+    """Join 'Bolt Cov-' + 'ers (if present)' into 'Bolt Covers (if present)'.
+
+    A plain hyphen at a line end is a wrapped word only when the two pieces
+    make one known word and the next line starts lowercase. 'o-' + 'rings'
+    ('orings' is not a word) keeps its hyphen, so real hyphenated terms stay.
+    """
+    match = re.search(r"([A-Za-z]+)-$", head or "")
+    lead = re.match(r"([a-z]+)", tail or "")
+    if match and lead:
+        joined = (match.group(1) + lead.group(1)).lower()
+        if joined in _vocab():
+            return head[: match.start()] + match.group(1) + tail
+    return f"{head} {tail}" if head else tail
+
+
+# Word-list entries that are really suffixes; alone they are OCR scraps.
+_SUFFIX_FRAGMENTS = frozenset({"ing", "ings", "ers", "ent", "ents", "ion", "ions", "ed", "es", "ly"})
+
+
+def rejoin_space_splits(text: str) -> str:
+    """'cov ers' / 'open ing' / 'pres ent': OCR split one word with a space.
+
+    Conservative: join only when the pair forms a known word, the short
+    tail is not a word on its own, and the pair is not two real words
+    ('a part', 'in to' stay apart because 'part' and 'to' are words).
+    """
+    vocab = _vocab()
+    if not vocab:
+        return text or ""
+
+    tokens = re.split(r"(\s+)", text or "")
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        left = tokens[i]
+        if i + 2 < len(tokens) and re.fullmatch(r"[A-Za-z]{2,}", left) and re.fullmatch(r"[a-z]{2,4}[^A-Za-z\s]*", tokens[i + 2]):
+            raw_right = tokens[i + 2]
+            right = re.match(r"[a-z]+", raw_right).group(0)
+            standalone = right in vocab and right not in _SUFFIX_FRAGMENTS
+            if not standalone and (left + right).lower() in vocab:
+                out.append(left + raw_right)
+                i += 3
+                continue
+        out.append(left)
+        i += 1
+    return "".join(out)
 
 
 def _stitch_windows(parts: list[str]) -> str:

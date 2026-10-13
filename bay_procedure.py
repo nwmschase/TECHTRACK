@@ -6969,8 +6969,17 @@ def _thetford_branch_layout(kind: str, chunks) -> dict:
         else "Thetford Water Valve Kit 42109"
     )
     text, figures = mf.kit_excerpt(chunks, kind)
+    needles = ("34122", "34123") if kind == "breaker" else ("42109",)
+    doc_numbers = " ".join(
+        dict.fromkeys(
+            _doc_part_numbers(chunk)
+            for chunk in chunks or []
+            if isinstance(chunk, dict)
+            and any(needle in str(chunk.get("file_path") or "") for needle in needles)
+        )
+    )
     if text:
-        layout = mf.procedure_from_sheet(text, figures or None, title)
+        layout = mf.procedure_from_sheet(text, figures or None, title, doc_text=doc_numbers)
         if layout.get("steps"):
             return layout
         return {}
@@ -7074,6 +7083,7 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
         pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}42109", blob, re.I)]
         for page in sorted(set(pages) or {1}):
             add("Thetford Water Valve Kit 42109", page)
+    rows = _dedupe_source_rows(rows)
     if rows:
         proc.sources = rows
 
@@ -7394,6 +7404,32 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
     return place_facr_library_figures(place_thetford_kit_crops(proc), rows)
 
 
+def _doc_part_numbers(packet: dict) -> str:
+    """Part numbers the document names outside the ranked window.
+
+    Live retrieval cuts a kit sheet at 4000 characters, so the part number
+    printed at the bottom ('42049' under the figures) can fall out. The file
+    name keeps it ('..._Res_42049C-1.pdf'). A trailing revision letter is dropped.
+    """
+    name = Path(str(packet.get("file_path") or "")).name
+    found = re.findall(r"(?<![0-9])(\d{5,6})(?=[A-Z]?(?:[-_.]|$))", name)
+    return " ".join(dict.fromkeys(found))
+
+
+def _dedupe_source_rows(rows: list) -> list:
+    """One source line per quote. Two pages of one manual with the same quote is one cite."""
+    kept = []
+    seen = set()
+    for row in rows or []:
+        quote = re.sub(r"\s+", " ", str(row.get("excerpt") or "")).strip().lower()
+        key = (str(row.get("title") or "").strip().lower(), quote)
+        if quote and key in seen:
+            continue
+        seen.add(key)
+        kept.append(row)
+    return kept
+
+
 def _plain_kit_procedures(packets, job: str) -> list:
     """Short R&R from a kit sheet that actually has figures."""
     import manual_figures as mf
@@ -7424,7 +7460,9 @@ def _plain_kit_procedures(packets, job: str) -> list:
             )
         if not figures:
             continue
-        layout = mf.procedure_from_sheet(packet.get("excerpt") or "", figures, title)
+        layout = mf.procedure_from_sheet(
+            packet.get("excerpt") or "", figures, title, doc_text=_doc_part_numbers(packet)
+        )
         if not layout.get("steps"):
             continue
         built.append(ensure_verify_step(layout))
