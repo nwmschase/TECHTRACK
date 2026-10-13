@@ -195,7 +195,7 @@ class TestHeadingsStayWithTheFirstStep(unittest.TestCase):
             if "\nINSTALLATION\n" in f"\n{page}\n" or page.rstrip().endswith("INSTALLATION"):
                 self.assertIn("Where:", page)
         joined = "\n".join(pages)
-        self.assertIn("Turn the RV water on for the leak test.", joined)
+        self.assertIn("Turn the RV water on", joined)  # v4.19.59: the restating Safety line is dropped
         self.assertIn("Flush 3 times.", joined)
         self.assertIn("Dry at the pedal and the valve", joined)
         self.assertNotIn("33239", joined)

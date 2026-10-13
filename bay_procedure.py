@@ -39,6 +39,8 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from pathlib import Path
+
+import bay_profile_lines as bpl
 import math
 import re
 import textwrap
@@ -6760,7 +6762,17 @@ def _supply_branch() -> dict:
             _branch_step(
                 "Push the water hose onto the water valve.",
                 "Back of the toilet, on the water valve.",
-                "The connection is dry.",
+                "The hose is fully on the fitting.",
+                "The hose sits crooked on the fitting.",
+                "Tighten the hose clamp.",
+                fail="Pull the hose off and push it on straight.",
+                tools="pliers",
+                section="installation",
+            ),
+            _branch_step(
+                "Tighten the hose clamp on the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The clamp is tight and the connection is dry.",
                 "The leak persists from the water valve.",
                 "Confirm the connection.",
                 fail="Replace the supply fitting.",
@@ -6878,10 +6890,20 @@ def _flange_branch() -> dict:
             _branch_step(
                 "Push the water hose onto the toilet.",
                 "At the water hose on the toilet.",
-                "The hose is on.",
-                "The hose is still off.",
+                "The hose is fully on the fitting.",
+                "The hose sits crooked on the fitting.",
+                "Tighten the hose clamp.",
+                fail="Pull the hose off and push it on straight.",
+                tools="pliers",
+                section="installation",
+            ),
+            _branch_step(
+                "Tighten the hose clamp on the toilet.",
+                "At the water hose on the toilet.",
+                "The clamp is tight on the hose.",
+                "The hose turns on the fitting.",
                 "Confirm the flange.",
-                fail="Push the hose on and tighten the clamp.",
+                fail="Tighten the clamp until the hose does not turn.",
                 tools="pliers",
                 section="installation",
             ),
@@ -9247,6 +9269,14 @@ def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = Non
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
     heading, lines = mf.lines_from_shop_text(step, index)
+    prev_where = getattr(cur, "diag_prev_where", "") if index > 1 else ""
+    if any(re.match(r"^(?:Where|Good looks like|Next|If it fails):", line) for line in lines):
+        # A labeled check is held to the profile. A plain bay-order line stays as written.
+        heading, lines = bpl.conform_lines(heading, lines, previous_where=prev_where, diagnosis=True)
+    try:
+        cur.diag_prev_where = next((line[7:] for line in lines if line.startswith("Where: ")), prev_where)
+    except AttributeError:
+        pass
     head = measure_text(heading, text_w, 9, bold=True, leading=11.6)
     body = measure_text("\n".join(lines), text_w, 8, leading=10.8) if lines else None
     text_h = head.height + (3.0 + body.height if body else 0.0)
@@ -9609,8 +9639,26 @@ def _repair_figure_caption(figure: dict) -> str:
     if re.fullmatch(r"CCD-000\d+, page \d+", label):
         return label
     if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
+        # Two kit sheets each have a Fig. 1. The document and page tell them apart.
+        title = re.sub(r"\s+", " ", str(figure.get("title") or "")).strip()
+        page = figure.get("page") or 1
+        if title and title.lower() not in label.lower():
+            return f"{label}, {title}, page {page}"
         return label
     return mf.display_caption(figure.get("title") or "", figure.get("page") or 1, label)
+
+
+def _figure_ref(caption: str) -> str:
+    """'Fig. 1 PEDAL REMOVED, Kit 42109, page 1' -> 'Fig. 1'."""
+    match = re.match(r"\s*(fig(?:ure)?\.?\s*\d+)", caption or "", re.I)
+    return re.sub(r"(?i)^figure", "Fig.", match.group(1)).replace("Fig. .", "Fig.") if match else ""
+
+
+def _step_good_text(step: dict) -> str:
+    import manual_figures as mf
+
+    good, _bad = mf._good_bad_bits(((step or {}).get("fields") or {}).get("GOOD vs BAD") or "")
+    return re.sub(r"\s+", " ", good or "").strip().lower().rstrip(".")
 
 
 def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
@@ -9622,6 +9670,9 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
     _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
+    _actions = [mf.step_heading(step, 1).split(": ", 1)[-1] for step in procedure.get("steps") or []]
+    _conflicts = bpl.before_conflicts(before, _actions)
+    before = [item for item in before if item not in _conflicts]
     if before:
         head = measure_text("BEFORE YOU START", _CONTENT_W - 16.0, 9, leading=11.6)
         first = measure_text(f"- {before[0]}", _CONTENT_W - 16.0, 8, leading=10.6)
@@ -9631,8 +9682,11 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         for item in before:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
+    steps = bpl.drop_duplicate_removals(steps, _step_good_text)
     section = ""
     before_blob = " ".join(before).lower()
+    prev_where = ""
+    prev_object = ""
     printed_safety: set[str] = set()
     text_x = MARGIN + 8.0
     text_w = _STEP_TEXT_W
@@ -9663,6 +9717,27 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         )
         if safety_line:
             body_lines = [safety_line, *body_lines]
+        next_action = ""
+        if index < len(steps):
+            next_action = mf.step_heading(steps[index], index + 1).split(": ", 1)[-1]
+        else:
+            next_action = "This branch is complete"
+        heading, body_lines = bpl.conform_lines(
+            heading,
+            body_lines,
+            previous_where=prev_where,
+            previous_object=prev_object,
+            next_action=next_action,
+            figure_ref=_figure_ref(cap) if has else "",
+        )
+        prev_object = bpl.action_object(heading.split(": ", 1)[-1]) or prev_object
+        body_lines = [
+            "Next: " + bpl._sentence(bpl.resolve_action_it(line[6:].strip().rstrip("."), prev_object))
+            if line.startswith("Next: ") else line
+            for line in body_lines
+        ]
+        prev_where = next((line[7:] for line in body_lines if line.startswith("Where: ")), prev_where)
+        prev_where = re.sub(r"\s*See Fig\.?\s*\d+[^.]*\.?$", "", prev_where).strip()
         head_m = measure_text(heading, text_w, 9, bold=True, leading=11.6)
         body_m = measure_text("\n".join(body_lines), text_w, 8, leading=10.8) if body_lines else None
         text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)

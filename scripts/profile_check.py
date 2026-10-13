@@ -115,6 +115,7 @@ def check_sheet_text(text: str) -> list[Rule]:
         _fastener_sequence(raw),
         _source_doc_quotes(raw),
         _mid_phrase_gap(raw),
+        *_strict_v14(raw),
     ]
     return rules
 
@@ -1034,6 +1035,183 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
     return [_card(number, status, GD_SCORECARD[number - 1], detail, GD_AUTO_FAIL) for number, status, detail in rows]
 
 
+# ---- Strict PDF v1.4 reading (Leader review, 2026-10-13) --------------------
+_ALLOWED_STEP_LABELS = {"Where", "Tools", "Do this", "Good looks like", "Bad looks like", "Next", "Safety", "Caution"}
+_SECTION_HEADS = re.compile(
+    r"^(REPAIR BRANCH|REPAIR PROCEDURE|BEFORE YOU START|REMOVAL|INSTALLATION|VERIFY|DO NOT|SOURCES\b.*|DIAGNOSIS|"
+    r"PROVING CHECKS|VISUAL FLOWCHART|WHAT THIS PATTERN USUALLY MEANS|BAY PROCEDURE.*)$"
+)
+_CHECK_VERBS = ("check", "look", "listen", "measure", "watch", "test", "confirm", "inspect", "feel")
+
+
+def _strict_blocks(text: str) -> list[dict]:
+    """Steps with their section, branch index, labeled lines, and the branch's Before you start."""
+    steps: list[dict] = []
+    section = ""
+    branch = -1
+    before: dict[int, list[str]] = {}
+    current = None
+    in_before = False
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        head = _SECTION_HEADS.match(line)
+        if head:
+            name = head.group(1)
+            if name.startswith("BAY PROCEDURE"):
+                continue
+            current = None
+            in_before = name == "BEFORE YOU START"
+            if name in ("REPAIR BRANCH", "REPAIR PROCEDURE", "PROVING CHECKS"):
+                branch += 1
+                section = "branch"
+                before[branch] = []
+            elif name == "DIAGNOSIS":
+                section = "diagnosis"
+            elif name in ("REMOVAL", "INSTALLATION", "VERIFY"):
+                section = name.lower()
+            elif name.startswith(("DO NOT", "SOURCES")):
+                section = "end"
+            continue
+        match = re.match(r"^Step\s+(\d+)\s*:\s*(.*)$", line)
+        if match and section != "end":
+            in_before = False
+            current = {"n": int(match.group(1)), "action": match.group(2).strip(), "section": section,
+                       "branch": branch if section != "diagnosis" else -1, "lines": []}
+            steps.append(current)
+            continue
+        if in_before and line.startswith("- ") and branch >= 0:
+            before[branch].append(line[2:])
+            continue
+        if current is not None:
+            current["lines"].append(line)
+    for step in steps:
+        step["before"] = before.get(step["branch"], [])
+    return steps
+
+
+def _label_value(step: dict, label: str) -> str:
+    for line in step["lines"]:
+        if line.startswith(f"{label}:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", "", re.sub(r"\s+", " ", (text or "").lower())).strip()
+
+
+def _strict_v14(text: str) -> list[Rule]:
+    steps = _strict_blocks(text)
+    rules = []
+    diag_labeled = any(_label_value(s, "Where") for s in steps if s["branch"] < 0)
+    missing = [f"{'D' if s['branch'] < 0 else 'B' + str(s['branch'] + 1)} S{s['n']}" for s in steps
+               if (s["branch"] >= 0 or diag_labeled) and not any(line.startswith("Where:") for line in s["lines"])]
+    for s in steps:
+        value = _label_value(s, "Where")
+        if value and (re.search(r"\b(?:and|or|the)\.?$", value.split(" See Fig")[0].rstrip(".")) or
+                      re.match(r"(?i)^the \S+(?: \S+)? (?:sits|is|goes|stays)\b", value)):
+            missing.append(f"S{s['n']} Where is not a place ('{value[:30]}')")
+    rules.append(_rule("where_lines", not missing, "every step has a Where line" if not missing else "no Where: " + ", ".join(missing[:8])))
+    odd = []
+    for s in steps:
+        for line in s["lines"]:
+            m = re.match(r"^([A-Z][A-Za-z ]{1,24}):(?:\s|$)", line)
+            if m and m.group(1) not in _ALLOWED_STEP_LABELS:
+                odd.append(m.group(1))
+    rules.append(_rule("profile_labels", not odd, "only profile labels" if not odd else "non-profile label: " + ", ".join(sorted(set(odd)))))
+    diag_bad = [s["action"] for s in steps if s["section"] == "diagnosis"
+                and re.match(r"(?i)^(?:pull|remove|take off|take out|lift|unscrew|unhook|disconnect|unbolt)\b", s["action"])]
+    rules.append(_rule("diagnosis_checks", not diag_bad, "diagnosis steps do not take parts off" if not diag_bad else "diagnosis step takes a part off: " + diag_bad[0][:60]))
+    conflicts = []
+    for branch in sorted({s["branch"] for s in steps if s["branch"] >= 0}):
+        group = [s for s in steps if s["branch"] == branch]
+        blob = " ".join(s["action"].lower() for s in group)
+        for item in group[0]["before"] if group else []:
+            m = re.search(r"\b(?:leave|keep)\s+the\s+([a-z]+)\s+in place|\bskip\s+remov\w*\s+(?:the\s+)?([a-z]+)", item, re.I)
+            if m:
+                noun = (m.group(1) or m.group(2)).lower()
+                if re.search(rf"\b(?:lift|remove|take off|pull)\b[^.]*\b{noun}\b", blob):
+                    conflicts.append(f"branch {branch + 1}: '{item[:50]}' vs a step that lifts the {noun}")
+    rules.append(_rule("before_conflict", not conflicts, "Before you start agrees with the steps" if not conflicts else conflicts[0]))
+    safety_lines = [(s, _label_value(s, "Safety")) for s in steps if _label_value(s, "Safety")]
+    dup = []
+    seen: dict[str, int] = {}
+    for s, value in safety_lines:
+        key = f"{s['branch']}|{s['section']}|{_norm(value)}"
+        seen[key] = seen.get(key, 0) + 1
+        if _norm(value).startswith(_norm(s["action"])[:18]):
+            dup.append(f"S{s['n']} safety repeats its own action")
+    dup += [f"'{k.split('|')[-1][:40]}' x{v}" for k, v in seen.items() if v > 1]
+    rules.append(_rule("safety_duplicate", not dup, "no duplicate step safety" if not dup else "; ".join(dup[:3])))
+    doubles = []
+    for i, s in enumerate(steps):
+        good = _norm(_label_value(s, "Good looks like"))
+        if s["section"] == "removal" and re.search(r"\b(?:is|are) off$", good):
+            for other in steps[i + 1:i + 4]:
+                if other["branch"] == s["branch"] and other["section"] == "removal" and _norm(_label_value(other, "Good looks like")) == good:
+                    doubles.append(f"B{s['branch'] + 1} S{s['n']} and S{other['n']}: {good}")
+    rules.append(_rule("double_removal", not doubles, "each part comes off once" if not doubles else doubles[0]))
+    loose = []
+    for i, s in enumerate(steps):
+        if s["branch"] < 0 or not re.search(r"\b(?:push|put|connect)\b.*\bhose\b.*\b(?:on|onto)\b", s["action"], re.I):
+            continue
+        if "tight" in _label_value(s, "Good looks like").lower():
+            continue
+        later = [o for o in steps[i + 1:] if o["branch"] == s["branch"]]
+        if not any(re.search(r"\b(?:tighten|secure|clamp)\b", o["action"], re.I) for o in later):
+            loose.append(f"B{s['branch'] + 1} S{s['n']}")
+    rules.append(_rule("secure_after_hose", not loose, "every reconnected hose is secured" if not loose else "hose never tightened: " + ", ".join(loose)))
+    chain = []
+    for i, s in enumerate(steps[:-1]):
+        nxt = steps[i + 1]
+        if s["branch"] < 0 or nxt["branch"] != s["branch"]:
+            continue
+        value = _label_value(s, "Next")
+        if not value or re.match(r"(?i)^(go to|this branch|the leak checks)", value):
+            continue
+        if _norm(value) != _norm(nxt["action"]):
+            chain.append(f"B{s['branch'] + 1} S{s['n']} Next '{value[:40]}' but S{nxt['n']} is '{nxt['action'][:40]}'")
+    rules.append(_rule("next_chain", not chain, "each Next names the following step" if not chain else chain[0]))
+    captions = [line.strip() for line in (text or "").splitlines() if re.match(r"^\s*Fig\.?\s*\d+", line.strip())]
+    cap_bad = [c for c in captions if re.fullmatch(r"Fig\.?\s*\d+\.?", c)]
+    numbers: dict[str, set] = {}
+    for c in captions:
+        num = re.match(r"Fig\.?\s*(\d+)", c).group(1)
+        numbers.setdefault(num, set()).add(c)
+    dupes = [n for n, caps in numbers.items() if len(caps) > 1 and not all(re.search(r",\s.+page\s+\d+", c) for c in caps)]
+    detail = "captions are numbered and named" if not (cap_bad or dupes) else (
+        f"bare caption '{cap_bad[0]}'" if cap_bad else f"Fig. {dupes[0]} is used twice without its document")
+    rules.append(_rule("figure_captions", not (cap_bad or dupes), detail))
+    grammar = []
+    for s in steps:
+        for label in ("Good looks like", "Bad looks like"):
+            value = _label_value(s, label)
+            if re.match(r"^It\b", value):
+                grammar.append(f"S{s['n']} vague 'It'")
+            m = re.search(r"\bThe ([a-z][a-z -]*?) is\b", value)
+            if m and not re.search(r"\b(?:are|is|was|were)\b", m.group(1)):
+                last = m.group(1).split()[-1]
+                if " and " in f" {m.group(1)} " or (last.endswith("s") and not last.endswith(("ss", "us", "is"))):
+                    grammar.append(f"S{s['n']} '{m.group(0)}'")
+            if re.search(r"\b[a-z]{3,} [a-h] is\b", value):
+                grammar.append(f"S{s['n']} lowercase letter label")
+    rules.append(_rule("grammar", not grammar, "subject and verb agree" if not grammar else "; ".join(grammar[:4])))
+    return rules
+
+
+def _all_ok(named, *names) -> bool:
+    return all(_ok(named, name) for name in names if name in named)
+
+
+def _first_fail(named, names, default: str) -> str:
+    for name in names:
+        if name in named and not _ok(named, name):
+            return named[name].detail
+    return default
+
+
 def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
     """v1.2 Bay PDF scorecard.
 
@@ -1049,13 +1227,17 @@ def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
     line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
     rows = [
         (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") else "FAIL", "header, flowchart, diagnosis, branches, do not, sources"),
-        (2, "PASS" if _ok(named, "branch_subsections") else "FAIL", "each branch ends on a confirm with a pass and a fail"),
-        (3, "PASS" if not inspected["order"] else "FAIL", "numbered headings and the same label order"),
-        (4, "PASS" if _ok(named, "sentence_length") else "FAIL", "one action per line, about 12 words"),
+        (2, "PASS" if _all_ok(named, "branch_subsections", "next_chain", "double_removal", "secure_after_hose") else "FAIL",
+         _first_fail(named, ("next_chain", "double_removal", "secure_after_hose"), "each branch ends on a confirm with a pass and a fail")),
+        (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks") else "FAIL",
+         _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks"), "numbered headings and the same label order")),
+        (4, "PASS" if _all_ok(named, "sentence_length", "grammar") else "FAIL", _first_fail(named, ("grammar",), "one action per line, about 12 words")),
         (5, "PASS" if not inspected["generic"] else "FAIL", "Bad looks like is specific, or left off"),
-        (6, "PASS" if _ok(named, "figure_width") and _ok(named, "figure_placement") else "FAIL", "figure width, centering, and caption"),
+        (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions") else "FAIL",
+         _first_fail(named, ("figure_captions",), "figure width, centering, and caption")),
         (7, invented_status, invented_detail),
-        (8, safety_status, safety_detail),
+        (8, safety_status if _all_ok(named, "before_conflict", "safety_duplicate") else "FAIL",
+         _first_fail(named, ("before_conflict", "safety_duplicate"), safety_detail)),
         (9, line_nine, "no photo script, unconfirmed, leaked text, or stray number"),
         (10, "PASS" if _ok(named, "web_content") else "FAIL", "web content stays in Outside sources"),
     ]
@@ -1077,7 +1259,7 @@ _PF_STOP = re.compile(
 _PF_HEADING = re.compile(
     r"^(?:REMOVAL|INSTALLATION|VERIFY|BEFORE YOU START|DO NOT|DIAGNOSIS|"
     r"REPAIR PROCEDURE|REPAIR BRANCH|SOURCES \(SHOP DOCUMENT LIBRARY\)|"
-    r"VISUAL FLOWCHART|WHAT THIS PATTERN USUALLY MEANS)$",
+    r"PROVING CHECKS|VISUAL FLOWCHART|WHAT THIS PATTERN USUALLY MEANS)$",
     re.I,
 )
 _PF_PAGE = re.compile(r"\b(?:page\s+\d+|p\.?\s*\d+)\b", re.I)

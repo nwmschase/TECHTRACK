@@ -3255,7 +3255,7 @@ _THETFORD_PROVING = {
         "WHERE": "At the pedal.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": "Pull the pedal off.",
+        "HOW": "Check the water valve at the pedal for a weep.",
         "GOOD vs BAD": (
             "Good: no weep at the pedal. "
             "Bad: a weep at the cartridge, the drive arm, or a cracked housing."
@@ -3283,11 +3283,11 @@ _THETFORD_PROVING = {
         "WHERE": "Between the closet flange and the toilet.",
         "SAFETY": _PROVING_SAFETY,
         "TOOLS / METER SETTING": _PROVING_TOOLS,
-        "HOW": "Check the flange nuts for a flange 7/16 inch above the floor.",
-        "GOOD vs BAD": "Good: the flange is dry. Bad: the leak continues.",
+        "HOW": "Check the flange nuts for tightness.",
+        "GOOD vs BAD": "Good: the nuts are tight and the flange is dry. Bad: water at the flange.",
         "NEXT": (
             "On good: the leak checks are done. "
-            "On bad: if the leak continues, replace the flange seal. "
+            "On bad: if the leak continues, check the flange is 7/16 inch above the floor and replace the flange seal. "
             "Closet flange seal 02125 is on the kits."
         ),
         "FIGURE": _OM_FIGURE,
