@@ -139,6 +139,12 @@ def test_builder_wording_helpers():
     assert bpl.first_where("On the flush hose. On the nozzle. See Fig. 2.") == "On the flush hose. See Fig. 2."
     assert bpl.split_good_actions("Flush 3 times. Dry at the pedal.") == (["Flush 3 times."], "No drip at the pedal.")
     assert bpl.bad_negates_good("The clamp has moved.", "The clamp has not moved.")
-    assert not bpl.bad_negates_good("The bowl water goes down.", "The bowl water stays up.")
+    # rev5 (Leader rev4 item 1): "stays up" is only the opposite of "goes down".
+    assert bpl.bad_negates_good("The bowl water goes down.", "The bowl water stays up.")
+    assert bpl.bad_negates_good("The clamp is tight.", "The clamp is loose.")
+    assert bpl.bad_negates_good("The tab locks in place.", "The tab does not lock.")
+    assert not bpl.bad_negates_good("The hose is fully on the fitting.", "The hose sits crooked on the fitting.")
+    assert bpl.clamp_bad("Tighten the inlet tube with the new clamp A") == "The inlet tube turns under the clamp."
+    assert bpl.note_as_action("Larger on top and smaller on bottom.", "Secure the back of the cover with two rings") == "Put the larger ring on top and the smaller ring on the bottom"
     assert bpl.diagnosis_next("Go to the next check", "Fix the supply connection.") == \
         "If it is good, go to the next check. If it is bad, fix the supply connection."

@@ -144,7 +144,7 @@ def conform_lines(
             if dash_note and " - " in item:
                 item = item.split(" - ", 1)[0]
                 do_items.append(_sentence(item.rstrip(".")))
-                do_items.append(_sentence(dash_note.rstrip(".")))
+                do_items.append(_sentence(note_as_action(dash_note, action).rstrip(".")))
                 continue
             do_items.append(_sentence(resolve_action_it(item.rstrip("."), previous_object)))
             continue
@@ -181,6 +181,8 @@ def conform_lines(
             fields[key] = [
                 fix_agreement(fix_vague_it(fix_letter_labels(_sentence(v), action), subject)) for v in fields[key]
             ]
+    if fields.get("Good looks like") and not fields.get("Bad looks like") and do_items and clamp_bad(do_items[0]):
+        fields["Bad looks like"] = [clamp_bad(do_items[0])]
     nxt = (fields.get("Next") or [""])[0]
     if next_action and not diagnosis:
         nxt = _sentence(next_action.split(" - ", 1)[0])
@@ -275,11 +277,38 @@ def first_where(where: str) -> str:
 
 def bad_negates_good(good: str, bad: str) -> bool:
     """'The clamp has not moved' only negates 'The clamp has moved'. It says nothing new."""
-    g = {_stem(w) for w in _words_of(good)} - _NEG_WORDS
-    b = {_stem(w) for w in _words_of(bad)} - _NEG_WORDS
+    g = {_ANTONYM.get(_stem(w), _stem(w)) for w in _words_of(good)} - _NEG_WORDS
+    b = {_ANTONYM.get(_stem(w), _stem(w)) for w in _words_of(bad)} - _NEG_WORDS
     if not b:
         return True
     return b <= g
+
+
+# Opposite words count as the same word: 'loose' only negates 'tight'.
+_ANTONYM = {"loose": "tight", "stay": "go", "goe": "go", "closed": "open", "unlocked": "lock",
+            "missing": "on", "miss": "hit", "moved": "move", "still": "not", "doe": "not"}
+
+
+def note_as_action(note: str, action: str) -> str:
+    """'Larger on top and smaller on bottom' after 'with two rings' is
+    'Put the larger ring on top and the smaller ring on the bottom.' A Do-this item is an action."""
+    text = re.sub(r"\s+", " ", note or "").strip().rstrip(".")
+    m = re.match(r"(?i)^(\w+er) on (?:the )?(\w+) and (\w+er) on (?:the )?(\w+)$", text)
+    noun = re.search(r"(?i)\bwith (?:the )?(?:two|both|2) (\w+?)s\b", action or "")
+    if not m or not noun:
+        return text
+    a, p1, b, p2 = (g.lower() for g in m.groups())
+    n = noun.group(1).lower()
+    place = lambda w: w if w in ("top",) else f"the {w}"
+    return f"Put the {a} {n} on {place(p1)} and the {b} {n} on {place(p2)}"
+
+
+def clamp_bad(action: str) -> str:
+    """'Tighten the inlet tube with the new clamp A' fails as 'The inlet tube turns under the clamp.'"""
+    m = re.match(r"(?i)^tighten (?:the )?(?:new )?(.+?) with (?:the )?(?:new )?clamp\b", (action or "").strip())
+    if not m or m.group(1).strip().lower() in ("it", "them"):
+        return ""
+    return f"The {m.group(1).strip()} turns under the clamp."
 
 
 def generic_bad(bad: str) -> bool:

@@ -77,6 +77,12 @@ class TestSharedStepStructure(unittest.TestCase):
             painted = sum(len(_painted(item)) for item in proc.procedures)
             diag = len(proc.bay_order) if proc.procedures else 0
             self.assertEqual(len(headings), painted + diag, name)
+            # rev5 (Leader rev4 item 8): not only the builder's own count. Every source step
+            # is painted, and the totals are fixed from the source sheets:
+            # Thetford 103 source steps + 4 diagnosis + 2 added (old-part removal, mate reinstall) = 109.
+            # FACR 52 source steps + 8 diagnosis = 60.
+            self.assertGreaterEqual(len(headings), len(steps) + diag, name)
+            self.assertEqual(len(headings), {"thetford": 109, "facr": 60}[name], name)
             for item in proc.procedures:
                 import bay_procedure as bp
                 import bay_profile_lines as bpl
@@ -174,7 +180,8 @@ class TestSharedStepStructure(unittest.TestCase):
         first = valve[0]
         shown_first = mf.format_one_step(first, 1, len(valve), show_safety=True)
         self.assertIn("Good looks like:", shown_first)
-        self.assertIn("Bad looks like:", shown_first)
+        # rev5 (Leader rev4 item 1): 'Water still comes out' only negates 'No water comes out', so it is left off.
+        self.assertNotIn("Bad looks like:", shown_first)
         self.assertEqual(shown_first.count("\n1. "), 1)
         self.assertNotIn("\n2. ", shown_first)
         vacuum = mf.thetford_proving_line("vacuum")

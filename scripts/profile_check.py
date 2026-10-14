@@ -1183,6 +1183,14 @@ def _strict_v14(text: str) -> list[Rule]:
     rules.append(_rule("next_chain", not chain, "each Next names the following step" if not chain else chain[0]))
     captions = [line.strip() for line in (text or "").splitlines() if re.match(r"^\s*Fig\.?\s*\d+", line.strip())]
     cap_bad = [c for c in captions if re.fullmatch(r"Fig\.?\s*\d+\.?", c)]
+    # rev5 (Leader rev4 item 2): one number per figure, and the title is the manual's own label.
+    two_numbers = [c for c in captions if re.search(r"(?i)\(\s*kit\s+fig", c)]
+    actions = {_norm(s["action"]) for s in steps if s.get("action")}
+    action_titled = []
+    for c in captions:
+        title = re.sub(r"^Fig\.?\s*\d+\s*", "", c).split(",", 1)[0]
+        if title and _norm(title) in actions:
+            action_titled.append(c)
     numbers: dict[str, list] = {}
     for c in captions:
         num = re.match(r"Fig\.?\s*(\d+)", c).group(1)
@@ -1190,7 +1198,10 @@ def _strict_v14(text: str) -> list[Rule]:
     dupes = [n for n, caps in numbers.items() if len(caps) > 1]
     detail = "captions are numbered once across the sheet and named" if not (cap_bad or dupes) else (
         f"bare caption '{cap_bad[0]}'" if cap_bad else f"Fig. {dupes[0]} is used {len(numbers[dupes[0]])} times on the sheet")
-    rules.append(_rule("figure_captions", not (cap_bad or dupes), detail))
+    if not (cap_bad or dupes) and (two_numbers or action_titled):
+        detail = (f"two figure numbers in '{two_numbers[0][:60]}'" if two_numbers
+                  else f"caption is the step action, not the manual's label: '{action_titled[0][:60]}'")
+    rules.append(_rule("figure_captions", not (cap_bad or dupes or two_numbers or action_titled), detail))
     rules.extend(_strict_v15(steps))
     grammar = []
     for s in steps:
@@ -1276,13 +1287,26 @@ def _strict_v15(steps: list[dict]) -> list[Rule]:
         good, bad = _label_value(s, "Good looks like"), _label_value(s, "Bad looks like")
         if not good or not bad:
             continue
-        g = {_stem_word(w) for w in re.findall(r"[a-z0-9]+", good.lower())} - _NEG
-        b = {_stem_word(w) for w in re.findall(r"[a-z0-9]+", bad.lower())} - _NEG
+        # rev5 (Leader rev4 item 1): an opposite word only negates Good. 'loose' vs 'tight',
+        # 'stays up' vs 'goes down', 'does not lock' vs 'locks'.
+        g = {_ANTONYM_V15.get(_stem_word(w), _stem_word(w)) for w in re.findall(r"[a-z0-9]+", good.lower())} - _NEG - {"doe"}
+        b = {_ANTONYM_V15.get(_stem_word(w), _stem_word(w)) for w in re.findall(r"[a-z0-9]+", bad.lower())} - _NEG - {"doe"}
         generic = re.sub(r"[^a-z ]", "", bad.lower()).strip() in {"the leak continues", "the leak is still there", "the leak persists"}
         if generic or b <= g:
             negating.append(f"S{s['n']} '{bad[:30]}'")
+    fragments = []
+    for s in steps:
+        for line in s["lines"]:
+            m = re.match(r"^\d+\.\s+(.+)$", line)
+            if m and re.match(r"(?i)^\w+er on \w+ and \w+er on \w+", m.group(1)):
+                fragments.append(f"S{s['n']} '{m.group(1)[:40]}'")
+    rules.append(_rule("do_item_is_action", not fragments, "every Do this item is an action" if not fragments else "fragment in Do this: " + ", ".join(fragments[:4])))
     rules.append(_rule("bad_is_specific", not negating, "every Bad says something Good does not" if not negating else "Bad only negates Good or is generic: " + ", ".join(negating[:4])))
     return rules
+
+
+_ANTONYM_V15 = {"loose": "tight", "stay": "go", "goe": "go", "closed": "open", "unlocked": "lock",
+                "miss": "hit", "moved": "move", "still": "not"}
 
 
 def _all_ok(named, *names) -> bool:
@@ -1315,7 +1339,7 @@ def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
          _first_fail(named, ("next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed"), "each branch ends on a confirm with a pass and a fail")),
         (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path") else "FAIL",
          _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path"), "numbered headings and the same label order")),
-        (4, "PASS" if _all_ok(named, "sentence_length", "grammar", "good_is_a_look") else "FAIL", _first_fail(named, ("grammar", "good_is_a_look"), "one action per line, about 12 words")),
+        (4, "PASS" if _all_ok(named, "sentence_length", "grammar", "good_is_a_look", "do_item_is_action") else "FAIL", _first_fail(named, ("grammar", "good_is_a_look", "do_item_is_action"), "one action per line, about 12 words")),
         (5, "PASS" if not inspected["generic"] and _all_ok(named, "bad_is_specific") else "FAIL", _first_fail(named, ("bad_is_specific",), "Bad looks like is specific, or left off")),
         (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions") else "FAIL",
          _first_fail(named, ("figure_captions",), "figure width, centering, and caption")),

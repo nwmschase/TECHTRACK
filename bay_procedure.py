@@ -6400,6 +6400,27 @@ def _graft_library_figures(proc: BayProcedure, packets) -> None:
                     break
 
 
+def manual_figure_label(label: str, text: str) -> str:
+    """A bare 'Fig. 1' takes the manual's own name for it.
+
+    'Refer to Figure 1 for component locations.' -> 'Fig. 1 COMPONENT LOCATIONS'.
+    A label that already has a title, or a figure the text never names, stays as it is.
+    """
+    m = re.match(r"(?i)^\s*fig(?:ure)?\.?\s*(\d+)\s*$", label or "")
+    if not m:
+        return label
+    n = m.group(1)
+    body = re.sub(r"\s+", " ", text or "")
+    found = re.search(
+        rf"(?i)\bfigure {n}\s*(?:[-–:]\s*([A-Z][A-Z ]{{2,40}}[A-Z])\b|for (?:the )?([a-z][a-z ]{{2,40}}?)\s*[.;,)])",
+        body,
+    )
+    if not found:
+        return label
+    name = (found.group(1) or found.group(2) or "").strip().upper()
+    return f"Fig. {n} {name}" if name else label
+
+
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     """Put each cropped figure on the step it supports, and quote that chunk's how-to.
 
@@ -6421,6 +6442,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                     "title": data.get("title") or "",
                 }
             )
+        text = str(data.get("excerpt") or data.get("chunk_text") or data.get("text") or "")
+        figures = [{**f, "label": manual_figure_label(f.get("label") or "", text)} for f in figures]
         if figures:
             packets.append({**data, "figures": figures})
     job = " ".join(
@@ -6845,20 +6868,19 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The flange sits low, under 7/16 inch above the floor.",
-                "Add Thetford spacers until the flange is 7/16 inch up.",
-                fail="Add Thetford spacers until the flange is 7/16 inch up.",
+                "Use Thetford spacers to set the flange 7/16 inch up.",
+                fail="Use Thetford spacers to set the flange 7/16 inch up.",
                 tools="ruler",
                 section="removal",
             ),
             _branch_step(
                 # OM 42088 p3: "Use Thetford spacers to adjust, if necessary, to 7/16 in above floor."
-                "Add Thetford spacers if the flange is under 7/16 inch.",
+                "Use Thetford spacers to set the flange 7/16 inch up.",
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The spacers rock or sit crooked on the flange.",
                 "Uncover the holding tank opening.",
                 fail="Reseat the spacers flat on the flange.",
-                tools="ruler",
                 section="removal",
             ),
             _branch_step(
@@ -7011,6 +7033,12 @@ def _thetford_branch_layout(kind: str, chunks) -> dict:
         else "Thetford Water Valve Kit 42109"
     )
     text, figures = mf.kit_excerpt(chunks, kind)
+    figures = [
+        {**figure, "label": manual_figure_label(str(figure.get("label") or ""), text)}
+        if isinstance(figure, dict)
+        else figure
+        for figure in figures or []
+    ]
     needles = ("34122", "34123") if kind == "breaker" else ("42109",)
     doc_numbers = " ".join(
         dict.fromkeys(
@@ -7028,7 +7056,7 @@ def _thetford_branch_layout(kind: str, chunks) -> dict:
     return mf.thetford_kit_layout(kind)
 
 
-def _sync_thetford_sources(proc: BayProcedure) -> None:
+def _sync_thetford_sources(proc: BayProcedure, chunks=None) -> None:
     """Every doc and page the sheet cites is a Sources line."""
     blob = "\n".join(proc.bay_order or [])
     blob += "\n" + (proc.primary_cite or "")
@@ -7125,9 +7153,43 @@ def _sync_thetford_sources(proc: BayProcedure) -> None:
         pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}42109", blob, re.I)]
         for page in sorted(set(pages) or {1}):
             add("Thetford Water Valve Kit 42109", page)
+    for extra in _securing_source_rows(proc, chunks, rows):
+        # A second page of a manual sits right under its first page.
+        at = max((i for i, r in enumerate(rows) if r["title"] == extra["title"]), default=len(rows) - 1)
+        rows.insert(at + 1, extra)
     rows = _dedupe_source_rows(rows)
     if rows:
         proc.sources = rows
+
+
+def _securing_source_rows(proc: BayProcedure, chunks, rows: list) -> list:
+    """A step that secures with a lettered clamp cites the manual page that says so, verbatim."""
+    import manual_figures as mf
+
+    letters = []
+    for procedure in proc.procedures or []:
+        for step in procedure.get("steps") or []:
+            action = mf.step_heading(step, 1).split(": ", 1)[-1]
+            m = re.search(r"(?i)\b(?:tighten|secure)\b.*\bclamp ([A-H])\b", action)
+            if m and m.group(1) not in letters:
+                letters.append(m.group(1))
+    added = []
+    for letter in letters:
+        for chunk in chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            body = re.sub(r"\s+", " ", str(chunk.get("chunk_text") or chunk.get("excerpt") or ""))
+            m = re.search(rf"(?:^|\d\.\s+)([A-Z][^.]*\bsecure with new clamp {letter}\b\.)", body)
+            if not m:
+                continue
+            title_raw = str(chunk.get("title") or chunk.get("clean_title") or "")
+            numbers = set(re.findall(r"\b\d{5}\b", title_raw))
+            title = next((r["title"] for r in rows if numbers & set(re.findall(r"\b\d{5}\b", r["title"]))), title_raw)
+            page = chunk.get("page")
+            if title and page and not any(r["title"] == title and r["page"] == page for r in rows + added):
+                added.append({"title": title, "page": page, "excerpt": m.group(1).strip()})
+            break
+    return added
 
 
 def attach_thetford_repair_procedures(proc: BayProcedure, history=None, chunks=None) -> BayProcedure:
@@ -7160,7 +7222,7 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None, chunks=N
     branches.append(hoist_branch_safety(_flange_branch()))
     proc.procedures = [_with_removal_line(item) for item in branches]
     _drop_repeated_procedure_figures(proc.procedures)
-    _sync_thetford_sources(proc)
+    _sync_thetford_sources(proc, chunks)
     return proc
 
 
@@ -7494,7 +7556,7 @@ def _plain_kit_procedures(packets, job: str) -> list:
                 continue
             figures.append(
                 {
-                    "label": figure.get("label") or "Fig.",
+                    "label": manual_figure_label(figure.get("label") or "Fig.", packet.get("excerpt") or ""),
                     "png": png,
                     "page": figure.get("page") or packet.get("page"),
                     "title": figure.get("title") or title,
@@ -8078,7 +8140,7 @@ _CONTENT_W = PAGE_W - 2 * MARGIN
 _FIGURE_WIDTH = 0.75 * _CONTENT_W
 # Low enough that a portrait crop at that width still clears the page margin.
 _FIGURE_FLOOR = MARGIN
-_STEP_GAP = 9.0
+_STEP_GAP = 8.0
 _STEP_TEXT_W = _CONTENT_W - 16.0
 
 
@@ -9515,7 +9577,12 @@ def _source_row_height(title: str, excerpt: str) -> float:
 
 def _one_excerpt(text: str) -> str:
     parts = _split_sentences(clean_ocr_prose(text or ""))
-    return parts[0] if parts else ""
+    if parts:
+        return parts[0]
+    # A verbatim manual quote the OCR cleaner rejects still prints as quoted.
+    raw = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text or "").strip())
+    first = raw[0] if raw else ""
+    return first if re.fullmatch(r"[A-Z][A-Za-z0-9 ,/'()-]{10,160}\.", first) else ""
 
 
 def _source_rows(sources: list[dict], *, mode: str) -> list[tuple[str, str]]:
@@ -9573,12 +9640,15 @@ def _paint_fitting_sources(body: _SheetFlow, sources: list[dict]) -> None:
 def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_break: bool) -> None:
     if not rows:
         return
-    first_h = measure_text(rows[0][0], _CONTENT_W - 16, 8.5, leading=11.1).height
+    # The heading travels with its whole first row, quote included. A heading never ends a page.
+    first_h = _source_row_height(rows[0][0], rows[0][1])
+    if allow_break and first_h + 40.0 > body.remaining():
+        body.new_page("Sources  ·  Tacoma RV Center")
     if not _add_section(
         body,
         "SOURCES (SHOP DOCUMENT LIBRARY)",
         NAVY,
-        follow_h=min(first_h, 36),
+        follow_h=first_h,
         allow_break=allow_break,
     ):
         return
@@ -9596,7 +9666,7 @@ def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_b
         need = _source_row_height(title, excerpt)
         if need > body.remaining():
             tail = sum(_source_row_height(t, e) for t, e in rows[index:])
-            if not allow_break or tail < 170.0:
+            if not allow_break:
                 return
             body.new_page("Sources  ·  Tacoma RV Center")
             if not _add_section(body, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=20, allow_break=True):
@@ -9684,7 +9754,7 @@ def _manual_secure_step(procedures: list) -> dict | None:
 
 
 def _sheet_figure_caption(body, caption: str, action: str) -> str:
-    """Number figures across the whole sheet. A caption with no title takes the step's action."""
+    """Number figures across the whole sheet with one number each. The title is the manual's own label."""
     number = getattr(body, "figure_count", 0) + 1
     try:
         body.figure_count = number
@@ -9692,13 +9762,10 @@ def _sheet_figure_caption(body, caption: str, action: str) -> str:
         pass
     m = re.match(r"\s*Fig(?:ure)?\.?\s*(\d+)\s*(.*)$", caption or "", re.I)
     if not m:
-        return f"Fig. {number} {action.rstrip('.').upper()}, {caption}".strip()
-    kit_no, rest = m.group(1), m.group(2).strip()
-    if rest.startswith(",") or not rest:
-        rest = f"{action.rstrip('.').upper()}{rest}"
-    if kit_no != str(number):
-        title, sep, tail = rest.partition(",")
-        rest = f"{title.strip()} (kit Fig. {kit_no}){sep}{tail}"
+        return f"Fig. {number}, {caption}".strip().rstrip(",")
+    rest = m.group(2).strip()
+    if rest.startswith(","):
+        return f"Fig. {number}{rest}"
     return f"Fig. {number} {rest}".strip()
 
 
@@ -9718,7 +9785,7 @@ def _where_from_memory(lines: list[str], obj: str, memory: list) -> list[str]:
                 return key in where.lower() and bool(re.match(r"(?i)^at the ", where))
 
             match = next((where for k, where in reversed(memory[-3:]) if k == key and not self_ref(where)), "")
-            if match and (key not in place.lower() or self_ref(place)) and match.lower() != place.lower():
+            if match and key not in place.lower() and match.lower() != place.lower():
                 value = f"{match} {fig.group(0).strip()}".strip() if fig else match
             memory.append((key, re.sub(r"\s*See Fig\.?\s*\d+\.?$", "", value).strip()))
             line = f"Where: {value}"
@@ -9745,6 +9812,9 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
 
     hoist_branch_safety(procedure)
     title = procedure.get("title") or "Repair procedure"
+    # The branch heading and title travel with what follows. A heading never ends a page.
+    if body.remaining() < 140.0:
+        body.new_page("Repair procedure")
     _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
@@ -9828,7 +9898,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         prev_where = next((line[7:] for line in body_lines if line.startswith("Where: ")), prev_where)
         prev_where = re.sub(r"\s*See Fig\.?\s*\d+[^.]*\.?$", "", prev_where).strip()
         head_m = measure_text(heading, text_w, 9, bold=True, leading=11.6)
-        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=10.0) if body_lines else None
+        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=9.3) if body_lines else None
         text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
         caution = f"Caution: {step['caution']}" if step.get("caution") else ""
         caution_h = 0.0

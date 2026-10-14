@@ -1223,6 +1223,12 @@ def step_body_lines(
     good, bad = _good_bad_bits(fields.get("GOOD vs BAD") or "")
     if good:
         lines.append(f"Good looks like: {_finish_sentence(good)}")
+    import bay_profile_lines as _bpl
+
+    if bad and good and _bpl.bad_negates_good(good, bad):
+        bad = ""
+    if not bad and actions:
+        bad = _bpl.clamp_bad(actions[0])
     if bad and _bad_worth_printing(bad):
         lines.append(f"Bad looks like: {_finish_sentence(bad)}")
     lines.extend(_next_lines(fields.get("NEXT") or ""))
