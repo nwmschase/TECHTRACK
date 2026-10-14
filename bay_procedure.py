@@ -9614,7 +9614,7 @@ def _finish(text: str) -> str:
 
 
 # Split at 'and' only where an action verb follows, so 'Check A and B' keeps its verb.
-_BAY_VERBS = r"(?:check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|run|disconnect|reconnect|verify|inspect|plug|unplug|drain|fill|flush|move|bypass|record)"
+_BAY_VERBS = r"(?:do not|check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|run|disconnect|reconnect|verify|inspect|plug|unplug|drain|fill|flush|move|bypass|record)"
 _AND_ACTION = r",\s+(?=and\s+" + _BAY_VERBS + r"\b)"
 _COMMA_ACTION = r",\s+(?=" + _BAY_VERBS + r"\b)"
 _AND_ACTION_BARE = r"\s+(?=and\s+" + _BAY_VERBS + r"\b)"
@@ -9644,9 +9644,12 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
             head_text = text[: len(text) - len(listed.group(2))].rstrip().rstrip(",")
             cond = re.match(r"^(" + re.escape(head_text) + r"),\s+(.+)$", text)
         # The condition is never cut at 'and': only at 'while'/'because', so it means the same.
-        head = [p.strip() for p in re.split(r"\s+(?=(?:while|because)\b)", cond.group(1)) if p.strip()]
-        head[-1] = _finish(head[-1]).rstrip(".") + ":"
-        return head + short_actions(_cap(cond.group(2)), limit)
+        # A condition line on its own has no stop (profile PF-02), so the
+        # condition keeps its first action on the same line, as written.
+        rest = short_actions(_cap(cond.group(2)), limit)
+        sep = "" if text[len(cond.group(1)):].startswith(" ") else ","
+        first = cond.group(1) + sep + " " + (rest[0][:1].lower() + rest[0][1:] if rest and not re.match(r"^[A-Z0-9]{2,}|^[A-Z][a-z]+[A-Z]", rest[0]) else (rest[0] if rest else ""))
+        return [_finish(first.strip())] + rest[1:]
     for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", _AND_ACTION, r",\s+(?=so\b)", r",\s+(?=but\b)", _COMMA_ACTION, r"\s+(?=and then\b)", _AND_ACTION_BARE):
         pieces = [p for p in re.split(pattern, text) if p.strip()]
         if len(pieces) < 2:
@@ -10409,14 +10412,20 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     # old place after Sources.
     shown = 0
     later = []
+    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
+
+    def _room_for_sources_after(fig, png) -> bool:
+        cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
+        need = 36.0 + _figure_block_height(png, cap, 0)[2] + 8.0
+        return _sources_that_fit(body.remaining() - need, sources) is not None
+
     for fig, png in imaged:
-        if shown < MAX_FIGURES_PER_SHEET and not _figure_is_squeezed(png, body.remaining()) and _paint_figure_on(
+        if shown < MAX_FIGURES_PER_SHEET and not _figure_is_squeezed(png, body.remaining()) and _room_for_sources_after(fig, png) and _paint_figure_on(
             body, fig, png=png, allow_break=False
         ):
             shown += 1
         else:
             later.append((fig, png))
-    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
     _paint_fitting_sources(body, sources)
 
     # A short crop stays on the current page. A dedicated figure page has to
