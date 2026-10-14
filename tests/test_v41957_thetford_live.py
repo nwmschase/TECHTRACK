@@ -166,7 +166,10 @@ class TestLiveFigureAttachKeepsEveryBranch(unittest.TestCase):
         uncover_step = next(
             step for step in flange.get("steps") or [] if (step.get("text") or "").startswith("Uncover")
         )
-        self.assertIn("Uncover the holding tank opening", (height_step.get("fields") or {}).get("NEXT") or "")
+        # v4.19.60: OM 42088 p3 spacer fix sits between the height check and the uncover step.
+        spacer_step = next(step for step in flange.get("steps") or [] if "spacers" in (step.get("text") or "").lower())
+        self.assertIn("Add Thetford spacers", (height_step.get("fields") or {}).get("NEXT") or "")
+        self.assertIn("Uncover the holding tank opening", (spacer_step.get("fields") or {}).get("NEXT") or "")
         self.assertNotIn("02125", (height_step.get("fields") or {}).get("NEXT") or "")
         self.assertIn("holding tank opening is clear", (uncover_step.get("fields") or {}).get("GOOD vs BAD") or "")
         self.assertNotIn("The opening is open", (uncover_step.get("fields") or {}).get("GOOD vs BAD") or "")

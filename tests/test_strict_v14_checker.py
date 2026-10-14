@@ -92,7 +92,7 @@ def test_bare_and_duplicate_figure_captions_fail():
     assert not _named(_sheet(GOOD_BRANCH) + "Fig. 1\n")["figure_captions"].ok
     twice = _sheet(GOOD_BRANCH) + "Fig. 1 PEDAL REMOVED\nFig. 1 COVER\n"
     assert not _named(twice)["figure_captions"].ok
-    named = _sheet(GOOD_BRANCH) + "Fig. 1, Kit A, page 1\nFig. 1 PEDAL, Kit B, page 1\n"
+    named = _sheet(GOOD_BRANCH) + "Fig. 1 CLAMP, Kit A, page 1\nFig. 2 PEDAL, Kit B, page 1\n"  # v4.19.60: numbered across the sheet
     assert _named(named)["figure_captions"].ok
 
 

@@ -1155,12 +1155,19 @@ def _strict_v14(text: str) -> list[Rule]:
     rules.append(_rule("double_removal", not doubles, "each part comes off once" if not doubles else doubles[0]))
     loose = []
     for i, s in enumerate(steps):
-        if s["branch"] < 0 or not re.search(r"\b(?:push|put|connect)\b.*\bhose\b.*\b(?:on|onto)\b", s["action"], re.I):
+        if s["branch"] < 0 or not re.search(r"\b(?:push|put|connect|install)\b.*\b(?:hose|supply line)\b.*\b(?:on|onto|to)\b", s["action"], re.I):
             continue
-        if "tight" in _label_value(s, "Good looks like").lower():
+        if re.search(r"\b(?:tighten|secure|clamp)\b", s["action"], re.I):
             continue
-        later = [o for o in steps[i + 1:] if o["branch"] == s["branch"]]
-        if not any(re.search(r"\b(?:tighten|secure|clamp)\b", o["action"], re.I) for o in later):
+        # "The hose is on tight" is a look, not a clamp. A tighten step must come before the water goes on.
+        secured = False
+        for o in steps[i + 1:]:
+            if o["branch"] != s["branch"] or re.search(r"(?i)\bwater on\b|\bturn on\b", o["action"]):
+                break
+            if re.search(r"(?i)\b(?:tighten|secure)\b", o["action"]) and re.search(r"(?i)\b(?:hose|clamp|connection|line)\b", o["action"]):
+                secured = True
+                break
+        if not secured:
             loose.append(f"B{s['branch'] + 1} S{s['n']}")
     rules.append(_rule("secure_after_hose", not loose, "every reconnected hose is secured" if not loose else "hose never tightened: " + ", ".join(loose)))
     chain = []
@@ -1176,14 +1183,15 @@ def _strict_v14(text: str) -> list[Rule]:
     rules.append(_rule("next_chain", not chain, "each Next names the following step" if not chain else chain[0]))
     captions = [line.strip() for line in (text or "").splitlines() if re.match(r"^\s*Fig\.?\s*\d+", line.strip())]
     cap_bad = [c for c in captions if re.fullmatch(r"Fig\.?\s*\d+\.?", c)]
-    numbers: dict[str, set] = {}
+    numbers: dict[str, list] = {}
     for c in captions:
         num = re.match(r"Fig\.?\s*(\d+)", c).group(1)
-        numbers.setdefault(num, set()).add(c)
-    dupes = [n for n, caps in numbers.items() if len(caps) > 1 and not all(re.search(r",\s.+page\s+\d+", c) for c in caps)]
-    detail = "captions are numbered and named" if not (cap_bad or dupes) else (
-        f"bare caption '{cap_bad[0]}'" if cap_bad else f"Fig. {dupes[0]} is used twice without its document")
+        numbers.setdefault(num, []).append(c)
+    dupes = [n for n, caps in numbers.items() if len(caps) > 1]
+    detail = "captions are numbered once across the sheet and named" if not (cap_bad or dupes) else (
+        f"bare caption '{cap_bad[0]}'" if cap_bad else f"Fig. {dupes[0]} is used {len(numbers[dupes[0]])} times on the sheet")
     rules.append(_rule("figure_captions", not (cap_bad or dupes), detail))
+    rules.extend(_strict_v15(steps))
     grammar = []
     for s in steps:
         for label in ("Good looks like", "Bad looks like"):
@@ -1198,6 +1206,82 @@ def _strict_v14(text: str) -> list[Rule]:
             if re.search(r"\b[a-z]{3,} [a-h] is\b", value):
                 grammar.append(f"S{s['n']} lowercase letter label")
     rules.append(_rule("grammar", not grammar, "subject and verb agree" if not grammar else "; ".join(grammar[:4])))
+    return rules
+
+
+_IMPERATIVE_START = ("flush", "turn", "push", "pull", "press", "run", "open", "tighten", "put", "set", "remove",
+                     "fix", "replace", "go", "check", "add")
+_NEG = {"not", "no", "still", "does", "do", "did", "has", "have", "is", "are", "sits", "off", "on", "up", "down",
+        "out", "in", "a", "the", "an", "any"}
+
+
+def _stem_word(word: str) -> str:
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
+
+
+def _sentences(text: str) -> list[str]:
+    return [x.strip() for x in re.split(r"(?<=\.)\s+(?=[A-Z])", (text or "").strip()) if x.strip()]
+
+
+def _strict_v15(steps: list[dict]) -> list[Rule]:
+    """Leader rev3 page review (2026-10-13 4:57 PM): misses that now fail on their own."""
+    rules = []
+    removal_re = re.compile(r"(?i)\b(?:off|remove|take|pull|unhook|out)\b")
+    throw_re = re.compile(r"(?i)^(?:throw|discard)\b")
+    unpaired = []
+    for i, s in enumerate(steps):
+        pair = re.search(r"(?i)\bthe ([a-z]+(?: [a-z]+)?) and (?:the )?([a-z]+)\b", s["action"])
+        if s["branch"] < 0 or not pair or not removal_re.search(s["action"]) or throw_re.match(s["action"]):
+            continue
+        mate = pair.group(2).lower()
+        if mate in {"off", "on", "up", "down", "out", "away", "back", "in", "over"}:
+            continue
+        mate_re = re.compile(rf"(?i)\b{re.escape(mate)}\b(?=\s+(?:is|are|in|into|on|onto|back|until|with|to|and|off)\b|[.,]|$)")
+        later = [o for o in steps[i + 1:] if o["branch"] == s["branch"] and not throw_re.match(o["action"])
+                 and not removal_re.search(o["action"])]
+        if not any(mate_re.search(o["action"]) for o in later):
+            unpaired.append(f"B{s['branch'] + 1} S{s['n']} takes off the {mate}; no step puts it back")
+    rules.append(_rule("reinstalled", not unpaired, "every part that comes off goes back" if not unpaired else unpaired[0]))
+    stale = []
+    for i, s in enumerate(steps):
+        m = re.match(r"(?i)^(?:put|install|push|fit|set) the new ([a-z ]+?) (?:on|onto|in|into)\b", s["action"])
+        if s["branch"] < 0 or not m:
+            continue
+        part_re = r"\b" + r"\s+".join(re.escape(_stem_word(w.lower())) + "s?" for w in m.group(1).split()) + r"\b"
+        earlier = [o["action"] for o in steps[:i] if o["branch"] == s["branch"]]
+        if not any((removal_re.search(a) or throw_re.match(a)) and re.search(part_re, a, re.I) for a in earlier):
+            stale.append(f"B{s['branch'] + 1} S{s['n']} fits a new {m.group(1)} but the old one never comes off")
+    rules.append(_rule("old_part_removed", not stale, "each old part comes off before the new one" if not stale else stale[0]))
+    contra = []
+    for s in steps:
+        parts = _sentences(_label_value(s, "Next"))
+        orders = [x for x in parts if x.split()[0].lower() in _IMPERATIVE_START]
+        if len(orders) >= 2 and not any(x.lower().startswith("if ") for x in parts):
+            contra.append(f"{'D' if s['branch'] < 0 else 'B' + str(s['branch'] + 1)} S{s['n']}: '{' / '.join(o[:30] for o in orders[:2])}'")
+    rules.append(_rule("next_single_path", not contra, "each Next gives one path, or names good and bad" if not contra else "two orders in one Next: " + contra[0]))
+    doubled = []
+    for s in steps:
+        value = re.sub(r"\s*See Fig\.?\s*\d+\.?$", "", _label_value(s, "Where"))
+        if len(_sentences(value)) > 1:
+            doubled.append(f"S{s['n']} '{value[:40]}'")
+    rules.append(_rule("where_single", not doubled, "each Where names one place" if not doubled else "doubled Where: " + ", ".join(doubled[:4])))
+    acting = []
+    for s in steps:
+        for x in _sentences(_label_value(s, "Good looks like")):
+            if x.split()[0].lower() in _IMPERATIVE_START:
+                acting.append(f"S{s['n']} '{x[:30]}'")
+    rules.append(_rule("good_is_a_look", not acting, "Good looks like holds no action" if not acting else "action in Good: " + ", ".join(acting[:4])))
+    negating = []
+    for s in steps:
+        good, bad = _label_value(s, "Good looks like"), _label_value(s, "Bad looks like")
+        if not good or not bad:
+            continue
+        g = {_stem_word(w) for w in re.findall(r"[a-z0-9]+", good.lower())} - _NEG
+        b = {_stem_word(w) for w in re.findall(r"[a-z0-9]+", bad.lower())} - _NEG
+        generic = re.sub(r"[^a-z ]", "", bad.lower()).strip() in {"the leak continues", "the leak is still there", "the leak persists"}
+        if generic or b <= g:
+            negating.append(f"S{s['n']} '{bad[:30]}'")
+    rules.append(_rule("bad_is_specific", not negating, "every Bad says something Good does not" if not negating else "Bad only negates Good or is generic: " + ", ".join(negating[:4])))
     return rules
 
 
@@ -1227,12 +1311,12 @@ def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
     line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
     rows = [
         (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") else "FAIL", "header, flowchart, diagnosis, branches, do not, sources"),
-        (2, "PASS" if _all_ok(named, "branch_subsections", "next_chain", "double_removal", "secure_after_hose") else "FAIL",
-         _first_fail(named, ("next_chain", "double_removal", "secure_after_hose"), "each branch ends on a confirm with a pass and a fail")),
-        (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks") else "FAIL",
-         _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks"), "numbered headings and the same label order")),
-        (4, "PASS" if _all_ok(named, "sentence_length", "grammar") else "FAIL", _first_fail(named, ("grammar",), "one action per line, about 12 words")),
-        (5, "PASS" if not inspected["generic"] else "FAIL", "Bad looks like is specific, or left off"),
+        (2, "PASS" if _all_ok(named, "branch_subsections", "next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed") else "FAIL",
+         _first_fail(named, ("next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed"), "each branch ends on a confirm with a pass and a fail")),
+        (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path") else "FAIL",
+         _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path"), "numbered headings and the same label order")),
+        (4, "PASS" if _all_ok(named, "sentence_length", "grammar", "good_is_a_look") else "FAIL", _first_fail(named, ("grammar", "good_is_a_look"), "one action per line, about 12 words")),
+        (5, "PASS" if not inspected["generic"] and _all_ok(named, "bad_is_specific") else "FAIL", _first_fail(named, ("bad_is_specific",), "Bad looks like is specific, or left off")),
         (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions") else "FAIL",
          _first_fail(named, ("figure_captions",), "figure width, centering, and caption")),
         (7, invented_status, invented_detail),

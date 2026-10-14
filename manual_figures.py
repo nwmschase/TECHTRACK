@@ -3216,8 +3216,8 @@ _THETFORD_PROVING = {
         "TOOLS / METER SETTING": _PROVING_TOOLS,
         "HOW": "Check the water supply line connection at the water valve.",
         "GOOD vs BAD": (
-            "Good: the connection is dry. Bad: the leak persists from the water valve. "
-            "A leak at the back, low, with the lever at rest, is the fitting."
+            "Good: the connection is dry. "
+            "Bad: water at the supply connection, low at the back, with the lever at rest."
         ),
         "NEXT": (
             "On good: go to the next check. "
@@ -3262,8 +3262,8 @@ _THETFORD_PROVING = {
         ),
         "NEXT": (
             "On good: go to the next check. "
-            "On bad: if it weeps at the pedal, replace it with kit 42109. "
-            "Kit 42049 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
+            "On bad: if it weeps at the pedal, replace the water valve with kit 42109. "
+            "Kit 42109 includes cartridge 42002, drive-arm seal 42006, inlet seal 42009, "
             "spring 42010, and retainer 42099."
         ),
         "FIGURE": "Fig. 1 PEDAL REMOVED, Thetford Water Valve Service Kit 42109, page 1.",

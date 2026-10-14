@@ -6718,7 +6718,7 @@ def _confirm_step(where: str) -> dict:
         "Confirm the repair is dry.",
         where or "At the finished repair.",
         "The repair is dry.",
-        "The leak is still there.",
+        "A drip or a wet spot shows after the flush.",
         "This branch is complete.",
         fail="Redo the branch that was just finished.",
         section="prove",
@@ -6764,19 +6764,19 @@ def _supply_branch() -> dict:
                 "Back of the toilet, on the water valve.",
                 "The hose is fully on the fitting.",
                 "The hose sits crooked on the fitting.",
-                "Tighten the hose clamp.",
+                "Secure or tighten the supply line connection.",
                 fail="Pull the hose off and push it on straight.",
                 tools="pliers",
                 section="installation",
             ),
             _branch_step(
-                "Tighten the hose clamp on the water valve.",
+                # OM 42088 p3: "check water supply line connection at water valve. Secure or tighten as necessary."
+                "Secure or tighten the supply line connection at the water valve.",
                 "Back of the toilet, on the water valve.",
-                "The clamp is tight and the connection is dry.",
-                "The leak persists from the water valve.",
+                "The connection is snug and dry.",
+                "Water still beads at the connection.",
                 "Confirm the connection.",
-                fail="Replace the supply fitting.",
-                tools="pliers",
+                fail="If the leak persists from the water valve, replace the valve.",
                 section="installation",
             ),
             _confirm_step("Back of the toilet, on the water valve."),
@@ -6794,9 +6794,9 @@ def _flange_branch() -> dict:
         ],
         "steps": [
             _branch_step(
-                "Take the nuts off the floor bolts.",
+                "Take off the bolt covers and the nuts.",
                 "At the closet flange, under the toilet.",
-                "The nuts are off.",
+                "The bolt covers and the nuts are off.",
                 "A nut is still on.",
                 "Pull the water hose off.",
                 fail="Turn the nut the other way.",
@@ -6844,9 +6844,20 @@ def _flange_branch() -> dict:
                 "Check the flange is 7/16 inch above the floor.",
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
-                "The flange is not 7/16 inch above the floor.",
+                "The flange sits low, under 7/16 inch above the floor.",
+                "Add Thetford spacers until the flange is 7/16 inch up.",
+                fail="Add Thetford spacers until the flange is 7/16 inch up.",
+                tools="ruler",
+                section="removal",
+            ),
+            _branch_step(
+                # OM 42088 p3: "Use Thetford spacers to adjust, if necessary, to 7/16 in above floor."
+                "Add Thetford spacers if the flange is under 7/16 inch.",
+                "At the closet flange, under the toilet.",
+                "The flange is 7/16 inch above the floor.",
+                "The spacers rock or sit crooked on the flange.",
                 "Uncover the holding tank opening.",
-                fail="Add a spacer until the flange is 7/16 inch up.",
+                fail="Reseat the spacers flat on the flange.",
                 tools="ruler",
                 section="removal",
             ),
@@ -6888,23 +6899,32 @@ def _flange_branch() -> dict:
                 section="installation",
             ),
             _branch_step(
-                "Push the water hose onto the toilet.",
-                "At the water hose on the toilet.",
-                "The hose is fully on the fitting.",
-                "The hose sits crooked on the fitting.",
-                "Tighten the hose clamp.",
-                fail="Pull the hose off and push it on straight.",
-                tools="pliers",
+                "Put the bolt covers back on.",
+                "At the closet flange, under the toilet.",
+                "The bolt covers are on the nuts.",
+                "A bolt cover sits loose or is missing.",
+                "Push the water hose on.",
+                fail="Press the cover down over the nut.",
                 section="installation",
             ),
             _branch_step(
-                "Tighten the hose clamp on the toilet.",
-                "At the water hose on the toilet.",
-                "The clamp is tight on the hose.",
-                "The hose turns on the fitting.",
+                # 42109 p1 / 34122 p2: "Connect RV water supply line to Toilet."
+                "Push the water hose onto the toilet.",
+                "Back of the toilet, on the water valve.",
+                "The supply line is on the water valve fitting.",
+                "The line sits crooked on the fitting.",
+                "Secure or tighten the supply line connection.",
+                fail="Take the line off and connect it straight.",
+                section="installation",
+            ),
+            _branch_step(
+                # OM 42088 p3: "Secure or tighten as necessary."
+                "Secure or tighten the supply line connection at the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The connection is snug and dry.",
+                "Water still beads at the connection.",
                 "Confirm the flange.",
-                fail="Tighten the clamp until the hose does not turn.",
-                tools="pliers",
+                fail="If the leak persists from the water valve, replace the valve.",
                 section="installation",
             ),
             _confirm_step("At the closet flange, under the toilet."),
@@ -8058,7 +8078,7 @@ _CONTENT_W = PAGE_W - 2 * MARGIN
 _FIGURE_WIDTH = 0.75 * _CONTENT_W
 # Low enough that a portrait crop at that width still clears the page margin.
 _FIGURE_FLOOR = MARGIN
-_STEP_GAP = 14.0
+_STEP_GAP = 9.0
 _STEP_TEXT_W = _CONTENT_W - 16.0
 
 
@@ -9648,6 +9668,64 @@ def _repair_figure_caption(figure: dict) -> str:
     return mf.display_caption(figure.get("title") or "", figure.get("page") or 1, label)
 
 
+def _manual_secure_step(procedures: list) -> dict | None:
+    """The sheet's own manual securing step for a supply connection, if a branch carries one.
+
+    A reconnected line gets this step, in the manual's words. No step means no invented clamp.
+    """
+    import manual_figures as mf
+
+    for procedure in procedures or []:
+        for step in procedure.get("steps") or []:
+            action = mf.step_heading(step, 1).split(": ", 1)[-1]
+            if re.match(r"(?i)^(?:secure|tighten)\b.*\b(?:connection|line)\b", action):
+                return step
+    return None
+
+
+def _sheet_figure_caption(body, caption: str, action: str) -> str:
+    """Number figures across the whole sheet. A caption with no title takes the step's action."""
+    number = getattr(body, "figure_count", 0) + 1
+    try:
+        body.figure_count = number
+    except AttributeError:
+        pass
+    m = re.match(r"\s*Fig(?:ure)?\.?\s*(\d+)\s*(.*)$", caption or "", re.I)
+    if not m:
+        return f"Fig. {number} {action.rstrip('.').upper()}, {caption}".strip()
+    kit_no, rest = m.group(1), m.group(2).strip()
+    if rest.startswith(",") or not rest:
+        rest = f"{action.rstrip('.').upper()}{rest}"
+    if kit_no != str(number):
+        title, sep, tail = rest.partition(",")
+        rest = f"{title.strip()} (kit Fig. {kit_no}){sep}{tail}"
+    return f"Fig. {number} {rest}".strip()
+
+
+def _where_from_memory(lines: list[str], obj: str, memory: list) -> list[str]:
+    """A step on the same part as one of the last three steps works where that step did.
+
+    'Secure the back of the cover' follows 'Wrap the cover around to the back of the toilet'.
+    """
+    key = re.sub(r"^(?:the\s+)?(?:(?:back|front) of (?:the\s+)?)?(?:new\s+|old\s+)?", "", (obj or "").lower()).strip()
+    out = []
+    for line in lines:
+        if line.startswith("Where: ") and key:
+            value = line[7:]
+            fig = re.search(r"\s*See Fig\.?\s*\d+\.?$", value)
+            place = value[: fig.start()] if fig else value
+            def self_ref(where: str) -> bool:
+                return key in where.lower() and bool(re.match(r"(?i)^at the ", where))
+
+            match = next((where for k, where in reversed(memory[-3:]) if k == key and not self_ref(where)), "")
+            if match and (key not in place.lower() or self_ref(place)) and match.lower() != place.lower():
+                value = f"{match} {fig.group(0).strip()}".strip() if fig else match
+            memory.append((key, re.sub(r"\s*See Fig\.?\s*\d+\.?$", "", value).strip()))
+            line = f"Where: {value}"
+        out.append(line)
+    return out
+
+
 def _figure_ref(caption: str) -> str:
     """'Fig. 1 PEDAL REMOVED, Kit 42109, page 1' -> 'Fig. 1'."""
     match = re.match(r"\s*(fig(?:ure)?\.?\s*\d+)", caption or "", re.I)
@@ -9683,10 +9761,18 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
     steps = bpl.drop_duplicate_removals(steps, _step_good_text)
+    steps = bpl.repair_branch(
+        steps,
+        lambda s: mf.step_heading(s, 1).split(": ", 1)[-1],
+        lambda s: mf._good_bad_bits(((s or {}).get("fields") or {}).get("GOOD vs BAD") or ""),
+        _branch_step,
+        secure_step=getattr(body, "secure_step", None),
+    )
     section = ""
     before_blob = " ".join(before).lower()
     prev_where = ""
     prev_object = ""
+    where_memory: list = []
     printed_safety: set[str] = set()
     text_x = MARGIN + 8.0
     text_w = _STEP_TEXT_W
@@ -9703,6 +9789,8 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         png = (figure or {}).get("png") or b""
         has = bool(png) and not mf.png_is_blank(png)
         cap = _repair_figure_caption(figure) if has else ""
+        if cap:
+            cap = _sheet_figure_caption(body, cap, mf.step_heading(step, index).split(": ", 1)[-1])
         fresh = []
         for sentence in _safety_sentences(mf.step_safety_text(step)):
             key = sentence.rstrip(".").lower()
@@ -9731,6 +9819,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
             figure_ref=_figure_ref(cap) if has else "",
         )
         prev_object = bpl.action_object(heading.split(": ", 1)[-1]) or prev_object
+        body_lines = _where_from_memory(body_lines, prev_object, where_memory)
         body_lines = [
             "Next: " + bpl._sentence(bpl.resolve_action_it(line[6:].strip().rstrip("."), prev_object))
             if line.startswith("Next: ") else line
@@ -9739,7 +9828,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
         prev_where = next((line[7:] for line in body_lines if line.startswith("Where: ")), prev_where)
         prev_where = re.sub(r"\s*See Fig\.?\s*\d+[^.]*\.?$", "", prev_where).strip()
         head_m = measure_text(heading, text_w, 9, bold=True, leading=11.6)
-        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=10.8) if body_lines else None
+        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=10.0) if body_lines else None
         text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
         caution = f"Caution: {step['caution']}" if step.get("caution") else ""
         caution_h = 0.0
@@ -9849,6 +9938,10 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     steps = list(proc.bay_order)
     shown_figures = set()
     if proc.procedures:
+        try:
+            body.secure_step = _manual_secure_step(proc.procedures)
+        except AttributeError:
+            pass
         _paint_diagnosis(body, steps)
         for procedure in proc.procedures:
             _paint_repair_procedure(body, procedure)

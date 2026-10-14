@@ -60,12 +60,28 @@ class TestSharedStepStructure(unittest.TestCase):
             low = text.lower()
             steps = [step for item in proc.procedures for step in item.get("steps") or []]
             headings = re.findall(r"Step \d+:", text)
-            self.assertGreaterEqual(len(headings), len(steps) - 2, name)
+            import bay_procedure as bp
+            import bay_profile_lines as bpl
+            import manual_figures as mf2
+
+            def _painted(item):
+                kept = bpl.drop_duplicate_removals(list(item.get("steps") or []), bp._step_good_text)
+                return bpl.repair_branch(
+                    kept,
+                    lambda s: mf2.step_heading(s, 1).split(": ", 1)[-1],
+                    lambda s: mf2._good_bad_bits(((s or {}).get("fields") or {}).get("GOOD vs BAD") or ""),
+                    bp._branch_step,
+                    secure_step=bp._manual_secure_step(proc.procedures),
+                )
+
+            painted = sum(len(_painted(item)) for item in proc.procedures)
+            diag = len(proc.bay_order) if proc.procedures else 0
+            self.assertEqual(len(headings), painted + diag, name)
             for item in proc.procedures:
                 import bay_procedure as bp
                 import bay_profile_lines as bpl
 
-                kept = bpl.drop_duplicate_removals(list(item.get("steps") or []), bp._step_good_text)
+                kept = _painted(item)
                 for step_index, step in enumerate(kept, 1):
                     self.assertIn(f"Step {step_index}:", text, (name, step.get("text")))
             self.assertIn("Do this:", text, name)
@@ -103,8 +119,10 @@ class TestSharedStepStructure(unittest.TestCase):
             on += shown.count("Turn the RV water on for the leak test. Put on gloves and glasses.")
         self.assertGreaterEqual(off, 2)
         self.assertEqual(low.count("turn the rv water off before this work"), off)
-        # v4.19.59: a Safety line that restates its own step ("Turn the RV water on") is dropped.
-        self.assertLessEqual(low.count("turn the rv water on for the leak test"), on)
+        # v4.19.59: every step that carries "Turn the RV water on for the leak test" is itself the
+        # "Turn the RV water on" step, so the Safety line only restates the action and is never printed.
+        self.assertGreater(on, 0)
+        self.assertEqual(low.count("turn the rv water on for the leak test"), 0)
         self.assertLess(off, sum(len(procedure.get("steps") or []) for procedure in proc.procedures))
         rr = mf.facr_rr_layout()["steps"]
         rr_safety = _emitted_safety(rr)

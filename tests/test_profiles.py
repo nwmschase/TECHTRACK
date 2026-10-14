@@ -142,8 +142,9 @@ class TestGdProfile(unittest.TestCase):
         lines = [mf.thetford_proving_line(key) for key in ("supply", "vacuum", "valve", "flange")]
         asked = [line for line in lines if mf.PHOTO_VISUAL in line]
         self.assertLess(len(asked), len(lines))
-        # v4.19.59: the valve check now looks for a weep (Leader: diagnosis is a check), so it may ask once.
-        self.assertLessEqual(mf.thetford_proving_line("valve").count(mf.PHOTO_VISUAL), 1)
+        # v4.19.59: the valve check now looks for a weep (Leader: diagnosis is a check, not "Pull the pedal off").
+        # A visible weep is where a photo helps, so it asks exactly once.
+        self.assertEqual(mf.thetford_proving_line("valve").count(mf.PHOTO_VISUAL), 1)
         self.assertNotIn(mf.PHOTO_VISUAL, mf.thetford_proving_line("vacuum"))
         self.assertIn("Tell me what you see.", mf.thetford_proving_line("vacuum"))
 
