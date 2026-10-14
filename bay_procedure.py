@@ -826,7 +826,7 @@ def _ice_path() -> dict:
 
 def _facr_path() -> dict:
     return {
-        "primary_cite": "Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.",
+        "primary_cite": "Furrion Chill rooftop AC manual, the base pan and condensate drain section.",
         "pattern_means": (
             "A rooftop freeze or interior drip is condensate. "
             "Melt water ices the pan and drips in. "
@@ -922,7 +922,7 @@ def _facr_path() -> dict:
                 FlowNode(
                     "e_rep",
                     "end",
-                    "Replace the rooftop unit\nafter that assembly prove.",
+                    "All checks pass and it still leaks.\nReplace the rooftop unit.",
                     0.30,
                     0.93,
                     w=250,
@@ -954,7 +954,7 @@ def _facr_path() -> dict:
             "Check the base-pan slope.",
             "Check the suction-line for icing.",
             "Retest cooling. Watch the pan and the interior.",
-            "Replace the rooftop unit after that assembly prove. That is the confirmed correction.",
+            "If every check passes and it still leaks, replace the rooftop unit. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
@@ -1103,7 +1103,7 @@ def _bal_tongue_path() -> dict:
 
 def _firefly_path() -> dict:
     return {
-        "primary_cite": "Level Up controller and Firefly panel. Leave the rubber-boot terminator in.",
+        "primary_cite": "Lippert Level Up controller and Firefly panel manuals. Leave the rubber-boot terminator in.",
         "pattern_means": (
             "When Manual Mode flashes back to the home screen and Auto Level still works, "
             "diagnose Firefly / OneControl CAN communication first. Do not start diagnosing "
@@ -5408,7 +5408,7 @@ def _dometic_ceiling_path(concern: str) -> dict:
             ],
         ),
         "bay_order": [
-            "Fan running with no cold air is the no-cool path. Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
+            "Fan running with no cold air is the no-cool path. Run the Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
             "If the Peacemaker bypass cools, bypass the ceiling selector. If bypassing the ceiling selector does not cool, stay on that bypass and retest.",
             _shop_body(DOMETIC_CEILING_LINE)
             + " That is the confirmed correction per Dometic Brisk II, page 23.",
@@ -5524,8 +5524,25 @@ def _fact12_e3_path() -> dict:
             ],
         ),
         "bay_order": [
-            "On a FACT12 E3, measure 12 V at the communication connector and check the data line. If 12 V is missing, repair that feed and retest. If 12 V is present, check the connector next.",
-            "Confirm the data connector is seated. If a pin is pushed back or the connector is loose, repair it and retest the code.",
+            # Labels from CCD-0008666: control-box 12 VDC and ground cables (page 15, Fig. 19),
+            # the four thermostat cables tagged "To wall thermostat" (page 15, Fig. 17), and
+            # power off at the battery disconnect or fuse before service (page 18).
+            "Step 1: Measure 12 V at the control box. "
+            "Where: At the control box, on the red 12 VDC cable and the black ground cable. "
+            "Tools: Multimeter on DC volts. "
+            "Do this: 1. Find the red 12 VDC cable and the black ground cable. 2. Measure the voltage between them. "
+            "Good looks like: About 12 V DC. "
+            "Bad looks like: No 12 V at the cable. "
+            "If it fails: Repair the 12 V feed and retest the code. "
+            "Next: Check the thermostat cable connection.",
+            "Step 2: Check the thermostat cable connection. "
+            "Where: At the control box, on the four cables tagged To wall thermostat. "
+            "Safety: Disconnect power at the battery disconnect or fuse first. "
+            "Do this: 1. Match each cable color to its wall thermostat wire. 2. Look for a pushed-back pin. 3. Look for a loose connector. "
+            "Good looks like: Each color matches and every pin is seated. "
+            "Bad looks like: A crossed color, a pushed-back pin, or a loose connector. "
+            "If it fails: Repair the connection and retest the code. "
+            "Next: Check the freeze sensor on the evaporator coil.",
             "Check the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated and E3 remains, write the readings and stop.",
         ],
         "do_not": [
@@ -9614,7 +9631,7 @@ def _finish(text: str) -> str:
 
 
 # Split at 'and' only where an action verb follows, so 'Check A and B' keeps its verb.
-_BAY_VERBS = r"(?:do not|check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|run|disconnect|reconnect|verify|inspect|plug|unplug|drain|fill|flush|move|bypass|record)"
+_BAY_VERBS = r"(?:do not|escalate|straighten|check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|run|disconnect|reconnect|verify|inspect|plug|unplug|drain|fill|flush|move|bypass|record)"
 _AND_ACTION = r",\s+(?=and\s+" + _BAY_VERBS + r"\b)"
 _COMMA_ACTION = r",\s+(?=" + _BAY_VERBS + r"\b)"
 _AND_ACTION_BARE = r"\s+(?=and\s+" + _BAY_VERBS + r"\b)"
@@ -9646,7 +9663,15 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
         # The condition is never cut at 'and': only at 'while'/'because', so it means the same.
         # The condition is kept whole (never cut at 'and' or 'while'), so it
         # means the same; the action follows on the next line.
-        return [_finish(cond.group(1)).rstrip(".") + ":"] + short_actions(_cap(cond.group(2)), limit)
+        # An If/then stays on one line (Leader 10/14 rev2). A condition alone
+        # on a line is a split If/then; the card text is written short enough.
+        rest = short_actions(_cap(cond.group(2)), limit)
+        if not rest:
+            return [_finish(cond.group(1))]
+        first = rest[0]
+        if not re.match(r"^(?:[A-Z]{2,}|[A-Z][a-z]*[A-Z0-9])", first):
+            first = first[:1].lower() + first[1:]
+        return [_finish(cond.group(1).rstrip(" ,") + ", " + first)] + rest[1:]
     for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", _AND_ACTION, r",\s+(?=so\b)", r",\s+(?=but\b)", _COMMA_ACTION, r"\s+(?=and then\b)", _AND_ACTION_BARE):
         pieces = [p for p in re.split(pattern, text) if p.strip()]
         if len(pieces) < 2:
@@ -9665,7 +9690,7 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
         out = []
         for at, piece in enumerate(packed):
             if pattern.startswith(":") and at < len(packed) - 1:
-                piece = piece.rstrip() + ":"
+                piece = piece.rstrip() + "."
             if pattern in (_AND_ACTION, _AND_ACTION_BARE):
                 # 'and' only joined the two clauses; the next line carries the same words.
                 piece = re.sub(r"^and\s+(?!then\b)", "", piece)
@@ -9683,8 +9708,52 @@ def bay_plain_step_lines(step: str, number: int) -> tuple[str, list[str]]:
     actions = [a for a in actions if re.search(r"[A-Za-z]", a)]
     if not actions:
         return f"Step {number}: Do this step", []
-    title = actions[0].rstrip(".:")
-    return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(actions, 1)]
+    # The heading is the step's first action, never a condition, and it is not
+    # repeated as line 1 (Leader 10/14 rev2).
+    plain = [i for i, a in enumerate(actions) if is_action_heading(a) and not re.match(_CONDITION_START, a)]
+    either = [i for i, a in enumerate(actions) if is_action_heading(a)]
+    at = 0 if 0 in either else (plain or either or [0])[0]
+    title = actions[at].rstrip(".:")
+    # Line 1 is dropped only when it is the heading. A heading taken from a later
+    # line leaves every line in place, so the order of work is unchanged.
+    rest = actions[1:] if at == 0 else actions
+    if not rest:
+        return f"Step {number}: {title}", []
+    return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(rest, 1)]
+
+
+_CONDITION_START = r"^(?:If|When|Once|After|Before|Until|Unless|On a|On an|On the|With)\b"
+_NON_ACTION_START = re.compile(
+    r"^(?:If|When|Once|After|Before|Until|Unless|On a|On an|On the|With|The|This|That|It|A|An|Both|Each|Every|No|Shaft|Power|Did|Does|Is|Are)\b"
+)
+
+
+def is_action_heading(text: str) -> bool:
+    """True when a heading reads as an instruction: it starts with a verb, not a condition or a statement."""
+    t = re.sub(r"^Step\s+\d+\s*:\s*", "", str(text or "")).strip()
+    if not t or t.endswith("?"):
+        return False
+    cond = re.match(r"^(?:If|When|Once|After|Before|Until|Unless|On a|On an|On the|With)\b[^,]*,\s+(?:then\s+)?(.+)$", t)
+    if cond:
+        # 'With the pad off, press FRONT' is an action with its condition.
+        return is_action_heading(cond.group(1))
+    if _NON_ACTION_START.match(t):
+        return False
+    first = t.split()[0].lower().strip(",.")
+    if first == "do":
+        return not re.match(r"^do\s+not\b", t, re.I)
+    return bool(re.match(_BAY_VERBS + r"$", first)) or first in _EXTRA_HEADING_VERBS
+
+
+_EXTRA_HEADING_VERBS = {
+    "inspect", "watch", "clear", "note", "find", "use", "pull", "push", "hold", "lift", "lower", "level",
+    "start", "power", "unscrew", "screw", "loosen", "apply", "fit", "attach", "connect", "swap", "add",
+    "prove", "jump", "jumper", "read", "compare", "listen", "feel", "smell", "spin", "rotate", "wait",
+    "take", "keep", "dry", "towel-dry", "correct", "stay", "probe", "trace", "label", "mark", "back",
+    "seal", "shut", "cycle", "light", "relight", "verify", "ask", "call", "observe", "count", "time",
+    "record", "write", "test", "measure", "reseat", "escalate", "straighten", "drop", "wash", "center",
+    "clamp", "hoist", "make", "point", "pour", "tape", "unplug", "plug", "bring", "back-probe", "jumper",
+}
 
 
 def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = None):
