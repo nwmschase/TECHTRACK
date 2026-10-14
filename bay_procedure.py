@@ -7996,7 +7996,7 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
-    return dedupe_sheet_figures(
+    return start_node_is_concern(dedupe_sheet_figures(
         attach_facr_procedures(
             attach_thetford_repair_procedures(
                 place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
@@ -8004,7 +8004,23 @@ def compile_bay_procedure(
                 chunks=chunks,
             )
         )
-    )
+    ))
+
+
+def start_node_is_concern(proc: "BayProcedure") -> "BayProcedure":
+    """v4.19.63: the flowchart start node is the customer concern as entered.
+
+    A path's own symptom wording ('Toilet leaks under the flush lever') read as a
+    different complaint on the sheet. Only whitespace is collapsed.
+    """
+    concern = re.sub(r"\s+", " ", (proc.concern or "")).strip()
+    if not concern or concern == "(no concern entered)":
+        return proc
+    for node in getattr(proc.flowchart, "nodes", None) or []:
+        if node.kind == "start":
+            node.text = concern
+            break
+    return proc
 
 
 def _is_fact12_job(model_text: str) -> bool:
