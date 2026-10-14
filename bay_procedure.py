@@ -772,12 +772,12 @@ def _ice_path() -> dict:
             ],
         ),
         "bay_order": [
-            ('Open the fridge and note the ice or moisture pattern. Photograph it. A light sheet only on the back wall is normal cycling; stop here. Heavy, halfway-down, or other-surface frost means keep going.'),
+            ('Open the fridge and note the ice or moisture pattern. Photograph it. If it is only a light sheet on the back wall, stop here. That is normal cycling. Heavy, halfway-down, or other-surface frost means keep going.'),
             ('Record the dial setting and the fridge and freezer cavity temperatures. If the dial is at max, set it to about 4 to 5. Towel-dry the melt and let the fridge run overnight. Then look at the pattern again. If ice starts to melt at mid setpoint, stay on the moisture path. If the dial is already mid, go to the defrost next.'),
             "Do a full manual defrost. Power the unit off, open both doors, and use towels. Do not scrape, do not use a heat gun, and do not set hot-water pans in the cabinet. When the ice is gone, go to the dry-and-drain step.",
             ('Dry the cabinet completely. Clear the rear drain and trough with a soft plastic probe only so melt water can leave. If water backs up, keep clearing until it leaves. Then go to the gasket. If the drain is already open, go to the gasket next.'),
             ('Check the door gasket with a dollar-bill test around the full perimeter, and check the hinges, latch, and door alignment. If the bill slides out with no drag, reseat or replace the gasket. Set the dial to about 4 to 5 and leave a rear-wall air gap. Recheck in 24 to 48 hours. If the gasket holds, set the dial mid, leave the air gap, and recheck in 24 to 48 hours.'),
-            ('Check the cabinet after 24 to 48 hours. If frost is gone or just a back-wall sheet, you are done. The fix was mid setpoint, a holding gasket, and a clear drain. Did heavy frost return with a mid dial, good gasket, and clear drain? Leave the cooling unit in place. Dry the cabinet again and watch door-open time and humidity for about a month.'),
+            ('Check the cabinet after 24 to 48 hours. If frost is gone or just a back-wall sheet, you are done. The fix was mid setpoint, a holding gasket, and a clear drain. Confirm a mid dial, a good gasket, and a clear drain. If heavy frost returns anyway, leave the cooling unit in place. Dry the cabinet again and watch door-open time and humidity for about a month.'),
             ICE_MONTH_CLOSE
             + " Replace the cooling unit only after that month. That is the confirmed correction. "
             "If the heavy frost is gone after that watch, you are done.",
@@ -5750,7 +5750,7 @@ def _girard_petit_path() -> dict:
         ),
         "bay_order": [
             "Confirm the E8 code. E8 is the air pressure switch. Look at the sensing tube at the blower before any other part.",
-            ('With the blower running, confirm suction at that tube. Is the tube off the blower, or is there no suction? Seat it at the blower and retest. That is the confirmed correction.'),
+            ('With the blower running, confirm suction at that tube. If the tube is off or lacks suction, seat it at the blower. Then retest. That is the confirmed correction.'),
             ('Retest the heater. Do this when the tube is on and suction is present. If E8 clears, that position is the correction.'),
             "If E8 remains after suction is confirmed, check the air-pressure switch. "
             "Check for integrity and connections of the pressure switch hose. "
