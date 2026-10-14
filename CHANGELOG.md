@@ -707,3 +707,12 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - A show-me attaches the cited page image when one is stored and points at it in the manual's words. When the page has no image, it says the manual has no picture, restates the location once, and may ask for a photo. That show-me is exempt from the near-duplicate check only in those two cases. The supply good result stays dry.
 - A show-me answers where the part is. It does not name a tool and it does not repeat the previous turn's good or bad result. It ends with "Then do that check and tell me what you see." The water-valve action is "Take the toilet off the closet bolts."
 - The no-model show-me offers "Send a photo if it helps." It does not order a photo.
+
+
+### v4.19.62 — 2026-10-14 07:02 PT — PR #88 squash-merged (head `4053f6c`) — main SHA `859e24608dde21e8134765e6ae09e2db4b6d9cec`
+- Thetford live library path keeps every repair branch (supply, vacuum breaker 34122/34123, water valve 42109, flange seal 02125) with strict Bay PDF step conformance: one Where, profile labels, Next chain, single removal, old part off before new, mate reinstalled, manual-only securing steps
+- Bad looks like is a real symptom or left off (no negating or antonym Bads); Good holds no action; Do-this items are actions; flange spacer step stays conditional per OM 42088 p3
+- Figures: one sheet-wide number per figure, the manual's own label, and the kit's printed FIGURE line cropped off; sources cite the page the quote is printed on (34122 p2)
+- Checker (scripts/profile_check.py): strict v14-v17 rules incl. bad_is_specific antonyms, figure_captions, do_item_is_action, source_pages (--db), figure_printed_number (tesseract)
+- Pre-merge (Leader rev6 cleared, Chase approval via Leader 2026-10-14 07:00 PT): nomodel / fixture / one live grok run all 10/10, 17 pages, 4 API calls; suite 830 passed, 1 known env failure (test_two_sends). PF-34..54 and S03 still pending
+- Known-good tags: `known-good-v41956` → `84ee0e0` (pre-merge rollback point)
