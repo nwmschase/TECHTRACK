@@ -9414,6 +9414,230 @@ def _fit_figure_pair(png: bytes, caption: str, room: float) -> tuple[float, floa
     return fig_w, fig_h
 
 
+# v4.19.63: a figure prints only when its manual page is cited on the sheet.
+_DOC_CODE_RE = re.compile(r"\b(CCD-\d{4,}|TI-\d+|QR-\d+|INS\.[A-Z]+\.\d+|\d{5,8})\b", re.I)
+_PAGE_CITE_RE = re.compile(r"((?:CCD-\d{4,}|TI-\d+|QR-\d+|\b\d{5,8}\b)[^()]{0,80}?)\bpages?\s+(\d+)(?:\s*(?:and|,|-|to)\s*(\d+))?", re.I)
+
+
+def _doc_codes(title: str) -> set[str]:
+    return {code.upper() for code in _DOC_CODE_RE.findall(title or "")}
+
+
+def cited_manual_pages(proc: "BayProcedure") -> dict[str, set[int]]:
+    """Document code -> pages the sheet cites (Sources, primary cite, step cites)."""
+    cited: dict[str, set[int]] = {}
+
+    def add(codes, page):
+        try:
+            n = int(page or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if not n:
+            return
+        for code in codes:
+            cited.setdefault(code, set()).add(n)
+
+    for src in proc.sources or []:
+        add(_doc_codes(str(src.get("title") or "")), src.get("page"))
+    texts = [proc.primary_cite or ""] + [str(step or "") for step in proc.bay_order or []]
+    for text in texts:
+        flat = re.sub(r"\s+", " ", text)
+        for m in _PAGE_CITE_RE.finditer(flat):
+            codes = _doc_codes(m.group(1))
+            add(codes, m.group(2))
+            if m.group(3):
+                add(codes, m.group(3))
+    return cited
+
+
+def keep_cited_page_figures(proc: "BayProcedure") -> "BayProcedure":
+    """Drop bay-order and leftover figures whose manual page the sheet never cites.
+
+    Only applies when the sheet cites at least one manual page. Repair-branch
+    figures (proc.procedures) are left alone; they carry their own step cite.
+    """
+    cited = cited_manual_pages(proc)
+    if not cited:
+        return proc
+
+    def fits(fig) -> bool:
+        codes = _doc_codes(getattr(fig, "title", "") or "")
+        try:
+            page = int(getattr(fig, "page", 0) or 0)
+        except (TypeError, ValueError):
+            page = 0
+        if not codes or not page:
+            return False
+        return any(page in cited.get(code, set()) for code in codes)
+
+    proc.step_figures = [[fig for fig in group or [] if fits(fig)] for group in (proc.step_figures or [])]
+    proc.figures = [fig for fig in proc.figures or [] if fits(fig)]
+    return proc
+
+
+# Same-brand companion manuals: (job pattern, document code). Furrion FACT and
+# FACR rooftop units share the CCD-0007990 troubleshooting and service manual.
+BAY_COMPANION_DOCS = (
+    (r"\bFAC[RT]\d", "CCD-0007990"),
+)
+
+_COMPANION_STOP = {
+    "with", "that", "this", "then", "from", "into", "when", "what", "will", "your", "they", "them",
+    "have", "does", "only", "there", "their", "after", "before", "check", "confirm", "retest",
+    "write", "readings", "stop", "code", "remains", "already", "seated",
+}
+
+
+def add_companion_sources(proc: "BayProcedure", chunks: list) -> "BayProcedure":
+    """Cite a same-brand companion manual page that names a part the steps check.
+
+    ``chunks`` are library rows (title, page, chunk_text) from a companion
+    document. A page is cited only when it names a two-word part from a step
+    (for example 'freeze sensor'), the document is not cited yet, and the
+    quoted words are that page's own text. At most one page is added.
+    """
+    cited_codes = {code for src in proc.sources or [] for code in _doc_codes(str(src.get("title") or ""))}
+    cited_codes |= _doc_codes(proc.primary_cite or "")
+    phrases = []
+    for step in proc.bay_order or []:
+        words = re.findall(r"[a-z]+", re.split(r"\bHow\s*\(", (step or "").lower())[0])
+        for a, b in zip(words, words[1:]):
+            if len(a) >= 4 and len(b) >= 4 and a not in _COMPANION_STOP and b not in _COMPANION_STOP:
+                phrase = f"{a} {b}"
+                if phrase not in phrases:
+                    phrases.append(phrase)
+    for chunk in chunks or []:
+        data = chunk_as_dict(chunk)
+        title = str(data.get("title") or "")
+        codes = _doc_codes(title)
+        if not codes or codes & cited_codes or not data.get("page"):
+            continue
+        text = str(data.get("chunk_text") or data.get("excerpt") or "")
+        flat = re.sub(r"\s+", " ", text)
+        for phrase in phrases:
+            m = re.search(r"[^.]*\b" + re.escape(phrase) + r"\b[^.]*\.", flat, re.I)
+            if not m:
+                continue
+            quote = m.group(0).strip()
+            # Keep the quote to the phrase's own line of the manual table.
+            q = re.search(re.escape(phrase) + r"[^.]{0,40}\.", quote, re.I)
+            quote = _cap(q.group(0) if q else quote)
+            proc.sources = list(proc.sources or []) + [
+                {"title": title, "page": int(data.get("page")), "excerpt": quote}
+            ]
+            return proc
+    return proc
+
+
+# v4.19.63: plain bay-order steps print one short action per line.
+BAY_ACTION_WORDS = 12
+_ABBREV_DOT_RE = re.compile(r"\b(Fig|Figs|No|Nos|approx|Approx|vs|e\.g|i\.e|Ref|Pg|p|pp)\.\s+(?=[0-9A-Za-z(])")
+_HOW_BLOCK_RE = re.compile(r"\s*\bHow\s*\(([^()]*?),\s*page\s+(\d+)\)\s*:.*$", re.S)
+_HOW_BARE_RE = re.compile(r"\s*\bHow\s*\(([^()]*?)\)\s*:.*$", re.S)
+
+
+def _bay_word_count(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", text or ""))
+
+
+def plain_step_without_how(step: str) -> str:
+    """Drop the stored How template from a plain bay-order line.
+
+    The template is a field list ('Tools: not stated in ...', 'Order: ...')
+    built from raw manual text. On the printed sheet it leaked 'not stated'
+    filler and cut OCR ('(Fig.' / '1A)'). The shop line stays as written; the
+    manual page the template named stays on the step as a cite.
+    """
+    raw = re.sub(r"\s+", " ", step or "").strip()
+    m = _HOW_BLOCK_RE.search(raw)
+    if m:
+        head = raw[: m.start()].rstrip()
+        cite = f"({m.group(1).strip()}, page {m.group(2)})"
+        if not re.search(r"\bpage\s+\d+", head, re.I):
+            cite = cite.strip("()")
+            head = f"{head.rstrip('.')}. See {cite}." if head else f"See {cite}."
+        return head
+    m = _HOW_BARE_RE.search(raw)
+    if m:
+        return raw[: m.start()].rstrip()
+    return raw
+
+
+def _sentences_keep_abbrev(text: str) -> list[str]:
+    guarded = _ABBREV_DOT_RE.sub(lambda m: m.group(0).replace(". ", ".\x00"), text or "")
+    parts = [p.replace("\x00", " ").strip() for p in re.split(r"(?<=[.!?])\s+", guarded)]
+    return [p for p in parts if p]
+
+
+def _cap(text: str) -> str:
+    text = text.strip()
+    return text[:1].upper() + text[1:] if text else text
+
+
+def _finish(text: str) -> str:
+    text = text.strip().rstrip(",;")
+    if text and text[-1] not in ".!?:":
+        text += "."
+    return text
+
+
+def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
+    """Split one sentence into lines of ``limit`` words or fewer.
+
+    Splits only at clause marks the sentence already has (';', ', then',
+    ', and', ', so', a comma after an If/When clause, then a plain comma, then
+    ' and then' / ' and '). An If/When clause keeps its condition: it ends in
+    ':' and the action follows on the next line. Words are never dropped,
+    reworded, or reordered. A piece with no clause mark is left whole.
+    """
+    text = re.sub(r"\s+", " ", sentence or "").strip()
+    if not text:
+        return []
+    if _bay_word_count(text) <= limit:
+        return [_finish(text)]
+    cond = re.match(r"^((?:If|When|Once|After|Before|Until|Unless)\b[^,]{3,}?),\s+(.+)$", text)
+    if cond and _bay_word_count(cond.group(1)) <= limit:
+        return [_finish(cond.group(1)).rstrip(".") + ":"] + short_actions(_cap(cond.group(2)), limit)
+    for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", r",\s+(?=and\b)", r",\s+(?=so\b)", r",\s+(?=but\b)", r",\s+", r"\s+(?=and then\b)", r"\s+(?=and\b)"):
+        pieces = [p for p in re.split(pattern, text) if p.strip()]
+        if len(pieces) < 2:
+            continue
+        # Pack neighbours back together while they fit, so a list stays one line.
+        packed = []
+        joiner = "; " if pattern.startswith(";") else (": " if pattern.startswith(":") else (", " if "," in pattern else " "))
+        for piece in pieces:
+            piece = piece.strip()
+            if packed and _bay_word_count(packed[-1] + joiner + piece) <= limit:
+                packed[-1] = packed[-1] + joiner + piece
+            else:
+                packed.append(piece)
+        if len(packed) < 2:
+            continue
+        out = []
+        for at, piece in enumerate(packed):
+            if pattern.startswith(":") and at < len(packed) - 1:
+                piece = piece.rstrip() + ":"
+            if pattern in (r",\s+(?=and\b)", r"\s+(?=and\b)"):
+                # 'and' only joined the two clauses; the next line carries the same words.
+                piece = re.sub(r"^and\s+(?!then\b)", "", piece)
+            out.extend(short_actions(_cap(piece), limit))
+        return out
+    return [_finish(text)]
+
+
+def bay_plain_step_lines(step: str, number: int) -> tuple[str, list[str]]:
+    """Heading plus 'Do this:' lines for a plain bay-order step, each 12 words or fewer."""
+    raw = plain_step_without_how(step)
+    actions = []
+    for sentence in _sentences_keep_abbrev(raw):
+        actions.extend(short_actions(sentence))
+    actions = [a for a in actions if re.search(r"[A-Za-z]", a)]
+    if not actions:
+        return f"Step {number}: Do this step", []
+    title = actions[0].rstrip(".:")
+    return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(actions, 1)]
+
+
 def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = None):
     """One bay-order step, then each cited figure under it. They stay on one page."""
     import manual_figures as mf
@@ -9421,6 +9645,10 @@ def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = Non
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
     heading, lines = mf.lines_from_shop_text(step, index)
+    if not re.match(r"\s*Step\s+\d+\s*:", step or "") and not any(
+        re.match(r"^(?:Where|Good looks like|Next|If it fails|Safety|Tools):", line) for line in lines
+    ):
+        heading, lines = bay_plain_step_lines(step, index)
     prev_where = getattr(cur, "diag_prev_where", "") if index > 1 else ""
     if any(re.match(r"^(?:Where|Good looks like|Next|If it fails):", line) for line in lines):
         # A labeled check is held to the profile. A plain bay-order line stays as written.
@@ -9622,7 +9850,7 @@ def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break
     if fig_h < 28 or fig_w < 28:
         return False
     if not _add_section(
-        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(block, 36), allow_break=allow_break
+        cur, "CITED MANUAL FIGURES", NAVY, follow_h=min(block, 36), allow_break=allow_break
     ):
         return False
     _paint_centered_figure(cur, png, cap, fig_w, fig_h)
@@ -10042,6 +10270,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     """
     proc = dedupe_sheet_figures(proc)
     _drop_repeated_procedure_figures(proc.procedures)
+    keep_cited_page_figures(proc)
     pages: list[SheetPage] = []
     page = _new_sheet_page()
     pages.append(page)
@@ -10101,10 +10330,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             for fig in group:
                 if fig and fig.image_png:
                     shown_figures.add(fig.image_png)
-    if proc.do_not:
-        _paint_do_not(body, proc.do_not)
-    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
-    _paint_fitting_sources(body, sources)
+    # v4.19.63: cited figures print before Do Not and Sources.
 
     imaged = []
     for fig in proc.figures:
@@ -10131,14 +10357,15 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         page_h = _fit_image(png, _CONTENT_W - 32, PAGE_H - 180)[1]
         if page_h < min_page_figure or len(pages) >= MAX_SHEET_PAGES:
             continue
-        _paint_figure_page(
-            pages,
-            fig,
-            png=png,
-            with_footer=bool(proc.include_3c and shown == 0),
-        )
-        shown += 1
-    if proc.include_3c and shown == 0:
+        # v4.19.63: a full-page figure stays in the body flow, ahead of Do Not
+        # and Sources, so no figure heading or caption follows a Sources line.
+        if _paint_figure_on(body, fig, png=png, allow_break=True):
+            shown += 1
+    if proc.do_not:
+        _paint_do_not(body, proc.do_not)
+    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
+    _paint_fitting_sources(body, sources)
+    if proc.include_3c:
         _add_3c_footer(body.page)
     return pages
 
