@@ -375,13 +375,109 @@ def _figure_rules(doc) -> list[Rule]:
     ]
 
 
-def check_pdf_bytes(data: bytes) -> list[Rule]:
+def _quote_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def source_page_rule(text: str, library: list[dict]) -> Rule:
+    """rev6 (Leader rev5 item 2): each quoted Sources line cites the page its words are on.
+
+    library rows carry title, page and chunk_text from the shop library (read-only).
+    """
+    lines = (text or "").splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip().startswith("SOURCES (SHOP DOCUMENT LIBRARY)"))
+    except StopIteration:
+        return _rule("source_pages", True, "no Sources block")
+    rows = []
+    current = None
+    for line in lines[start + 1:]:
+        m = re.match(r"^\s*-\s+(.+?)\s+page\s+(\d+)\s*$", line)
+        if m:
+            current = {"title": m.group(1), "page": int(m.group(2)), "quote": ""}
+            rows.append(current)
+            continue
+        if current is not None and line.strip() and not line.strip().startswith("-"):
+            if re.match(r"^(?:BAY PROCEDURE|Tacoma RV Center|Sources)", line.strip()):
+                continue
+            current["quote"] = (current["quote"] + " " + line.strip()).strip()
+    wrong = []
+    for row in rows:
+        quote = _quote_key(row["quote"])[:60]
+        if len(quote) < 20:
+            continue
+        numbers = set(re.findall(r"\b\d{5}\b", row["title"]))
+        pages = sorted({
+            int(chunk.get("page") or 0)
+            for chunk in library or []
+            if (not numbers or numbers & set(re.findall(r"\b\d{5}\b", str(chunk.get("title") or ""))))
+            and quote in _quote_key(str(chunk.get("chunk_text") or ""))
+        })
+        if not pages:
+            wrong.append(f"'{row['quote'][:40]}' not found in {row['title'][:40]}")
+        elif row["page"] not in pages:
+            wrong.append(f"{row['title'][:40]} page {row['page']}: quote is on page {pages[0]}")
+    return _rule("source_pages", not wrong, "each quoted source cites the page its words are on" if not wrong else "; ".join(wrong[:3]))
+
+
+def printed_figure_number_rule(doc) -> Rule:
+    """rev6 (Leader rev5 item 3): the tech sees one number per figure.
+
+    A kit's own printed 'FIGURE N' inside the crop must match the sheet caption 'Fig. N'.
+    Reads the image with the tesseract CLI when it is installed; without it the rule is skipped.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    if not shutil.which("tesseract"):
+        return _rule("figure_printed_number", True, "skipped: tesseract not installed")
+    wrong = []
+    for page_index, page in enumerate(doc):
+        captions = re.findall(r"(?m)^\s*Fig\.\s*(\d+)\b", page.get_text())
+        images = sorted(page.get_images(full=True), key=lambda img: min((r.y0 for r in page.get_image_rects(img[0])), default=0))
+        for slot, img in enumerate(images):
+            if slot >= len(captions):
+                break
+            data = doc.extract_image(img[0]).get("image") or b""
+            with tempfile.NamedTemporaryFile(suffix=".png") as handle:
+                handle.write(data)
+                handle.flush()
+                try:
+                    seen = subprocess.run(
+                        ["tesseract", handle.name, "-", "--psm", "11"], capture_output=True, text=True, timeout=60
+                    ).stdout
+                except Exception:
+                    continue
+            printed = re.findall(r"(?i)\bFIGURE\s+(\d+)\b", seen)
+            if any(number != captions[slot] for number in printed):
+                wrong.append(f"p{page_index + 1} Fig. {captions[slot]} shows printed FIGURE {printed[0]}")
+    return _rule("figure_printed_number", not wrong, "one number per figure" if not wrong else "; ".join(wrong[:3]))
+
+
+def library_from_db(db_path) -> list[dict]:
+    import sqlite3
+
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = con.execute(
+            "SELECT d.title, c.page, c.chunk_text FROM doc_chunks c JOIN documents d ON d.id = c.document_id"
+        ).fetchall()
+    finally:
+        con.close()
+    return [{"title": t, "page": p, "chunk_text": x} for t, p, x in rows]
+
+
+def check_pdf_bytes(data: bytes, library: list[dict] | None = None) -> list[Rule]:
     import pymupdf
 
     doc = pymupdf.open(stream=data, filetype="pdf")
     try:
         text = "\n".join(page.get_text() for page in doc)
         rules = check_sheet_text(text) + _figure_rules(doc)
+        if library is not None:
+            rules.append(source_page_rule(text, library))
+        rules.append(printed_figure_number_rule(doc))
         rules = rules + grade_pdf(text, rules)
         return rules + grade_past_fails(doc, text)
     finally:
@@ -1334,15 +1430,16 @@ def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
     safety_status, safety_detail = _safety_status(text, named)
     line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
     rows = [
-        (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") else "FAIL", "header, flowchart, diagnosis, branches, do not, sources"),
+        (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") and _all_ok(named, "source_pages") else "FAIL",
+         _first_fail(named, ("source_pages",), "header, flowchart, diagnosis, branches, do not, sources")),
         (2, "PASS" if _all_ok(named, "branch_subsections", "next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed") else "FAIL",
          _first_fail(named, ("next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed"), "each branch ends on a confirm with a pass and a fail")),
         (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path") else "FAIL",
          _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path"), "numbered headings and the same label order")),
         (4, "PASS" if _all_ok(named, "sentence_length", "grammar", "good_is_a_look", "do_item_is_action") else "FAIL", _first_fail(named, ("grammar", "good_is_a_look", "do_item_is_action"), "one action per line, about 12 words")),
         (5, "PASS" if not inspected["generic"] and _all_ok(named, "bad_is_specific") else "FAIL", _first_fail(named, ("bad_is_specific",), "Bad looks like is specific, or left off")),
-        (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions") else "FAIL",
-         _first_fail(named, ("figure_captions",), "figure width, centering, and caption")),
+        (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions", "figure_printed_number") else "FAIL",
+         _first_fail(named, ("figure_captions", "figure_printed_number"), "figure width, centering, and caption")),
         (7, invented_status, invented_detail),
         (8, safety_status if _all_ok(named, "before_conflict", "safety_duplicate") else "FAIL",
          _first_fail(named, ("before_conflict", "safety_duplicate"), safety_detail)),
@@ -2227,10 +2324,18 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
 
     bare = []
     runon = []
+    proper = {
+        word
+        for line in raw.splitlines()
+        if re.match(r"^\s*-\s+.+\bpage\s+\d+", line)
+        for word in re.findall(r"^\s*-\s+([A-Z][a-z]{2,})\b", line)
+    }
     for value in sentences:
         if _words(value) >= 3 and not re.search(r"[.!?]$", value):
             bare.append(value)
-        if _PF_RUNON.search(value):
+        hit = _PF_RUNON.search(value)
+        # A manual's brand name ("add Thetford spacers") is a proper noun, not a run-on.
+        if hit and hit.group(0).split()[-1] not in proper:
             runon.append(value)
     if bare or runon:
         sample = (bare or runon)[0]
@@ -2700,14 +2805,23 @@ def format_report(rules: list[Rule]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt>", file=sys.stderr)
+    args = list(argv[1:])
+    db = None
+    if "--db" in args:
+        at = args.index("--db")
+        db = Path(args[at + 1]) if at + 1 < len(args) else None
+        del args[at:at + 2]
+    if len(args) != 1:
+        print("Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt> [--db library.sqlite]", file=sys.stderr)
         return 2
-    path = Path(argv[1])
+    path = Path(args[0])
     if not path.is_file():
         print(f"FAIL  file  {path} is not a file")
         return 1
-    rules = check_path(path)
+    if db is not None and path.suffix.lower() == ".pdf":
+        rules = check_pdf_bytes(path.read_bytes(), library_from_db(db))
+    else:
+        rules = check_path(path)
     print(format_report(rules))
     return 0 if all(rule.ok for rule in rules) else 1
 

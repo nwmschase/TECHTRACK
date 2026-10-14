@@ -959,7 +959,7 @@ def run(db: Path, cache: Path, out: Path, *, live: bool = False) -> int:
     transcript, profile, gd_problems, raw_profile, rewrites, guards = _play(
         rows, chunks, live=live, library=found
     )
-    pdf_rules = profile_check.check_pdf_bytes(pdf)
+    pdf_rules = profile_check.check_pdf_bytes(pdf, profile_check.library_from_db(db))
     gd_rules = profile_check.check_transcript(profile)
     problems = (
         _sheet_problems(proc, pdf)

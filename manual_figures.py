@@ -850,6 +850,7 @@ _WHERE_RULES = (
     (r"\bvacuum breaker\b", "At the vacuum breaker."),
     (r"\bcloset flange\b", "At the closet flange, under the toilet."),
     (r"\bholding tank opening\b", "At the holding tank opening at the closet flange."),
+    (r"\btrash bag\b", "On the trash bag, on the floor beside the closet flange."),
     (r"\bon its side\b", "On the floor, with the pedal facing up."),
     (r"\bfrom (?:the )?floor\b", "The toilet sits on the floor."),
     (r"\bnozzle\b", "On the nozzle."),

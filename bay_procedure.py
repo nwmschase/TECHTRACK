@@ -6400,6 +6400,49 @@ def _graft_library_figures(proc: BayProcedure, packets) -> None:
                     break
 
 
+def crop_printed_figure_label(png: bytes) -> bytes:
+    """Cut the kit's own 'FIGURE N - TITLE' line off the bottom of a crop.
+
+    The sheet numbers figures across the page set, so a printed kit number under the
+    drawing would show the tech a second number. Only a short text band, set apart from
+    the drawing by white rows, is cut. A border line or a drawing edge stays.
+    """
+    try:
+        from PIL import Image
+        import io
+
+        im = Image.open(io.BytesIO(png)).convert("L")
+    except Exception:
+        return png
+    w, h = im.size
+    if h < 60 or w < 60:
+        return png
+    px = im.load()
+
+    def ink(y: int) -> float:
+        return sum(1 for x in range(0, w, 2) if px[x, y] < 128) / max(1, (w + 1) // 2)
+
+    y = h - 1
+    while y > 0 and ink(y) < 0.005:
+        y -= 1
+    bottom = y
+    band_max = 0.0
+    while y > 0 and ink(y) >= 0.005:
+        band_max = max(band_max, ink(y))
+        y -= 1
+    top = y
+    gap = 0
+    while y > 0 and ink(y) < 0.005:
+        gap += 1
+        y -= 1
+    height = bottom - top
+    if gap < 2 or height < 6 or height > 0.14 * h or band_max >= 0.6 or y < 0.6 * h:
+        return png
+    out = io.BytesIO()
+    Image.open(io.BytesIO(png)).crop((0, 0, w, y + 2)).save(out, format="PNG")
+    return out.getvalue()
+
+
 def manual_figure_label(label: str, text: str) -> str:
     """A bare 'Fig. 1' takes the manual's own name for it.
 
@@ -6868,14 +6911,14 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The flange sits low, under 7/16 inch above the floor.",
-                "Use Thetford spacers to set the flange 7/16 inch up.",
-                fail="Use Thetford spacers to set the flange 7/16 inch up.",
+                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                fail="If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
                 tools="ruler",
                 section="removal",
             ),
             _branch_step(
                 # OM 42088 p3: "Use Thetford spacers to adjust, if necessary, to 7/16 in above floor."
-                "Use Thetford spacers to set the flange 7/16 inch up.",
+                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The spacers rock or sit crooked on the flange.",
@@ -6933,10 +6976,10 @@ def _flange_branch() -> dict:
                 # 42109 p1 / 34122 p2: "Connect RV water supply line to Toilet."
                 "Push the water hose onto the toilet.",
                 "Back of the toilet, on the water valve.",
-                "The supply line is on the water valve fitting.",
-                "The line sits crooked on the fitting.",
+                "The water hose is on the water valve fitting.",
+                "The water hose sits crooked on the fitting.",
                 "Secure or tighten the supply line connection.",
-                fail="Take the line off and connect it straight.",
+                fail="Take the water hose off and push it on straight.",
                 section="installation",
             ),
             _branch_step(
@@ -7157,9 +7200,36 @@ def _sync_thetford_sources(proc: BayProcedure, chunks=None) -> None:
         # A second page of a manual sits right under its first page.
         at = max((i for i, r in enumerate(rows) if r["title"] == extra["title"]), default=len(rows) - 1)
         rows.insert(at + 1, extra)
+    rows = _verify_source_pages(rows, chunks)
     rows = _dedupe_source_rows(rows)
     if rows:
         proc.sources = rows
+
+
+def _quote_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def _verify_source_pages(rows: list, chunks) -> list:
+    """A quote cites the page its words are printed on. A row whose quote sits on
+    another page of the same manual takes that page."""
+    for row in rows:
+        quote = _quote_key(row.get("excerpt") or "")[:60]
+        if len(quote) < 20:
+            continue
+        numbers = set(re.findall(r"\b\d{5}\b", row.get("title") or ""))
+        pages = []
+        for chunk in chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            title = str(chunk.get("title") or chunk.get("clean_title") or "")
+            if numbers and not numbers & set(re.findall(r"\b\d{5}\b", title)):
+                continue
+            if quote in _quote_key(str(chunk.get("chunk_text") or chunk.get("excerpt") or "")):
+                pages.append(chunk.get("page"))
+        if pages and row.get("page") not in pages:
+            row["page"] = pages[0]
+    return rows
 
 
 def _securing_source_rows(proc: BayProcedure, chunks, rows: list) -> list:
@@ -9785,7 +9855,7 @@ def _where_from_memory(lines: list[str], obj: str, memory: list) -> list[str]:
                 return key in where.lower() and bool(re.match(r"(?i)^at the ", where))
 
             match = next((where for k, where in reversed(memory[-3:]) if k == key and not self_ref(where)), "")
-            if match and key not in place.lower() and match.lower() != place.lower():
+            if match and key not in place.lower() and re.match(r"(?i)^at ", place) and match.lower() != place.lower():
                 value = f"{match} {fig.group(0).strip()}".strip() if fig else match
             memory.append((key, re.sub(r"\s*See Fig\.?\s*\d+\.?$", "", value).strip()))
             line = f"Where: {value}"
@@ -9856,7 +9926,7 @@ def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
                 "prove": "VERIFY",
             }.get(section, "")
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
-        png = (figure or {}).get("png") or b""
+        png = crop_printed_figure_label((figure or {}).get("png") or b"")
         has = bool(png) and not mf.png_is_blank(png)
         cap = _repair_figure_caption(figure) if has else ""
         if cap:
