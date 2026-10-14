@@ -9644,12 +9644,9 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
             head_text = text[: len(text) - len(listed.group(2))].rstrip().rstrip(",")
             cond = re.match(r"^(" + re.escape(head_text) + r"),\s+(.+)$", text)
         # The condition is never cut at 'and': only at 'while'/'because', so it means the same.
-        # A condition line on its own has no stop (profile PF-02), so the
-        # condition keeps its first action on the same line, as written.
-        rest = short_actions(_cap(cond.group(2)), limit)
-        sep = "" if text[len(cond.group(1)):].startswith(" ") else ","
-        first = cond.group(1) + sep + " " + (rest[0][:1].lower() + rest[0][1:] if rest and not re.match(r"^[A-Z0-9]{2,}|^[A-Z][a-z]+[A-Z]", rest[0]) else (rest[0] if rest else ""))
-        return [_finish(first.strip())] + rest[1:]
+        # The condition is kept whole (never cut at 'and' or 'while'), so it
+        # means the same; the action follows on the next line.
+        return [_finish(cond.group(1)).rstrip(".") + ":"] + short_actions(_cap(cond.group(2)), limit)
     for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", _AND_ACTION, r",\s+(?=so\b)", r",\s+(?=but\b)", _COMMA_ACTION, r"\s+(?=and then\b)", _AND_ACTION_BARE):
         pieces = [p for p in re.split(pattern, text) if p.strip()]
         if len(pieces) < 2:
