@@ -93,7 +93,7 @@ def test_flange_spacer_step_is_conditional_and_hose_term_is_one_word():
     import inspect
 
     src = inspect.getsource(bp)
-    assert "If the flange is low, add Thetford spacers to bring it to 7/16 inch." in src
+    assert "If the flange is low, add Thetford spacers to 7/16 inch." in src
     assert "The supply line is on the water valve fitting." not in src
     assert "The water hose is on the water valve fitting." in src
 

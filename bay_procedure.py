@@ -6887,14 +6887,14 @@ def _flange_branch() -> dict:
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The flange sits low, under 7/16 inch above the floor.",
-                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
-                fail="If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                "If the flange is low, add Thetford spacers to 7/16 inch.",
+                fail="If the flange is low, add Thetford spacers to 7/16 inch.",
                 tools="ruler",
                 section="removal",
             ),
             _branch_step(
                 # OM 42088 p3: "Use Thetford spacers to adjust, if necessary, to 7/16 in above floor."
-                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                "If the flange is low, add Thetford spacers to 7/16 inch.",
                 "At the closet flange, under the toilet.",
                 "The flange is 7/16 inch above the floor.",
                 "The spacers rock or sit crooked on the flange.",
