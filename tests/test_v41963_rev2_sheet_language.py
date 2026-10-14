@@ -78,3 +78,15 @@ class TestSheetsPassTheLanguageChecks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSl2Allowlist(unittest.TestCase):
+    def test_locked_firefly_heading_is_exempt_only_exactly(self):
+        locked = "Step 3: The Level Up controller has two ports labeled CAN"
+        self.assertIn("Leader 2026-10-14 1:25 PM", sl.SL2_ALLOWED_HEADINGS[locked])
+        self.assertEqual(sl.check_lines([locked, "Do this:", "1. Find both CAN ports."]), [])
+        self.assertIn("SL-2 heading is not an action: Step 3: The Level Up controller has two ports labeled RV",
+                      sl.check_lines(["Step 3: The Level Up controller has two ports labeled RV"]))
+        self.assertIn("SL-2 heading is not an action: Step 4: The Level Up controller has two ports labeled CAN",
+                      sl.check_lines(["Step 4: The Level Up controller has two ports labeled CAN"]))
+        self.assertIn("SL-2 heading is not an action: Step 1: On a FACT12 E3", sl.check_lines(["Step 1: On a FACT12 E3"]))

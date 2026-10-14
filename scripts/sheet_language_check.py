@@ -34,12 +34,17 @@ _IMPERATIVE = (
     r"clear|correct|watch|find|match|use|note|record|reseat|bypass|keep|stay|move|level|add|apply|fit|attach|"
     r"connect|escalate|straighten|swap|pull|push|lift|lower|drain|fill|flush|plug|unplug|hold|wait|seal|tape|unscrew|loosen)"
 )
+# SL-2 allowlist: exact heading lines that stay as written, each with its reason.
+SL2_ALLOWED_HEADINGS = {
+    "Step 3: The Level Up controller has two ports labeled CAN":
+        "locked Firefly wording, Leader 2026-10-14 1:25 PM",
+}
 _LABEL = re.compile(r"^(?:Where|Tools|Safety|Good looks like|Bad looks like|Next|If it fails|Do this|Figure)\s*:")
 _DANGLING = re.compile(r"\bafter (?:that|this)(?: [\w-]+){0,3} (?:prove|check|test)\.?$", re.I)
 
 
 _MORE_VERBS = (
-    "pour|wash|drop|center|clamp|hoist|make|point|unplug|apply|push|pull|lift|lower|power|light|relight|"
+    "put|pour|wash|drop|center|clamp|hoist|make|point|unplug|apply|push|pull|lift|lower|power|light|relight|"
     "back-probe|probe|trace|label|mark|swap|add|bring|fit|attach|connect|jumper|level|read|compare|listen|"
     "feel|smell|spin|rotate|wait|take|towel-dry|shut|cycle|ask|call|observe|count|time|loosen|unscrew|"
     "screw|tape|seal|plug|drain|fill|flush|lock|unlock|slide|lay|raise|retract|extend|store|enter|hold"
@@ -85,6 +90,8 @@ def check_lines(lines: list[str], *, primary: str = "", nodes: list[str] | None 
     for i, line in enumerate(lines):
         line = line.strip()
         head = re.match(r"^Step\s+\d+\s*:\s*(.+)$", line)
+        if head and line in SL2_ALLOWED_HEADINGS:
+            head = None
         if head:
             title = head.group(1).strip().rstrip(".")
             acts_after_condition = re.match(_CONDITION, title) and re.search(r",\s+(?:then\s+)?" + _IMPERATIVE + r"\b", title)
