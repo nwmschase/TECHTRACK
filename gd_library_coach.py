@@ -11,13 +11,14 @@ Chase product (2026-09-12):
 """
 from __future__ import annotations
 
+import contextvars
 import re
 
 # Product path: hard tree is never exclusive GD chat.
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.56"
+COACH_REVISION = "v4.19.57"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -258,7 +259,16 @@ _INSTRUCTION_LEAK_RE = re.compile(
     r"|not a chat photo embed"
     r"|use download pdf"
     r"|say so and use download pdf"
-    r"|bundled kit sheet",
+    r"|bundled kit sheet"
+    r"|will display the shop"
+    r"|document library pdf page below"
+    r"|shop library pdf page below"
+    r"|absent from the docs"
+    r"|ohms spec and the pressure spec",
+    re.I,
+)
+_NO_DIAGRAM_SENTENCE_RE = re.compile(
+    r"[^.?!\n]*\b(?:the cited page|that page|this page) has no diagram\b[^.?!\n]*[.?!]?",
     re.I,
 )
 
@@ -284,6 +294,9 @@ def strip_leaked_prompt(text: str) -> str:
     raw = (text or "").strip()
     if not raw:
         return text or ""
+    original = raw
+    raw = _NO_DIAGRAM_SENTENCE_RE.sub(" ", raw)
+    raw = re.sub(r"[ \t]{2,}", " ", raw).strip()
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", raw) if part.strip()]
     while paragraphs and _paragraph_is_prompt_echo(paragraphs[0]):
         paragraphs.pop(0)
@@ -292,7 +305,9 @@ def strip_leaked_prompt(text: str) -> str:
     paragraphs = [part for part in paragraphs if not _INSTRUCTION_LEAK_RE.search(part)]
     cleaned = "\n\n".join(paragraphs).strip()
     cleaned = _strip_excerpt_guard(cleaned)
-    if not cleaned and _INSTRUCTION_LEAK_RE.search(raw):
+    if not cleaned and (
+        _INSTRUCTION_LEAK_RE.search(original) or _NO_DIAGRAM_SENTENCE_RE.search(original)
+    ):
         return ""
     return cleaned or raw
 
@@ -316,7 +331,7 @@ OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan)
 - Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
 - If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
 - Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
-- If the tech asks to see a figure/diagram/page, say TechTrack will display the shop library PDF page below. Do not invent markdown images.
+- If the tech asks to see a figure/diagram/page, describe the check in shop words. Do not say a PDF page will appear below. Do not invent markdown images.
 - If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
 - When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
 """
@@ -2752,6 +2767,8 @@ def ensure_facr_early_pressure_ask(
     """
     if _job_key(history, latest_msg, category_name, model_text) != "facr":
         return reply or ""
+    if "Here is the repair procedure." in (reply or "") and re.search(r"Step \d+(?::| of\b)", reply or ""):
+        return reply or ""
     facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
     text = (reply or "").strip()
     pressures_in = facts.get("facr_pressure") == "ok"
@@ -4495,6 +4512,9 @@ def _reply_has_body(text: str) -> bool:
         return True
     if _has_shop_step(text):
         return True
+    # Flush and watch is a complete check. It is not in the shop-verb list.
+    if _observation_reply_complete(text):
+        return True
     return bool(re.search(r"\brepair stands\b|\brepair is unchanged\b", text or "", re.I))
 
 
@@ -4813,13 +4833,111 @@ def _chunk_fields(chunk) -> tuple:
     )
 
 
+_CASE_CHUNKS: contextvars.ContextVar = contextvars.ContextVar("tt_case_chunks", default=None)
+_GUARD_FIRED: contextvars.ContextVar = contextvars.ContextVar("tt_guard_fired", default="")
+_SUPPLY_PAGE_ART: contextvars.ContextVar = contextvars.ContextVar("tt_supply_page_art", default=False)
+
+
+def last_guard_name() -> str:
+    """The guard that replaced the draft on the last avoid_duplicate_reply call."""
+    return _GUARD_FIRED.get() or ""
+
+
+def note_supply_page_art(has_art: bool):
+    """The supply show-me uses the page image when 42088 page 3 has one."""
+    return _SUPPLY_PAGE_ART.set(bool(has_art))
+
+
+def reset_supply_page_art(token) -> None:
+    _SUPPLY_PAGE_ART.reset(token)
+
+
+def _mark_guard(name: str) -> None:
+    if name:
+        _GUARD_FIRED.set(name)
+_DOC_TOKEN_RE = re.compile(r"\bCCD-\d{4,}\b|\b\d{4,8}\b", re.I)
+
+
+def _chunk_title(chunk) -> str:
+    if isinstance(chunk, dict):
+        return str(chunk.get("title") or "")
+    return str(getattr(chunk, "title", "") or "")
+
+
+def _chunk_identity(chunk) -> str:
+    """Title, brand, filename, and document number. The excerpt is not an identity.
+
+    A page of prose contains unrelated numbers. Those are not a cite.
+    """
+    title, keywords, _excerpt, file_path = _chunk_fields(chunk)
+    keys = (
+        "brand",
+        "doc_number",
+        "document_number",
+        "filename",
+        "models",
+        "clean_title",
+        "product_line",
+    )
+    if isinstance(chunk, dict):
+        extra = [str(chunk.get(key) or "") for key in keys]
+    else:
+        extra = [str(getattr(chunk, key, "") or "") for key in keys]
+    return " ".join([title or "", keywords or "", library_filename_words(file_path), *extra])
+
+
+def _identity_matches_case(ident: str, brand: str, model_text: str) -> bool:
+    """The retrieved page is this unit's brand, or its document number is the model's."""
+    ident_l = (ident or "").lower()
+    brand_l = (brand or "").strip().lower()
+    if brand_l and brand_l not in {"this brand", "toilet"} and brand_l in ident_l:
+        return True
+    model_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(model_text or "")}
+    ident_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(ident or "")}
+    return bool(model_tokens & ident_tokens)
+
+
+def _case_doc_cited(*blobs: str, chunks=None, brand: str = "", model_text: str = "") -> bool:
+    """True when the reply cites a retrieved document for this case.
+
+    A cite is a document number or a title that appears on a retrieved page,
+    and that page's title, brand, or document number matches this case.
+    The unit model and the complaint are not a cite. 42070 in the model field
+    does not prove a manual was opened.
+    """
+    docs = list(chunks) if chunks is not None else list(_CASE_CHUNKS.get() or ())
+    if not docs:
+        return False
+    cited = "\n".join(blob or "" for blob in blobs)
+    cited_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(cited)}
+    cited_l = cited.lower()
+    for chunk in docs:
+        ident = _chunk_identity(chunk)
+        if not _identity_matches_case(ident, brand, model_text):
+            continue
+        ident_tokens = {tok.lower() for tok in _DOC_TOKEN_RE.findall(ident)}
+        if cited_tokens & ident_tokens:
+            return True
+        title = _chunk_title(chunk).strip().lower()
+        if len(title.split()) >= 3 and title in cited_l:
+            return True
+    return False
+
+
 def _unmatched_unit_line(
     history: list = None,
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    current: str = "",
+    chunks=None,
 ) -> str:
-    """Miss line for a typed unit that has no job lock and no same-brand cite yet."""
+    """Miss line for a typed unit that has no job lock and no same-brand cite yet.
+
+    A reply is not a miss when it cites a document this case retrieved, or a
+    title, brand, or document number that matches the case. A locked job other
+    than an open toilet stays on its own prove.
+    """
     job = _job_key(history, latest_msg, category_name, model_text)
     if job and job != "thetford":
         return ""
@@ -4828,7 +4946,10 @@ def _unmatched_unit_line(
     if not brand:
         return ""
     prior = _prior_assistant_text(history)
-    if "📖" in prior and brand.lower() in _norm(prior):
+    cited = f"{prior}\n{current}"
+    if "📖" in cited and brand.lower() in _norm(cited):
+        return ""
+    if _case_doc_cited(prior, current, chunks=chunks, brand=brand, model_text=model_text):
         return ""
     return library_miss_shop_line(brand)
 
@@ -4956,6 +5077,11 @@ def _answered_checks(blob: str) -> set[str]:
         found.add("dataline")
     if "ceiling" in low and "bypass" in low and re.search(r"\bcool", low):
         found.add("ceiling")
+    if re.search(r"\bpeacemaker\b", low) and re.search(
+        r"\bcompressor\b|\bshaft\b|\blocked\b|\bcool|\b\d+(?:\.\d+)?\s*a\b",
+        low,
+    ):
+        found.add("peacemaker")
     if _levelup_firefly_confirmed(low):
         found.add("can")
     return found
@@ -4997,6 +5123,12 @@ def _sentence_reasks_check(sentence: str, answered: set[str]) -> bool:
         low,
     ):
         return True
+    if "peacemaker" in answered and re.search(
+        r"\b(?:do|run|repeat|perform)\b.{0,48}\b(?:peacemaker|bypass)\b"
+        r"|\b(?:peacemaker|bypass)\b.{0,48}\b(?:report|again)\b",
+        low,
+    ):
+        return True
     return False
 
 
@@ -5017,9 +5149,14 @@ def _repeats_last_body(text: str, history: list = None) -> bool:
     return bool(body) and body == _reply_body(prev)
 
 
+def _strip_list_marker(text: str) -> str:
+    """'2. Replace the valve.' is the action, not a sentence that starts with 2."""
+    return re.sub(r"^\d+\.\s+", "", (text or "").strip())
+
+
 def _as_repair_statement(sentence: str) -> str:
     """'Reseat it…' becomes 'The repair is to reseat it…', not 'The repair is reseat it…'."""
-    chosen = (sentence or "").strip()
+    chosen = _strip_list_marker(sentence)
     if not chosen.endswith("."):
         chosen += "."
     if re.match(r"(?i)^the repair\b", chosen):
@@ -5034,10 +5171,10 @@ def _as_repair_statement(sentence: str) -> str:
 
 def _direct_repair_sentence(sentence: str, job: str, answered: set[str]) -> bool:
     """A firm repair is an imperative, not a check and not an If-sentence."""
-    text = (sentence or "").strip()
+    text = _strip_list_marker(sentence)
     if not text or text.startswith("📖") or "?" in text:
         return False
-    if re.match(r"(?i)^if\b", text) or re.search(r"\bif\b", text):
+    if re.match(r"(?i)^if\b", text) or re.search(r"\bif\b", text, re.I):
         return False
     if not _is_repair_sentence(text) or not _line_fits_job(text, job):
         return False
@@ -5343,16 +5480,14 @@ LEADJACK_RR_BODY = (
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_BODY = (
-    "Bleed and resync the jacks.\n"
-    "Did the drift stop?\n"
-    "Yes, go to the next step.\n"
-    "No, do this step again.\n"
+    "Bleed and resync the jacks. "
+    "A good result is the drift stopped. "
+    "What do you see?\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 LEADJACK_VERIFY_WAIT = (
-    "Report whether the drift stopped after the bleed and resync.\n"
-    "Yes, go to the next step.\n"
-    "No, do this step again.\n"
+    "Bleed and resync the jacks. "
+    "Tell me whether the drift stopped after the bleed and resync.\n"
     "📖 Source: Lippert TI-005 Electronic Leveling Troubleshooting Guide, page 3"
 )
 _LEADJACK_STAGES = ("coil", "plumb", "override", "cartridge")
@@ -5829,6 +5964,8 @@ def _thetford_valve_repair_started(history: list = None) -> bool:
         shop = _shop_text_without_how(message.get("content") or "")
         if re.search(r"Step \d+ of 14\b", shop):
             return True
+        if "Here is the repair procedure." in shop and re.search(r"(?<!\d)Step \d+:", shop):
+            return True
     return False
 
 
@@ -5941,13 +6078,25 @@ def _thetford_text_confirms(content: str) -> bool:
 
 
 def _thetford_wait_shown(history: list, number: int) -> bool:
+    """A hold already followed this step. The next hold moves on.
+
+    The photo line is not the marker. A step that never asked for a photo
+    still holds once.
+    """
     import manual_figures as mf
 
+    seen = False
     for message in _thetford_history(history):
-        if (message.get("role") or "") != "assistant":
+        role = message.get("role") or ""
+        content = message.get("content") or ""
+        if role == "assistant":
+            shop = _shop_text_without_how(content)
+            if mf.reply_shows_step(shop, number):
+                seen = True
+            elif re.search(r"Step \d+(?::| of\b)", shop):
+                seen = False
             continue
-        content = _shop_text_without_how(message.get("content") or "")
-        if f"Step {number} of" in content and mf.PHOTO_WAIT in content:
+        if seen and role == "user" and _thetford_step_hold(content):
             return True
     return False
 
@@ -5958,6 +6107,7 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
     'Not yet' holds the step once. The same hold after that ask moves on.
     """
     import gd_step_photo as _photos
+    import manual_figures as mf
 
     seen = False
     for message in _thetford_history(history):
@@ -5965,7 +6115,7 @@ def _thetford_step_confirmed(history: list, latest_msg: str, number: int) -> boo
         content = message.get("content") or ""
         if role == "assistant":
             content = _shop_text_without_how(content)
-        if role == "assistant" and f"Step {number} of" in content:
+        if role == "assistant" and mf.reply_shows_step(content, number):
             seen = True
             continue
         if seen and role == "user" and _thetford_text_confirms(content):
@@ -6000,19 +6150,53 @@ def _thetford_procedure_turn(history: list, latest_msg: str, kind: str) -> str:
             "Flush the toilet.\n"
             "Look for leaks."
         )
-    text = mf.format_one_step(steps[number - 1], number, len(steps))
+    step = dict(steps[number - 1])
+    fields = dict(step.get("fields") or {})
+    if number == 1:
+        where = fields.get("WHERE") or ""
+        if not where or "not stated" in where.lower():
+            fields["WHERE"] = (
+                "At the water valve."
+                if kind == "valve"
+                else "At the vacuum breaker on the flush hose."
+            )
+        tools = fields.get("TOOLS / METER SETTING") or ""
+        if not re.search(r"wrench|plier|screwdriver|towel", tools, re.I):
+            fields["TOOLS / METER SETTING"] = "Tools: a 1/2-inch wrench."
+        action_blob = " ".join(step.get("actions") or [])
+        if re.search(r"turn off the water|turn the rv water off", action_blob, re.I):
+            # The kit sentence is the one water-off line. Safety must not say it again.
+            safety = re.sub(
+                r"Turn the RV water off before this work\.\s*",
+                "",
+                fields.get("SAFETY") or "",
+            )
+            fields["SAFETY"] = safety.strip()
+        step["fields"] = fields
+    text = mf.format_chat_turn(
+        step,
+        number,
+        len(steps),
+        show_safety=mf.show_safety_for(steps, number),
+    )
+    text = text.replace("What do you see?", "Tell me what you see.")
     already = any(
-        f"Step {number} of" in _shop_text_without_how(message.get("content") or "")
+        mf.reply_shows_step(_shop_text_without_how(message.get("content") or ""), number)
         for message in _thetford_history(history)
         if (message.get("role") or "") == "assistant"
     )
-    # The photo line is optional and is added once. A typed answer does not see it again.
-    if already and _thetford_step_hold(latest_msg) and not _thetford_wait_shown(history, number):
+    # A photo reminder is added once, and only when this step asked for a photo.
+    if (
+        already
+        and _thetford_step_hold(latest_msg)
+        and not _thetford_wait_shown(history, number)
+        and mf.step_needs_photo(steps[number - 1])
+    ):
         text = f"{text}\n{mf.PHOTO_WAIT}"
     if kind == "valve":
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
     else:
-        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1"
     if cite not in text:
         text = f"{text}\n{cite}"
     return text
@@ -6064,7 +6248,7 @@ def _thetford_procedure_catalog(stage: str) -> str:
 
     if stage == "vacuum_replace":
         kinds = ("breaker",)
-        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 2"
+        cite = "📖 Source: Thetford Vacuum Breaker Kit 34123/34122, page 1"
     elif stage == "valve_replace":
         kinds = ("valve",)
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
@@ -6073,7 +6257,7 @@ def _thetford_procedure_catalog(stage: str) -> str:
         cite = "📖 Source: Thetford Water Valve Kit 42109, page 1"
     parts = []
     for kind in kinds:
-        text = mf.procedure_handoff(mf.thetford_kit_layout(kind))
+        text = mf.procedure_chat_text(mf.thetford_kit_layout(kind))
         if text:
             parts.append(text)
     if not parts:
@@ -6082,6 +6266,27 @@ def _thetford_procedure_catalog(stage: str) -> str:
     if cite not in body:
         body = f"{body}\n{cite}"
     return body
+
+
+def _thetford_pages_clash(text: str) -> bool:
+    """The body names a page the Source line does not."""
+    parts = (text or "").split("📖")
+    body = parts[0]
+    source = parts[1] if len(parts) > 1 else ""
+    body_pages = set(re.findall(r"\bpage\s+(\d+)\b", body, re.I))
+    source_pages = set(re.findall(r"\bpage\s+(\d+)\b", source, re.I))
+    return bool(body_pages and source_pages and body_pages.isdisjoint(source_pages))
+
+
+def _vacuum_reply_incomplete(text: str) -> bool:
+    """A vacuum turn with no bad result, no question, or the owner manual instead of kit 34123."""
+    raw = text or ""
+    if not raw.strip():
+        return False
+    has_bad = bool(re.search(r"\bbad result\b|\bbad looks like\b", raw, re.I))
+    cites_kit = bool(re.search(r"\b3412[23]\b", raw))
+    cites_manual_only = bool(re.search(r"\b42088\b", raw)) and not cites_kit
+    return (not has_bad) or (not _reply_asks_back(raw)) or cites_manual_only or _thetford_pages_clash(raw)
 
 
 def ensure_thetford_flush_reply(
@@ -6093,38 +6298,346 @@ def ensure_thetford_flush_reply(
     original: str = "",
 ) -> str:
     """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
+    import manual_figures as _mf
+
+    return _mf.strip_html_comments(
+        _thetford_flush_body(reply, history, latest_msg, category_name, model_text, original)
+    )
+
+
+def _reply_asks_back(text: str) -> bool:
+    """A follow-up. 'Tell me what you see.' is one, with or without a question mark."""
+    raw = text or ""
+    if "?" in raw:
+        return True
+    return bool(
+        re.search(r"\b(?:tell me what you see|report what you see|what do you see)\b", raw, re.I)
+    )
+
+
+def _thetford_sentence_ok(reply: str) -> bool:
+    """Second person, a report-back, and no leaked template. A tool is separate."""
+    raw = reply or ""
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
+    return _reply_asks_back(raw) and bool(re.search(r"\byou\b", raw, re.I))
+
+
+def _observation_reply_complete(reply: str) -> bool:
+    """An observation check is complete with no tool.
+
+    Where, what to look for, a good result, a bad result, and a report-back
+    are enough. A flush-and-watch that names a wrench, pliers, or screwdriver
+    is not this shape.
+    """
+    raw = reply or ""
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
+    if _observation_names_a_tool(raw):
+        return False
+    where = bool(
+        re.search(
+            r"\b(at the|on the|back of|go to|water valve|vacuum breaker|flush hose|pedal)\b",
+            raw,
+            re.I,
+        )
+    )
+    look = bool(re.search(r"\b(flush|watch|look|check|leak|weep|dry)\b", raw, re.I))
+    good = bool(re.search(r"\b(?:a )?good result\b", raw, re.I))
+    bad = bool(re.search(r"\b(?:a )?bad result\b", raw, re.I))
+    return bool(
+        where and look and good and bad and _reply_asks_back(raw) and re.search(r"\byou\b", raw, re.I)
+    )
+
+
+def _thetford_draft_clean(reply: str) -> bool:
+    """A model sentence the shop can send without rewriting it.
+
+    A hands-on step still names its tool. An observation-only check does not.
+    """
+    if _observation_reply_complete(reply):
+        return True
+    return _thetford_sentence_ok(reply) and bool(
+        re.search(r"\b(wrench|pliers?|flashlight)\b", reply or "", re.I)
+    )
+
+
+def _observation_names_a_tool(reply: str) -> bool:
+    """A flush-and-watch names no wrench, pliers, or screwdriver.
+
+    A flashlight is allowed. Hands-on work may name those tools.
+    """
+    raw = reply or ""
+    if not re.search(r"\b(wrench|pliers?|screwdriver)\b", raw, re.I):
+        return False
+    if re.search(
+        r"\b(slide clamp|remove the inlet|pull the inlet|replace the vacuum|"
+        r"remove|install|tighten|seat|pull the pedal|take the toilet off)\b",
+        raw,
+        re.I,
+    ):
+        return False
+    return bool(re.search(r"\b(flush|watch)\b", raw, re.I))
+
+
+def _thetford_show_draft_ok(reply: str) -> bool:
+    """A show-me answers where it is. It is not a new test.
+
+    It points at the page image, or says the manual has no picture.
+    It does not repeat a good result or a bad result, and it does not need a tool.
+    It ends by sending the tech back to the pending check.
+    """
+    raw = reply or ""
+    low = raw.lower()
+    if re.search(r"\bhow\s*\(|\bnot stated\b|\bthe tech\b", raw, re.I):
+        return False
+    if re.search(r"\b(inlet side|small collar)\b", low):
+        return False
+    if re.search(r"\bgood result\b|\bbad result\b", low):
+        return False
+    # 42088: "Back of toilet: check water supply line connection at water valve."
+    pointed = "no picture" in low or bool(
+        re.search(r"\bon this page\b|\bon that image\b|\bpage image\b", low)
+    )
+    if not pointed:
+        return False
+    if "then do that check and tell me what you see" not in low:
+        return False
+    return (
+        "back of the toilet" in low
+        and "water supply line" in low
+        and "water valve" in low
+        and "42088" in raw
+        and bool(re.search(r"\byou\b", raw, re.I))
+    )
+
+
+def _thetford_repair_draft_ok(reply: str, stage: str) -> bool:
+    """True when this draft already is the check the stage is on."""
+    raw = reply or ""
+    low = raw.lower()
+    if stage == "vacuum":
+        if _observation_names_a_tool(raw):
+            return False
+        return (
+            _thetford_sentence_ok(raw)
+            and "34123" in raw
+            and "vacuum breaker" in low
+            and "42109" not in raw
+            and not _vacuum_reply_incomplete(raw)
+        )
+    if not _thetford_draft_clean(reply):
+        return False
+    if stage == "valve_replace":
+        if re.search(r"cartridge for a weep", low):
+            return False
+        if re.search(r"\bcheck\b.{0,40}\bweep\b", low) and not re.search(
+            r"\b(replace|remove|install|seat|pull the pedal)\b", low
+        ):
+            return False
+        return bool(
+            "42109" in raw
+            and re.search(r"water off", low)
+            and re.search(r"\bbolt", low)
+            and re.search(r"bay pdf|one step at a time|step by step", low)
+            and re.search(r"water valve|pedal|cartridge", low)
+        )
+    if stage == "vacuum_replace":
+        return "34123" in raw and "vacuum breaker" in low and not _vacuum_reply_incomplete(raw)
+    if stage == "supply":
+        return "42088" in raw and "42109" not in raw and "supply" in low
+    return False
+
+
+def _collapse_repeated_water_off(text: str) -> str:
+    """Keep the first 'Turn the RV water off' sentence and drop later copies."""
+    if len(re.findall(r"turn the rv water off", text or "", re.I)) < 2:
+        return text or ""
+    seen = False
+    kept = []
+    for line in (text or "").splitlines():
+        if re.search(r"turn the rv water off", line, re.I):
+            if seen:
+                continue
+            seen = True
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _thetford_kept_draft(draft: str) -> str:
+    kept = _thetford_without_template(_thetford_keep(draft), "")
+    if not kept:
+        return ""
+    if _reply_has_body(kept) or _observation_reply_complete(kept):
+        return kept
+    return ""
+
+
+def _thetford_flush_body(
+    reply: str,
+    history: list = None,
+    latest_msg: str = "",
+    category_name: str = "",
+    model_text: str = "",
+    original: str = "",
+) -> str:
+    """A flush-lever leak keeps the next cited check. A bare source line does not ship."""
     if _job_key(history, latest_msg, category_name, model_text) != "thetford":
         return reply
+    reply = strip_leaked_prompt(reply or "")
+    original = strip_leaked_prompt(original or "")
     stage = _thetford_stage(history, latest_msg)
     if _thetford_asks_procedure_list(latest_msg):
         listed = _thetford_procedure_catalog(stage)
         if listed:
+            _mark_guard("procedure list")
             return listed
+    draft = (original or reply or "").strip()
+    # A complete model reply is the reply. The shop line is only the backstop.
+    if _thetford_show_ask(latest_msg):
+        if _thetford_show_draft_ok(draft):
+            kept = _thetford_kept_draft(draft)
+            if kept:
+                return kept
+        _mark_guard("show reply")
+        return _thetford_show_reply(history, latest_msg)
+    if _thetford_repair_draft_ok(draft, stage):
+        kept = _thetford_kept_draft(draft)
+        if kept:
+            collapsed = _collapse_repeated_water_off(kept)
+            if collapsed != kept:
+                _mark_guard("repeated water off")
+                return collapsed
+            return kept
     if stage in ("valve_replace", "vacuum_replace"):
         kind = "valve" if stage == "valve_replace" else "breaker"
         turned = _thetford_procedure_turn(history, latest_msg, kind)
         if turned:
+            _mark_guard("procedure turn")
             return turned
     nxt = _thetford_shop_line(history, latest_msg)
     stage = _thetford_stage(history, latest_msg)
     stage_slot = {"valve_replace": "valve", "vacuum_replace": "vacuum"}.get(stage, stage)
     asked = _thetford_line_slot(reply) or _thetford_line_slot(original)
+
+    def _shop(name: str) -> str:
+        leaked = re.search(
+            r"\bhow\s*\(|\bnot stated\b",
+            f"{original or ''}\n{reply or ''}",
+            re.I,
+        )
+        _mark_guard("how block" if leaked else name)
+        return nxt
+
     # A draft for another check does not ship. Open order is supply, vacuum, valve, flange.
     if asked and asked != stage_slot:
-        return nxt
+        return _shop("wrong check")
     if _thetford_not_checked(latest_msg):
-        return nxt
+        return _shop("not checked")
     closed = _thetford_closed_slots(history, latest_msg)
     if asked and asked in closed:
-        return nxt
+        return _shop("already checked")
     if _thetford_source_only(original) or _thetford_source_only(reply):
-        return nxt
+        return _shop("source only")
     if _is_thetford_miss_line(reply) or _is_thetford_miss_line(original):
+        # A How block is rewritten to the miss line before this guard. That
+        # rewrite is still the leak. The shop check is the reply.
+        leaked = re.search(
+            r"\bhow\s*\(|\bnot stated\b",
+            f"{original or ''}\n{reply or ''}",
+            re.I,
+        )
+        if leaked:
+            return _shop("how block")
+        # The manuals are already in the chat. Do not tell the tech they are missing.
+        if _case_doc_cited(
+            original,
+            reply,
+            _prior_assistant_text(history),
+            brand="Thetford",
+            model_text=model_text,
+        ):
+            for candidate in (original, reply):
+                if not candidate or _is_thetford_miss_line(candidate):
+                    continue
+                if _thetford_repair_draft_ok(candidate, stage) or _thetford_show_draft_ok(candidate):
+                    kept_draft = _thetford_kept_draft(candidate)
+                    if kept_draft:
+                        return kept_draft
+            return _shop("library miss")
         kept = reply if _is_thetford_miss_line(reply) else original
-        return _thetford_keep(kept)
+        _mark_guard("library miss")
+        return _thetford_without_template(_thetford_keep(kept), nxt)
+    if stage == "vacuum" and _vacuum_reply_incomplete(reply):
+        return _shop("vacuum incomplete")
+    if _thetford_pages_clash(reply):
+        return _shop("pages clash")
     if _reply_has_body(reply) and _line_fits_job(reply, "thetford"):
-        return _thetford_keep(reply)
-    return nxt
+        kept = _thetford_without_template(_thetford_keep(reply), nxt)
+        if re.sub(r"\s+", " ", kept).strip() != re.sub(r"\s+", " ", draft).strip():
+            _mark_guard("shop polish")
+        return kept
+    return _shop("thetford shop line")
+
+
+def _thetford_show_card(has_image: bool) -> str:
+    """The supply show-me answers where it is. It is not a new test.
+
+    With a page image, one short pointer in the words of 42088.
+    With none, say so, restate the location once, and offer a photo if it helps.
+    It does not name a tool and it does not repeat the previous good or bad line.
+    It ends by pointing back at the pending check.
+    """
+    cite = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
+    ending = "Then do that check and tell me what you see."
+    if has_image:
+        body = (
+            "On this page, look at the back of the toilet, "
+            "at the water supply line connection on the water valve.\n"
+            f"{ending}"
+        )
+    else:
+        body = (
+            "The manual has no picture of this spot.\n"
+            "The water supply line connection is at the back of the toilet, on the water valve.\n"
+            "Send a photo if it helps.\n"
+            f"{ending}"
+        )
+    return f"{body}\n\n{cite}"
+
+
+def _thetford_where_answer() -> str:
+    """Where the supply connection is, in the words of owner manual 42088.
+
+    Page 3 says the water supply line connection is at the back of the toilet,
+    on the water valve. A stored page image gets a pointer. No image is said plainly.
+    This card does not add a side or a shape, and it does not invent a figure.
+    """
+    return _thetford_show_card(bool(_SUPPLY_PAGE_ART.get()))
+
+
+def _thetford_show_reply(history: list = None, latest_msg: str = "") -> str:
+    """Answer 'show me where' without repeating the check the tech already has.
+
+    A repair step that is already on screen stays on that step. The supply
+    show-me is the page-image pointer, or the no-picture line.
+    """
+    line = _thetford_shop_line(history, latest_msg)
+    if "<!--gd-step:" in (line or ""):
+        return line
+    if _thetford_stage(history, latest_msg) == "supply":
+        return _thetford_where_answer()
+    prev = _last_assistant_text(history)
+    if not prev or _norm(prev) != _norm(line):
+        return line
+    return _thetford_where_answer()
+
+
+def _thetford_without_template(text: str, fallback: str) -> str:
+    """A How block or a 'not stated' filler is not a shop sentence."""
+    if re.search(r"\bhow\s*\(|\bnot stated\b", text or "", re.I):
+        return fallback
+    return text
 
 
 def _prove_lines(
@@ -6203,6 +6716,7 @@ def _final_shop_line(
     latest_msg: str = "",
     category_name: str = "",
     model_text: str = "",
+    current: str = "",
 ) -> str:
     """A job-specific line. Never a cross-case repair and never a placeholder."""
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
@@ -6212,7 +6726,9 @@ def _final_shop_line(
     if proved and not _repeats_last_body(proved, history):
         return proved if "📖" in proved else _with_cite(proved, job)
     job = _job_key(history, latest_msg, category_name, model_text)
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=current
+    )
     if miss:
         return miss
     later = bool(_last_assistant_text(history))
@@ -6271,6 +6787,13 @@ def _final_shop_line(
     return _with_cite(chosen, job)
 
 
+def _restore_look_for_leaks(text: str) -> str:
+    """The filler trim eats a trailing period. The closing leak line stays whole."""
+    if (text or "").rstrip().endswith("Look for leaks"):
+        return text.rstrip() + "."
+    return text
+
+
 def without_reading_filler(
     reply: str,
     history: list = None,
@@ -6283,14 +6806,18 @@ def without_reading_filler(
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r" *\n *", "\n", text).strip(" \n.")
     if text and not _FILLER_RE.search(text):
-        return text
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+        return _restore_look_for_leaks(text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=reply
+    )
     if miss and not _FILLER_RE.search(miss):
-        return miss
-    fallback = _final_shop_line(history, latest_msg, category_name, model_text)
+        return _restore_look_for_leaks(miss)
+    fallback = _final_shop_line(
+        history, latest_msg, category_name, model_text, current=reply
+    )
     fallback = _FILLER_RE.sub(" ", fallback or "").strip(" \n.")
     if fallback and not _FILLER_RE.search(fallback):
-        return fallback
+        return _restore_look_for_leaks(fallback)
     return ""
 
 
@@ -6318,7 +6845,9 @@ def _answer_latest(
     locked = _firm_repair_reply(history, latest_msg, category_name, model_text)
     if locked:
         return locked
-    miss = _unmatched_unit_line(history, latest_msg, category_name, model_text)
+    miss = _unmatched_unit_line(
+        history, latest_msg, category_name, model_text, current=current
+    )
     if miss:
         return miss
     if _give_repair_now(latest_msg, history):
@@ -6811,15 +7340,21 @@ def polish_shop_reply(
         or re.search(r"report the result of that check", text or "", re.I)
         or asked
     ):
-        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        nxt = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
         if nxt and _line_fits_job(nxt, job):
             text = nxt
     if not (text or "").strip() or not _line_fits_job(text, job):
-        text = _final_shop_line(history, latest_msg, category_name, model_text)
+        text = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
     if text and "📖" not in text:
         text = _with_cite(text, job)
     if _repeats_last_body(text, history):
-        nxt = _final_shop_line(history, latest_msg, category_name, model_text)
+        nxt = _final_shop_line(
+            history, latest_msg, category_name, model_text, current=reply
+        )
         if nxt and not _repeats_last_body(nxt, history) and _line_fits_job(nxt, job):
             text = nxt
     text = re.sub(r"[ \t]{2,}", " ", (text or "").strip())
@@ -6902,6 +7437,72 @@ def _cooktop_repair_ready(blob: str, latest_msg: str = "") -> bool:
     return _has_pan_on_flameout_marker(blob or "")
 
 
+def _facr_walk_started(history: list = None) -> bool:
+    """True once an assistant turn has shown a numbered FACR removal step."""
+    for message in history or []:
+        if (message.get("role") or "") != "assistant":
+            continue
+        content = message.get("content") or ""
+        if "2024006031" not in content:
+            continue
+        if re.search(r"<!--\s*gd-step:\d+\s*-->", content):
+            return True
+        if "Here is the repair procedure." in content and re.search(r"Step \d+(?::| of\b)", content):
+            return True
+        import manual_figures as mf
+
+        if any(mf.reply_shows_step(content, number) for number in range(1, 12)):
+            return True
+    return False
+
+
+def _facr_procedure_turn(history: list = None, latest_msg: str = "", prefix: str = "") -> str:
+    """One R&R step after authorization. Yes or no moves on. A hold stays put."""
+    import manual_figures as mf
+
+    steps = list(mf.facr_rr_layout().get("steps") or [])
+    if not steps:
+        return ""
+    number = 1
+    while number <= len(steps) and _thetford_step_confirmed(history, latest_msg, number):
+        number += 1
+    if number > len(steps):
+        return (
+            "The repair procedure is done.\n"
+            "Retest for no drip and no frost.\n"
+            "Cooling amps stay at or under 8.2 A."
+        )
+    shown = any(
+        mf.reply_shows_step(_shop_text_without_how(message.get("content") or ""), number)
+        for message in _thetford_history(history)
+        if (message.get("role") or "") == "assistant"
+    )
+    lead = ""
+    if number == 1 and prefix and not shown:
+        lead = prefix.strip() + "\n"
+    text = lead + mf.format_chat_turn(
+        steps[number - 1],
+        number,
+        len(steps),
+        show_safety=mf.show_safety_for(steps, number),
+    )
+    if (
+        shown
+        and _thetford_step_hold(latest_msg)
+        and not _thetford_wait_shown(history, number)
+        and mf.step_needs_photo(steps[number - 1])
+    ):
+        text = f"{text}\n{mf.PHOTO_WAIT}"
+    text = f"{text}\nPart 2024006031."
+    figure = steps[number - 1].get("figure") if isinstance(steps[number - 1].get("figure"), dict) else {}
+    title = (figure or {}).get("title") or "Furrion Chill FACR CCD-0008666"
+    page = (figure or {}).get("page")
+    cite = f"📖 Source: {title}, page {page}" if page else f"📖 Source: {title}"
+    if cite not in text:
+        text = f"{text}\n{cite}"
+    return text
+
+
 def _facr_rr_already_sent(history: list = None) -> bool:
     for message in history or []:
         if (message.get("role") or "") != "assistant":
@@ -6954,10 +7555,18 @@ def _live_close_reply(
     job = _job_key(history, latest_msg, category_name, model_text)
     blob = _user_blob(history, latest_msg)
     if job == "facr":
+        # A yes or no on a removal step stays on that procedure. It is not a new prove.
+        if _facr_walk_started(history):
+            walked = _facr_procedure_turn(history, latest_msg)
+            if walked:
+                return walked
         facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
         if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
             follow = _facr_follow_after_authorization(history, latest_msg)
             if follow:
+                walked = _facr_procedure_turn(history, latest_msg, prefix=follow)
+                if walked:
+                    return walked
                 return follow
             return facr_pressure_rr_line(facts)
         if facr_gate_turn_authorizes(facts, history, latest_msg):
@@ -6992,22 +7601,32 @@ def avoid_duplicate_reply(
     category_name: str = "",
     model_text: str = "",
     photo_review=None,
+    chunks=None,
 ) -> str:
     """Do not send the same reply twice, and do not ask a check that was already asked.
 
     A repeated card becomes the next repair for THIS job. Another case's repair
     cannot be pasted in, and a firm repair already given is not replaced by a new If.
     photo_review is the xAI read of an optional step photo. None keeps typed findings.
+    chunks are the documents retrieved for this case. A cite of one of them is
+    not a library miss.
     """
     import gd_step_photo as _photos
 
-    token = _photos.activate(photo_review)
+    photo_token = _photos.activate(photo_review)
+    chunk_token = _CASE_CHUNKS.set(chunks)
+    _GUARD_FIRED.set("")
     try:
-        return _avoid_duplicate_reply_body(
+        result = _avoid_duplicate_reply_body(
             reply, history, latest_msg, category_name, model_text, photo_review
         )
+        if re.sub(r"\s+", " ", result or "").strip() != re.sub(r"\s+", " ", reply or "").strip():
+            if not _GUARD_FIRED.get():
+                _mark_guard("shop polish")
+        return result
     finally:
-        _photos.deactivate(token)
+        _CASE_CHUNKS.reset(chunk_token)
+        _photos.deactivate(photo_token)
 
 
 def _avoid_duplicate_reply_body(
@@ -7026,6 +7645,7 @@ def _avoid_duplicate_reply_body(
         import manual_figures as _mf
 
         text = _mf.hide_internal_marker(text)
+        text = _mf.strip_html_comments(text)
         text = _strip_facr_internal_guard(text)
         text = guard_blank_shop_reply(text, history, latest_msg, category_name, model_text)
         if (

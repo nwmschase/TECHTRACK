@@ -39,6 +39,8 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from pathlib import Path
+
+import bay_profile_lines as bpl
 import math
 import re
 import textwrap
@@ -118,7 +120,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.56"
+MODULE_REVISION = "v4.19.57"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -826,11 +828,10 @@ def _facr_path() -> dict:
     return {
         "primary_cite": "Furrion rooftop assembly and condensate path. Chill layout book for the pan and drain.",
         "pattern_means": (
-            "A Furrion rooftop freeze, interior leak, or condensate drip is an assembly and "
-            "condensate problem. Melt water that cannot leave the evaporator pan ices the pan, "
-            "backs up, and drips into the coach. Prove the evaporator pan, the condensate drain, "
-            "the base-pan slope, and suction-line icing before you condemn the sealed system. "
-            "A clear drain and a dry interior after a full cool cycle is a passed assembly prove."
+            "A rooftop freeze or interior drip is condensate. "
+            "Melt water ices the pan and drips in. "
+            "Prove the pan, drain, slope, and suction line. "
+            "A clear drain after a cool cycle passes."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -946,16 +947,23 @@ def _facr_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Inspect the rooftop assembly, the evaporator pan, and the condensate drain. If the drain is restricted or the pan is iced, clear the ice or the restriction and confirm water leaves the drain, then retest cooling. If the pan is dry and the drain is open, go to the drain-path confirm next.",
-            "Confirm the drain path from the evaporator pan out of the rooftop. If melt water backs up, clear the trough and the hose, then retest cooling. Water leaving freely is a pass: run cooling and watch the pan. Water that stands or overflows is a fail: stay on the drain until it leaves.",
-            "Watch the pan and the freeze-sensor area through a full cool cycle. If ice reforms in the pan or the drain ices shut, clear it again and prove the drain remains clear on the next cycle. If the drain remains clear and the pan stays dry, check the base-pan slope next.",
-            "Check the base-pan slope. If the pan is tilted so water cannot reach the drain, correct the slope and retest cooling. If the pan is level and water still reaches the drain, check suction-line icing next.",
-            "Check the suction line for icing. If the suction line is iced, correct that icing and retest cooling. If the suction line is clear, run a full cool cycle and watch the interior.",
-            "Retest cooling and watch the pan and the interior. If the freeze or leak is gone, the correction is the drain, pan, slope, or suction work you just proved. You are done.",
-            "If ice or drip returns with a clear drain, a level base pan, and a clear suction line, replace the rooftop unit after that assembly prove. That is the confirmed correction.",
+            "Inspect the rooftop pan and the condensate drain.",
+            "Clean the drainage openings if the drain is restricted.",
+            "Clear ice in the drain. Confirm water leaves.",
+            "Watch the pan through a full cool cycle.",
+            "Check the base-pan slope.",
+            "Check the suction-line for icing.",
+            "Retest cooling. Watch the pan and the interior.",
+            "Replace the rooftop unit after that assembly prove. That is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the sealed system before you clear the drain and the pan.",
+            "Do not condemn the unit on pressures alone.",
+            "Do not run the unit without filters.",
+            "Do not use an open flame near R32.",
+            "Do not slide the unit.",
+            "Do not change DIP switches with the power on.",
+            "Do not use the troubleshooting manual part numbers on this 8K unit.",
         ],
         "sources": [
             {
@@ -1628,8 +1636,10 @@ def _rejoin_ocr_splits(text: str) -> str:
             trail_s = trail.group(0) if trail else ""
             lead = re.match(r"^[^A-Za-z0-9]+", word)
             lead_s = lead.group(0) if lead else ""
+            bare = word[len(lead_s):]
             if (
                 len(core) == 1
+                and bare == core
                 and core.lower() not in _OCR_ARTICLE
                 and 3 <= len(ncore) <= 6
                 and ncore.isalpha()
@@ -6157,11 +6167,6 @@ def _thetford_leak_path(concern: str, ranked) -> dict:
         ],
         "do_not": [
             "Do not replace the water valve or the flange seal before the supply connection and the vacuum breaker are checked.",
-            "Do not use scouring powders, acids, or concentrated cleaners.",
-            "Never use automotive antifreeze. Use RV potable antifreeze only.",
-            "If ice is in the toilet, do not flush until the ice thaws.",
-            "When using air pressure to blow water from the lines, the toilet valve must be open.",
-            "Do not order a part number that is not on the sheet.",
         ],
         "sources": [],
         "flow_tall": True,
@@ -6351,6 +6356,114 @@ def _drop_off_brand_sheet_figures(proc: BayProcedure, job: str) -> None:
     proc.figures = kept
 
 
+def _thetford_repair_locked(proc: BayProcedure) -> bool:
+    """The four Thetford leak branches are already the sheet. A figure packet must not replace them."""
+    import manual_figures as mf
+
+    blob = " ".join(
+        part for part in (proc.brand, proc.model, proc.concern, proc.primary_cite, proc.category) if part
+    )
+    if not mf.job_is_thetford(blob, " ".join(proc.bay_order or [])):
+        return False
+    titles = " ".join((item.get("title") or "") for item in proc.procedures or []).lower()
+    return "supply" in titles and "flange" in titles and len(proc.procedures or []) >= 4
+
+
+def _graft_library_figures(proc: BayProcedure, packets) -> None:
+    """Fill a cited crop that has no PNG. The step list stays the repair that was already compiled."""
+    import manual_figures as mf
+
+    pool = []
+    for packet in packets or []:
+        for figure in packet.get("figures") or []:
+            png = figure.get("png") or b""
+            if png and not mf.png_is_blank(png):
+                pool.append(figure)
+    if not pool:
+        return
+    for procedure in proc.procedures or []:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            png = figure.get("png") or b""
+            if png and not mf.png_is_blank(png):
+                continue
+            nums = mf._figure_numbers(figure.get("label") or "")
+            if not nums:
+                continue
+            for item in pool:
+                if any(number in mf._figure_numbers(item.get("label") or "") for number in nums):
+                    figure["png"] = item.get("png") or b""
+                    if not figure.get("label"):
+                        figure["label"] = item.get("label") or ""
+                    break
+
+
+def crop_printed_figure_label(png: bytes) -> bytes:
+    """Cut the kit's own 'FIGURE N - TITLE' line off the bottom of a crop.
+
+    The sheet numbers figures across the page set, so a printed kit number under the
+    drawing would show the tech a second number. Only a short text band, set apart from
+    the drawing by white rows, is cut. A border line or a drawing edge stays.
+    """
+    try:
+        from PIL import Image
+        import io
+
+        im = Image.open(io.BytesIO(png)).convert("L")
+    except Exception:
+        return png
+    w, h = im.size
+    if h < 60 or w < 60:
+        return png
+    px = im.load()
+
+    def ink(y: int) -> float:
+        return sum(1 for x in range(0, w, 2) if px[x, y] < 128) / max(1, (w + 1) // 2)
+
+    y = h - 1
+    while y > 0 and ink(y) < 0.005:
+        y -= 1
+    bottom = y
+    band_max = 0.0
+    while y > 0 and ink(y) >= 0.005:
+        band_max = max(band_max, ink(y))
+        y -= 1
+    top = y
+    gap = 0
+    while y > 0 and ink(y) < 0.005:
+        gap += 1
+        y -= 1
+    height = bottom - top
+    if gap < 2 or height < 6 or height > 0.14 * h or band_max >= 0.6 or y < 0.6 * h:
+        return png
+    out = io.BytesIO()
+    Image.open(io.BytesIO(png)).crop((0, 0, w, y + 2)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def manual_figure_label(label: str, text: str) -> str:
+    """A bare 'Fig. 1' takes the manual's own name for it.
+
+    'Refer to Figure 1 for component locations.' -> 'Fig. 1 COMPONENT LOCATIONS'.
+    A label that already has a title, or a figure the text never names, stays as it is.
+    """
+    m = re.match(r"(?i)^\s*fig(?:ure)?\.?\s*(\d+)\s*$", label or "")
+    if not m:
+        return label
+    n = m.group(1)
+    body = re.sub(r"\s+", " ", text or "")
+    found = re.search(
+        rf"(?i)\bfigure {n}\s*(?:[-–:]\s*([A-Z][A-Z ]{{2,40}}[A-Z])\b|for (?:the )?([a-z][a-z ]{{2,40}}?)\s*[.;,)])",
+        body,
+    )
+    if not found:
+        return label
+    name = (found.group(1) or found.group(2) or "").strip().upper()
+    return f"Fig. {n} {name}" if name else label
+
+
 def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     """Put each cropped figure on the step it supports, and quote that chunk's how-to.
 
@@ -6372,6 +6485,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                     "title": data.get("title") or "",
                 }
             )
+        text = str(data.get("excerpt") or data.get("chunk_text") or data.get("text") or "")
+        figures = [{**f, "label": manual_figure_label(f.get("label") or "", text)} for f in figures]
         if figures:
             packets.append({**data, "figures": figures})
     job = " ".join(
@@ -6388,6 +6503,7 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
     fits = getattr(fb, "fits_case", None)
     how_for = getattr(fb, "procedure_how", None)
     off_brand = getattr(fb, "off_brand_figure", None)
+    locked = _thetford_repair_locked(proc)
     fitting = []
     for packet in packets:
         title = packet.get("title") or ""
@@ -6422,7 +6538,9 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                 user_msg=proc.concern or "",
                 reply=job,
             )
-        if detail and slot not in details:
+        # A locked Thetford sheet already names the step. The How template
+        # stays off that bay order. Other sheets still quote the chunk.
+        if detail and slot not in details and not locked:
             details[slot] = detail
         for figure in packet["figures"]:
             fig_title = figure.get("title") or title
@@ -6457,6 +6575,8 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
                 )
             )
     order = list(proc.bay_order)
+    if locked:
+        order = [re.split(r"\s+How\s*\(", step or "", maxsplit=1)[0].strip() for step in order]
     for slot, detail in details.items():
         if detail not in order[slot]:
             order[slot] = f"{order[slot].rstrip()} {detail}"
@@ -6475,7 +6595,10 @@ def apply_chunk_figures(proc: BayProcedure, chunks) -> BayProcedure:
             )
     proc.bay_order = order
     proc.step_figures = groups
-    proc.procedures = _plain_kit_procedures(fitting, job)
+    if locked:
+        _graft_library_figures(proc, fitting)
+    else:
+        proc.procedures = _plain_kit_procedures(fitting, job)
     owned = set()
     for procedure in proc.procedures:
         for step in procedure.get("steps") or []:
@@ -6517,9 +6640,11 @@ def cited_figure_count(proc: "BayProcedure") -> int:
 
     for fig in proc.figures or []:
         _add(getattr(fig, "image_png", b"") or b"", fig)
-    for group in proc.step_figures or []:
-        for fig in group or []:
-            _add(getattr(fig, "image_png", b"") or b"", fig)
+    # A numbered repair draws its own figures. Diagnosis crops are not painted.
+    if not proc.procedures:
+        for group in proc.step_figures or []:
+            for fig in group or []:
+                _add(getattr(fig, "image_png", b"") or b"", fig)
     for procedure in proc.procedures or []:
         for step in procedure.get("steps") or []:
             figure = step.get("figure") or {}
@@ -6594,10 +6719,18 @@ def _confirmed_thetford_kind(proc: BayProcedure, history=None) -> str:
     return marks[-1][1]
 
 
+def _procedure_keeps_repeated_figures(procedure: dict) -> bool:
+    """FACR cites the same library page on more than one step. Each cite keeps the image."""
+    title = (procedure or {}).get("title") or ""
+    return bool(re.search(r"FACR08|2024006031", title))
+
+
 def _drop_repeated_procedure_figures(procedures: list) -> None:
     """The first step that uses a crop keeps it. Later steps stay text."""
     seen = set()
     for procedure in procedures or []:
+        if _procedure_keeps_repeated_figures(procedure):
+            continue
         for step in procedure.get("steps") or []:
             figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
             png = (figure or {}).get("png") or b""
@@ -6609,14 +6742,536 @@ def _drop_repeated_procedure_figures(procedures: list) -> None:
             seen.add(png)
 
 
-def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayProcedure:
-    """The flush-leak sheet carries only the confirmed kit repair.
+def _branch_step(
+    how: str,
+    where: str,
+    good: str,
+    bad: str,
+    nxt: str,
+    section: str = "removal",
+    fail: str = "",
+    tools: str = "",
+) -> dict:
+    """One repair-branch action. The sentence stays under 12 words.
 
-    A water-valve finding does not also print the 13-step vacuum-breaker repair.
-    The four checks stay the diagnosis. A crop is drawn on the first step that uses it.
+    ``fail`` is the next action when the step is bad. It is not a copy of the
+    bad look. ``tools`` is only the tool this action uses.
+    """
+    bare = how.rstrip(".")
+    on_bad = (fail or "Stop and tell the shop.").rstrip(".")
+    tool_line = f"Tools: {tools.rstrip('.')}." if tools else ""
+    return {
+        "section": section,
+        "text": bare,
+        "actions": [f"{bare}."],
+        "source": bare,
+        "fields": {
+            "WHERE": where,
+            "SAFETY": "",
+            "TOOLS / METER SETTING": tool_line,
+            "HOW": bare,
+            "GOOD vs BAD": f"Good: {good} Bad: {bad}",
+            "NEXT": f"On good: {nxt} On bad: {on_bad}",
+            "FIGURE": "",
+            "PHOTO": "",
+        },
+        "figure": None,
+    }
+
+
+def _confirm_step(where: str) -> dict:
+    return _branch_step(
+        "Confirm the repair is dry.",
+        where or "At the finished repair.",
+        "The repair is dry.",
+        "A drip or a wet spot shows after the flush.",
+        "This branch is complete.",
+        fail="Redo the branch that was just finished.",
+        section="prove",
+    )
+
+
+def ensure_verify_step(procedure: dict) -> dict:
+    """Each repair branch ends on a confirm step. A branch that already confirms stays."""
+    steps = list((procedure or {}).get("steps") or [])
+    if not steps:
+        return procedure
+    if (steps[-1].get("text") or "").lower().startswith("confirm "):
+        return procedure
+    where = ((steps[-1].get("fields") or {}).get("WHERE") or "").strip() or "At the finished repair."
+    cloned = dict(procedure)
+    cloned["steps"] = steps + [_confirm_step(where)]
+    if not cloned.get("heading"):
+        cloned["heading"] = "REPAIR BRANCH"
+    return cloned
+
+
+def _supply_branch() -> dict:
+    return {
+        "title": "Supply connection",
+        "heading": "REPAIR BRANCH",
+        "before": [
+            "Turn the RV water off before this work.",
+            "Fix the supply connection before you open a kit.",
+        ],
+        "steps": [
+            _branch_step(
+                "Pull the water hose off the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The hose is off.",
+                "The hose is still on.",
+                "Push the hose back on.",
+                fail="Loosen the clamp and pull the hose again.",
+                tools="pliers",
+                section="removal",
+            ),
+            _branch_step(
+                "Push the water hose onto the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The hose is fully on the fitting.",
+                "The hose sits crooked on the fitting.",
+                "Secure or tighten the supply line connection.",
+                fail="Pull the hose off and push it on straight.",
+                tools="pliers",
+                section="installation",
+            ),
+            _branch_step(
+                # OM 42088 p3: "check water supply line connection at water valve. Secure or tighten as necessary."
+                "Secure or tighten the supply line connection at the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The connection is snug and dry.",
+                "Water still beads at the connection.",
+                "Confirm the connection.",
+                fail="If the leak persists from the water valve, replace the valve.",
+                section="installation",
+            ),
+            _confirm_step("Back of the toilet, on the water valve."),
+        ],
+    }
+
+
+def _flange_branch() -> dict:
+    return {
+        "title": "Flange and seal",
+        "heading": "REPAIR BRANCH",
+        "before": [
+            "Turn the RV water off before this work.",
+            "Use closet flange seal 02125 when the flange is the leak.",
+        ],
+        "steps": [
+            _branch_step(
+                "Take off the bolt covers and the nuts.",
+                "At the closet flange, under the toilet.",
+                "The bolt covers and the nuts are off.",
+                "A nut is still on.",
+                "Pull the water hose off.",
+                fail="Turn the nut the other way.",
+                tools="wrench",
+                section="removal",
+            ),
+            _branch_step(
+                "Pull the water hose off the toilet.",
+                "At the water hose on the toilet.",
+                "The hose is off.",
+                "The hose is still on.",
+                "Lift the toilet.",
+                fail="Loosen the clamp and pull the hose again.",
+                tools="pliers",
+                section="removal",
+            ),
+            _branch_step(
+                "Lift the toilet off the floor.",
+                "At the closet flange, under the toilet.",
+                "The toilet is off the floor.",
+                "The toilet is still bolted down.",
+                "Take off the old seal.",
+                fail="Take the nuts off, then lift again.",
+                section="removal",
+            ),
+            _branch_step(
+                "Take off the old floor seal.",
+                "At the closet flange, under the toilet.",
+                "The old seal is off.",
+                "The old seal is still on.",
+                "Cover the holding tank opening.",
+                fail="Pull the old seal off.",
+                section="removal",
+            ),
+            _branch_step(
+                "Cover the holding tank opening at the closet flange with a towel.",
+                "At the closet flange.",
+                "The opening is covered.",
+                "The opening is still open.",
+                "Check the flange height.",
+                fail="Lay the towel over the opening.",
+                section="removal",
+            ),
+            _branch_step(
+                "Check the flange is 7/16 inch above the floor.",
+                "At the closet flange, under the toilet.",
+                "The flange is 7/16 inch above the floor.",
+                "The flange sits low, under 7/16 inch above the floor.",
+                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                fail="If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                tools="ruler",
+                section="removal",
+            ),
+            _branch_step(
+                # OM 42088 p3: "Use Thetford spacers to adjust, if necessary, to 7/16 in above floor."
+                "If the flange is low, add Thetford spacers to bring it to 7/16 inch.",
+                "At the closet flange, under the toilet.",
+                "The flange is 7/16 inch above the floor.",
+                "The spacers rock or sit crooked on the flange.",
+                "Uncover the holding tank opening.",
+                fail="Reseat the spacers flat on the flange.",
+                section="removal",
+            ),
+            _branch_step(
+                "Uncover the holding tank opening at the closet flange.",
+                "At the closet flange.",
+                "The holding tank opening is clear.",
+                "The towel is still on.",
+                "Put seal 02125 on.",
+                fail="Pull the towel out of the opening.",
+                section="installation",
+            ),
+            _branch_step(
+                "Put flange seal 02125 on with the lip down.",
+                "At the closet flange, under the toilet.",
+                "The new seal is seated.",
+                "The leak continues.",
+                "Set the toilet on the bolts.",
+                fail="Seat the seal again.",
+                section="installation",
+            ),
+            _branch_step(
+                "Set the toilet on the floor bolts.",
+                "At the closet flange, under the toilet.",
+                "The holes line up on the bolts.",
+                "The holes do not line up.",
+                "Tighten the nuts.",
+                fail="Set the toilet on the bolts again.",
+                section="installation",
+            ),
+            _branch_step(
+                "Tighten the nuts until the toilet does not rock.",
+                "At the closet flange, under the toilet.",
+                "The toilet does not rock.",
+                "The toilet still rocks.",
+                "Push the water hose on.",
+                fail="Turn the nuts until the toilet does not rock.",
+                tools="wrench",
+                section="installation",
+            ),
+            _branch_step(
+                "Put the bolt covers back on.",
+                "At the closet flange, under the toilet.",
+                "The bolt covers are on the nuts.",
+                "A bolt cover sits loose or is missing.",
+                "Push the water hose on.",
+                fail="Press the cover down over the nut.",
+                section="installation",
+            ),
+            _branch_step(
+                # 42109 p1 / 34122 p2: "Connect RV water supply line to Toilet."
+                "Push the water hose onto the toilet.",
+                "Back of the toilet, on the water valve.",
+                "The water hose is on the water valve fitting.",
+                "The water hose sits crooked on the fitting.",
+                "Secure or tighten the supply line connection.",
+                fail="Take the water hose off and push it on straight.",
+                section="installation",
+            ),
+            _branch_step(
+                # OM 42088 p3: "Secure or tighten as necessary."
+                "Secure or tighten the supply line connection at the water valve.",
+                "Back of the toilet, on the water valve.",
+                "The connection is snug and dry.",
+                "Water still beads at the connection.",
+                "Confirm the flange.",
+                fail="If the leak persists from the water valve, replace the valve.",
+                section="installation",
+            ),
+            _confirm_step("At the closet flange, under the toilet."),
+        ],
+    }
+
+
+def _safety_sentences(text: str) -> list[str]:
+    """Real safety sentences. A not-stated filler is not a note."""
+    out = []
+    for piece in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        sentence = piece.strip()
+        if not sentence or re.search(r"not stated|unconfirmed", sentence, re.I):
+            continue
+        if sentence[-1] not in ".!?":
+            sentence += "."
+        out.append(sentence)
+    return out
+
+
+def hoist_branch_safety(procedure: dict) -> dict:
+    """The safety note used most often lives in Before you start, once."""
+    import manual_figures as mf
+
+    counts: dict[str, int] = {}
+    order: list[str] = []
+    for step in procedure.get("steps") or []:
+        for sentence in _safety_sentences(mf.step_safety_text(step)):
+            key = sentence.lower()
+            if key not in counts:
+                order.append(sentence)
+                counts[key] = 0
+            counts[key] += 1
+    if not order:
+        return procedure
+    before = list(procedure.get("before") or [])
+    blob = " ".join(before).lower()
+    pending = [
+        sentence
+        for sentence in order
+        if sentence.rstrip(".").lower() not in blob
+        and not re.search(r"\bwater on\b|turn the rv water on", sentence, re.I)
+    ]
+    if not pending:
+        return procedure
+    note = max(pending, key=lambda sentence: counts[sentence.lower()])
+    procedure["before"] = [note, *before]
+    return procedure
+
+
+def _with_removal_line(procedure: dict) -> dict:
+    """A branch with nothing to take off still names Removal."""
+    steps = list((procedure or {}).get("steps") or [])
+    if any((step.get("section") or "") == "removal" for step in steps):
+        return procedure
+    where = "At the repair."
+    for step in steps:
+        named = ((step.get("fields") or {}).get("WHERE") or "").strip()
+        if named:
+            where = named
+            break
+    cloned = dict(procedure)
+    cloned["steps"] = [
+        _branch_step(
+            "Removal: none.",
+            where,
+            "No part comes off.",
+            "",
+            "Go to installation.",
+            section="removal",
+        ),
+        *steps,
+    ]
+    return cloned
+
+
+def _thetford_branch_layout(kind: str, chunks) -> dict:
+    """Kit steps from the retrieved excerpt. The full PDF is only a last resort."""
+    import manual_figures as mf
+
+    title = (
+        "Thetford Vacuum Breaker Kit 34123/34122"
+        if kind == "breaker"
+        else "Thetford Water Valve Kit 42109"
+    )
+    text, figures = mf.kit_excerpt(chunks, kind)
+    figures = [
+        {**figure, "label": manual_figure_label(str(figure.get("label") or ""), text)}
+        if isinstance(figure, dict)
+        else figure
+        for figure in figures or []
+    ]
+    needles = ("34122", "34123") if kind == "breaker" else ("42109",)
+    doc_numbers = " ".join(
+        dict.fromkeys(
+            _doc_part_numbers(chunk)
+            for chunk in chunks or []
+            if isinstance(chunk, dict)
+            and any(needle in str(chunk.get("file_path") or "") for needle in needles)
+        )
+    )
+    if text:
+        layout = mf.procedure_from_sheet(text, figures or None, title, doc_text=doc_numbers)
+        if layout.get("steps"):
+            return layout
+        return {}
+    return mf.thetford_kit_layout(kind)
+
+
+def _sync_thetford_sources(proc: BayProcedure, chunks=None) -> None:
+    """Every doc and page the sheet cites is a Sources line."""
+    blob = "\n".join(proc.bay_order or [])
+    blob += "\n" + (proc.primary_cite or "")
+    for procedure in proc.procedures or []:
+        blob += "\n" + (procedure.get("title") or "")
+        blob += "\n" + (procedure.get("doc") or "")
+        for step in procedure.get("steps") or []:
+            fields = step.get("fields") or {}
+            blob += "\n" + " ".join(str(value or "") for value in fields.values())
+            figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
+            if figure:
+                blob += f"\n{figure.get('label') or ''} {figure.get('title') or ''} page {figure.get('page') or ''}"
+    rows = []
+    prior = list(proc.sources or [])
+
+    def _quote_from_procedure(token: str, needles: tuple[str, ...]) -> str:
+        """A sentence from this document's own steps, not another manual's line."""
+        for procedure in proc.procedures or []:
+            blob = f"{procedure.get('title') or ''} {procedure.get('doc') or ''}"
+            if not re.search(token, blob, re.I):
+                continue
+            for step in procedure.get("steps") or []:
+                sentence = re.sub(r"\s+", " ", (step.get("text") or "")).strip().rstrip(".")
+                low = sentence.lower()
+                if "supply line" in low or "supply connection" in low:
+                    continue
+                if _THETFORD_INSTALL_STEP_RE.search(sentence):
+                    continue
+                if any(needle in low for needle in needles):
+                    return sentence + "."
+        return ""
+
+    def _kept_excerpt(title: str, page: int) -> str:
+        # Verbatim sentences from each document. A shortened step is not a quote.
+        verbatim = (
+            (r"\b42088\b", "Back of toilet: check water supply line connection at water valve."),
+            (
+                r"\b3412[23]\b",
+                "With pliers, slide clamp A down inlet tube, then remove inlet tube from vacuum breaker.",
+            ),
+            (r"\b42109\b", "Insert new Water Valve Cartridge Assembly until fully seated."),
+        )
+        for token, sentence in verbatim:
+            if re.search(token, title or ""):
+                return sentence
+        for src in prior:
+            if (src.get("title") or "") == title and src.get("page") == page:
+                excerpt = src.get("excerpt") or ""
+                if excerpt and not _THETFORD_INSTALL_STEP_RE.search(excerpt):
+                    if "42109" in title and re.search(r"supply line|supply connection", excerpt, re.I):
+                        excerpt = ""
+                    elif excerpt:
+                        return excerpt
+        if re.search(r"\b3412[23]\b", title):
+            found = _quote_from_procedure(r"3412|vacuum breaker", ("vacuum breaker", "flush hose", "inlet tube"))
+            if found:
+                return found
+        elif re.search(r"\b42109\b", title):
+            found = _quote_from_procedure(r"42109|water valve", ("water valve", "pedal", "inlet"))
+            if found:
+                return found
+        blob = "\n".join(proc.bay_order or [])
+        needles = ("water valve", "vacuum breaker", "flange")
+        for line in blob.splitlines():
+            match = re.match(r"^\d+\.\s+(.+)$", line.strip())
+            if not match:
+                continue
+            sentence = match.group(1).strip()
+            low = sentence.lower()
+            if "step " in low or _THETFORD_INSTALL_STEP_RE.search(sentence):
+                continue
+            if "supply line" in low and not re.search(r"\b42088\b", title):
+                continue
+            if any(needle in low for needle in needles):
+                return sentence
+        return ""
+
+    def add(title: str, page: int):
+        if page and not any(row["title"] == title and row["page"] == page for row in rows):
+            rows.append({"title": title, "page": page, "excerpt": _kept_excerpt(title, page)})
+
+    if re.search(r"\b42088\b", blob):
+        pages = [int(n) for n in re.findall(r"42088\D{0,40}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,40}42088", blob, re.I)]
+        for page in sorted(set(pages) or {3}):
+            add("Thetford Style II OM Permanent RV Toilet 42088", page)
+    if re.search(r"\b34122\b|\b34123\b|vacuum breaker", blob, re.I):
+        pages = [int(n) for n in re.findall(r"3412[23]\D{0,48}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}3412[23]", blob, re.I)]
+        for page in sorted(set(pages) or {1}):
+            add("Thetford Vacuum Breaker Kit 34123/34122", page)
+    if re.search(r"\b42109\b", blob):
+        pages = [int(n) for n in re.findall(r"42109\D{0,48}page\s+(\d+)", blob, re.I)]
+        pages += [int(n) for n in re.findall(r"page\s+(\d+)\D{0,24}42109", blob, re.I)]
+        for page in sorted(set(pages) or {1}):
+            add("Thetford Water Valve Kit 42109", page)
+    for extra in _securing_source_rows(proc, chunks, rows):
+        # A second page of a manual sits right under its first page.
+        at = max((i for i, r in enumerate(rows) if r["title"] == extra["title"]), default=len(rows) - 1)
+        rows.insert(at + 1, extra)
+    rows = _verify_source_pages(rows, chunks)
+    rows = _dedupe_source_rows(rows)
+    if rows:
+        proc.sources = rows
+
+
+def _quote_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def _verify_source_pages(rows: list, chunks) -> list:
+    """A quote cites the page its words are printed on. A row whose quote sits on
+    another page of the same manual takes that page."""
+    for row in rows:
+        quote = _quote_key(row.get("excerpt") or "")[:60]
+        if len(quote) < 20:
+            continue
+        numbers = set(re.findall(r"\b\d{5}\b", row.get("title") or ""))
+        pages = []
+        for chunk in chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            title = str(chunk.get("title") or chunk.get("clean_title") or "")
+            if numbers and not numbers & set(re.findall(r"\b\d{5}\b", title)):
+                continue
+            if quote in _quote_key(str(chunk.get("chunk_text") or chunk.get("excerpt") or "")):
+                pages.append(chunk.get("page"))
+        if pages and row.get("page") not in pages:
+            row["page"] = pages[0]
+    return rows
+
+
+def _securing_source_rows(proc: BayProcedure, chunks, rows: list) -> list:
+    """A step that secures with a lettered clamp cites the manual page that says so, verbatim."""
+    import manual_figures as mf
+
+    letters = []
+    for procedure in proc.procedures or []:
+        for step in procedure.get("steps") or []:
+            action = mf.step_heading(step, 1).split(": ", 1)[-1]
+            m = re.search(r"(?i)\b(?:tighten|secure)\b.*\bclamp ([A-H])\b", action)
+            if m and m.group(1) not in letters:
+                letters.append(m.group(1))
+    added = []
+    for letter in letters:
+        for chunk in chunks or []:
+            if not isinstance(chunk, dict):
+                continue
+            body = re.sub(r"\s+", " ", str(chunk.get("chunk_text") or chunk.get("excerpt") or ""))
+            m = re.search(rf"(?:^|\d\.\s+)([A-Z][^.]*\bsecure with new clamp {letter}\b\.)", body)
+            if not m:
+                continue
+            title_raw = str(chunk.get("title") or chunk.get("clean_title") or "")
+            numbers = set(re.findall(r"\b\d{5}\b", title_raw))
+            title = next((r["title"] for r in rows if numbers & set(re.findall(r"\b\d{5}\b", r["title"]))), title_raw)
+            page = chunk.get("page")
+            if title and page and not any(r["title"] == title and r["page"] == page for r in rows + added):
+                added.append({"title": title, "page": page, "excerpt": m.group(1).strip()})
+            break
+    return added
+
+
+def attach_thetford_repair_procedures(proc: BayProcedure, history=None, chunks=None) -> BayProcedure:
+    """Diagnosis stays in the flowchart. Every supported repair is its own branch.
+
+    Thetford 42070 branches are the supply connection, vacuum breaker 34123/34122,
+    water valve 42109, and the flange seal. Each branch numbers its own steps and
+    ends on a confirm. A crop is drawn on the first step that uses it.
     """
     import manual_figures as mf
 
+    del history
     if not proc.bay_order:
         return proc
     blob = " ".join(
@@ -6627,11 +7282,161 @@ def attach_thetford_repair_procedures(proc: BayProcedure, history=None) -> BayPr
     order = " ".join(proc.bay_order).lower()
     if "vacuum" not in order and "42109" not in order and "water valve" not in order:
         return proc
-    kind = _confirmed_thetford_kind(proc, history)
-    layout = mf.thetford_kit_layout(kind)
-    if layout.get("steps"):
-        proc.procedures = [layout]
+    branches = [hoist_branch_safety(_supply_branch())]
+    for kind in ("breaker", "valve"):
+        layout = _thetford_branch_layout(kind, chunks)
+        if layout.get("steps"):
+            branched = hoist_branch_safety(ensure_verify_step(layout))
+            branched["heading"] = "REPAIR BRANCH"
+            branches.append(branched)
+    branches.append(hoist_branch_safety(_flange_branch()))
+    proc.procedures = [_with_removal_line(item) for item in branches]
     _drop_repeated_procedure_figures(proc.procedures)
+    _sync_thetford_sources(proc, chunks)
+    return proc
+
+
+def _facr_doc_token(text: str) -> str:
+    """8666 or 7990 when this title is one of the two FACR library docs."""
+    raw = text or ""
+    low = re.sub(r"[\s_]", "", raw.lower())
+    if "ccd-0008666" in raw.lower() or "ccd0008666" in low:
+        return "8666"
+    if "ccd-0007990" in raw.lower() or "ccd0007990" in low:
+        return "7990"
+    return ""
+
+
+def place_facr_library_figures(proc: BayProcedure, rows) -> BayProcedure:
+    """Copy a library PNG onto the procedure step that cites that doc and page.
+
+    A row for another document or another page is left unused. No bundled crop
+    is read from disk. A step that names a figure without a page stays text.
+    """
+    import manual_figures as mf
+
+    if not proc.procedures or not rows:
+        return proc
+    if not any(_procedure_keeps_repeated_figures(item) for item in proc.procedures):
+        return proc
+    indexed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        png = row.get("png") or row.get("image_png") or b""
+        if not png or mf.png_is_blank(png):
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "file_path", "caption", "label")
+        )
+        doc = _facr_doc_token(blob)
+        if not doc:
+            continue
+        try:
+            page = int(row.get("page") or 0)
+        except (TypeError, ValueError):
+            continue
+        if page <= 0:
+            continue
+        indexed.append((doc, page, png))
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            page = figure.get("page")
+            if not page:
+                continue
+            doc = _facr_doc_token(figure.get("title") or "")
+            if not doc:
+                continue
+            try:
+                want = int(page)
+            except (TypeError, ValueError):
+                continue
+            for idoc, ipage, png in indexed:
+                if idoc == doc and ipage == want:
+                    figure["png"] = png
+                    break
+    return apply_bay_oem_fallback(proc, rows)
+
+
+def attach_facr_procedures(proc: BayProcedure) -> BayProcedure:
+    """Proving checks and rooftop R&R. Attached after the sheet scrub so cites stay.
+
+    The short bay order and the flowchart stay the diagnosis. The numbered
+    checks live on the procedure, which the scrub does not rewrite.
+    """
+    import manual_figures as mf
+
+    if not is_facr_rooftop_freeze_context(proc.category, proc.model, proc.concern):
+        return proc
+    proving = hoist_branch_safety(mf.facr_proving_layout())
+    repair = hoist_branch_safety(ensure_verify_step(mf.facr_rr_layout()))
+    proc.procedures = [item for item in (proving, repair) if item.get("steps")]
+    return apply_bay_oem_fallback(proc, None)
+
+
+# Same OEM doc and page as the crops already in assets/bay-oem.
+_BAY_OEM_PAGE = {
+    ("7990", 7): "ccd7990-p7.png",
+    ("7990", 4): "ccd7990-p4.png",
+    ("8666", 10): "ccd8666-p10.png",
+    ("8666", 19): "ccd8666-p19.png",
+    ("8122", 36): "ccd8122-fig36.png",
+}
+
+
+def _doc_has_figure_rows(rows, doc_token: str) -> bool:
+    """True when this document already has a stored page image or figure crop."""
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        png = row.get("png") or row.get("image_png") or b""
+        if not png:
+            continue
+        blob = " ".join(
+            str(row.get(key) or "")
+            for key in ("title", "doc_number", "clean_title", "file_path", "caption", "label")
+        )
+        if _facr_doc_token(blob) == doc_token:
+            return True
+    return False
+
+
+def apply_bay_oem_fallback(proc: BayProcedure, rows) -> BayProcedure:
+    """Draw the bay-oem crop until that document has figure rows.
+
+    The caption is the OEM doc and page. A step with no crop stays without a
+    text-only figure line.
+    """
+    import manual_figures as mf
+
+    if not proc.procedures:
+        return proc
+    for procedure in proc.procedures:
+        for step in procedure.get("steps") or []:
+            figure = step.get("figure")
+            if not isinstance(figure, dict):
+                continue
+            png = figure.get("png") or b""
+            if png and not mf.png_is_blank(png):
+                continue
+            doc = _facr_doc_token(figure.get("title") or "")
+            try:
+                page = int(figure.get("page") or 0)
+            except (TypeError, ValueError):
+                page = 0
+            if not doc or page <= 0:
+                continue
+            if _doc_has_figure_rows(rows, doc):
+                continue
+            name = _BAY_OEM_PAGE.get((doc, page))
+            if not name:
+                continue
+            figure["png"] = _cropped_oem_png(name) if name in _OEM_FIGURE_CROP else load_oem_figure_png(name)
+            figure["label"] = f"CCD-000{doc}, page {page}"
     return proc
 
 
@@ -6770,7 +7575,33 @@ def paint_library_step_figures(proc: BayProcedure, rows, groups=None) -> BayProc
             )
             break
     proc.step_figures = placed
-    return place_thetford_kit_crops(proc)
+    return place_facr_library_figures(place_thetford_kit_crops(proc), rows)
+
+
+def _doc_part_numbers(packet: dict) -> str:
+    """Part numbers the document names outside the ranked window.
+
+    Live retrieval cuts a kit sheet at 4000 characters, so the part number
+    printed at the bottom ('42049' under the figures) can fall out. The file
+    name keeps it ('..._Res_42049C-1.pdf'). A trailing revision letter is dropped.
+    """
+    name = Path(str(packet.get("file_path") or "")).name
+    found = re.findall(r"(?<![0-9])(\d{5,6})(?=[A-Z]?(?:[-_.]|$))", name)
+    return " ".join(dict.fromkeys(found))
+
+
+def _dedupe_source_rows(rows: list) -> list:
+    """One source line per quote. Two pages of one manual with the same quote is one cite."""
+    kept = []
+    seen = set()
+    for row in rows or []:
+        quote = re.sub(r"\s+", " ", str(row.get("excerpt") or "")).strip().lower()
+        key = (str(row.get("title") or "").strip().lower(), quote)
+        if quote and key in seen:
+            continue
+        seen.add(key)
+        kept.append(row)
+    return kept
 
 
 def _plain_kit_procedures(packets, job: str) -> list:
@@ -6795,7 +7626,7 @@ def _plain_kit_procedures(packets, job: str) -> list:
                 continue
             figures.append(
                 {
-                    "label": figure.get("label") or "Fig.",
+                    "label": manual_figure_label(figure.get("label") or "Fig.", packet.get("excerpt") or ""),
                     "png": png,
                     "page": figure.get("page") or packet.get("page"),
                     "title": figure.get("title") or title,
@@ -6803,10 +7634,12 @@ def _plain_kit_procedures(packets, job: str) -> list:
             )
         if not figures:
             continue
-        layout = mf.procedure_from_sheet(packet.get("excerpt") or "", figures, title)
+        layout = mf.procedure_from_sheet(
+            packet.get("excerpt") or "", figures, title, doc_text=_doc_part_numbers(packet)
+        )
         if not layout.get("steps"):
             continue
-        built.append(layout)
+        built.append(ensure_verify_step(layout))
         seen.add(key)
     built.sort(
         key=lambda item: 0
@@ -7164,9 +7997,12 @@ def compile_bay_procedure(
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
     return dedupe_sheet_figures(
-        attach_thetford_repair_procedures(
-            place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
-            history=history,
+        attach_facr_procedures(
+            attach_thetford_repair_procedures(
+                place_thetford_kit_crops(apply_chunk_figures(proc, chunks)),
+                history=history,
+                chunks=chunks,
+            )
         )
     )
 
@@ -7370,6 +8206,12 @@ _FLOW_GAP = 16.0
 _PAD_X = 7.0
 _PAD_Y = 5.0
 _CONTENT_W = PAGE_W - 2 * MARGIN
+# Every Bay figure uses this width, centered under the step that cites it.
+_FIGURE_WIDTH = 0.75 * _CONTENT_W
+# Low enough that a portrait crop at that width still clears the page margin.
+_FIGURE_FLOOR = MARGIN
+_STEP_GAP = 8.0
+_STEP_TEXT_W = _CONTENT_W - 16.0
 
 
 def _next_id(prefix: str) -> str:
@@ -7576,7 +8418,10 @@ def _pack_rows(flow: Flowchart, inner_w: float, inner_h: float, readable: bool, 
             else:
                 allocs = [pw * avail / sum(prefs) for pw in prefs]
             fitted = [_fit_node(node, alloc, readable, scale) for node, alloc in zip(row, allocs)]
-            if sum(item[0] for item in fitted) + _FLOW_GAP * (len(row) - 1) > inner_w + 1.5:
+            # Two nodes on one row are pinned to the edges. The open gap has to
+            # hold an 11pt YES on the arrow, so 16pt is not enough.
+            side_gap = 48.0 if len(row) == 2 else _FLOW_GAP * (len(row) - 1)
+            if sum(item[0] for item in fitted) + side_gap > inner_w + 1.5:
                 return None
         packed_rows.append(fitted)
     heights = [max(item[1] for item in row) for row in packed_rows]
@@ -7657,6 +8502,16 @@ def _pack_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: fl
             }
         extra = _row_pad(flow, row) if row is not rows[-1] else 0.0
         top -= rh + _FLOW_GAP + extra
+    # Decision diamonds share one center so a NO arrow drops straight down.
+    # A right edge pin leaves a jog, and the NO label then sits beside that jog.
+    mid = inner_x + inner_w / 2.0
+    right = [node for node in placed.values() if node["cx"] > mid]
+    if len(right) >= 2:
+        widest = max(right, key=lambda node: node["w"])
+        target = widest["cx"]
+        for node in right:
+            half = node["w"] / 2.0
+            node["cx"] = min(max(target, inner_x + half + 2.0), inner_x + inner_w - half)
     return placed
 
 
@@ -8045,9 +8900,10 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
     horizontal = abs(bx - ax) >= abs(by - ay)
     sizes = []
     trial = float(size)
-    while trial >= 6.4:
+    floor = 9.0 if size >= 10 else 6.4
+    while trial >= floor:
         sizes.append(trial)
-        trial -= 1.25
+        trial -= 1.0
 
     def clears_heads(box) -> bool:
         if own_pts and _arrowhead_hits_box(box, own_pts, pad=1.8):
@@ -8093,10 +8949,14 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
                 candidates.append((x, py + lift + (h - block.ascent)))
                 candidates.append((x, py - lift - block.ascent))
         elif horizontal:
-            for along in (3.0, 8.0, 14.0):
+            # The arrow leaves to the left. Keep YES/NO on that side of the port.
+            span = abs(bx - ax)
+            alongs = (10.0, 18.0, 28.0, max(16.0, span * 0.4))
+            for along in alongs:
                 x = px - along - w
-                baseline = py + 2.4 + (h - block.ascent)
-                candidates.append((x, baseline))
+                for lift in (3.0, 8.0, 12.0):
+                    candidates.append((x, py + lift + (h - block.ascent)))
+                    candidates.append((x, (py - lift - h) + (h - block.ascent)))
         elif by < ay:
             for along in (4.0, 10.0, 16.0):
                 for side in (8.0, 14.0, 22.0, 32.0):
@@ -8117,9 +8977,11 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         w = block.width
         h = block.height
         fallback = []
-        if horizontal:
+        if horizontal and bx >= ax:
             fallback.append((px + 8.0, py + 3.0 + (h - block.ascent)))
-            fallback.append((px - 8.0 - w, py + 3.0 + (h - block.ascent)))
+        elif horizontal:
+            fallback.append((px - 10.0 - w, py + 3.0 + (h - block.ascent)))
+            fallback.append((px - 22.0 - w, py + 8.0 + (h - block.ascent)))
         else:
             fallback.append((px + 16.0, py - block.ascent))
             fallback.append((px - 16.0 - w, py - block.ascent))
@@ -8144,8 +9006,13 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         node = owners[0]
         mid = (node[1] + node[3]) / 2.0
         baseline = mid - block.height / 2.0 + (block.height - block.ascent)
-        beside.append((node[2] + 6.0, baseline))
-        beside.append((node[0] - 6.0 - block.width, baseline))
+        left = (node[0] - 6.0 - block.width, baseline)
+        right = (node[2] + 6.0, baseline)
+        if horizontal and bx < ax:
+            beside.append(left)
+        else:
+            beside.append(right)
+            beside.append(left)
     beside.append((px + 6.0, py - block.ascent - 1.0))
     beside.append((px - block.width - 6.0, py - block.ascent - 1.0))
     for x, baseline in beside:
@@ -8489,93 +9356,134 @@ def _add_boxed_text(cur: _SheetFlow, text: str, *, size: float = 9.0, leading: f
         idx += take
 
 
-def _add_manual_figure(cur: _SheetFlow, fig: BayFigure):
-    """Draw one cropped figure in a single block. It never splits across a page."""
+def _figure_draw_size(png: bytes, max_h: float) -> tuple[float, float]:
+    """One width for every Bay figure: 75% of the usable page, aspect kept."""
+    width, height = _png_pixel_size(png)
+    fig_w = _FIGURE_WIDTH
+    fig_h = fig_w * float(height) / max(float(width), 1.0)
+    if max_h > 0 and fig_h > max_h:
+        fig_h = max_h
+    return fig_w, max(fig_h, 1.0)
+
+
+def _keep_block(cur: _SheetFlow, need: float, subtitle: str) -> None:
+    """Start a new page when the step and its figure will not both fit."""
+    if need <= cur.y - _FIGURE_FLOOR:
+        return
+    cur.new_page(subtitle)
+
+
+def _paint_centered_figure(cur: _SheetFlow, png: bytes, caption: str, fig_w: float, fig_h: float) -> None:
+    """Figure centered under the step, caption centered under the figure."""
+    img_x = MARGIN + (_CONTENT_W - fig_w) / 2.0
+    img_bottom = cur.y - fig_h
+    cur.page.images.append(DrawnImage(png, img_x, img_bottom, fig_w, fig_h))
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    cap_x = img_x + max(0.0, (fig_w - cap_m.width) / 2.0)
+    baseline = img_bottom - 4.0 - cap_m.ascent
+    cur.page.texts.append(
+        DrawnText(
+            "\n".join(cap_m.lines),
+            cap_x,
+            baseline,
+            w=max(cap_m.width, 12),
+            size=8,
+            bold=True,
+            color=NAVY,
+            leading=cap_m.leading,
+            lines=list(cap_m.lines),
+            role="caption",
+        )
+    )
+    cur.y = baseline - max(0, len(cap_m.lines) - 1) * cap_m.leading - cap_m.descent
+
+
+def _figure_block_height(png: bytes, caption: str, max_h: float) -> tuple[float, float, float]:
+    fig_w, fig_h = _figure_draw_size(png, max_h)
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    return fig_w, fig_h, fig_h + 4.0 + cap_m.height
+
+
+def _fit_figure_pair(png: bytes, caption: str, room: float) -> tuple[float, float]:
+    """Keep the shared width. Shrink height only when a fresh page is still too short."""
+    fig_w, _fig_h, block = _figure_block_height(png, caption, 0)
+    if block <= room:
+        return fig_w, _fig_h
+    cap_m = measure_text(caption, fig_w - 8.0, 8, bold=True, leading=10)
+    fig_h = max(36.0, room - 4.0 - cap_m.height)
+    return fig_w, fig_h
+
+
+def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = None):
+    """One bay-order step, then each cited figure under it. They stay on one page."""
     import manual_figures as mf
 
-    png = fig.image_png or b""
-    if not png:
-        return
-    cap = mf.display_caption(fig.title, fig.page, fig.caption)
-    cap_m = measure_text(cap, _CONTENT_W - 16, 8, bold=True, leading=10)
-    width, height = _png_pixel_size(png)
-    # 180 pt is about 375 px at 150 dpi, above the 250 px floor.
-    dw = min(_CONTENT_W - 24, 250.0)
-    dh = dw * height / max(width, 1)
-    if dh > 230.0:
-        dh = 230.0
-        dw = dh * width / max(height, 1)
-    if dw < 120.0:
-        dw = 120.0
-        dh = dw * height / max(width, 1)
-    need = cap_m.height + dh + 16.0
-    if need > cur.remaining():
-        cur.new_page("Bay order continued")
-        avail = cur.remaining() - cap_m.height - 20.0
-        if dh > avail > 70.0:
-            dh = avail
-            dw = avail * width / max(height, 1)
-    _emit_block(cur, cap_m, x=MARGIN + 8, size=8, bold=True, color=NAVY, gap_after=4, allow_break=False)
-    if cur.y - dh < cur.floor:
-        dh = max(48.0, cur.y - cur.floor - 6.0)
-        dw = dh * width / max(height, 1)
-    cur.page.images.append(DrawnImage(png, MARGIN + 12, cur.y - dh, dw, dh))
-    cur.y -= dh + 10.0
-
-
-def _add_step(cur: _SheetFlow, index: int, step: str):
     text_x = MARGIN + 24.0
     text_w = _CONTENT_W - 32.0
-    block = measure_text(f"{index}. {step}", text_w, 8.5, leading=11.2)
-    gap = 8.0
+    heading, lines = mf.lines_from_shop_text(step, index)
+    prev_where = getattr(cur, "diag_prev_where", "") if index > 1 else ""
+    if any(re.match(r"^(?:Where|Good looks like|Next|If it fails):", line) for line in lines):
+        # A labeled check is held to the profile. A plain bay-order line stays as written.
+        heading, lines = bpl.conform_lines(heading, lines, previous_where=prev_where, diagnosis=True)
+    try:
+        cur.diag_prev_where = next((line[7:] for line in lines if line.startswith("Where: ")), prev_where)
+    except AttributeError:
+        pass
+    head = measure_text(heading, text_w, 9, bold=True, leading=11.6)
+    body = measure_text("\n".join(lines), text_w, 8, leading=10.8) if lines else None
+    text_h = head.height + (3.0 + body.height if body else 0.0)
+    drawn = []
+    fig_span = 0.0
+    for fig in figures or []:
+        png = getattr(fig, "image_png", b"") or b""
+        if not png:
+            continue
+        cap = mf.display_caption(fig.title, fig.page, fig.caption)
+        _fw, _fh, block = _figure_block_height(png, cap, 0)
+        drawn.append((png, cap))
+        fig_span += 4.0 + block
+    floor = _FIGURE_FLOOR if drawn else cur.floor
+    need = text_h + fig_span + _STEP_GAP
 
     def continued(flow: _SheetFlow):
         flow.new_page("Bay order continued")
-        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=block.height)
+        _add_section(flow, "BAY ORDER (CONTINUED)", GREEN, follow_h=min(text_h, 48))
 
-    if block.height + gap > cur.remaining():
-        fresh = cur.banner_bottom - 8.0 - cur.floor - 40.0
-        if block.height + gap <= fresh:
-            continued(cur)
-        # else the emitter splits the step
-    checkbox = True
+    if need > cur.y - floor:
+        continued(cur)
+    room = cur.y - floor - text_h - _STEP_GAP
+    sized = []
+    for png, cap in drawn:
+        fig_w, fig_h = _fit_figure_pair(png, cap, room - 4.0)
+        sized.append((png, cap, fig_w, fig_h))
+        _fw, _fh, block = _figure_block_height(png, cap, fig_h)
+        room -= 4.0 + block
 
-    def paint_piece(piece: TextMeasure, with_box: bool):
-        if with_box:
-            baseline = cur.y - piece.ascent
-            mid = baseline + (piece.ascent - piece.descent) / 2.0
-            box = 8.0
-            cur.page.shapes.append(
-                DrawnShape(
-                    "rect", MARGIN + 8, mid - box / 2.0, box, box,
-                    fill=WHITE, stroke=NAVY, stroke_w=0.9,
-                    id=_next_id("check"), role="check",
-                )
+    def paint_check():
+        baseline = cur.y - head.ascent
+        mid = baseline + (head.ascent - head.descent) / 2.0
+        box = 8.0
+        cur.page.shapes.append(
+            DrawnShape(
+                "rect", MARGIN + 8, mid - box / 2.0, box, box,
+                fill=WHITE, stroke=NAVY, stroke_w=0.9,
+                id=_next_id("check"), role="check",
             )
-        _paint_measured(cur, piece, x=text_x, size=8.5, bold=False, color=INK, role="body", owner="", gap_after=gap)
+        )
 
-    if block.height + gap <= cur.remaining():
-        paint_piece(block, True)
-        return
-    idx = 0
-    first = True
-    while idx < len(block.lines):
-        if not first:
-            continued(cur)
-        take = 1
-        while idx + take < len(block.lines):
-            nxt = _chunk_lines(block, block.lines[idx : idx + take + 1])
-            if nxt.height + gap <= cur.remaining():
-                take += 1
-            else:
-                break
-        piece = _chunk_lines(block, block.lines[idx : idx + take])
-        if piece.height + gap > cur.remaining():
-            continued(cur)
-        paint_piece(piece, checkbox and idx == 0)
-        checkbox = False
-        idx += take
-        first = False
+    saved_floor = cur.floor
+    cur.floor = floor
+    try:
+        paint_check()
+        _paint_measured(cur, head, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0 if body else 0.0)
+        if body:
+            _paint_measured(cur, body, x=text_x, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0)
+        for png, cap, fig_w, fig_h in sized:
+            cur.y -= 4.0
+            _paint_centered_figure(cur, png, cap, fig_w, fig_h)
+        cur.y -= _STEP_GAP
+    finally:
+        cur.floor = saved_floor
 
 
 def _add_plain_item(cur: _SheetFlow, text: str, *, size: float = 8.5, color=INK, width: float | None = None, x: float | None = None, gap: float = 5.0, on_break=None, allow_break: bool = True):
@@ -8701,23 +9609,24 @@ def _fit_image(png: bytes, max_w: float, max_h: float) -> tuple[float, float]:
 
 
 def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break: bool = True) -> bool:
-    """Draw the caption and the figure under the cursor. False when it will not fit."""
+    """A leftover library figure, same width as a step figure, caption underneath."""
     cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
-    cap_m = measure_text(cap, _CONTENT_W - 16, 9, bold=True, leading=12)
-    img_w = _CONTENT_W - 32
-    dw, dh = _fit_image(png, img_w, max(0.0, cur.remaining() - cap_m.height - 36))
-    if dh < 28 or dw < 28:
+    _fw, _fh, block = _figure_block_height(png, cap, 0)
+    need = 36.0 + block
+    if need > cur.y - _FIGURE_FLOOR:
+        if not allow_break:
+            return False
+        cur.new_page(cur.subtitle)
+    room = cur.y - _FIGURE_FLOOR - 36.0
+    fig_w, fig_h = _fit_figure_pair(png, cap, room)
+    if fig_h < 28 or fig_w < 28:
         return False
     if not _add_section(
-        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(cap_m.height + 12, 36), allow_break=allow_break
+        cur, "CITED LIBRARY FIGURES", NAVY, follow_h=min(block, 36), allow_break=allow_break
     ):
         return False
-    _emit_block(cur, cap_m, x=MARGIN + 8, size=9, bold=True, color=NAVY, gap_after=6)
-    cur.y -= 2
-    if cur.y - dh < cur.floor:
-        return False
-    cur.page.images.append(DrawnImage(png, MARGIN + 16, cur.y - dh, dw, dh))
-    cur.y -= dh + 8
+    _paint_centered_figure(cur, png, cap, fig_w, fig_h)
+    cur.y -= 8.0
     return True
 
 
@@ -8738,7 +9647,12 @@ def _source_row_height(title: str, excerpt: str) -> float:
 
 def _one_excerpt(text: str) -> str:
     parts = _split_sentences(clean_ocr_prose(text or ""))
-    return parts[0] if parts else ""
+    if parts:
+        return parts[0]
+    # A verbatim manual quote the OCR cleaner rejects still prints as quoted.
+    raw = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text or "").strip())
+    first = raw[0] if raw else ""
+    return first if re.fullmatch(r"[A-Z][A-Za-z0-9 ,/'()-]{10,160}\.", first) else ""
 
 
 def _source_rows(sources: list[dict], *, mode: str) -> list[tuple[str, str]]:
@@ -8774,30 +9688,37 @@ def _sources_that_fit(remaining: float, sources: list[dict]) -> list[tuple[str, 
 
 
 def _paint_fitting_sources(body: _SheetFlow, sources: list[dict]) -> None:
-    """Keep cites with the procedure. A sources-only page is not opened."""
+    """Keep cites with the procedure. A cited page is not dropped to save a line.
+
+    A quote that does not fit in the leftover space still prints, on the next
+    page. Dropping it used to repeat a neighbor's line by leaving the wrong
+    excerpt, or to hide the quote entirely.
+    """
     if not sources:
         return
+    quoted = _source_rows(sources, mode="one")
+    has_quote = any(excerpt for _title, excerpt in quoted)
     fitted = _sources_that_fit(body.remaining(), sources)
-    if fitted is not None:
+    keeps_quote = bool(fitted) and any(excerpt for _title, excerpt in fitted)
+    if fitted is not None and len(fitted) >= len(sources) and (keeps_quote or not has_quote):
         _paint_source_rows(body, fitted, allow_break=False)
         return
-    for title, _excerpt in _source_rows(sources[:4], mode="none"):
-        line = "Sources: " + title.lstrip("- ").strip()
-        block = measure_text(line, _CONTENT_W - 16.0, 8, leading=10.6)
-        if block.height + 4 > body.remaining():
-            break
-        _add_plain_item(body, line, size=8, gap=2.0, allow_break=False)
+    rows = quoted if has_quote else _source_rows(sources, mode="none")
+    _paint_source_rows(body, rows, allow_break=True)
 
 
 def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_break: bool) -> None:
     if not rows:
         return
-    first_h = measure_text(rows[0][0], _CONTENT_W - 16, 8.5, leading=11.1).height
+    # The heading travels with its whole first row, quote included. A heading never ends a page.
+    first_h = _source_row_height(rows[0][0], rows[0][1])
+    if allow_break and first_h + 40.0 > body.remaining():
+        body.new_page("Sources  ·  Tacoma RV Center")
     if not _add_section(
         body,
         "SOURCES (SHOP DOCUMENT LIBRARY)",
         NAVY,
-        follow_h=min(first_h, 36),
+        follow_h=first_h,
         allow_break=allow_break,
     ):
         return
@@ -8815,7 +9736,7 @@ def _paint_source_rows(body: _SheetFlow, rows: list[tuple[str, str]], *, allow_b
         need = _source_row_height(title, excerpt)
         if need > body.remaining():
             tail = sum(_source_row_height(t, e) for t, e in rows[index:])
-            if not allow_break or tail < 170.0:
+            if not allow_break:
                 return
             body.new_page("Sources  ·  Tacoma RV Center")
             if not _add_section(body, "SOURCES (SHOP DOCUMENT LIBRARY)", NAVY, follow_h=20, allow_break=True):
@@ -8847,10 +9768,10 @@ def _paint_diagnosis(body: _SheetFlow, steps: list[str]) -> None:
         _add_step(body, index, line)
 
 
-def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) -> None:
+def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float, allow_break: bool = True) -> None:
     block = measure_text(text, width - 10, 7.5, leading=9.5)
     box_h = block.height + 8.0
-    if box_h + 4 > cur.remaining():
+    if allow_break and box_h + 4 > cur.remaining():
         cur.new_page("Repair procedure")
     top = cur.y
     bottom = top - box_h
@@ -8871,118 +9792,245 @@ def _paint_caution_box(cur: _SheetFlow, text: str, *, x: float, width: float) ->
     cur.y = bottom - 4.0
 
 
-def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
-    """Numbered Removal and Installation, with the kit figure beside the step."""
+def _repair_figure_caption(figure: dict) -> str:
     import manual_figures as mf
 
+    label = re.sub(r"\s+", " ", (figure.get("label") or "")).strip()
+    if re.fullmatch(r"CCD-000\d+, page \d+", label):
+        return label
+    if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
+        # Two kit sheets each have a Fig. 1. The document and page tell them apart.
+        title = re.sub(r"\s+", " ", str(figure.get("title") or "")).strip()
+        page = figure.get("page") or 1
+        if title and title.lower() not in label.lower():
+            return f"{label}, {title}, page {page}"
+        return label
+    return mf.display_caption(figure.get("title") or "", figure.get("page") or 1, label)
+
+
+def _manual_secure_step(procedures: list) -> dict | None:
+    """The sheet's own manual securing step for a supply connection, if a branch carries one.
+
+    A reconnected line gets this step, in the manual's words. No step means no invented clamp.
+    """
+    import manual_figures as mf
+
+    for procedure in procedures or []:
+        for step in procedure.get("steps") or []:
+            action = mf.step_heading(step, 1).split(": ", 1)[-1]
+            if re.match(r"(?i)^(?:secure|tighten)\b.*\b(?:connection|line)\b", action):
+                return step
+    return None
+
+
+def _sheet_figure_caption(body, caption: str, action: str) -> str:
+    """Number figures across the whole sheet with one number each. The title is the manual's own label."""
+    number = getattr(body, "figure_count", 0) + 1
+    try:
+        body.figure_count = number
+    except AttributeError:
+        pass
+    m = re.match(r"\s*Fig(?:ure)?\.?\s*(\d+)\s*(.*)$", caption or "", re.I)
+    if not m:
+        return f"Fig. {number}, {caption}".strip().rstrip(",")
+    rest = m.group(2).strip()
+    if rest.startswith(","):
+        return f"Fig. {number}{rest}"
+    return f"Fig. {number} {rest}".strip()
+
+
+def _where_from_memory(lines: list[str], obj: str, memory: list) -> list[str]:
+    """A step on the same part as one of the last three steps works where that step did.
+
+    'Secure the back of the cover' follows 'Wrap the cover around to the back of the toilet'.
+    """
+    key = re.sub(r"^(?:the\s+)?(?:(?:back|front) of (?:the\s+)?)?(?:new\s+|old\s+)?", "", (obj or "").lower()).strip()
+    out = []
+    for line in lines:
+        if line.startswith("Where: ") and key:
+            value = line[7:]
+            fig = re.search(r"\s*See Fig\.?\s*\d+\.?$", value)
+            place = value[: fig.start()] if fig else value
+            def self_ref(where: str) -> bool:
+                return key in where.lower() and bool(re.match(r"(?i)^at the ", where))
+
+            match = next((where for k, where in reversed(memory[-3:]) if k == key and not self_ref(where)), "")
+            if match and key not in place.lower() and re.match(r"(?i)^at ", place) and match.lower() != place.lower():
+                value = f"{match} {fig.group(0).strip()}".strip() if fig else match
+            memory.append((key, re.sub(r"\s*See Fig\.?\s*\d+\.?$", "", value).strip()))
+            line = f"Where: {value}"
+        out.append(line)
+    return out
+
+
+def _figure_ref(caption: str) -> str:
+    """'Fig. 1 PEDAL REMOVED, Kit 42109, page 1' -> 'Fig. 1'."""
+    match = re.match(r"\s*(fig(?:ure)?\.?\s*\d+)", caption or "", re.I)
+    return re.sub(r"(?i)^figure", "Fig.", match.group(1)).replace("Fig. .", "Fig.") if match else ""
+
+
+def _step_good_text(step: dict) -> str:
+    import manual_figures as mf
+
+    good, _bad = mf._good_bad_bits(((step or {}).get("fields") or {}).get("GOOD vs BAD") or "")
+    return re.sub(r"\s+", " ", good or "").strip().lower().rstrip(".")
+
+
+def _paint_repair_procedure(body: _SheetFlow, procedure: dict) -> None:
+    """Numbered Removal and Installation. The figure sits under the step that cites it."""
+    import manual_figures as mf
+
+    hoist_branch_safety(procedure)
     title = procedure.get("title") or "Repair procedure"
-    _add_plain_item(body, "REPAIR PROCEDURE", size=10, gap=2)
+    # The branch heading and title travel with what follows. A heading never ends a page.
+    if body.remaining() < 140.0:
+        body.new_page("Repair procedure")
+    _add_plain_item(body, procedure.get("heading") or "REPAIR PROCEDURE", size=10, gap=2)
     _add_plain_item(body, title, size=9, gap=4)
     before = list(procedure.get("before") or [])
+    _actions = [mf.step_heading(step, 1).split(": ", 1)[-1] for step in procedure.get("steps") or []]
+    _conflicts = bpl.before_conflicts(before, _actions)
+    before = [item for item in before if item not in _conflicts]
     if before:
+        head = measure_text("BEFORE YOU START", _CONTENT_W - 16.0, 9, leading=11.6)
+        first = measure_text(f"- {before[0]}", _CONTENT_W - 16.0, 8, leading=10.6)
+        if body.remaining() < head.height + first.height + 16.0:
+            body.new_page("Repair procedure")
         _add_plain_item(body, "BEFORE YOU START", size=9, gap=2)
         for item in before:
             _add_plain_item(body, f"- {item}", size=8, gap=2)
     steps = list(procedure.get("steps") or [])
+    steps = bpl.drop_duplicate_removals(steps, _step_good_text)
+    steps = bpl.repair_branch(
+        steps,
+        lambda s: mf.step_heading(s, 1).split(": ", 1)[-1],
+        lambda s: mf._good_bad_bits(((s or {}).get("fields") or {}).get("GOOD vs BAD") or ""),
+        _branch_step,
+        secure_step=getattr(body, "secure_step", None),
+    )
     section = ""
+    before_blob = " ".join(before).lower()
+    prev_where = ""
+    prev_object = ""
+    where_memory: list = []
+    printed_safety: set[str] = set()
+    text_x = MARGIN + 8.0
+    text_w = _STEP_TEXT_W
     for index, step in enumerate(steps, 1):
         section_label = ""
         if step.get("section") != section:
             section = step.get("section") or ""
-            section_label = "REMOVAL" if section == "removal" else "INSTALLATION"
+            section_label = {
+                "removal": "REMOVAL",
+                "installation": "INSTALLATION",
+                "prove": "VERIFY",
+            }.get(section, "")
         figure = step.get("figure") if isinstance(step.get("figure"), dict) else None
-        png = (figure or {}).get("png") or b""
+        png = crop_printed_figure_label((figure or {}).get("png") or b"")
         has = bool(png) and not mf.png_is_blank(png)
-        fig_w = 132.0
-        fig_h = 0.0
-        cap = ""
-        cap_m = None
-        if has:
-            width, height = _png_pixel_size(png)
-            fig_h = fig_w * height / max(width, 1)
-            if fig_h > 150.0:
-                fig_h = 150.0
-                fig_w = max(120.0, 150.0 * width / max(height, 1))
-            label = re.sub(r"\s+", " ", ((figure or {}).get("label") or "")).strip()
-            if re.search(r"\bfig(?:ure)?\.?\s*\d+", label, re.I):
-                cap = label
-            else:
-                cap = mf.display_caption(
-                    (figure or {}).get("title") or "",
-                    (figure or {}).get("page") or 1,
-                    label,
-                )
-            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-        text_w = _CONTENT_W - 20.0 - ((fig_w + 14.0) if has else 0)
-        sentences = mf.step_sentences(step)
-        block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
-        caption_h = (cap_m.height + 6.0) if cap_m else 0.0
-        pair_h = (fig_h + caption_h) if has else 0.0
-        row = max(block.height + 8.0, pair_h + 6.0)
-        if step.get("caution"):
-            row += 22.0
-        heading_h = 0.0
-        if section_label:
-            heading_h = measure_text(section_label, _CONTENT_W - 16.0, 9, leading=11.6).height + 3.0
-        if row + heading_h + 6 > body.remaining():
-            body.new_page("Repair procedure")
-        if has and pair_h + 8.0 > body.remaining():
-            width, height = _png_pixel_size(png)
-            avail = max(48.0, body.remaining() - caption_h - 16.0)
-            fig_h = min(fig_h, avail)
-            fig_w = max(120.0, fig_h * width / max(height, 1))
-            if fig_w > 180.0:
-                fig_w = 180.0
-                fig_h = fig_w * height / max(width, 1)
-            cap_m = measure_text(cap, fig_w, 7, bold=True, leading=9)
-            caption_h = cap_m.height + 6.0
-            pair_h = fig_h + caption_h
-            text_w = _CONTENT_W - 20.0 - (fig_w + 14.0)
-            block = measure_text(f"{index}.\n" + "\n".join(sentences), text_w, 8, leading=10.2)
-            row = max(block.height + 8.0, pair_h + 6.0)
-            if step.get("caution"):
-                row += 22.0
-            if row + heading_h + 6 > body.remaining():
-                body.new_page("Repair procedure")
-        if section_label:
-            _add_plain_item(body, section_label, size=9, gap=3, allow_break=False)
-        top = body.y
-        baseline = top - block.ascent
-        body.page.texts.append(
-            DrawnText(
-                "\n".join(block.lines),
-                MARGIN + 8,
-                baseline,
-                w=max(block.width, 12),
-                size=8,
-                color=INK,
-                leading=block.leading,
-                lines=list(block.lines),
-                role="body",
-            )
+        cap = _repair_figure_caption(figure) if has else ""
+        if cap:
+            cap = _sheet_figure_caption(body, cap, mf.step_heading(step, index).split(": ", 1)[-1])
+        fresh = []
+        for sentence in _safety_sentences(mf.step_safety_text(step)):
+            key = sentence.rstrip(".").lower()
+            if key in before_blob or key in printed_safety:
+                continue
+            fresh.append(sentence)
+            printed_safety.add(key)
+        safety_line = f"Safety: {' '.join(fresh)}" if fresh else ""
+        heading = mf.step_heading(step, index)
+        body_lines = mf.step_body_lines(
+            step, show_safety=False, show_photo=False, show_figure=False
         )
+        if safety_line:
+            body_lines = [safety_line, *body_lines]
+        next_action = ""
+        if index < len(steps):
+            next_action = mf.step_heading(steps[index], index + 1).split(": ", 1)[-1]
+        else:
+            next_action = "This branch is complete"
+        heading, body_lines = bpl.conform_lines(
+            heading,
+            body_lines,
+            previous_where=prev_where,
+            previous_object=prev_object,
+            next_action=next_action,
+            figure_ref=_figure_ref(cap) if has else "",
+        )
+        prev_object = bpl.action_object(heading.split(": ", 1)[-1]) or prev_object
+        body_lines = _where_from_memory(body_lines, prev_object, where_memory)
+        body_lines = [
+            "Next: " + bpl._sentence(bpl.resolve_action_it(line[6:].strip().rstrip("."), prev_object))
+            if line.startswith("Next: ") else line
+            for line in body_lines
+        ]
+        prev_where = next((line[7:] for line in body_lines if line.startswith("Where: ")), prev_where)
+        prev_where = re.sub(r"\s*See Fig\.?\s*\d+[^.]*\.?$", "", prev_where).strip()
+        head_m = measure_text(heading, text_w, 9, bold=True, leading=11.6)
+        body_m = measure_text("\n".join(body_lines), text_w, 8, leading=9.3) if body_lines else None
+        text_h = head_m.height + (3.0 + body_m.height if body_m else 0.0)
+        caution = f"Caution: {step['caution']}" if step.get("caution") else ""
+        caution_h = 0.0
+        if caution:
+            caution_m = measure_text(caution, text_w - 10, 7.5, leading=9.5)
+            caution_h = caution_m.height + 12.0
+        sec_h = 0.0
+        if section_label:
+            sec_h = measure_text(section_label, text_w, 9, leading=11.6).height + 6.0
+        fig_block = 0.0
         if has:
-            img_x = MARGIN + _CONTENT_W - fig_w
-            img_bottom = top - fig_h
-            body.page.images.append(DrawnImage(png, img_x, img_bottom, fig_w, fig_h))
-            cap_baseline = img_bottom - 4.0 - cap_m.ascent
-            body.page.texts.append(
-                DrawnText(
-                    "\n".join(cap_m.lines),
-                    img_x,
-                    cap_baseline,
-                    w=fig_w,
-                    size=7,
-                    bold=True,
-                    color=NAVY,
-                    leading=cap_m.leading,
-                    lines=list(cap_m.lines),
-                    role="caption",
+            _fw, _fh, fig_block = _figure_block_height(png, cap, 0)
+            fig_block += 4.0
+        need = sec_h + text_h + caution_h + fig_block
+        if need > body.y - _FIGURE_FLOOR:
+            body.new_page("Repair procedure")
+        room = body.y - _FIGURE_FLOOR - sec_h - text_h - caution_h
+        fig_w, fig_h = _fit_figure_pair(png, cap, max(0.0, room - 4.0)) if has else (0.0, 0.0)
+        saved_floor = body.floor
+        body.floor = _FIGURE_FLOOR
+        try:
+            if section_label:
+                sec_m = measure_text(section_label, text_w, 9, bold=True, leading=11.6)
+                _paint_measured(
+                    body, sec_m, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=6.0
                 )
+            _paint_measured(
+                body, head_m, x=text_x, size=9, bold=True, color=INK, role="body", owner="", gap_after=3.0 if body_m else 0.0
             )
-        body.y = top - max(block.height, pair_h) - 4.0
-        if step.get("caution"):
-            _paint_caution_box(body, f"Caution: {step['caution']}", x=MARGIN + 8, width=text_w)
+            if body_m:
+                _paint_measured(
+                    body, body_m, x=text_x, size=8, bold=False, color=INK, role="body", owner="", gap_after=0.0
+                )
+            if caution:
+                _paint_caution_box(body, caution, x=text_x, width=text_w, allow_break=False)
+            if has:
+                body.y -= 4.0
+                _paint_centered_figure(body, png, cap, fig_w, fig_h)
+            body.y -= _STEP_GAP
+        finally:
+            body.floor = saved_floor
+
+
+def _do_not_block_height(items: list[str]) -> float:
+    """Heading plus every bullet. The list moves as one block."""
+    total = 28.0
+    for item in items:
+        block = measure_text(f"- {item}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+        total += block.height + 6.0
+    return total
+
+
+def _paint_do_not(body: "_SheetFlow", items: list[str]) -> None:
+    """Keep the DO NOT heading and every bullet on the same page."""
+    if not items:
+        return
+    if _do_not_block_height(items) > body.remaining():
+        body.new_page("Do not  ·  Tacoma RV Center")
+    first = measure_text(f"- {items[0]}", _CONTENT_W - 16.0, 8.5, leading=11.1)
+    _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36), allow_break=False)
+    for item in items:
+        _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, allow_break=False)
 
 
 def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
@@ -9030,6 +10078,10 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
     steps = list(proc.bay_order)
     shown_figures = set()
     if proc.procedures:
+        try:
+            body.secure_step = _manual_secure_step(proc.procedures)
+        except AttributeError:
+            pass
         _paint_diagnosis(body, steps)
         for procedure in proc.procedures:
             _paint_repair_procedure(body, procedure)
@@ -9045,23 +10097,12 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             group = []
             if i - 1 < len(proc.step_figures or []):
                 group = list(proc.step_figures[i - 1] or [])
-            _add_step(body, i, step)
+            _add_step(body, i, step, group)
             for fig in group:
                 if fig and fig.image_png:
-                    _add_manual_figure(body, fig)
                     shown_figures.add(fig.image_png)
     if proc.do_not:
-        first = measure_text(f"- {proc.do_not[0]}", _CONTENT_W - 16, 8.5, leading=11.1)
-        if body.remaining() < 16 + 12 + min(first.height, 24):
-            body.new_page("Do not  ·  Tacoma RV Center")
-        _add_section(body, "DO NOT", RED, follow_h=min(first.height, 36))
-
-        def _do_break(flow: _SheetFlow):
-            flow.new_page("Do not  ·  Tacoma RV Center")
-            _add_section(flow, "DO NOT", RED, follow_h=20)
-
-        for item in proc.do_not:
-            _add_plain_item(body, f"- {item}", size=8.5, gap=6.0, on_break=_do_break)
+        _paint_do_not(body, proc.do_not)
     sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
     _paint_fitting_sources(body, sources)
 

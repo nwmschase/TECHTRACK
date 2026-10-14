@@ -1,0 +1,356 @@
+{
+  "note": "Live R2 was not reachable. These are the 900-character, 120-overlap windows chunk_page_text writes, from the 42109 and 34123/34122 kit PDFs and the 42088 pypdf extract. Figure labels are the crops detect_page_figures stores. 42110 and the Thetford parts list have no local PDF, so they are not in this leak retrieval.",
+  "chunks": [
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 2,
+      "excerpt": "42088 Ref. G 15-02-2026 en/it/kr 2 Permanent RV Toilet Owners\u2019 Manual \n   \nOPERATION FUNZIONAMENTO \uc791\ub3d9 \ubc29\ubc95 \n  \nFig. 1 / \uadf8\ub9bc 1 \n     \nTo add water, press pedal halfway.  \n \n \n \n \n \n \nPer aggiungere acqua, premere il \npedale a met\u00e0. \n    \n\ubb3c \ucc44\uc6b0\uae30: \ud398\ub2ec\uc744 \uc808\ubc18\ub9cc \n\ub204\ub974\uc2ed\uc2dc\uc624. \n    \n        \nTo flush, press pedal all the way.  \n \n \n \n \n \n \nPer sciacquare, premere il pedale \nfino in fondo. \n    \n\ubb3c \ub0b4\ub9ac\uae30: \ud398\ub2ec\uc744 \ub05d\uae4c\uc9c0 \n\ub204\ub974\uc2ed\uc2dc\uc624. \n    \n        \n \nCLEANING CLEANING \uc138\ucc99 \nTo avoid damage, DO NOT use \nPetroleum based products. DO NOT \nUSE SCOURING POWDERS, ACIDS OR \nCONCENTRATED CLEANERS, WHICH \nCAN DAMAGE SUR-FACES, PLASTIC PARTS AND \nRUBBER SEALS. FAILURE TO DO SO CAN VOID YOUR \nWARRANTY. \n \nRecommendation: Use Thetford \nAqua-CleanTM non-abrasive cleaner \nwith a soft-bristle, non-abrasive bowl \nbrush, sponge or soft cloth. \n \nThis toilet was designed to be \ncompatible with Thetford brand \nholding tank deodorants. \n \nPer evi",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 2,
+      "excerpt": "ge or soft cloth. \n \nThis toilet was designed to be \ncompatible with Thetford brand \nholding tank deodorants. \n \nPer evitare danni, NON utilizzare \nprodotti a base di petrolio. NON \nUTILIZZARE POLVERI ABRASIVE, ACIDI \nO DETERGENTI CONCENTRATI, CHE \nPOSSONO DANNEGGIARE SUPERFICI, PARTI IN \nPLASTICA E GUARNIZIONI IN GOMMA. CI\u00d2 \nPOTREBBE INVALIDARE LA GARANZIA. \n \nSi consiglia di: Utilizzare il detergente \nnon abrasivo Thetford Aqua-CleanTM \ncon una spazzola a setole morbide \nnon abrasiva, una spugna o un \npanno morbido. \n \nQuesta toilette \u00e8 stata progettata per \nessere compatibile con i deodoranti \nper serbatoi di scarico Thetford. \n\uc190\uc0c1\uc744 \ubc29\uc9c0\ud558\uae30 \uc704\ud574 \uc11d\uc720 \uae30\ubc18 \n\uc81c\ud488\uc744 \uc0ac\uc6a9\ud558\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \n\uc218\uc138\ubbf8 \uac00\ub8e8, \uc0b0\uc131 \ubb3c\uc9c8 \ub610\ub294 \n\uace0\ub18d\ucd95 \uc138\uc815\uc81c\ub97c \uc0ac\uc6a9\ud558\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \ud45c\uba74, \n\ud50c\ub77c\uc2a4\ud2f1 \ubd80\ud488 \ubc0f \uace0\ubb34 \uc530\uc774 \uc190\uc0c1\ub420 \uc218 \n\uc788\uc73c\uba70, \ubcf4\uc99d\uc774 \ubb34\ud6a8\ud654\ub420 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \n\uad00\ub9ac \n \n\uad8c\uc7a5 \uc0ac\ud56d: \ubd80\ub4dc\ub7ec\uc6b4 \uc194, \uc2a4\ud380\uc9c0 \n\ub610\ub294 \ubd80\ub4dc\ub7ec\uc6b4 \ucc9c\uacfc \ud568\uaed8 \nThetford Aqua-CleanTM \ube44\uc5f0\ub9c8\uc131 \n\uc138\uc815\uc81c\ub97c \uc0ac\uc6a9\ud558\uc2ed\uc2dc\uc624. \n \n\uc774 \ubcc0\uae30\ub294 Thetford \ube0c\ub79c\ub4dc \uc624\ubb3c \n\ud0f1\ud06c \ud0c8\ucde8\uc81c\uc640 \ud638\ud658\ub418\ub3c4\ub85d \n\uc124\uacc4\ub418\uc5c8\uc2b5\ub2c8\ub2e4.",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 2,
+      "excerpt": "\uc194, \uc2a4\ud380\uc9c0 \n\ub610\ub294 \ubd80\ub4dc\ub7ec\uc6b4 \ucc9c\uacfc \ud568\uaed8 \nThetford Aqua-CleanTM \ube44\uc5f0\ub9c8\uc131 \n\uc138\uc815\uc81c\ub97c \uc0ac\uc6a9\ud558\uc2ed\uc2dc\uc624. \n \n\uc774 \ubcc0\uae30\ub294 Thetford \ube0c\ub79c\ub4dc \uc624\ubb3c \n\ud0f1\ud06c \ud0c8\ucde8\uc81c\uc640 \ud638\ud658\ub418\ub3c4\ub85d \n\uc124\uacc4\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \n \n \nWINTERIZING PREPARAZIONE PER L \u2019INVERNO \ub3d9\ud30c \ubc29\uc9c0 \nTo avoid damage, when using air \npressure to blow water from lines, be \nsure toilet valve is open. \n \nIf water is frozen in the toilet, do not attempt to \nflush until ice thaws. \n \nUse RV (potable) antifreeze only. Never use \nautomotive type antifreeze. \n1. Turn o\ufb00 RV\u2019s water supply. \n2. Drain toilet bowl. \n3. Disconnect supply line at water valve. \n4. Completely drain the toilet\u2019s water supply \nline. \n5. Add antifreeze solution and 1/4 bottle of \nThetford\u2019s Toilet Seal Lubricant and \nConditioners to toilet bowl. \nPer evitare danni quando si utilizza \nl\u2019aria compressa per soffiare l'acqua \ndalle tubature, assicurarsi che la \nvalvola della toilette sia aperta. \n \nSe nella toilette \u00e8 presente acqua congelata, non \ntentare di",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 2,
+      "excerpt": "assicurarsi che la \nvalvola della toilette sia aperta. \n \nSe nella toilette \u00e8 presente acqua congelata, non \ntentare di sciacquare fino a quando il ghiaccio \nnon si scongela. \n \nUtilizzare solo antigelo per camper (potabile). \nNon utilizzare mai antigelo per automobili. \n1. Spegnere l\u2019alimentazione dell'acqua del \ncamper. \n2. Scaricare il vaso della toilette. \n3. Scollegare la linea di alimentazione dalla \nvalvola dell'acqua. \n4. Accertarsi di scaricare completamente la \ntoilette. \n\uc190\uc0c1 \ubc29\uc9c0\ub97c \uc704\ud574, \uacf5\uae30\uc555\uc73c\ub85c \n\ubc30\uad00\uc758 \ubb3c\uc744 \ube7c\ub0bc \ub54c \ubc18\ub4dc\uc2dc \n\ubcc0\uae30 \ubc38\ube0c\ub97c \uc5f4\uc5b4\ub450\uc2ed\uc2dc\uc624. \n \n\ubcc0\uae30 \ub0b4\ubd80\uc758 \ubb3c\uc774 \uc5bc\uc5c8\ub2e4\uba74 \ub179\uc744 \ub54c\uae4c\uc9c0 \n\ubb3c\uc744 \ub0b4\ub9ac\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \n \n\ubc18\ub4dc\uc2dc RV\uc6a9(\uc74c\uc6a9 \uac00\ub2a5) \ubd80\ub3d9\uc561\ub9cc \n\uc0ac\uc6a9\ud558\uc2ed\uc2dc\uc624. \uc790\ub3d9\ucc28\uc6a9 \ubd80\ub3d9\uc561\uc740 \uc808\ub300\ub85c \n\uc0ac\uc6a9\ud558\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \n1. RV\uc758 \uae09\uc218\ub97c \ucc28\ub2e8\ud569\ub2c8\ub2e4. \n2. \ubcc0\uae30 \ubcfc\uc758 \ubb3c\uc744 \ube8d\ub2c8\ub2e4.",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 3,
+      "excerpt": "42088 Ref. G 15-02-2026 en/it/kr 3 Permanent RV Toilet Owners\u2019 Manual \n   \n5. Aggiungere la soluzione antigelo e 1/4 di \nflacone di lubrificante e balsamo per toilette \nThetford\u2019s Toilet Seal Lubricant and \nConditioners alla toilette. \n3. \uc6cc\ud130 \ubc38\ube0c\uc5d0\uc11c \uae09\uc218 \ub77c\uc778\uc744 \n\ubd84\ub9ac\ud569\ub2c8\ub2e4. \n4. \ubcc0\uae30\uc758 \uae09\uc218 \ub77c\uc778\uc744 \uc644\uc804\ud788 \ube44\uc6c1\ub2c8\ub2e4. \n5. 5) \ubcc0\uae30 \ubcfc\uc5d0 \ubd80\ub3d9\uc561 \uc6a9\uc561\uacfc Thetford \n\ubcc0\uae30 \uc530 \uc724\ud65c\uc81c \ubc0f \ucee8\ub514\uc154\ub108 1/4\ubcd1\uc744 \n\ub123\uc2b5\ub2c8\ub2e4. \n \nTROUBLESHOOTING RISOLUZIONE DEI PROBLEMI \ubcc0\uae30\uc5d0 \ubb3c\uc774 \uace0\uc774\uc9c0 \uc54a\uc74c \n1. Back of toilet: check water supply line \nconnection at water valve. Secure or tighten \nas necessary. If leak persists from water \nvalve, replace. \n2. Vacuum breaker leaks while flushing: replace \nVacuum Breaker or water module, depending \non model. \n3. Between closet flange and toilet: check \nflange nuts for tightness. If leak continues, \nremove toilet and check flange height. Use \nThetford spacers to adjust, if necessary, to \n7/16\u201d above floor. Replace flange seal. \n1. Retro della toil",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 3,
+      "excerpt": "height. Use \nThetford spacers to adjust, if necessary, to \n7/16\u201d above floor. Replace flange seal. \n1. Retro della toilette: controllare il \ncollegamento delle tubature dell'acqua alla \nvalvola dell'acqua. Fissare o serrare se \nnecessario. Se la perdita dalla valvola \ndell\u2019acqua persiste, sostituire la valvola. \n2. La valvola rompivuoto perde durante il \nrisciacquo: sostituire il rompivuoto o il \nmodulo dell'acqua, a seconda del modello. \n3. Tra la flangia e la toilette: controllare che i \ndadi della flangia siano serrati. Se la perdita \ncontinua, rimuovere la toilette e controllare \nl'altezza della flangia. Utilizzare i distanziatori \nThetford per regolare, se necessario, a 11 \nmm dal pavimento. Sostituire la guarnizione \ndella flangia. \n1. \ubcc0\uae30 \ub4a4\ucabd \ub204\uc218: \uc6cc\ud130 \ubc38\ube0c\uc758 \uae09\uc218 \ub77c\uc778 \n\uc5f0\uacb0 \uc0c1\ud0dc\ub97c \uc810\uac80\ud569\ub2c8\ub2e4. \ud544\uc694\uc2dc \n\uace0\uc815\ud558\uac70\ub098 \uc870\uc785\ub2c8\ub2e4. \ub204\uc218\uac00 \n\uc9c0\uc18d\ub418\uba74 \ubc38\ube0c\ub97c \uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n2. \ubb3c \ub0b4\ub9b4 \ub54c \uc9c4\uacf5 \ucc28\ub2e8\uae30 \ub204\uc218: \ubaa8\ub378\uc5d0 \n\ub530\ub77c \uc9c4\uacf5 \ucc28\ub2e8\uae30 \ub610\ub294 \uc6cc\ud130 \ubaa8\ub4c8\uc744 \n\uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n3. 3. \ud50c\ub79c\uc9c0\uc640 \ubcc0\uae30",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 3,
+      "excerpt": "\uc0c1\ud0dc\ub97c \uc810\uac80\ud569\ub2c8\ub2e4. \ud544\uc694\uc2dc \n\uace0\uc815\ud558\uac70\ub098 \uc870\uc785\ub2c8\ub2e4. \ub204\uc218\uac00 \n\uc9c0\uc18d\ub418\uba74 \ubc38\ube0c\ub97c \uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n2. \ubb3c \ub0b4\ub9b4 \ub54c \uc9c4\uacf5 \ucc28\ub2e8\uae30 \ub204\uc218: \ubaa8\ub378\uc5d0 \n\ub530\ub77c \uc9c4\uacf5 \ucc28\ub2e8\uae30 \ub610\ub294 \uc6cc\ud130 \ubaa8\ub4c8\uc744 \n\uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n3. 3. \ud50c\ub79c\uc9c0\uc640 \ubcc0\uae30 \uc0ac\uc774 \ub204\uc218: \ud50c\ub79c\uc9c0 \n\ub108\ud2b8\uac00 \uc870\uc784 \uc0c1\ud0dc\ub97c \ud655\uc778\ud569\ub2c8\ub2e4. \n\ub204\uc218\uac00 \uacc4\uc18d\ub418\uba74 \ubcc0\uae30\ub97c \uc81c\uac70\ud558\uace0 \n\ud50c\ub79c\uc9c0 \ub192\uc774\ub97c \ud655\uc778\ud558\uc2ed\uc2dc\uc624. \ubc14\ub2e5 \uc704 \n7/16\uc778\uce58\uac00 \uc801\ub2f9\ud558\uba70, \ud544\uc694\uc2dc Thetford \n\uc2a4\ud398\uc774\uc11c\ub97c \uc0ac\uc6a9\ud558\uc5ec \uc870\uc815\ud569\ub2c8\ub2e4. \n\ud50c\ub79c\uc9c0 \uc530\uc744 \uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n \n  \nTOILET DOES NOT HOLD WATER LA TOILETTE NON TRATTIENE L \u2019ACQUA \ubcc0\uae30\uc5d0 \ubb3c\uc774 \uace0\uc774\uc9c0 \uc54a\uc74c \nThetford Premium RV Slide-Out Rubber Seal \nConditioner often corrects leaks. \n1. Check for and remove any debris from \nblade/ball seal track. \n2. Check blade/ball seal compression with \nmechanism. If blade/ball seal is worn, \nreplace. \nIl balsamo per guarnizioni Thetford Premium RV \nSlide-Out Rubber Seal Conditioner spesso \u00e8 in \ngrado di correggere le perdite. \n1. Controllare e rimuovere eventuali detriti dal \ncingolo di tenuta della lamella/sfera. \n2. Controllare la compressione della \nguarnizione lamellare/a sfera con il \nmeccanismo. Se la guarnizione la",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 3,
+      "excerpt": "lla/sfera. \n2. Controllare la compressione della \nguarnizione lamellare/a sfera con il \nmeccanismo. Se la guarnizione lamellare/a \nsfera \u00e8 usurata, sostituirla. \nThetford Premium RV \uc2ac\ub77c\uc774\ub4dc \uc544\uc6c3 \uace0\ubb34 \uc530 \n\ucee8\ub514\uc154\ub108\ub97c \uc0ac\uc6a9\ud558\uba74 \ub204\uc218 \ubb38\uc81c\uac00 \n\ud574\uacb0\ub418\ub294 \uacbd\uc6b0\uac00 \ub9ce\uc2b5\ub2c8\ub2e4. \n1. \ube14\ub808\uc774\ub4dc/\ubcfc \uc530 \ud2b8\ub799\uc5d0 \uc774\ubb3c\uc9c8\uc774 \n\uc788\ub294\uc9c0 \ud655\uc778\ud558\uace0 \uc81c\uac70\ud558\uc2ed\uc2dc\uc624. \n2. \ube14\ub808\uc774\ub4dc/\ubcfc \uc530\uc758 \uc555\ucc29 \uc0c1\ud0dc\ub97c \n\ud655\uc778\ud569\ub2c8\ub2e4. \ube14\ub808\uc774\ub4dc/\ubcfc \uc530\uc774 \n\ub9c8\ubaa8\ub418\uc5c8\ub2e4\uba74 \uad50\uccb4\ud558\uc2ed\uc2dc\uc624. \n \n  \nDIFFICULT PEDAL OPERATION FUNZIONAMENTO DIFFICOLTOSO DEL \nPEDALE \n\ud398\ub2ec \uc791\ub3d9\uc774 \ubed1\ubed1\ud568 \nUse Thetford Toilet Seal Lubricant and Conditioner \non blade/ball to improve operation. \nTo avoid damage, do not use \npetroleum-based lubricants. \nUtilizzare il lubrificante e balsamo Thetford Toilet \nSeal Lubricant and Conditioner sulla guarnizione \nlamellare/a sfera per migliorare il funzionamento. \n \nPer evitare danni, non utilizzare \nprodotti a base di petrolio. \n \n\uc791\ub3d9\uc744 \ubd80\ub4dc\ub7fd\uac8c \ud558\ub824\uba74 \ube14\ub808\uc774\ub4dc/\ubcfc\uc5d0 \nThetford \ubcc0\uae30 \uc530 \uc724\ud65c\uc81c \ubc0f \ucee8\ub514\uc154\ub108\ub97c \n\uc0ac\uc6a9\ud558\uc2ed\uc2dc\uc624. \n \n\uc190\uc0c1 \ubc29\uc9c0\ub97c \uc704\ud574, \uc11d\uc720 \uae30\ubc18 \n\uc724\ud65c\uc720\ub97c \uc0ac\uc6a9\ud558\uc9c0 \ub9c8\uc2ed\uc2dc\uc624.",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 4,
+      "excerpt": "42088 Ref. G 15-02-2026 en/it/kr 4 Permanent RV Toilet Owners\u2019 Manual \n   \nPOOR FLUSH SCARICO INSUFFICIENTE \uc218\uc138\ub825\uc774 \uc57d\ud568 \n\u2022 Pedal levers must be held fully open during \nflush. \n\u2022 A good flush should be obtained within two to \nthree seconds. \n\u2022 If problem persists, remove the water supply \nline and check flow rate. The flow rate should \nbe at least 2.5 gallons per minute. \n\u2022 Le leve del pedale devono essere tenute \ncompletamente aperte durante lo scarico. \n\u2022 Uno scarico sufficiente dovrebbe verificarsi \nentro due o tre secondi. \n\u2022 Se il problema persiste, rimuovere la linea di \nalimentazione dell'acqua e controllare la \nportata. La portata deve essere di almeno 9,5 \nlitri al minuto. \n\u2022 \ubb3c\uc744 \ub0b4\ub9ac\ub294 \ub3d9\uc548 \ud398\ub2ec \ub808\ubc84\ub97c \uc644\uc804\ud788 \n\uc5f4\uace0 \uc788\uc5b4\uc57c \ud569\ub2c8\ub2e4. \n\u2022 \ubcf4\ud1b5 2~3\ucd08 \uc774\ub0b4\uc5d0 \uc81c\ub300\ub85c \ubb3c\uc774 \n\ub0b4\ub824\uac00\uc57c \ud569\ub2c8\ub2e4. \n\u2022 \ubb38\uc81c\uac00 \uc9c0\uc18d\ub418\uba74 \uae09\uc218 \ub77c\uc778\uc744 \n\ubd84\ub9ac\ud558\uc5ec \uc720\ub7c9\uc744 \ud655\uc778\ud558\uc2ed\uc2dc\uc624. \n\uc720\ub7c9\uc740 \ubd84\ub2f9 \ucd5c\uc18c 2.5\uac24\ub7f0\uc774\uc5b4\uc57c \n\ud569\ub2c8\ub2e4. \n \nOPTIONS OPZIONI \uc635\uc158 \n \n \n \nThetford Toilet Riser \n\u2022 Increases comfort \n\u2022 Raises",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 4,
+      "excerpt": "\uc720\ub7c9\uc744 \ud655\uc778\ud558\uc2ed\uc2dc\uc624. \n\uc720\ub7c9\uc740 \ubd84\ub2f9 \ucd5c\uc18c 2.5\uac24\ub7f0\uc774\uc5b4\uc57c \n\ud569\ub2c8\ub2e4. \n \nOPTIONS OPZIONI \uc635\uc158 \n \n \n \nThetford Toilet Riser \n\u2022 Increases comfort \n\u2022 Raises toilet 2.5 inches \nFits all Aqua-Magics and Bravura \nRialzo per toilette Thetford \n\u2022 Aumenta il comfort \n\u2022 Solleva la toilette di 6 cm \nCompatibile con tutti i modelli Aqua-\nMagics e Bravura \nThetford \ubcc0\uae30 \ub77c\uc774\uc800 \n\u2022 \ub354\uc6b1 \ud3b8\uc548\ud55c \uc0ac\uc6a9\uac10 \uc81c\uacf5 \n\u2022 \ubcc0\uae30 \ub192\uc774\ub97c 2.5\uc778\uce58 \n\ub192\uc5ec\uc90d\ub2c8\ub2e4. \n\ubaa8\ub4e0 Aqua-Magics \ubc0f Bravura \n\ubaa8\ub378\uc5d0 \uc124\uce58 \uac00\ub2a5 \n \n \n \nHand Spray \nEasy attachment to existing water \nvalve (Bravura, Aqua-Magic VI, Aqua-\nMagic Style & Aqua-Magic \nResidence Only). \nSpray manuale \nFacile da fissare alla valvola \ndell'acqua esistente (solo per i \nmodelli Bravura, Aqua-Magic VI, \nAqua-Magic Style e Aqua-Magic \nResidence). \n\ud578\ub4dc \uc2a4\ud504\ub808\uc774 \n\uae30\uc874 \uc6cc\ud130 \ubc38\ube0c\uc5d0 \uac04\ud3b8\ud558\uac8c \n\uc7a5\ucc29 \uac00\ub2a5(Bravura, Aqua-Magic VI, \nAqua-Magic Style \ubc0f Aqua-Magic \nResidence \ubaa8\ub378\uc5d0\ub9cc \ud574\ub2f9) \n \nQuestions? DOMANDE? \ubb38\uc758 \uc0ac\ud56d \nFor parts and/or service, contact a local Thetford \nCertified Se",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 4,
+      "excerpt": "Magic \nResidence \ubaa8\ub378\uc5d0\ub9cc \ud574\ub2f9) \n \nQuestions? DOMANDE? \ubb38\uc758 \uc0ac\ud56d \nFor parts and/or service, contact a local Thetford \nCertified Service Center (CSC) or an RV Dealer. For \nwarranty issues or more information, call \nThetford\u2019s Customer Service Department. When \nyou call, please have available: \n\u2022 Your name and address \n\u2022 The toilet model and serial number from ID \nlabels \n\u2022 A brief description of the problem \n\u2022 Proof of date of purchase \nPer componenti e/o assistenza, contattare un \ncentro di assistenza certificato (CSC) Thetford \nlocale o un rivenditore di camper. Per problemi \nrelativi alla garanzia o ulteriori informazioni, \ncontattare il Servizio Clienti di Thetford. Per la \nchiamata, tenere a portata di mano: \n\u2022 Il vostro nome e indirizzo \n\u2022 Il modello della toilette e il numero di serie \nindicati sulla targhetta dati \n\u2022 Una breve descrizione del problema \n\u2022 Prova della data di acquisto \n\ubd80\ud488 \uad6c\uc785",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 4,
+      "excerpt": "ro di serie \nindicati sulla targhetta dati \n\u2022 Una breve descrizione del problema \n\u2022 Prova della data di acquisto \n\ubd80\ud488 \uad6c\uc785 \ubc0f/\ub610\ub294 \uc11c\ube44\uc2a4\uac00 \ud544\uc694\ud558\uc2e0 \n\uacbd\uc6b0, \ud604\uc9c0 Thetford \uc778\uc99d \uc11c\ube44\uc2a4 \uc13c\ud130(CSC) \n\ub610\ub294 RV \ub300\ub9ac\uc810\uc5d0 \ubb38\uc758\ud558\uc2ed\uc2dc\uc624. \ubcf4\uc99d \ubb38\uc81c \n\ub610\ub294 \ucd94\uac00 \uc815\ubcf4\uac00 \ud544\uc694\ud55c \uacbd\uc6b0, \uc544\ub798\uc758 \nThetford \uace0\uac1d \uc11c\ube44\uc2a4 \ubd80\uc11c\ub85c \uc5f0\ub77d\uc8fc\uc2dc\uae30 \n\ubc14\ub78d\ub2c8\ub2e4. \uc804\ud654 \ubb38\uc758 \uc2dc \ub2e4\uc74c \uc815\ubcf4\ub97c \ubbf8\ub9ac \n\uc900\ube44\ud574 \uc8fc\uc2dc\uae30 \ubc14\ub78d\ub2c8\ub2e4: \n\u2022 \uadc0\ud558\uc758 \uc131\ud568\uacfc \uc8fc\uc18c \n\u2022 ID \ub77c\ubca8\uc5d0 \uae30\uc7ac\ub41c \ubcc0\uae30 \ubaa8\ub378\uba85 \ubc0f \n\uc2dc\ub9ac\uc5bc \ubc88\ud638 \n\u2022 \ubb38\uc81c \uc0c1\ud669\uc5d0 \ub300\ud55c \uac04\ub7b5\ud55c \uc124\uba85 \n\u2022 \uad6c\uc785 \ub0a0\uc9dc \uc99d\ube59 \uc11c\ub958",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 6,
+      "excerpt": "42088 Ref. G 15-02-2026 en/it/kr 6 Permanent RV Toilet Owners\u2019 Manual \n   \nINSTALL TOILET INSTALLARE LA TOILETTE \ubcc0\uae30 \uc124\uce58 \n1. Remove old toilet and closet flange seal. \n2. Attach new closet flange seal to new toilet, \nlip side down (Fig. 2) \n\u2022 Style Plus and Bravura ONLY: Remove \nshroud from base of unit (Figs. 4 & 5). \n3. With mounting bolts in place, position toilet \nover closet flange (Fig. 3). \n\u2022 If not carpeted, go to Step 4. \n\u2022 If carpeted, trace around toilet, remove \ntoilet and cut away carpet to expose floor. \nCarpet beneath pedal may also need to be \nremoved. \n4. Tighten nuts until toilet is stable. Do not \novertighten. \n5. Tighten nuts until toilet is stable. Do not \novertighten. \n\u2022 Tighten nuts until toilet is stable. Do not \novertighten. \n\u2022 Bravura ONLY: Install Shroud (Fig. 4). \n\u2022 Style Plus ONLY: Attach shroud to toilet by \ndepressing pedal and placing the pedal \nopening over",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 6,
+      "excerpt": "ll Shroud (Fig. 4). \n\u2022 Style Plus ONLY: Attach shroud to toilet by \ndepressing pedal and placing the pedal \nopening over the pedal and pushing it \nfirmly against the base. Press the sides of \nthe shroud to the toilet and attach two o-\nrings on the hooks to secure it. Make sure \nto engage dual lock under front of shroud \nby tapping shroud above pedal (Fig. 5). \n \n1. Rimuovere la toilette e la vecchia \nguarnizione della flangia della toilette. \n2. Fissare la nuova guarnizione della flangia \nalla nuova toilette, con il labbro verso il \nbasso (Fig. 2) \n\u2022 SOLO per i modelli Style Plus e Bravura: \nRimuovere la protezione dalla base \ndell'unit\u00e0 (Figg. 4 e 5). \n3. Con i bulloni di montaggio in posizione, \nposizionare la toilette sulla flangia (Fig. 3). \n\u2022 In assenza di moquette, saltare al \npassaggio 4. \n\u2022 In presenza di moquette, tracciare la \nsagoma intorno alla toilette, rimuovere la \ntoilett",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 6,
+      "excerpt": ", saltare al \npassaggio 4. \n\u2022 In presenza di moquette, tracciare la \nsagoma intorno alla toilette, rimuovere la \ntoilette e tagliare via la porzione di \nmoquette per esporre il pavimento. \nPotrebbe anche essere necessario \nrimuovere la moquette sotto il pedale. \n4. Serrare i dadi fino a quando la toilette non \u00e8 \nstabile. Non serrare eccessivamente. \n5. Serrare i dadi fino a quando la toilette non \u00e8 \nstabile. Non serrare eccessivamente. \n\u2022 Serrare i dadi fino a quando la toilette non \n\u00e8 stabile. Non serrare eccessivamente. \n\u2022 SOLO Bravura: Installare la protezione (Fig. \n4). \n\u2022 SOLO Style Plus: Fissare la protezione alla \ntoilette premendo il pedale, posizionando \nl'apertura del pedale sul pedale e \nspingendola saldamente contro la base. \nPremere i lati della protezione sulla toilette \ne fissare due O-Ring sui ganci per \nmantenerla in posizione. Assicurarsi di \ninnestare il doppio blocco",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 6,
+      "excerpt": "sulla toilette \ne fissare due O-Ring sui ganci per \nmantenerla in posizione. Assicurarsi di \ninnestare il doppio blocco sotto la parte \nanteriore della protezione toccando la \nprotezione sopra il pedale (Fig. 5). \n \n1. \uae30\uc874 \ubcc0\uae30\uc640 \ud074\ub85c\uc82f \ud50c\ub79c\uc9c0 \uc530\uc744 \n\uc81c\uac70\ud569\ub2c8\ub2e4. \n2. \uc0c8 \ud074\ub85c\uc82f \ud50c\ub79c\uc9c0 \uc530\uc744 \uc785\uc220 \ubaa8\uc591\uc758 \n\ub3cc\ucd9c\ub41c \ubd80\ubd84\uc774 \uc544\ub798\ub85c \ud5a5\ud558\ub3c4\ub85d \uc0c8 \n\ubcc0\uae30\uc5d0 \ubd80\ucc29\ud569\ub2c8\ub2e4(\uadf8\ub9bc 2). \n\u2022 Style Plus \ubc0f Bravura \ubaa8\ub378\uc5d0\ub9cc \ud574\ub2f9: \n\ubcf8\uccb4 \ubca0\uc774\uc2a4\uc5d0\uc11c \uc288\ub77c\uc6b0\ub4dc\ub97c \n\uc81c\uac70\ud569\ub2c8\ub2e4(\uadf8\ub9bc 4 & 5). \n3. \uc7a5\ucc29 \ubcfc\ud2b8\uac00 \uc81c\uc790\ub9ac\uc5d0 \uc788\ub294 \uc0c1\ud0dc\uc5d0\uc11c \n\ubcc0\uae30\ub97c \ud074\ub85c\uc82f \ud50c\ub79c\uc9c0 \uc704\uc5d0 \n\ubc30\uce58\ud569\ub2c8\ub2e4(\uadf8\ub9bc 3). \n\u2022 \ubc14\ub2e5\uc774 \uce74\ud3ab\uc774 \uc544\ub2cc \uacbd\uc6b0, 4\ub2e8\uacc4\ub85c \n\uc774\ub3d9\ud558\uc2ed\uc2dc\uc624. \n\u2022 \ubc14\ub2e5\uc774 \uce74\ud3ab\uc778 \uacbd\uc6b0, \ubcc0\uae30 \ud14c\ub450\ub9ac\ub97c \n\ub530\ub77c \uc120\uc744 \uae0b\uace0 \ubcc0\uae30\ub97c \uce58\uc6b4 \ub4a4, \n\ubc14\ub2e5\uc774 \ub4dc\ub7ec\ub098\ub3c4\ub85d \uce74\ud3ab\uc744 \n\uc798\ub77c\ub0c5\ub2c8\ub2e4. \ud398\ub2ec \uc544\ub798\uc758 \uce74\ud3ab\ub3c4 \n\uc81c\uac70\ud574\uc57c \ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \n4. \ubcc0\uae30\uac00 \uc548\uc815\ub420 \ub54c\uae4c\uc9c0 \ub108\ud2b8\ub97c \n\uc870\uc785\ub2c8\ub2e4. \uacfc\ub3c4\ud558\uac8c \uc870\uc774\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \n5. \ubcc0\uae30\uac00 \uc548\uc815\ub420 \ub54c\uae4c\uc9c0 \ub108\ud2b8\ub97c \n\uc870\uc785\ub2c8\ub2e4. \uacfc\ub3c4\ud558\uac8c \uc870\uc774\uc9c0 \ub9c8\uc2ed\uc2dc\uc624. \n\u2022 \ubcc0\uae30\uac00 \uc548\uc815\ub420 \ub54c\uae4c\uc9c0 \ub108\ud2b8\ub97c \n\uc870\uc785\ub2c8\ub2e4. \uacfc\ub3c4\ud558\uac8c \uc870\uc774\uc9c0 \n\ub9c8\uc2ed\uc2dc\uc624. \n\u2022 Bravura \ubaa8\ub378\ub9cc \ud574\ub2f9: \uc288\ub77c\uc6b0\ub4dc\ub97c \n\uc124\uce58\ud569\ub2c8\ub2e4(\uadf8\ub9bc 4). \n\u2022 Style Plus \ubaa8\ub378\ub9cc \ud574\ub2f9: \ud398\ub2ec\uc744 \ub204\ub978 \n\uc0c1\ud0dc\uc5d0\uc11c \ud398\ub2ec \uac1c\uad6c\ubd80\ub97c \ud398\ub2ec \uc704\uc5d0 \n\ub9de\ucd94\uace0 \ubca0\uc774\uc2a4 \ucabd\uc73c\ub85c \ub2e8\ub2e8\ud788 \ubc00\uc5b4 \n\uc288\ub77c\uc6b0\ub4dc\ub97c \ubd80\ucc29\ud569\ub2c8\ub2e4. \uc288\ub77c\uc6b0\ub4dc \n\uce21\uba74\uc744 \ubcc0\uae30\uc5d0 \ub204\ub974\uace0 \uace0\ub9ac\uc5d0 \ub450 \n\uac1c\uc758 O-\ub9c1\uc744 \uac78\uc5b4 \uace0\uc815\ud569\ub2c8\ub2e4. \ud398\ub2ec \n\uc704\ucabd\uc744 \ud1a1\ud1a1 \ub450\ub4dc\ub824\uc11c \uc288\ub77c\uc6b0\ub4dc \n\uc804\uba74 \ud558\ub2e8\uc758 \ub4c0\uc5bc \ub77d\uc774 \ub9de\ubb3c\ub9ac\ub3c4\ub85d \n\ud569\ub2c8\ub2e4(\uadf8\ub9bc 5).",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 3,
+      "title": "Thetford Style II OM Permanent RV Toilet 42088",
+      "page": 6,
+      "excerpt": "\ub2e8\ub2e8\ud788 \ubc00\uc5b4 \n\uc288\ub77c\uc6b0\ub4dc\ub97c \ubd80\ucc29\ud569\ub2c8\ub2e4. \uc288\ub77c\uc6b0\ub4dc \n\uce21\uba74\uc744 \ubcc0\uae30\uc5d0 \ub204\ub974\uace0 \uace0\ub9ac\uc5d0 \ub450 \n\uac1c\uc758 O-\ub9c1\uc744 \uac78\uc5b4 \uace0\uc815\ud569\ub2c8\ub2e4. \ud398\ub2ec \n\uc704\ucabd\uc744 \ud1a1\ud1a1 \ub450\ub4dc\ub824\uc11c \uc288\ub77c\uc6b0\ub4dc \n\uc804\uba74 \ud558\ub2e8\uc758 \ub4c0\uc5bc \ub77d\uc774 \ub9de\ubb3c\ub9ac\ub3c4\ub85d \n\ud569\ub2c8\ub2e4(\uadf8\ub9bc 5). \n \n   \nREMOVE TOILET RIMUOVERE LA TOILETTE \ubcc0\uae30 \uc81c\uac70 \nFollow the installation directions in reverse order. \nPlace towel behind toilet under water connection \nto catch spill. \nSeguire le istruzioni di installazione in ordine \ninverso. Posizionare un asciugamano dietro alla \ntoilette in corrispondenza dell\u2019attacco dell'acqua \nper catturare eventuali perdite. \n\uc124\uce58 \uc21c\uc11c\uc758 \uc5ed\uc21c\uc73c\ub85c \uc9c4\ud589\ud558\uc2ed\uc2dc\uc624. \ubb3c\uc774 \n\uc5ce\uc9c8\ub7ec\uc9c0\ub294 \uac83\uc744 \ubc29\uc9c0\ud558\uae30 \uc704\ud574 \ubcc0\uae30 \ub4a4\ucabd \n\uae09\uc218 \uc5f0\uacb0\ubd80 \uc544\ub798\uc5d0 \uc218\uac74\uc744 \ubc1b\uccd0 \ub193\uc2b5\ub2c8\ub2e4.",
+      "brand": "Thetford",
+      "file_path": "library/42088.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "excerpt": "Form No. 42109 REV C  18/05/2012\n  1\n www.thetford.com \nKit Contains\n \n\u25a0Water Valve Cartridge (PN 42002)\n \n\u25a0Drive Arm Seal (PN 42006)\n \n\u25a0Water Inlet Seal (PN 42009)\n \n\u25a0Water Inlet Spring (PN 42010)\n \n\u25a0Spring Retainer (PN 42099)\n \n\u25a0Closet flange seal (PN 02125)\n \n\u25a0Instruction sheet (PN 42109)\nNeeded\n \n\u25a0Towel(s)\n \n\u25a0Plastic trash bag\n \n\u25a0Pliers\n \n\u25a0Phillips-head screwdriver\n \n\u25a01/2-inch wrench\nBefore Beginning\n \n\u25a0Read all instructions completely.\n \n\u25a0Reduce holding tank odor: Rinse toilet with \nwater, drain holding tank, and add Thetford \nHolding Tank Deodorant.\n \n\u25a0Wear protective gloves, glasses, long sleeves, \nand nose/face mask to avoid contact with \nhuman waste.\n \n\u25a0Wash entire toilet thoroughly.\n \n\u25a0Refer to Figure 1 for component locations.\nNOTE: If you have suf\ufb01 cient clearance \nto remove and reinstall pedal and water \nvalve with toilet in place, you can skip \nremoving/reinstalling toilet.",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "excerpt": "arance \nto remove and reinstall pedal and water \nvalve with toilet in place, you can skip \nremoving/reinstalling toilet.\nRemove Toilet\n1. Turn off RV water supply per RV Owner\u2019s Manual.\nPart No.\nAqua-Magic\u00ae\nResidence, Style II\nWater Valve Kit\nRV Toilets\nMade in the USA\nThetford Corporation\nAnn Arbor, MI   1-800-543-1219   www.thetford.com\n2. Flush toilet to drain.\n3. Place towel(s) behind toilet under water connection \nto catch water.\n4. Disconnect RV water supply from toilet. \n5. Remove Closet Flange Bolt Covers (if present) and \nNuts.\n6. Lift Toilet from \ufb02 oor and place on trash bag.\n7. Cover holding tank opening with a towel.\n8. Remove old closet \ufb02 ange Seal. Discard.\nRemove old Water Valve\n1.  Lay Toilet on its side on \ufb02 oor with pedal facing \nupward.\n2.  Holding Bowl, grab front underside of Pedal. Pull \nPedal up and off with a quick motion.\n3.  See Fig. 1. Place thumb in depression",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "excerpt": "wl, grab front underside of Pedal. Pull \nPedal up and off with a quick motion.\n3.  See Fig. 1. Place thumb in depression and place \nindex \ufb01 nger under tab of Water Valve Cartridge \nRetainer. Pull up on tab slightly and rotate Retainer \nclockwise until it hits Spring. Grasp Retainer and \npull Water Valve Assembly out. Discard.\n4.  Remove Water Inlet Seal and Compression Spring \nfrom Water Inlet opening with small needle-nose \npliers. Discard.\nInstall new Water Valve\n1.  Insert Water Inlet Seal Assembly in Water Inlet \nopening (Fig. 2).\n2.   Insert new Water Valve Cartridge Assembly until \nfully seated.\n3.  Rotate Retainer until tab locks in place.\n4.  Place Water Valve Drive Pin in closed position (Fig. \n3).\n5.  (Figs. 2 & 4) Align Pedal onto Pedal Pivot. Align Pedal \nReturn Spring Tab with Pocket A and rotate Pedal \nslightly until Drive Arm Pin aligns with Pocket B. \nHolding Pedal down,",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "excerpt": "turn Spring Tab with Pocket A and rotate Pedal \nslightly until Drive Arm Pin aligns with Pocket B. \nHolding Pedal down, \ufb01 rmly hit button on outside of \nPedal until Pedal snaps in place.\n6.  Place toilet upright. Activate Pedal several times to \nassure Waste Ball opens and closes completely.\n Reinstall Toilet\n1. Install new Closet Flange Seal, lip side down, on \ntoilet.\n2. Uncover holding tank opening and remove \ntowel(s).\n3. Place Toilet on \ufb02 oor, aligning mounting holes with \ncloset bolts.\n4. Tighten Closet Flange Nuts until toilet does not \nrock. Do not overtighten.\n5. Replace Bolt Covers (if present).\n6. Connect RV water supply line to Toilet.\n7. Turn on RV water supply.\n9. Flush test Toilet, checking for leaks at all \nconnections.\nFIGURE 1 - PEDAL REMOVED\nWaste ball drive arm\nWater valve \nCartridge \nRetainer\nReturn spring\nFIGURE 4 - PEDAL REATTACHMENT\nPocket B\nPocket A\nWater \nValve",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "excerpt": "l drive arm\nWater valve \nCartridge \nRetainer\nReturn spring\nFIGURE 4 - PEDAL REATTACHMENT\nPocket B\nPocket A\nWater \nValve \nArm\nParts on toilet \ufb01 t into \npockets indicated:\nFIGURE 2 - INSERTING WATER INLET SEAL ASSEMBLY\nFIGURE 3 - WATER \nVALVE CLOSED \nPOSITION\nWater Inlet \nopening\nPedal Pivot\nHigh Pro\ufb01 le\nLow Pro\ufb01 le\n42049",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "ENGLISH\nKit Contains\n4 Vacuum breaker subassembly  \n(PN 34313)\n4 Clamps (3) (PN 19541)\n4 Flush hose (PN 34377)\n4 Closet flange seal (PN 02125)\n4 Instruction sheet (PN 34123)\nNeeded\n4 Towel(s)\n4 Plastic trash bag\n4 Needle Nose Pliers\n4 1/2-inch wrench\nBefore Beginning\n4 Read all instructions completely.\n4 Reduce holding tank odor: Rinse \ntoilet with water, drain holding tank, \nand add Thetford Holding Tank \nDeodorant.\n4 Wear protective gloves, glasses, \nlong sleeves, and nose/face mask \nto avoid contact with human waste.\n4 Wash entire toilet thoroughly.\n4 Refer to Figure 1 for component \nlocations. Style Lite shown.\nRemove Toilet\n1.\t Turn off RV water supply per RV \nOwner\u2019s Manual.\n2.\t Flush toilet to drain.\n3.\t Style Plus only - Remove shroud:\na.\t Unhook two O-rings holding \nShroud together in back of \ntoilet. \nb.\t Holding down pedal, spread \nshroud apart while pulling it \nforward and of",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "ding \nShroud together in back of \ntoilet. \nb.\t Holding down pedal, spread \nshroud apart while pulling it \nforward and off.\n4.\t Place towel(s) behind toilet under \nwater connection to catch water.\n5.\t Disconnect RV water supply from \ntoilet. \n6.\t Remove Closet Flange Bolt Cov\u00ad\ners (if present) and Nuts.\n7.\t Lift Toilet from floor and place on \nFRAN\u00e7ais\nLa trousse comprend les \u00e9l\u00e9ments \nsuivants\n4 Sous-ensemble de dispositif anti-refoulement \n(PN 34313)\n4 Crampons de serrage (3) (PN 19541)\n4 Tuyau d\u2019\u00e9vacuation (PN 34377)\n4 Joint d\u2019\u00e9tanch\u00e9it\u00e9 de la bride de sol (PN \n02125)\n4 Feuille d\u2019instructions (PN 34123)\n\u00c9l\u00e9ments requis\n4 Serviette(s)\n4 Sac en plastique pour d\u00e9chets\n4\t Pinces \u00e0 bec effil\u00e9 \n4 Clef de 1/2 po\nAvant de commencer\n4 Lisez toutes les instructions.\n4 Prenez les mesures pour r\u00e9duire les odeurs \nprovenant du bac \u00e0 eaux us\u00e9es. Rincez le \ncabinet avec de l\u2019eau; faites \u00e9goutter le b",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "s mesures pour r\u00e9duire les odeurs \nprovenant du bac \u00e0 eaux us\u00e9es. Rincez le \ncabinet avec de l\u2019eau; faites \u00e9goutter le bac \u00e0 \neaux us\u00e9es et versez-y le d\u00e9sodorisant pour \nbac \u00e0 eaux us\u00e9es de Thetford (Thetford Hold\u00ad\ning Tank Deodorant).\n4 Portez des gants et des lunettes de protection, \ndes manches longues ainsi qu\u2019un masque \nfacial pour \u00e9viter tout contact avec les eaux \nus\u00e9es sanitaires.\n4 Lavez \u00e0 fond l\u2019ensemble du cabinet d\u2019aisance.\n4 Consultez le sch\u00e9ma 1 pour conna\u00eetre \nl\u2019emplacement des composantes. Le mod\u00e8le \nStyle Lite est pr\u00e9sent\u00e9.\nRetirez le cabinet\n1.\t Coupez l\u2019alimentation en eau du VR selon \nles indications donn\u00e9es dans le manuel \nd\u2019entretien de celui-ci.\n2.\t Tirez la chasse d\u2019eau.\n3.\t Style Plus \u2013 Retirez l\u2019enveloppe de protection:\na.\t Tenez la p\u00e9dale enfonc\u00e9e et d\u00e9crochez \nles deux joints toriques qui maintien\u00ad\nnent l\u2019enveloppe de protection en place \u00e0 \nl\u2019arri\u00e8re de l\u2019uni",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "onc\u00e9e et d\u00e9crochez \nles deux joints toriques qui maintien\u00ad\nnent l\u2019enveloppe de protection en place \u00e0 \nl\u2019arri\u00e8re de l\u2019unit\u00e9.\nb.\t D\u00e9ployez l\u2019enveloppe de protection tout en \nla tirant vers l\u2019avant.\n4.\t Placez la ou les serviettes derri\u00e8re le cabinet \nESPA\u00d1OL\nEl juego trae\n4\t Subconjunto de dispositivo rompevac\u00edo (Art. \nNo. 34313)\n4\t Abrazaderas (3) (Art. No. 19541)\n4\t Manguera de descarga (Art. No. 34377)\n4\t Junta herm\u00e9tica de brida del suelo (Art. No. \n02125)\n4\t Hoja de instrucciones (Art. No. 34123)\nNecesita\n4\t Toalla(s)\n4\t Bolsa de pl\u00e1stico para basura\n4\t Alicates de punta fina\n4\t Llave de 1/2\u201d\nAntes de comenzar\n4\t Lea completamente todas las instrucciones.\n4\t Reduzca el olor del tanque de retenci\u00f3n: Lave \nel inodoro con agua, vac\u00ede el tanque de reten\u00ad\nci\u00f3n y \u00e9chele desodorante Thetford (Holding \nTank Deodorant).\n4\t Use guantes protectores, anteojos, mangas \nlargas y m\u00e1scara para la nar",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "sodorante Thetford (Holding \nTank Deodorant).\n4\t Use guantes protectores, anteojos, mangas \nlargas y m\u00e1scara para la nariz/la cara, para \nevitar el contacto con las aguas negras.\n4\t Lave bien todo el inodoro.\n4\t Consulte la figura 1 para ubicar las piezas. Se \nilustra el modelo Style Lite.\nRetire el inodoro\n1. \tCierre el suministro de agua seg\u00fan las instruc\u00ad\nciones del manual del propietario del VR.\n2. \tHaga pasar el agua para vaciar el inodoro.\n3. \tStyle Plus \u2013 Retire el recubrimiento:\na.\t Pise el pedal y mant\u00e9ngalo oprimido, \ndesenganche las dos juntas t\u00f3ricas que \nmantienen unido el recubrimiento, ubicado \nen la parte posterior de la unidad.\nb.\t Separe las piezas del recubrimiento a la \nvez que tira de ellas hacia delante.\n4.\t Coloque una(s) toalla(s) detr\u00e1s del inodoro, \ndebajo de la conexi\u00f3n de suministro de agua, \npara atrapar el agua.\n5.\t Desconecte el suministro de agua del VR de",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "oro, \ndebajo de la conexi\u00f3n de suministro de agua, \npara atrapar el agua.\n5.\t Desconecte el suministro de agua del VR de la \nv\u00e1lvula para el agua.\n6.\t Retire las tapas de los pernos de la brida del \nsuelo (si las tienen) y las tuercas.\nFigure 1/Sch\u00e9ma 1/FIGURA 1\nPart No.\nPi\u00e8ce No. \nArt\u00edculo \nNo. 34122\nStyle\u00ae Plus, Lite & II \nVacuum Breaker Kit\nTrousse \u00e0 dispositif \nanti-refoulement\nJuego de dispositivo rompevac\u00edo \nRV Toilets/Cabinets d\u2019aisances pour VR/Inodoros para VR\nMade in the USA/Fabriqu\u00e9 aux \u00c9.-U./Hecho en EE UU\nThetford Corporation\nAnn Arbor, MI   1-800-521-3032   www.thetford.com\nF# 34123  12/06\nInlet tube/\nTube d\u2019admission/\nTubo de entrada\nClamp A/\nCrampon de \nserrage A/\nAbrazadera A\nVacuum breaker/\nDispositif anti-refoulement/\nDispositivo rompevac\u00edo\nFlush hose/\nTuyau de chasse/ \nManguera de \ndescarga\nNozzle/\nBuse/\nBoquilla\nClamp C/\nCrampon de \nserrage C/\nAbrazadera C\nClamp B/\nC",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "excerpt": "/\nTuyau de chasse/ \nManguera de \ndescarga\nNozzle/\nBuse/\nBoquilla\nClamp C/\nCrampon de \nserrage C/\nAbrazadera C\nClamp B/\nCrampon de \nserrage B/\nAbrazadera B\nPod (Lite only)/\nBo\u00eetier (Lite uniquement)/\nRecept\u00e1culo (\u00fanicamente en el \nmodelo Lite)\nPod O-Ring/\nJoint torique \ndu bo\u00eetier/\nJunta t\u00f3rica del \nrecept\u00e1culo",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "trash bag.\n8.\t Cover holding tank opening \nwith a towel.\n9.\t Remove old closet flange \nSeal. Discard.\nRemove Old Vacuum \nBreaker\n1.\t Style Lite - Remove pod:\na.\t Remove pod o-ring.\nb.\t Remove pod.\n2.\t With pliers, slide clamp A \ndown inlet tube, then remove \ninlet tube from vacuum \nbreaker.\n3.\t Slide clamp C backward on \nflush hose, then remove the \nvacuum breaker.\n4.\t Discard old vacuum breaker, \nand clamps A, B, and C.  \nInstall New Vacuum \nBreaker\n1.\t Install new flush hose on \nnozzle, then secure with new \nclamp C.\n2.\t Slide new clamp B up flush \nhose.\n3.\t Install new vacuum breaker \non flush hose, then secure \nwith new clamp B.\n4.\t Install new clamp A on inlet \ntube.\n5.\t Install inlet tube on vacuum \nbreaker, then secure with \nnew clamp A.\n6.\t Style Lite - Install pod.\na.\t Install pod.\nb.\t Install pod o-ring.\nReinstall Toilet\n1.\t Install new Closet Flange \nSeal, lip side down, on to",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "pod.\na.\t Install pod.\nb.\t Install pod o-ring.\nReinstall Toilet\n1.\t Install new Closet Flange \nSeal, lip side down, on toilet.\n2.\t Uncover holding tank open\u00ad\ning and remove towel(s).\n3.\t Place Toilet on floor, aligning \nmounting holes with closet \nbolts.\n4.\t Tighten Closet Flange Nuts \nuntil toilet does not rock. Do \nnot overtighten.\n5.\t Replace Bolt Covers (if pres\u00ad\nent).\n6.\t Connect RV water supply line \nto Toilet.\n7.\t Style Plus only \u2013 Install \nShroud:\na.\t Spread Shroud open, \nthen lower pedal opening \nover pedal neck.\nb.\t Wrap Shroud around to \nback of toilet. Push pedal \ndown, then push shroud \ninto place to engage front \nfastening device.\nc.\t Secure back of Shroud \nwith two O-rings \u2013 larger \non top and smaller on \nbottom.\n8.\t Turn on RV water supply.\n9.\t Flush test Toilet, checking for \nleaks at all connections.\nenglish\nFRAN\u00e7ais\nESPA\u00d1OL\nsous le raccord d\u2019eau pour r\u00e9cup\u00e9rer l\u2019eau qui",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "Toilet, checking for \nleaks at all connections.\nenglish\nFRAN\u00e7ais\nESPA\u00d1OL\nsous le raccord d\u2019eau pour r\u00e9cup\u00e9rer l\u2019eau qui fuit.\n5.\t D\u00e9branchez l\u2019alimentation en eau du RV \u00e0 partir du \nrobinet de la prise d\u2019eau.\n6.\t Retirez les chapeaux (le cas \u00e9ch\u00e9ant) des boulons \net les \u00e9crous de la bride de sol.\n7.\t Soulevez le cabinet du sol et placez-le sur un sac \u00e0 \nd\u00e9chets.\n8.\t Couvrez l\u2019ouverture du bac \u00e0 eaux us\u00e9es.\n9.\t Retirez le vieux joint d\u2019\u00e9tanch\u00e9it\u00e9 de la bride de sol \net jetez-le.\nRetirez le vieux dispositif anti-refoulement\n1.\t Style Lite \u2013 Retirez le bo\u00eetier;\na.\t Retirez le joint torique du bo\u00eetier.\nb.\t Retirez le bo\u00eetier.\n2.\t \u00c0 l\u2019aide des pinces, faites glisser le crampon de \nserrage A vers le bas sur le tube d\u2019admission, puis \nretirez le tube d\u2019admission du dispositif anti-refoule\u00ad\nment.\n3.\t Faites glisser le crampon de serrage C en arri\u00e9re \nsur le tuyau d\u2019\u00e9vacuation, puis retirez le d",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "anti-refoule\u00ad\nment.\n3.\t Faites glisser le crampon de serrage C en arri\u00e9re \nsur le tuyau d\u2019\u00e9vacuation, puis retirez le dispositif \nanti-refoulement.\n4.\t Jetez le vieux dispositif anti-refoulement et les \ncrampons de serrage A, B et C.\nInstallez le nouveau dispositif anti-\nrefoulement\n1.\t Installez le nouveau tuyau d\u2019\u00e9vacuation (s\u2019il a \u00e9t\u00e9 \nretir\u00e9) sur la buse, puis fixez-le avec le nouveau \ncrampon de serrage C.\n2.\t Faites glisser le nouveau crampon B vers le haut du \ntuyau d\u2019\u00e9vacuation.\n3.\t Installez le nouveau dispositif anti-refoulement sur \nle tuyau d\u2019\u00e9vacuation, puis fixez-le \u00e0 l\u2019aide du nou\u00ad\nveau crampon B.\n4.\t Installez le nouveau crampon A sur le tuyau \nd\u2019admission.\n5.\t Installez le tuyau d\u2019admission sur le dispositif \nanti-refoulement, puis fixez-le \u00e0 l\u2019aide du nouveau \ncrampon A.\n6.\t Style Lite \u2013 Installez le bo\u00eetier.\na.\t Installez le bo\u00eetier.\nb.\t Installez le joint torique du",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "nouveau \ncrampon A.\n6.\t Style Lite \u2013 Installez le bo\u00eetier.\na.\t Installez le bo\u00eetier.\nb.\t Installez le joint torique du bo\u00eetier.\nR\u00e9installez le cabinet\n1.\t Installez le nouveau joint d\u2019\u00e9tanch\u00e9it\u00e9 de la bride de \nsol, la l\u00e8vre vers le bas, sur le cabinet.\n2.\t Mettez \u00e0 d\u00e9couvert l\u2019ouverture du bac \u00e0 eaux us\u00e9es \net retirez la ou les serviettes.\n3.\t Placez le cabinet sur le sol, en alignant les orifices \nde montage avec les boulons du cabinet.\n4.\t Resserrez les \u00e9crous du joint d\u2019\u00e9tanch\u00e9it\u00e9 jusqu\u2019\u00e0 \nce que le cabinet soit stable. Ne les serrez pas trop. \n5.\t Remettez les chapeaux sur les boulons (s\u2019il y a \nlieu).\n6.\t Branchez la conduite d\u2019alimentation en eau du VR.\n7.\t Style Plus - Installez l\u2019enveloppe de protection:\na.\t D\u00e9ployez l\u2019enveloppe de protection, puis abais\u00ad\nsez l\u2019ouverture de la p\u00e9dale \u00e0 la hauteur de son \ncou.\nb.\t Ramenez l\u2019enveloppe de protection jusqu\u2019\u00e0 \nl\u2019arri\u00e8re. Enfoncez la",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "l\u2019ouverture de la p\u00e9dale \u00e0 la hauteur de son \ncou.\nb.\t Ramenez l\u2019enveloppe de protection jusqu\u2019\u00e0 \nl\u2019arri\u00e8re. Enfoncez la p\u00e9dale, puis poussez \nl\u2019enveloppe de protection pour faire s\u2019engager le \ndispositif d\u2019attache frontal.\nc.\t Fixez l\u2019arri\u00e8re de l\u2019enveloppe de protection \u00e0 \nl\u2019aide de deux joints toriques \u2013 le plus grand \ndans la partie sup\u00e9rieure et le plus petit dans la \npartie inf\u00e9rieure.\n8.\t Ouvrez la conduite d\u2019alimentation en eau du VR.\n9.\t Tirez la chasse d\u2019eau pour tester le cabinet, en v\u00e9ri\u00ad\nfiant la pr\u00e9sence de fuite \u00e0 toutes les connexions.\n7.\t Levante el inodoro del piso y col\u00f3quelo sobre \nla bolsa para basura.\n8.\t Tape la abertura del tanque de retenci\u00f3n.\n9.\t Retire la junta herm\u00e9tica de brida del suelo \nusada y des\u00e9chela.\nRetire el dispositivo rompevac\u00edo usado\n1.\t Style Lite \u2013 Retire el recept\u00e1culo:\na.\t Retire la junta t\u00f3rica del recept\u00e1culo.\nb.\t Retire el recept\u00e1culo.\n2.",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "sado\n1.\t Style Lite \u2013 Retire el recept\u00e1culo:\na.\t Retire la junta t\u00f3rica del recept\u00e1culo.\nb.\t Retire el recept\u00e1culo.\n2.\t Con los alicates, corra la abrazadera A por \nel tubo de entrada, luego retire el tubo del \ndispositivo rompevac\u00edo.\n3.\t Corra la abrazadera B\u00a0hacia atr\u00e1s, por la \nmanguera de descarga, luego retire el dis\u00ad\npositivo rompevac\u00edo.\n4.\t Deseche el dispositivo rompevac\u00edo usado y \nlas abrazaderas A, B y C.\nInstale el nuevo dispositivo \nrompevac\u00edo\n1.\t Instale en la boquilla una manguera de \ndescarga nueva, luego aseg\u00farela con una \nabrazadera C nueva.\n2.\t Corra una abrazadera B nueva por la \nmanguera de descarga.\n3.\t Instale el dispositivo rompevac\u00edo nuevo en la \nmanguera de descarga, luego aseg\u00farela con \nuna abrazadera B nueva.\n4.\t Instale una abrazadera A nueva en el tubo de \nentrada.\n5.\t Instale el tubo de entrada en el dispositivo \nrompevac\u00edo, luego aseg\u00farelo con una abraza\u00ad\nd",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "en el tubo de \nentrada.\n5.\t Instale el tubo de entrada en el dispositivo \nrompevac\u00edo, luego aseg\u00farelo con una abraza\u00ad\ndera A nueva\n6.\t Style Lite \u2013 Instale el recept\u00e1culo:\na.\t Instale el recept\u00e1culo.\nb.\t Instale la junta t\u00f3rica del recept\u00e1culo.\nVuelva a instalar el inodoro\n1.\t Instale en el inodoro la nueva junta herm\u00e9tica \nde brida del suelo, con el lado del reborde \nhacia abajo.\n2.\t Destape la abertura del tanque de retenci\u00f3n y \nretire la(s) toalla(s).\n3.\t Coloque el inodoro sobre el piso, alineando \nlos orificios de montaje con los pernos del \nexcusado.\n4.\t Apriete las tuercas de la brida del suelo hasta \nque no se pueda mover el inodoro. No las \napriete demasiado.\n5.\t Vuelva a colocar las tapas de los pernos (si \nlas tienen).\n6.\t Conecte la tuber\u00eda de suministro de agua del \nVR.\n7.\t Style Plus \u2013 Instale el recubrimiento:\na.\t Separe el recubrimiento, luego descienda \nla abertura del",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 2,
+      "excerpt": "agua del \nVR.\n7.\t Style Plus \u2013 Instale el recubrimiento:\na.\t Separe el recubrimiento, luego descienda \nla abertura del pedal sobre el cuello del \npedal.\nb.\t Envuelva el inodoro con el recubrimiento \nhasta su parte posterior. Pise el pedal, \nluego meta el recubrimiento en su sitio \npara que se fije al dispositivo de sujeci\u00f3n \ndelantero.\nc.\t Fije la parte posterior del recubrimiento \ncon las dos juntas t\u00f3ricas \u2013 la mayor en \nla parte superior y la menor en la parte \ninferior.\n8.\t Abra el suministro de agua del VR.\n9.\t Haga pasar el agua para detectar fugas en \ntodas las conexiones del inodoro.",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    }
+  ],
+  "figures": [
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "kind": "figure",
+      "label": "Fig. 1 PEDAL REMOVED",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "kind": "figure",
+      "label": "Fig. 4 PEDAL REATTACHMENT",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "kind": "figure",
+      "label": "Fig. 2 INSERTING WATER INLET SEAL ASSEMBLY",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 1,
+      "title": "Thetford Water Valve Kit 42109",
+      "page": 1,
+      "kind": "figure",
+      "label": "Fig. 3 WATER VALVE CLOSED POSITION",
+      "brand": "Thetford",
+      "file_path": "library/42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
+    },
+    {
+      "document_id": 2,
+      "title": "Thetford Vacuum Breaker Kit 34123/34122",
+      "page": 1,
+      "kind": "figure",
+      "label": "Fig. 1",
+      "brand": "Thetford",
+      "file_path": "library/34123-34122-VacBrkr-1.pdf"
+    }
+  ]
+}

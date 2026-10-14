@@ -88,10 +88,12 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
         )
         titles = [procedure.get("title") or "" for procedure in proc.procedures]
         self.assertTrue(any("42109" in title for title in titles))
-        self.assertFalse(any("3412" in title for title in titles))
-        self.assertEqual(len(proc.procedures), 1)
-        valve = proc.procedures[0]
-        self.assertEqual(len(valve["steps"]), 13)
+        self.assertTrue(any("3412" in title for title in titles))
+        self.assertGreaterEqual(len(proc.procedures), 4)
+        valve = next(procedure for procedure in proc.procedures if "42109" in (procedure.get("title") or ""))
+        self.assertGreater(len(valve["steps"]), 13)
+        for step in valve["steps"]:
+            self.assertEqual(len(step.get("actions") or []), 1)
         water = valve["steps"][0]
         pedal = next(
             step for step in valve["steps"]
@@ -108,12 +110,12 @@ class TestThetfordBayRepairProcedure(unittest.TestCase):
             sum("pull the pedal" in " ".join(step.get("actions") or []).lower() for step in valve["steps"]),
             1,
         )
-        self.assertIsNone(pedal.get("figure"))
-        self.assertIn("PEDAL REMOVED", (thumb.get("figure") or {}).get("label") or "")
+        self.assertIn("PEDAL REMOVED", (pedal.get("figure") or {}).get("label") or "")
+        self.assertFalse(mf.png_is_blank((pedal.get("figure") or {}).get("png") or b""))
+        self.assertIsNone(thumb.get("figure"))
         self.assertIn("Fig. 2", (inlet.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 3", (drive.get("figure") or {}).get("label") or "")
         self.assertIn("Fig. 4", (pivot.get("figure") or {}).get("label") or "")
-        self.assertFalse(mf.png_is_blank((thumb.get("figure") or {}).get("png") or b""))
         figured = 0
         for procedure in proc.procedures:
             for step in procedure["steps"]:
@@ -183,8 +185,20 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             line = mf.thetford_proving_line(key)
             self.assertNotIn("Not stated in this sheet", line)
             self.assertNotIn("UNCONFIRMED", line)
-            self.assertIn("HOW:", line)
-            self.assertIn("PHOTO:", line)
+            self.assertNotIn("Do this:", line)
+            self.assertNotIn("Where:", line)
+            self.assertNotIn("Good looks like:", line)
+            self.assertNotRegex(line, r"Step \d+ of")
+            step = {"fields": mf._THETFORD_PROVING[key], "actions": [], "text": ""}
+            if key in ("supply", "vacuum"):
+                self.assertIn("Tell me what you see.", line, key)
+                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
+            elif mf.step_needs_photo(step):
+                self.assertIn(mf.PHOTO_VISUAL, line, key)
+            else:
+                self.assertNotIn(mf.PHOTO_VISUAL, line, key)
+            self.assertNotIn("PHOTO:", line)
+            self.assertNotIn("A photo is optional.", line)
             self.assertNotIn("SAFETY:", line)
             self.assertNotIn("TOOLS / METER SETTING:", line)
             self.assertIn("📖 Source:", line)
@@ -202,7 +216,9 @@ class TestEmptyFieldsStayOffTheReply(unittest.TestCase):
             )
             self.assertNotIn("Not stated in this sheet", reply)
             self.assertNotIn("UNCONFIRMED", reply)
-            self.assertIn("HOW:", reply)
+            self.assertNotIn("Do this:", reply)
+            self.assertNotIn("Where:", reply)
+            self.assertNotRegex(reply, r"Step \d+ of")
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
             latest = "Not checked yet"
@@ -482,8 +498,11 @@ class TestS20BleedReply(unittest.TestCase):
         from gd_library_coach import LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT
 
         for body in (LEADJACK_VERIFY_BODY, LEADJACK_VERIFY_WAIT):
-            self.assertIn("Yes, go to the next step.", body)
-            self.assertIn("No, do this step again.", body)
+            self.assertIn("Bleed and resync the jacks", body)
+            self.assertNotIn("Do this:", body)
+            self.assertNotIn("**Step", body)
+            self.assertNotIn("Yes, go to the next step.", body)
+            self.assertNotIn("No, do this step again.", body)
             self.assertNotIn("Part 177094 is the cartridge valve", body)
             self.assertNotIn("177094", body)
 

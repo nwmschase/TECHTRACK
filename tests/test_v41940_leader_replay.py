@@ -227,7 +227,9 @@ class TestLeaderReplay(unittest.TestCase):
         self.assertIn("vacuum breaker", replies[1].lower())
         self.assertNotIn("42049", replies[1])
         self.assertNotIn("weep", replies[1].lower())
-        self.assertIn("42049", replies[2])
+        # v4.19.60: kit 42109 (form 42109) holds cartridge 42002 ... retainer 42099. "Kit 42049" was wrong.
+        self.assertNotIn("Kit 42049", replies[2])
+        self.assertIn("Kit 42109 includes", replies[2])
         self.assertIn("42109", replies[2])
         self.assertIn("weep", replies[2].lower())
         self.assertNotIn("vacuum breaker", replies[2].lower())
@@ -235,8 +237,8 @@ class TestLeaderReplay(unittest.TestCase):
         self.assertIn("7/16", replies[3])
         joined = "\n".join(replies).lower()
         self.assertLess(joined.find("supply"), joined.find("vacuum breaker"))
-        self.assertLess(joined.find("vacuum breaker"), joined.find("42049"))
-        self.assertLess(joined.find("42049"), joined.find("flange"))
+        self.assertLess(joined.find("vacuum breaker"), joined.find("kit 42109 includes"))
+        self.assertLess(joined.find("kit 42109 includes"), joined.find("flange"))
 
 
 if __name__ == "__main__":
