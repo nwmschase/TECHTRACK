@@ -9450,6 +9450,10 @@ def cited_manual_pages(proc: "BayProcedure") -> dict[str, set[int]]:
     return cited
 
 
+def _norm_title(title) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(title or "").lower()).strip()
+
+
 def keep_cited_page_figures(proc: "BayProcedure") -> "BayProcedure":
     """Drop bay-order and leftover figures whose manual page the sheet never cites.
 
@@ -9459,6 +9463,16 @@ def keep_cited_page_figures(proc: "BayProcedure") -> "BayProcedure":
     cited = cited_manual_pages(proc)
     if not cited:
         return proc
+    titled: dict[str, set[int]] = {}
+    for src in proc.sources or []:
+        try:
+            titled.setdefault(_norm_title(src.get("title")), set()).add(int(src.get("page") or 0))
+        except (TypeError, ValueError):
+            continue
+    # A step cite written '(Manual title, page N)', including the How template's.
+    for step in proc.bay_order or []:
+        for m in re.finditer(r"\(([^()]{4,160}?),\s*page\s+(\d+)\)", re.sub(r"\s+", " ", str(step or ""))):
+            titled.setdefault(_norm_title(m.group(1)), set()).add(int(m.group(2)))
 
     def fits(fig) -> bool:
         codes = _doc_codes(getattr(fig, "title", "") or "")
@@ -9466,11 +9480,29 @@ def keep_cited_page_figures(proc: "BayProcedure") -> "BayProcedure":
             page = int(getattr(fig, "page", 0) or 0)
         except (TypeError, ValueError):
             page = 0
-        if not codes or not page:
+        if not page:
             return False
-        return any(page in cited.get(code, set()) for code in codes)
+        if codes:
+            if any(code in cited for code in codes):
+                return any(page in cited.get(code, set()) for code in codes)
+        # A manual with no document number is matched by its title. A figure from
+        # a manual the sheet does not cite at all is left to the brand gates.
+        pages = titled.get(_norm_title(getattr(fig, "title", "")))
+        if pages is None:
+            return not codes
+        return page in pages
 
-    proc.step_figures = [[fig for fig in group or [] if fits(fig)] for group in (proc.step_figures or [])]
+    def supports(fig, step: str) -> bool:
+        """The figure's own retrieved text names this step's part number."""
+        excerpt = str(getattr(fig, "excerpt", "") or "")
+        nums = set(re.findall(r"\b\d{5,8}\b", excerpt))
+        return bool(nums and nums & set(re.findall(r"\b\d{5,8}\b", str(step or ""))))
+
+    steps = list(proc.bay_order or [])
+    proc.step_figures = [
+        [fig for fig in group or [] if fits(fig) or supports(fig, steps[i] if i < len(steps) else "")]
+        for i, group in enumerate(proc.step_figures or [])
+    ]
     proc.figures = [fig for fig in proc.figures or [] if fits(fig)]
     return proc
 
@@ -9581,6 +9613,13 @@ def _finish(text: str) -> str:
     return text
 
 
+# Split at 'and' only where an action verb follows, so 'Check A and B' keeps its verb.
+_BAY_VERBS = r"(?:check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|run|disconnect|reconnect|verify|inspect|plug|unplug|drain|fill|flush|move|bypass|record)"
+_AND_ACTION = r",\s+(?=and\s+" + _BAY_VERBS + r"\b)"
+_COMMA_ACTION = r",\s+(?=" + _BAY_VERBS + r"\b)"
+_AND_ACTION_BARE = r"\s+(?=and\s+" + _BAY_VERBS + r"\b)"
+
+
 def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
     """Split one sentence into lines of ``limit`` words or fewer.
 
@@ -9595,10 +9634,20 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
         return []
     if _bay_word_count(text) <= limit:
         return [_finish(text)]
-    cond = re.match(r"^((?:If|When|Once|After|Before|Until|Unless)\b[^,]{3,}?),\s+(.+)$", text)
-    if cond and _bay_word_count(cond.group(1)) <= limit:
-        return [_finish(cond.group(1)).rstrip(".") + ":"] + short_actions(_cap(cond.group(2)), limit)
-    for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", r",\s+(?=and\b)", r",\s+(?=so\b)", r",\s+(?=but\b)", r",\s+", r"\s+(?=and then\b)", r"\s+(?=and\b)"):
+    cond = re.match(r"^((?:If|When|Once|After|Before|Until|Unless|On a|On an|On the)\b[^,]{3,}?),\s+(.+)$", text)
+    if cond is None:
+        cond = re.match(r"^((?:If|When|Once|After|Before|Until|Unless)\b.{3,}?)\s+(?=(?:replace|repair|check|test|confirm|go|stop|reset)\b)(.+)$", text)
+    if cond:
+        listed = re.match(r"^([^,]+,\s+(?:or|and)\s+[^,]+),\s+(.+)$", cond.group(2))
+        if listed and not re.match(r"^(?:replace|repair|check|test|confirm|go|stop|reset|set|let)\b", cond.group(2)):
+            # 'If A, B, or C, do D': the whole list is the condition.
+            head_text = text[: len(text) - len(listed.group(2))].rstrip().rstrip(",")
+            cond = re.match(r"^(" + re.escape(head_text) + r"),\s+(.+)$", text)
+        # The condition is never cut at 'and': only at 'while'/'because', so it means the same.
+        head = [p.strip() for p in re.split(r"\s+(?=(?:while|because)\b)", cond.group(1)) if p.strip()]
+        head[-1] = _finish(head[-1]).rstrip(".") + ":"
+        return head + short_actions(_cap(cond.group(2)), limit)
+    for pattern in (r";\s+", r":\s+", r",\s+(?=then\b)", _AND_ACTION, r",\s+(?=so\b)", r",\s+(?=but\b)", _COMMA_ACTION, r"\s+(?=and then\b)", _AND_ACTION_BARE):
         pieces = [p for p in re.split(pattern, text) if p.strip()]
         if len(pieces) < 2:
             continue
@@ -9617,7 +9666,7 @@ def short_actions(sentence: str, limit: int = BAY_ACTION_WORDS) -> list[str]:
         for at, piece in enumerate(packed):
             if pattern.startswith(":") and at < len(packed) - 1:
                 piece = piece.rstrip() + ":"
-            if pattern in (r",\s+(?=and\b)", r"\s+(?=and\b)"):
+            if pattern in (_AND_ACTION, _AND_ACTION_BARE):
                 # 'and' only joined the two clauses; the next line carries the same words.
                 piece = re.sub(r"^and\s+(?!then\b)", "", piece)
             out.extend(short_actions(_cap(piece), limit))
@@ -9836,16 +9885,28 @@ def _fit_image(png: bytes, max_w: float, max_h: float) -> tuple[float, float]:
     return width * scale, height * scale
 
 
-def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break: bool = True) -> bool:
-    """A leftover library figure, same width as a step figure, caption underneath."""
+def _paint_figure_on(cur: _SheetFlow, fig: BayFigure, *, png: bytes, allow_break: bool = True, min_h: float = 0.0, reserve: float = 0.0) -> bool:
+    """A leftover library figure, same width as a step figure, caption underneath.
+
+    ``min_h`` lets a figure that does not fit at full size shrink onto this page
+    when it stays at least that tall.
+    """
     cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
     _fw, _fh, block = _figure_block_height(png, cap, 0)
     need = 36.0 + block
     if need > cur.y - _FIGURE_FLOOR:
-        if not allow_break:
+        shrunk = 0.0
+        if min_h:
+            shrunk = _fit_figure_pair(png, cap, cur.y - _FIGURE_FLOOR - 36.0 - reserve)[1]
+        if shrunk and shrunk >= min_h:
+            pass  # paint below at the shrunk size, leaving ``reserve``
+        elif not allow_break:
             return False
-        cur.new_page(cur.subtitle)
+        else:
+            cur.new_page(cur.subtitle)
     room = cur.y - _FIGURE_FLOOR - 36.0
+    if min_h and need > cur.y - _FIGURE_FLOOR:
+        room -= reserve
     fig_w, fig_h = _fit_figure_pair(png, cap, room)
     if fig_h < 28 or fig_w < 28:
         return False
@@ -10330,7 +10391,8 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             for fig in group:
                 if fig and fig.image_png:
                     shown_figures.add(fig.image_png)
-    # v4.19.63: cited figures print before Do Not and Sources.
+    if proc.do_not:
+        _paint_do_not(body, proc.do_not)
 
     imaged = []
     for fig in proc.figures:
@@ -10342,11 +10404,25 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         if not png or _figure_is_illegible(fig, png):
             continue
         imaged.append((fig, png))
+    # v4.19.63: a cited figure that fits on this page prints before Sources, so
+    # no figure heading or caption follows a Sources line. The rest keep the
+    # old place after Sources.
+    shown = 0
+    later = []
+    for fig, png in imaged:
+        if shown < MAX_FIGURES_PER_SHEET and not _figure_is_squeezed(png, body.remaining()) and _paint_figure_on(
+            body, fig, png=png, allow_break=False
+        ):
+            shown += 1
+        else:
+            later.append((fig, png))
+    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
+    _paint_fitting_sources(body, sources)
+
     # A short crop stays on the current page. A dedicated figure page has to
     # be a real figure, not a thin strip floating in blank paper.
-    shown = 0
     min_page_figure = 240.0
-    for fig, png in imaged:
+    for fig, png in later:
         if shown >= MAX_FIGURES_PER_SHEET:
             break
         if not _figure_is_squeezed(png, body.remaining()) and _paint_figure_on(
@@ -10354,18 +10430,24 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         ):
             shown += 1
             continue
+        # v4.19.63: one-action lines make a sheet longer. At the page cap a cited
+        # figure shrinks onto the last page (140 pt or taller) instead of dropping.
+        if len(pages) >= MAX_SHEET_PAGES and _paint_figure_on(
+            body, fig, png=png, allow_break=False, min_h=140.0
+        ):
+            shown += 1
+            continue
         page_h = _fit_image(png, _CONTENT_W - 32, PAGE_H - 180)[1]
         if page_h < min_page_figure or len(pages) >= MAX_SHEET_PAGES:
             continue
-        # v4.19.63: a full-page figure stays in the body flow, ahead of Do Not
-        # and Sources, so no figure heading or caption follows a Sources line.
-        if _paint_figure_on(body, fig, png=png, allow_break=True):
-            shown += 1
-    if proc.do_not:
-        _paint_do_not(body, proc.do_not)
-    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
-    _paint_fitting_sources(body, sources)
-    if proc.include_3c:
+        _paint_figure_page(
+            pages,
+            fig,
+            png=png,
+            with_footer=bool(proc.include_3c and shown == 0),
+        )
+        shown += 1
+    if proc.include_3c and shown == 0:
         _add_3c_footer(body.page)
     return pages
 
