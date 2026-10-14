@@ -595,14 +595,10 @@ def _dial_off_path() -> dict:
                 "go to the Spark-Free Thermostat replacement."
             ),
             (
-                "If the compressor stops with C and T open, replace the Spark-Free "
-                "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007). Straighten "
-                "the probe, reseat it, and reconnect the wires. That is the confirmed "
-                "correction when the compressor stops."
+                ('Replace the Spark-Free Thermostat, part G 2021128850 (retail C-FCR10DCGTA-007). Do this when the compressor stops with C and T open. Straighten the probe, reseat it, and reconnect the wires. That is the confirmed correction when the compressor stops.')
             ),
             (
-                "If the compressor keeps running with C and T open, the run call is "
-                "downstream of the thermostat. Escalate the inverter and the harness."
+                ('Compressor still running with C and T open? The run call is downstream of the thermostat. Escalate the inverter and the harness.')
             ),
         ],
         "check_pages": [31, 31, 43, 45],
@@ -637,8 +633,7 @@ def _dial_off_path() -> dict:
                 "title": FURRION_8122_TITLE,
                 "page": 45,
                 "excerpt": (
-                    "If the compressor keeps running with C and T open, escalate the "
-                    "inverter and the harness."
+                    ('Compressor still running with C and T open? Escalate the inverter and the harness.')
                 ),
             },
         ],
@@ -777,12 +772,12 @@ def _ice_path() -> dict:
             ],
         ),
         "bay_order": [
-            "Open the fridge and note the ice or moisture pattern. Photograph it. If it is only a light sheet on the back wall and nowhere else, that is normal cycling: no further action is required for that alone, and you are done. If frost is heavy, starts halfway down, or shows on other surfaces, keep going.",
-            "Record the dial setting and the fridge and freezer cavity temperatures. If the dial is at max, set it to about 4 to 5, towel-dry the melt, let the fridge run overnight, then look at the pattern again. If the ice begins to melt at mid setpoint, stay on the moisture path. If the dial is already mid, go to the defrost next.",
+            ('Open the fridge and note the ice or moisture pattern. Photograph it. A light sheet only on the back wall is normal cycling; stop here. Heavy, halfway-down, or other-surface frost means keep going.'),
+            ('Record the dial setting and the fridge and freezer cavity temperatures. If the dial is at max, set it to about 4 to 5. Towel-dry the melt and let the fridge run overnight. Then look at the pattern again. If ice starts to melt at mid setpoint, stay on the moisture path. If the dial is already mid, go to the defrost next.'),
             "Do a full manual defrost. Power the unit off, open both doors, and use towels. Do not scrape, do not use a heat gun, and do not set hot-water pans in the cabinet. When the ice is gone, go to the dry-and-drain step.",
-            "Dry the cabinet completely. Clear the rear drain and trough with a soft plastic probe only so melt water can leave. If water backs up, keep clearing until it leaves, then go to the gasket. If the drain is already open, go to the gasket next.",
-            "Check the door gasket with a dollar-bill test around the full perimeter, and check the hinges, latch, and door alignment. If the bill slides out with no drag, reseat or replace the gasket, set the dial to about 4 to 5, leave an air gap at the rear wall, and recheck in 24 to 48 hours. If the gasket holds, set the dial mid, leave the air gap, and recheck in 24 to 48 hours.",
-            "After 24 to 48 hours, if the frost is gone or only a light sheet remains on the back wall, the correction is the moisture path: mid setpoint, a holding gasket, and a clear drain. You are done. If heavy frost returns with a mid dial, a good gasket, and a clear drain, leave the cooling unit in place. Dry the cabinet again and watch door-open time and humidity for about a month.",
+            ('Dry the cabinet completely. Clear the rear drain and trough with a soft plastic probe only so melt water can leave. If water backs up, keep clearing until it leaves. Then go to the gasket. If the drain is already open, go to the gasket next.'),
+            ('Check the door gasket with a dollar-bill test around the full perimeter, and check the hinges, latch, and door alignment. If the bill slides out with no drag, reseat or replace the gasket. Set the dial to about 4 to 5 and leave a rear-wall air gap. Recheck in 24 to 48 hours. If the gasket holds, set the dial mid, leave the air gap, and recheck in 24 to 48 hours.'),
+            ('Check the cabinet after 24 to 48 hours. If frost is gone or just a back-wall sheet, you are done. The fix was mid setpoint, a holding gasket, and a clear drain. Did heavy frost return with a mid dial, good gasket, and clear drain? Leave the cooling unit in place. Dry the cabinet again and watch door-open time and humidity for about a month.'),
             ICE_MONTH_CLOSE
             + " Replace the cooling unit only after that month. That is the confirmed correction. "
             "If the heavy frost is gone after that watch, you are done.",
@@ -922,7 +917,7 @@ def _facr_path() -> dict:
                 FlowNode(
                     "e_rep",
                     "end",
-                    "All checks pass and it still leaks.\nReplace the rooftop unit.",
+                    "Replace the rooftop unit\nonly if it still leaks.",
                     0.30,
                     0.93,
                     w=250,
@@ -1069,19 +1064,13 @@ def _bal_tongue_path() -> dict:
                 "work. Go to the tongue output-wire voltage check."
             ),
             (
-                "Press tongue extend/retract and check for 12V on the tongue jack output wire "
-                "at the panel. If that wire has no 12V while the other stabilizer circuits and the lights "
-                "still work, replace the soft-touch user panel 20300427. That is the confirmed correction."
+                ('Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. The other stabilizer circuits and the lights still work here. If that wire has no 12V, replace soft-touch user panel 20300427. That is the confirmed correction.')
             ),
             (
-                "If the tongue jack output wire has 12V, check the local tongue pigtail and the panel-to-motor "
-                "leads. If voltage stops in that pigtail, repair the pigtail and retest the tongue jack. "
-                "That is the confirmed correction after the panel voltage prove."
+                ('Check the tongue pigtail and the panel-to-motor leads. Do this when the output wire has 12V. If voltage stops in that pigtail, repair it and retest the jack. That is the confirmed correction after the panel voltage prove.')
             ),
             (
-                "Use a coupler or shear-pin replacement only when the manual override will not turn, "
-                "or the motor fails a direct-12V prove. When the motor runs on direct 12V and the "
-                "coupler is engaged, leave the coupler installed and stay on the panel and pigtail proves."
+                ('Use a coupler or shear-pin replacement only when the manual override will not turn, or the motor fails a direct-12V prove. If the motor runs on direct 12V, coupler engaged, keep the coupler. Then stay on the panel and pigtail checks.')
             ),
         ],
         "do_not": [
@@ -1390,31 +1379,16 @@ def _coleman_path() -> dict:
         ),
         "bay_order": [
             (
-                "Prove Fan High at the 9-pin before any part is condemned. Pin 5 black "
-                "is Fan High and pin 9 white is fan common. If the board output tester "
-                "is dark or black-to-white is about 0 VAC, Fan High is dead: go to the "
-                "Peacemaker bypass. If Fan High is about 115 VAC, the board is calling "
-                "for the fan: stay on the live-voltage fan path."
+                ('Prove Fan High at the 9-pin before any part is condemned. Pin 5 black is Fan High and pin 9 white is fan common. A dark tester or about 0 VAC black-to-white means Fan High is dead. If Fan High is dead, go to the Peacemaker bypass. About 115 VAC on Fan High means the board calls for the fan. Then stay on the live-voltage fan path.')
             ),
             (
-                "Bypass the thermostat and the control box with the SkillAbove Peacemaker. "
-                "If the compressor runs and the fan does not rotate on high or low, record "
-                "the amps. Shaft-locked current about 1.9 A means the fan motor is locked: "
-                "go to the fan run capacitor. If the compressor does not run, stay on the "
-                "compressor and do not condemn the fan motor."
+                ('Bypass the thermostat and the control box with the SkillAbove Peacemaker. If the compressor runs but the fan never turns, record the amps. Shaft-locked current about 1.9 A means the fan motor is locked: go to the fan run capacitor. If the compressor does not run, stay on the compressor. Do not condemn the fan motor.')
             ),
             (
-                "Measure the fan run capacitor and compare it to the value printed on the "
-                "capacitor. On this 2111-0001 the rated value is 15 µF. If the capacitor "
-                "is open or far from rated, replace the capacitor and retest the fan. If "
-                "it measures about rated, the capacitor is not the failed part: go to the "
-                "motor and the board."
+                ('Measure the fan run capacitor and compare it to the value printed on the capacitor. On this 2111-0001 the rated value is 15 µF. If the capacitor is open or far off rating, replace it and retest. If it measures about rated, the capacitor is not the failed part: go to the motor and the board.')
             ),
             (
-                "When Fan High is dead, the Peacemaker bypass shows the compressor runs "
-                "with the fan locked and stall current reported, and the fan run capacitor "
-                "is good, R&R the rooftop fan motor and the control board only. Do not "
-                "replace the full 2111-0001 assembly. That is the confirmed correction."
+                ('R&R the rooftop fan motor and the control board only. Do this when all three are true. Fan High is dead. The bypass shows a locked fan with stall current. The fan run capacitor is good. Do not replace the full 2111-0001 assembly. That is the confirmed correction.')
             ),
         ],
         "do_not": [
@@ -3821,22 +3795,13 @@ def _furnace_path(ranked) -> dict:
         ),
         "bay_order": [
             (
-                "Bypass the wall thermostat at the furnace. Jumper R/W at the furnace "
-                "thermostat terminals so the coach thermostat and its wiring are out of "
-                "the path. If the furnace runs on that jumper, the fault is the wall "
-                "thermostat or its wiring: replace the wall thermostat. That is the "
-                "confirmed correction."
+                ('Bypass the wall thermostat at the furnace. Jumper R/W at the furnace thermostat terminals so the coach thermostat and its wiring are out of the path. If it runs on the jumper, the fault is the thermostat or wiring. Then replace the wall thermostat. That is the confirmed correction.')
             ),
             (
-                "If the furnace does not run with R/W jumped, remove the jumper and prove "
-                "the sail switch. With the blower running, power in and no power out means "
-                "the sail is not closed: prove airflow and the sail before the board. If "
-                "power in and power out are both present, the sail passed: go to the limit check."
+                ('Remove the jumper and prove the sail switch. Do this if the furnace does not run with R/W jumped. Run the blower and check the sail switch. Power in with no power out means the sail is not closed. Then prove airflow and the sail before the board. Power in and power out both present means the sail passed. Then go to the limit check.')
             ),
             (
-                "After the sail switch passes and the furnace still will not blow warm, "
-                "check the limit switch and then the module board from the cited furnace "
-                "pages. If heat returns, that is the confirmed correction."
+                ('Check the limit switch, then the module board, from the cited furnace pages. Do this when the sail passes and there is still no heat. If heat returns, that is the confirmed correction.')
             ),
         ],
         "do_not": [
@@ -3954,8 +3919,7 @@ def _e2_fan_path(ranked) -> dict:
                 "the confirmed correction."
             ),
             (
-                "If the error remains after the connections are checked and power is reset, "
-                "replace the inverter PCB and the fan. That is the confirmed correction."
+                ('Replace the inverter PCB and the fan. Do this when the error stays after the checks and reset. That is the confirmed correction.')
             ),
         ],
         "do_not": [
@@ -5409,7 +5373,7 @@ def _dometic_ceiling_path(concern: str) -> dict:
         ),
         "bay_order": [
             "Fan running with no cold air is the no-cool path. Run the Peacemaker bypass at the rooftop unit. If that bypass cools, the unit is making cold air. If it does not cool, stay on that bypass. Do not start on the filter check.",
-            "If the Peacemaker bypass cools, bypass the ceiling selector. If bypassing the ceiling selector does not cool, stay on that bypass and retest.",
+            ('If the Peacemaker bypass cools, bypass the ceiling selector. If the selector bypass does not cool, stay on it and retest.'),
             _shop_body(DOMETIC_CEILING_LINE)
             + " That is the confirmed correction per Dometic Brisk II, page 23.",
         ],
@@ -5543,7 +5507,7 @@ def _fact12_e3_path() -> dict:
             "Bad looks like: A crossed color, a pushed-back pin, or a loose connector. "
             "If it fails: Repair the connection and retest the code. "
             "Next: Check the freeze sensor on the evaporator coil.",
-            "Check the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated and E3 remains, write the readings and stop.",
+            ('Check the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is seated and E3 remains, write the readings and stop.'),
         ],
         "do_not": [
             "Do not replace the control board before the 12 V, data line, and connector checks.",
@@ -5638,7 +5602,7 @@ def _fact12_freeze_path(concern: str = "") -> dict:
         "bay_order": [
             "On a FACT12 E2, find the freeze sensor on the evaporator coil. If it is loose or off the coil, reseat it and retest. If it is already seated, go to the replace step.",
             "Reseat the freeze sensor on the evaporator coil. If the code clears, that is the confirmed correction.",
-            "If the sensor is seated and the code remains, replace the freeze sensor and retest.",
+            ('Replace the freeze sensor and retest. Do this if it is seated and the code remains.'),
         ],
         "do_not": [
             "Do not replace the control board before the freeze sensor is reseated.",
@@ -5786,13 +5750,13 @@ def _girard_petit_path() -> dict:
         ),
         "bay_order": [
             "Confirm the E8 code. E8 is the air pressure switch. Look at the sensing tube at the blower before any other part.",
-            "With the blower running, confirm suction at that tube. If the tube is off the blower or has no suction, seat it at the blower and retest. That is the confirmed correction.",
-            "If the tube is on the blower and suction is present, retest the heater. If E8 clears, that position is the correction.",
+            ('With the blower running, confirm suction at that tube. Is the tube off the blower, or is there no suction? Seat it at the blower and retest. That is the confirmed correction.'),
+            ('Retest the heater. Do this when the tube is on and suction is present. If E8 clears, that position is the correction.'),
             "If E8 remains after suction is confirmed, check the air-pressure switch. "
             "Check for integrity and connections of the pressure switch hose. "
             "Repair the switch and retest if it fails.",
-            "If the air-pressure switch is good, check the gas supply and retest the heater.",
-            "If the gas supply is good and E8 remains, write the readings and stop. Do not replace the control board.",
+            ('Check the gas supply and retest the heater. Do this if the air-pressure switch is good.'),
+            ('Write the readings and stop. Do this if gas is good and E8 remains. Do not replace the control board.'),
         ],
         "do_not": [
             "Do not replace the control board before the blower sensing tube shows suction.",
@@ -5833,7 +5797,7 @@ def _stabilizer_rr_path() -> dict:
         ),
         "bay_order": [
             "Confirm power extend and retract. If power is dead, fix power before the override. If power works, try the manual crank.",
-            "If the manual-override roll pin or coupler is broken or seized, do not replace the coupler only. Replace the complete front stabilizer jack assembly.",
+            ('Replace the complete front stabilizer jack assembly. Do this when the override roll pin or coupler is broken or seized. Do not replace the coupler only.'),
             "Reconnect the mount and the electrical connector, then retest power extend and retract and the manual crank. If both work, that is the confirmed correction.",
         ],
         "do_not": [
@@ -5865,10 +5829,10 @@ def _cooktop_tip_path() -> dict:
         ),
         "bay_order": [
             "Set a pan on the lit burner. If the flame goes out, look at the thermocouple tip next.",
-            "If the thermocouple tip sits low, reposition the thermocouple tip in the burner flame with the pan on.",
-            "If the flame holds with the pan on, that reposition is the confirmed correction.",
-            "If the flame still goes out, raise the tip so the pan cannot push it clear, then light the burner again.",
-            "With the pan on the grate, watch that the tip stays in the flame for a full minute.",
+            ('Reposition the thermocouple tip in the burner flame with the pan on. Do this if the tip sits low.'),
+            ('Check that the flame holds with the pan on. If it holds, the reposition is the confirmed correction.'),
+            ('Raise the tip so the pan cannot push it clear. Do this if the flame still goes out. Then light the burner again.'),
+            ('Put the pan on the grate. Watch that the tip stays in the flame for one full minute.'),
             "Record the tip height that held the flame. Do not condemn the thermocouple until that position has been proved.",
         ],
         "do_not": [
@@ -6118,17 +6082,12 @@ def _lead_jack_drift_path() -> dict:
         "flowchart": _lead_jack_drift_flowchart(),
         "flow_tall": True,
         "bay_order": [
-            "Test the lead-jack valve coil on the gray wire. "
-            "If it does not test good, repair that coil circuit before any cartridge.",
+            ('Test the lead-jack valve coil on the gray wire. If it tests bad, repair that coil circuit before any cartridge.'),
             "Confirm the swap plumbing: manifold hose in the notched port, "
             "follow-leg hose in the non-notched port, unused ports plugged, "
             "and the orange extend and black retract hoses not reversed.",
             "Confirm the manual override screw is backed out.",
-            "If the coil is good, the plumbing is correct, and the override screw is backed out, "
-            "replace the front lead-jack cartridge valve, part 177094. "
-            "The parts list calls 177094 the Cartridge Valve, item F "
-            "(Lippert Level Up Towable Owner's Manual, page 15; "
-            "Lippert Level Up FW Owner's Manual, page 18).",
+            ("Replace the front lead-jack cartridge valve, part 177094. Do this when the coil is good and the plumbing is correct. The override screw must be backed out. The parts list calls 177094 the Cartridge Valve, item F (Lippert Level Up Towable Owner's Manual, page 15; Lippert Level Up FW Owner's Manual, page 18)."),
         ],
         "do_not": [
             "Do not replace the cartridge before the gray-wire coil, the swap plumbing, "
@@ -9752,7 +9711,7 @@ _EXTRA_HEADING_VERBS = {
     "take", "keep", "dry", "towel-dry", "correct", "stay", "probe", "trace", "label", "mark", "back",
     "seal", "shut", "cycle", "light", "relight", "verify", "ask", "call", "observe", "count", "time",
     "record", "write", "test", "measure", "reseat", "escalate", "straighten", "drop", "wash", "center",
-    "clamp", "hoist", "make", "point", "pour", "tape", "unplug", "plug", "bring", "back-probe", "jumper",
+    "clamp", "hoist", "make", "point", "r&r", "reposition", "raise", "put", "pour", "tape", "unplug", "plug", "bring", "back-probe", "jumper",
 }
 
 
@@ -10460,9 +10419,6 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
             for fig in group:
                 if fig and fig.image_png:
                     shown_figures.add(fig.image_png)
-    if proc.do_not:
-        _paint_do_not(body, proc.do_not)
-
     imaged = []
     for fig in proc.figures:
         if not fig.image_png or fig.image_png in shown_figures:
@@ -10485,7 +10441,27 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
         need = 36.0 + _figure_block_height(png, cap, 0)[2] + 8.0
         return _sources_that_fit(body.remaining() - need, sources) is not None
 
+    # rev2: a cited figure that fits on the last step's page prints there, under
+    # the steps that cite it, before Do Not.
+    sources = [src for src in proc.sources if src.get("page") or src.get("title_only")]
+    rest = []
+    do_not_h = (40.0 + sum(measure_text(f"- {d}", _CONTENT_W - 16, 8.5, leading=11.2).height + 3.0 for d in proc.do_not)) if proc.do_not else 0.0
+
+    def _room_for_tail_after(fig, png) -> bool:
+        cap = f"{fig.caption or 'Figure'} -- {fig.title}" + (f" p.{fig.page}" if fig.page else "")
+        need = 36.0 + _figure_block_height(png, cap, 0)[2] + 8.0 + do_not_h
+        return _sources_that_fit(body.remaining() - need, sources) is not None
+
     for fig, png in imaged:
+        if shown < MAX_FIGURES_PER_SHEET and not _figure_is_squeezed(png, body.remaining()) and (len(pages) < MAX_SHEET_PAGES or _room_for_tail_after(fig, png)) and _paint_figure_on(
+            body, fig, png=png, allow_break=False
+        ):
+            shown += 1
+        else:
+            rest.append((fig, png))
+    if proc.do_not:
+        _paint_do_not(body, proc.do_not)
+    for fig, png in rest:
         if shown < MAX_FIGURES_PER_SHEET and not _figure_is_squeezed(png, body.remaining()) and _room_for_sources_after(fig, png) and _paint_figure_on(
             body, fig, png=png, allow_break=False
         ):

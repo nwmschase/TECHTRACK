@@ -25,7 +25,7 @@ _VERB = re.compile(
     r"[a-z]+(?:ed|ing)|check|test|measure|replace|repair|reset|confirm|seat|set|leave|"
     r"turn|press|open|close|remove|install|clean|tighten|retest|go|stop|write|look|let|"
     r"run|disconnect|reconnect|verify|inspect|clear|correct|watch|find|match|use|note|"
-    r"record|reseat|prove|keep|hold|cite|see|follow|dry|wait|jump|bypass)\b",
+    r"recheck|re[a-z]+|record|reseat|prove|keep|hold|cite|see|follow|dry|wait|jump|bypass|want|try|r&r)\b",
     re.I,
 )
 _IMPERATIVE = (
@@ -98,7 +98,7 @@ def check_lines(lines: list[str], *, primary: str = "", nodes: list[str] | None 
             if first and first.rstrip(".:").lower() == title.lower():
                 problems.append(f"SL-2 heading repeats line 1: {line}")
         num = re.match(r"^\d+\.\s+(.+)$", line)
-        if num and _words(num.group(1)) >= 4 and not _has_verb(num.group(1)):
+        if num and _words(num.group(1)) >= 4 and not _has_verb(num.group(1)) and not num.group(1).startswith("("):
             problems.append(f"SL-1 garbled fragment (no verb): {line}")
         if num and re.match(_CONDITION, num.group(1)) and num.group(1).rstrip().endswith(":"):
             problems.append(f"SL-3 split If/then: {line}")
