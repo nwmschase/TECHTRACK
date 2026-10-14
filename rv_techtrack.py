@@ -2386,8 +2386,15 @@ def search_manual_chunks(
                 extra = session.query(Category).filter(Category.name == extra_name).first()
                 if extra:
                     have_ids.add(extra.id)
+            more = []
             if have_ids:
                 more = session.query(DocChunk).filter(DocChunk.category_id.in_(list(have_ids))).all()
+            elif not category_id:
+                # v4.19.63: no Category picked, and only a context filter (for example the
+                # Unity "Not sure" default) narrowed the search. The named brand's own
+                # manual can sit in any category, so search the whole library for it.
+                more = session.query(DocChunk).all()
+            if more:
                 seen = {(c.document_id, c.page, (c.chunk_text or "")[:40]) for c in all_chunks}
                 for ch in more:
                     key = (ch.document_id, ch.page, (ch.chunk_text or "")[:40])
