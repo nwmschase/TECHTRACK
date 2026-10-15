@@ -924,6 +924,7 @@ _THETFORD_BRANCHES = (
 _CASE_SOURCE_KEYS = {
     "thetford": ("thetford", "42070", "42088", "42109", "34122", "34123", "toilet", "valve", "flange"),
     "furrion": ("furrion", "facr", "ccd-0008666", "ccd-0007990", "rooftop", "freeze", "drain"),
+    "furrion_fridge": ("furrion", "fcr08", "fcr10", "ccd-0008122", "ccd-0005518", "thermostat", "inverter", "refrigerator"),
 }
 
 
@@ -1509,6 +1510,8 @@ def _case_kind(text: str) -> str:
     head = (text or "")[:1800].lower()
     if "thetford" in head or "42070" in head:
         return "thetford"
+    if "ccd-0008122" in head or "fcr10" in head or "fcr08" in head:
+        return "furrion_fridge"
     if "furrion" in head or "facr" in head or "ccd-0008666" in head:
         return "furrion"
     return ""
@@ -1962,7 +1965,7 @@ def _image_rows(doc) -> list[dict]:
 
 def _off_brand(text: str, kind: str) -> str:
     low = (text or "").lower()
-    banned = _THETFORD_OFF if kind == "thetford" else _FURRION_OFF if kind == "furrion" else ()
+    banned = _THETFORD_OFF if kind == "thetford" else _FURRION_OFF if kind in ("furrion", "furrion_fridge") else ()
     for token in banned:
         if token in low:
             return token
@@ -2476,6 +2479,11 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
             rules.append(_pf(12, "FAIL", "rooftop sheet is missing the freeze or drain repair"))
         else:
             rules.append(_pf(12, "PASS", "repair stays on the rooftop freeze and drain path"))
+    elif kind == "furrion_fridge":
+        if "norcold" in low or "2021128850" not in raw or "thermostat" not in low:
+            rules.append(_pf(12, "FAIL", "fridge sheet is missing the Spark-Free Thermostat 2021128850 repair"))
+        else:
+            rules.append(_pf(12, "PASS", "repair names the Spark-Free Thermostat 2021128850"))
     else:
         rules.append(_pf(12, "MANUAL", "no pinned repair phrase for this case"))
 
@@ -2496,6 +2504,9 @@ def grade_past_fails(doc, text: str) -> list[Rule]:
     elif kind == "furrion":
         needed = [token for token in ("CCD-0008666", "CCD-0007990") if token not in raw]
         rules.append(_pf(14, "FAIL" if needed else "PASS", ", ".join(needed) if needed else "CCD-0008666 and CCD-0007990 are still cited"))
+    elif kind == "furrion_fridge":
+        needed = [t for t in ("CCD-0008122",) if t not in raw]
+        rules.append(_pf(14, "FAIL" if needed else "PASS", ", ".join(needed) if needed else "CCD-0008122 is still cited"))
     else:
         rules.append(_pf(14, "MANUAL", "no known-good cite set for this case"))
 
