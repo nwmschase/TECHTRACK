@@ -140,7 +140,9 @@ def conform_lines(
             in_do = True
             continue
         if in_do and re.match(r"^\d+\.\s", line):
-            item = re.sub(r"^\d+\.\s*", "", line)
+            item = line
+            while re.match(r"^\d+[.)](?:\s+|$)", item.strip()):
+                item = re.sub(r"^\d+[.)]\s*", "", item.strip())
             if dash_note and " - " in item:
                 item = item.split(" - ", 1)[0]
                 do_items.append(_sentence(item.rstrip(".")))

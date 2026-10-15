@@ -1079,8 +1079,11 @@ def show_safety_for(steps: list, number: int) -> bool:
 
 
 def _strip_leading_number(text: str) -> str:
-    """'2. Pull the pedal.' is the action. The renderer supplies 1."""
-    return re.sub(r"^\d+\.\s+", "", (text or "").strip())
+    """'2. Pull the pedal.' / '2. 2. Test...' is the action. The renderer supplies 1."""
+    a = (text or "").strip()
+    while re.match(r"^\d+[.)](?:\s+|$)", a):
+        a = re.sub(r"^\d+[.)]\s*", "", a).strip()
+    return a
 
 
 def step_action_lines(step: dict) -> list[str]:
