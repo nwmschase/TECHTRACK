@@ -4473,6 +4473,47 @@ def _rank_coleman_pages(pages, limit: int) -> list:
     kept = [p for p in ordered if score(p) > 0]
     return (kept or ordered)[:limit]
 
+# Batch fix (b), Leader 2026-10-14 10:23 PM: model-level retrieval match.
+# When a retrieved manual covers the typed model (e.g. FACR14 in a
+# "FACR13/14/15" title), drop pages from sibling-model books of the same
+# family (e.g. the FACR08 / CCD-0008666 book). No covering manual: unchanged.
+_MODEL_CODE_RE = re.compile(r"\b([A-Z]{3,5})(\d{2})((?:/\d{2})*)", re.I)
+
+
+def _typed_model_codes(model_text: str) -> list[tuple[str, str]]:
+    return [(m.group(1).upper(), m.group(2)) for m in _MODEL_CODE_RE.finditer(model_text or "")]
+
+
+def _title_model_codes(row: dict) -> set[tuple[str, str]]:
+    blob = f"{row.get('title') or ''}"
+    out = set()
+    for m in _MODEL_CODE_RE.finditer(blob):
+        pre = m.group(1).upper()
+        for num in [m.group(2)] + [x for x in (m.group(3) or "").split("/") if x]:
+            out.add((pre, num))
+    if re.search(r"ccd-0*8666", f"{blob} {row.get('file_path') or ''}", re.I):
+        out.add(("FACR", "08"))
+    return out
+
+
+def match_model_level(pages, model_text: str) -> list:
+    rows = list(pages or [])
+    typed = _typed_model_codes(model_text)
+    if not typed or not rows:
+        return rows
+    typed_set = set(typed)
+    prefixes = {pre for pre, _ in typed}
+    codes = [_title_model_codes(chunk_as_dict(r)) for r in rows]
+    if not any(c & typed_set for c in codes):
+        return rows
+    keep = []
+    for r, c in zip(rows, codes):
+        sibling = {x for x in c if x[0] in prefixes and x not in typed_set}
+        if sibling and not (c & typed_set):
+            continue
+        keep.append(r)
+    return keep
+
 
 def rank_bay_chunks(
     chunks,
@@ -4484,6 +4525,7 @@ def rank_bay_chunks(
     """Apply the same product ranking GD uses, after the brand lock."""
     pages, _brand_miss = bay_brand_retrieval(chunks, category_name, model_text, concern)
     pages = filter_chunks_for_unit(pages, category_name, model_text, concern)
+    pages = match_model_level(pages, model_text)
     query = f"{model_text or ''} {concern or ''}".strip()
     if is_ground_control_context(category_name, model_text, concern):
         return rank_chunks_for_ground_control(pages, query, limit=limit)
