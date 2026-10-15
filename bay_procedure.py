@@ -7748,6 +7748,9 @@ def _plain_kit_procedures(packets, job: str) -> list:
     return built
 
 
+_ANY_BRAND_SHEETS = {"ice"}
+
+
 def _spec_off_brand(spec: dict, asked: set) -> bool:
     """True when a code-owned sheet's cited manuals all name a maker the tech did not."""
     titles = [str(src.get("title") or "") for src in (spec.get("sources") or [])]
@@ -7896,7 +7899,8 @@ def compile_bay_procedure(
     if (
         typed_brands
         and path_kind not in ("", "brand_miss")
-        and not _bay_product_lock(category, model_text, concern)
+        # The ice/frost sheet is locked for any fridge brand (test_step_format, Dometic DM2652).
+        and path_kind not in _ANY_BRAND_SHEETS
         and _spec_off_brand(spec, typed_brands)
     ):
         if brand_miss:
@@ -7931,6 +7935,10 @@ def compile_bay_procedure(
         prefer_diagnostic=_is_fault_complaint(concern),
         protect_pages=_cited_pages(spec.get("primary_cite") or ""),
     )
+    # Batch fix 3: '(Fig. 17)' wraps into a cut-off '(Fig .' on the page; spell it out.
+    for src in sources:
+        if src.get("excerpt"):
+            src["excerpt"] = re.sub(r"\((Fig)(s?)\s*\.\s*", lambda m: "(Figure" + ("s " if m.group(2) else " "), src["excerpt"])
     if path_kind == "girard_e8":
         sources = _ensure_girard_hose_quote(sources)
     if path_kind == "brand_miss":
@@ -9029,6 +9037,24 @@ def _shaft_gap(box, ax: float, ay: float, bx: float, by: float) -> float:
     return best
 
 
+def _label_side_fault(box, routes) -> bool:
+    """Mirror of the profile's YES/NO side rule, in page points (y up)."""
+    cx = (box[0] + box[2]) / 2.0
+    cy = (box[1] + box[3]) / 2.0
+    best, best_d = None, 1e9
+    for pts in routes or []:
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+            if abs(y2 - y1) > 10 or abs(x2 - x1) < 18:
+                continue
+            d = math.hypot(cx - x1, cy - y1)
+            if d < best_d:
+                best, best_d = (x1, x2), d
+    if not best or best_d > 70:
+        return False
+    x1, x2 = best
+    return (x2 < x1 - 8 and cx > x1 + 10) or (x1 < x2 - 8 and cx < x1 - 10)
+
+
 def _place_branch_label(text: str, port, side: str, obstacles, frame, size: float, routes=None, own_pts=None):
     """Put YES/NO on the outgoing arrow, just off the shaft, clear of every node."""
     routes = list(routes or [])
@@ -9068,6 +9094,7 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
             return False
         return True
 
+    ok = []
     for sz in sizes:
         block = measure_text(text, 80.0, sz, bold=True, leading=sz + 1.0)
         w = block.width
@@ -9109,7 +9136,14 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
         for x, baseline in candidates:
             box = _label_box(x, baseline, block)
             if accept(box):
-                return x, baseline, block, box
+                ok.append((x, baseline, block, box))
+    # Batch fix 3: a label never sits on the far side of a nearby side arrow's
+    # start (YES left of a right arrow / right of a left arrow).
+    for got in ok:
+        if not _label_side_fault(got[3], routes + ([own_pts] if own_pts else [])):
+            return got
+    if ok:
+        return ok[0]
     for sz in sizes:
         block = measure_text(text, 80.0, sz, bold=True, leading=sz + 1.0)
         w = block.width
@@ -10573,7 +10607,7 @@ def compose_sheet(proc: BayProcedure) -> list[SheetPage]:
                     shown_figures.add(png)
     elif steps:
         first = measure_text(f"1. {steps[0]}", _CONTENT_W - 32, 8.5, leading=11.2)
-        _add_section(body, "BAY ORDER (DO THIS FIRST)", GREEN, follow_h=min(first.height, 48))
+        _add_section(body, "BAY ORDER (START HERE)", GREEN, follow_h=min(first.height, 48))
         for i, step in enumerate(steps, 1):
             group = []
             if i - 1 < len(proc.step_figures or []):
