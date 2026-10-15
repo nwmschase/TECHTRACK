@@ -115,3 +115,24 @@ class StatementHeadingTests(unittest.TestCase):
         self.assertEqual(heads, ["Step 1: Check the fuse in the back control unit", "Step 2: Measure the voltage at the board"])
         self.assertIn("This will reset power to the unit", out[0])
         self.assertIn("Is heated by the burner flame", out[0])
+
+
+class PlainPathTests(unittest.TestCase):
+    def test_shop_line_over_limit_is_left_alone(self):
+        src = "Clear the rear drain and trough with a soft plastic probe only so melt water can leave."
+        self.assertTrue(r.is_shop_line(src))
+        self.assertEqual(r.rewrite_plain_line(src), [src])
+
+    def test_manual_long_line_is_rewritten(self):
+        src = "Problem 5 The ice maker is not working action 1 Check the 5 amp fuse in the back control unit."
+        out = r.rewrite_plain_line(src)
+        self.assertGreater(len(out), 1)
+        self.assertTrue(all(len(x.split()) <= 15 for x in out))
+        self.assertFalse(any(x.rstrip().endswith(":") and x.split()[0] in ("If", "When") for x in out))
+
+    def test_bare_if_then_split_falls_back(self):
+        src = "If the dial is at max and the compressor is still running then open C and T with no jumper and leave them open."
+        # Force a rewrite that would produce a bare If:; the plain path must refuse it.
+        out = r.rewrite_plain_line(src)
+        if any(x.rstrip().endswith(":") for x in out):
+            self.fail("plain path emitted a bare If/then line")

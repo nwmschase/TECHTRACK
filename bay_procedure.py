@@ -10170,6 +10170,11 @@ def bay_plain_step_lines(step: str, number: int) -> tuple[str, list[str]]:
     # Line 1 is dropped only when it is the heading. A heading taken from a later
     # line leaves every line in place, so the order of work is unchanged.
     rest = actions[1:] if at == 0 else actions
+    # PF-06 plain path: a Do this line over the hard limit gets the faithful
+    # rewrite (the heading line is left as it is).
+    import pf06_rewrite
+
+    rest = [x for a in rest for x in pf06_rewrite.rewrite_plain_line(a)]
     if not rest:
         return f"Step {number}: {title}", []
     return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(rest, 1)]

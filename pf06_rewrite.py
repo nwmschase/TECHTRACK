@@ -315,6 +315,57 @@ def _chunk_or_none(src: str) -> list[str] | None:
     return out
 
 
+_SHOP_BLOB: str | None = None
+
+
+def _shop_blob() -> str:
+    """All string literals of the shop-authored sheet code, normalized.
+
+    Shop-authored lines (locked sheet standards and snapshots) are not manual
+    text, so the plain-path PF-06 rewrite leaves them exactly as written.
+    """
+    global _SHOP_BLOB
+    if _SHOP_BLOB is None:
+        import ast
+        from pathlib import Path
+
+        parts = []
+        for name in ("bay_procedure.py", "bay_profile_lines.py", "manual_figures.py", "gd_library_coach.py"):
+            path = Path(__file__).with_name(name)
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) > 20:
+                    parts.append(node.value)
+        _SHOP_BLOB = _key(" \n ".join(parts))
+    return _SHOP_BLOB
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def is_shop_line(text: str) -> bool:
+    k = _key(text)
+    return bool(k) and k in _shop_blob()
+
+
+def rewrite_plain_line(line: str, trigger: int = 15) -> list[str]:
+    """Plain bay-order path: only a manual line over the sheet's hard limit is
+    touched; shop-authored lines stay as written, and no output line may be a
+    bare 'If ...:' (SL-3). Else the line is unchanged."""
+    src = (line or "").strip()
+    if len(_words(src)) <= trigger or is_shop_line(src):
+        return [line]
+    out = rewrite_line(src)
+    if any(re.match(r"^(?:If|When|Unless|Until|Once|Before|After)\b", x) and x.rstrip().endswith(":") for x in out):
+        _log(src, "fallback", "plain path: split If/then")
+        return [line]
+    return out
+
+
 def rewrite_line(line: str) -> list[str]:
     """Short action lines for one long line, or [line] unchanged when the rewrite is not faithful."""
     src = (line or "").strip()
