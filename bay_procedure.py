@@ -4406,12 +4406,14 @@ _SAFETY_KEEP_RE = re.compile(
 
 
 _CTX_FINITE_RE = re.compile(
-    r"\b(?:is|are|was|were|will|can|could|should|must|may|does|do|has|have|"
-    r"[a-z]{3,}s)\b"
+    r"\b(?:is|are|was|were|will|can|could|should|must|may|might|does|do|has|have|cannot|"
+    r"occurs?|causes?|results?|means?|needs?|requires?|uses?|works?|runs?|stays?|remains?|"
+    r"sends?|senses?|detects?|opens?|closes?|lights?|starts?|stops?|shows?|displays?|"
+    r"supplies?|provides?|controls?|allows?|prevents?|keeps?|takes?|goes|comes?|flows?)\b"
 )
 _CTX_BAD_START_RE = re.compile(
     r"^(?:this section|the following|or|and|but|however|upon completion|also|then|from|to|for|with|in|on|at|by|is|are|was|were|will|can|"
-    r"yes|no|read:|note\b|for example|that|which|when|if|\(|\d)",
+    r"yes|no|read:|note\b|for example|that|which|when|if|during|where|while|because|since|\(|\d)",
     re.I,
 )
 _CTX_BAD_END_RE = re.compile(r"\b(?:the|a|an|and|or|of|to|for|with|is|are|be|from|by|in|on|at|that|may|will|can|should)\.?$", re.I)
@@ -4430,9 +4432,13 @@ def _context_ok(text: str) -> bool:
         return False
     if re.search(r"[/\\]G\d|\?\s|\s-\s*$|[^\x00-\x7f]{2,}|\b[a-z]\.\s|\bct j\b", t):
         return False
+    if re.search(r"\b(?:problem|test|step|action|section|table|fig(?:ure)?)\s+\d", t, re.I):
+        return False
     if t.count('"') % 2 or t.count("(") != t.count(")"):
         return False
-    return bool(_CTX_FINITE_RE.search(t))
+    if re.search(r"[a-z]\.\d|\d\.[a-z]", t, re.I):
+        return False
+    return bool(_CTX_FINITE_RE.search(re.sub(r"\bto\s+\w+", " ", t, flags=re.I)))
 
 
 def _route_notes(notes: list[str]) -> tuple[list[str], list[str]]:
