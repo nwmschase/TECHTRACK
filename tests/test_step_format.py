@@ -209,8 +209,12 @@ class TestSharedStepStructure(unittest.TestCase):
             category="Refrigerators",
         )
         text, trace = _pdf_text(proc)
+        # Leader 2026-10-14 10:23 PM (Chase's never-borrow-another-brand rule): a Dometic
+        # fridge never gets the Furrion ice sheet. With no Dometic doc indexed, the sheet
+        # says there is no manual for this unit.
+        self.assertNotIn("furrion", text.lower())
+        self.assertIn("No Dometic document in the shop library for this unit", text)
         self.assertRegex(text, r"Step 1:")
-        self.assertIn("Do this:", text)
         low = text.lower()
         for banned in _PHOTO_BLOCK:
             self.assertNotIn(banned, low)

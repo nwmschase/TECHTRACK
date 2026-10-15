@@ -716,3 +716,6 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Checker (scripts/profile_check.py): strict v14-v17 rules incl. bad_is_specific antonyms, figure_captions, do_item_is_action, source_pages (--db), figure_printed_number (tesseract)
 - Pre-merge (Leader rev6 cleared, Chase approval via Leader 2026-10-14 07:00 PT): nomodel / fixture / one live grok run all 10/10, 17 pages, 4 API calls; suite 830 passed, 1 known env failure (test_two_sends). PF-34..54 and S03 still pending
 - Known-good tags: `known-good-v41956` → `84ee0e0` (pre-merge rollback point)
+
+## Unreleased (cursor/batch-builder-fixes)
+- 2026-10-14 10:23 PM PT, branch cursor/batch-builder-fixes, not in v4.19.63: dropped the Furrion ice/frost exemption from the off-brand fallback. Locked test tests/test_step_format.py::test_other_bay_order_steps_use_the_same_heading changed: Dometic DM2652 icing now expects no Furrion text and 'No Dometic document in the shop library for this unit' (no Dometic doc indexed). The 'Do this:' assertion is dropped because the no-manual sheet has no Do this block. Reason: Chase's never-borrow-another-brand rule, Leader OK 10:23 PM.

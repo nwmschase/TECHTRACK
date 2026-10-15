@@ -7748,9 +7748,6 @@ def _plain_kit_procedures(packets, job: str) -> list:
     return built
 
 
-_ANY_BRAND_SHEETS = {"ice"}
-
-
 def _spec_off_brand(spec: dict, asked: set) -> bool:
     """True when a code-owned sheet's cited manuals all name a maker the tech did not."""
     titles = [str(src.get("title") or "") for src in (spec.get("sources") or [])]
@@ -7899,11 +7896,9 @@ def compile_bay_procedure(
     if (
         typed_brands
         and path_kind not in ("", "brand_miss")
-        # The ice/frost sheet is locked for any fridge brand (test_step_format, Dometic DM2652).
-        and path_kind not in _ANY_BRAND_SHEETS
         and _spec_off_brand(spec, typed_brands)
     ):
-        if brand_miss:
+        if brand_miss or not brand_pages:
             spec = _no_brand_match_path(brand, model, concern)
             path_kind = "brand_miss"
         else:
