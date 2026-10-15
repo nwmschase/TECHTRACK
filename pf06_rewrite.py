@@ -304,6 +304,8 @@ def _best_split(sub: list[str]) -> list[str] | None:
             continue
         if left.count("(") != left.count(")"):
             continue  # never split inside parentheses
+        if re.match(r"(?i)^(?:that|which|who|whom|whose)\b", right):
+            continue  # never strand a relative clause ('That are further downstream…')
         # Never cut a condition mid-clause (that would invent a comma).
         if re.match(r"^(?:If|When|Unless|Until|Once|As|While|Because|Since)\b", left, re.I) and not left.rstrip().endswith(","):
             continue

@@ -3583,8 +3583,40 @@ def _steps_from_ranked(pages) -> list[str]:
         if _is_install_manual(row.get("title") or "", row.get("excerpt") or ""):
             continue
         cleaned = clean_ocr_prose(row.get("excerpt") or "")
+        # Leader R3 (B36): an OEM numbered procedure ('1. Turn off the AC power …')
+        # is the page's own bay order, even when its lines are plain imperatives.
+        numbered = {
+            re.sub(r"\s+", " ", m.group(1)).strip().lower()[:40]
+            for m in re.finditer(r"(?m)^\s*\d+\.\s+([A-Z][^\n]{8,})$", row.get("excerpt") or "")
+        }
+        numbered = numbered if len(numbered) >= 3 else set()
+        prev_num = False
         for sentence in _excerpt_sentences(cleaned):
             sentence = _strip_ocr_bullet(sentence)
+            if numbered and re.fullmatch(r"\d+[.)]?", sentence.strip()):
+                continue
+            spec = re.fullmatch(r"\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s+for\s+[A-Za-z][A-Za-z ]*(?:,\s*\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s+for\s+[A-Za-z][A-Za-z ]*)*\.", sentence.strip())
+            if spec and prev_num and pieces:
+                # The OEM target under a numbered check stays with that check, word for word.
+                pieces[-1] = pieces[-1].rstrip(". ") + " (" + sentence.strip().rstrip(".") + ")."
+                prev_num = False
+                continue
+            low = re.sub(r"\s+", " ", sentence).strip().lower()
+            is_num = bool(numbered) and any(low.startswith(k[:30]) or re.sub(r"^using an? [\w ]+? (?=check|measure|test)", "", k)[:20] in low for k in numbered)
+            if is_num:
+                # 'Using a DC Voltmeter Check X' -> 'Check X using a DC Voltmeter' (same words, verb first).
+                um = re.match(r"^Using (an? .+?) (Check|Measure|Test) (.+?)\.?$", sentence.strip())
+                if um:
+                    sentence = f"{um.group(2)} {re.sub(r'\s+as above$', '', um.group(3))} using {um.group(1)}."
+                    low = sentence.lower()
+            if is_num and is_action_heading(sentence) and not _is_header_residue(sentence):
+                key = low[:80]
+                if key not in seen:
+                    seen.add(key)
+                    pieces.append(sentence)
+                prev_num = True
+                continue
+            prev_num = False
             if _is_raw_ocr_step(sentence) or _is_header_residue(sentence):
                 continue
             if (
@@ -4428,6 +4460,89 @@ def _is_note_fragment(text: str) -> bool:
     return bool(_NOTE_FRAG_RE.match((text or "").strip()))
 
 
+_DANGLING_END_RE = re.compile(
+    r"(?i)(?:,\s*|\b(?:the|a|an|and|or|of|to|for|with|at|from|by|that|any|than|if|then|your|their|its))[.:]?$"
+)
+_TITLE_MAX = 12
+
+
+def _title_ok(t: str) -> bool:
+    t = (t or "").strip().rstrip(".")
+    n = len(t.split())
+    return 1 <= n <= _TITLE_MAX and not _DANGLING_END_RE.search(t) and t.count("(") == t.count(")")
+
+
+def _whole_title(sentence: str) -> str:
+    """Leader R3: a step title is a whole clause, never cut at a word count.
+
+    The full action (condition dropped by _action_heading) when it fits; else
+    its first comma/semicolon clause; else the action with its parenthetical
+    removed. A condition with no action names the check it asks for. Do this
+    keeps every word of the manual sentence either way.
+    """
+    s = re.sub(r"\s+", " ", (sentence or "").strip()).rstrip(".")
+    s = re.sub(r"\bvolt age\b", "voltage", s)
+    cond = re.match(r"(?i)^(if|unless|when|once|after|before|until)\s+(.+?)(?:,\s+|\s+then\s+)(.+)$", s)
+    if not cond and _COND_HEAD_RE.match(s):
+        head = _action_heading(s)
+        if head == "Check the condition in this step":
+            t = re.search(r"\s((?:change|replace|repair|check|test|reset)\s+.+)$", s, re.I)
+            if t and _title_ok(t.group(1)):
+                return _lab_cap(t.group(1))
+    elif cond:
+        rest = cond.group(3).strip() if cond else ""
+        if rest and is_action_heading(rest) and not re.match(r"(?i)^(?:go to (?:the )?next|stop\b)", rest):
+            head = _lab_cap(rest).rstrip(".")
+        else:
+            m = re.match(r"(?i)^(if|unless)\s+(.+?)(?:,.*|\s+then\s+.*)?$", s)
+            cand = ("Check whether " + m.group(2).strip()) if m else ""
+            if cand and _title_ok(cand):
+                return cand
+            return "Check the condition in this step"
+    else:
+        head = _action_heading(s)
+    if _title_ok(head):
+        return head.rstrip(".")
+    bare = re.sub(r"\s*\([^()]*\)", "", head).strip()
+    if _title_ok(bare):
+        return bare.rstrip(".")
+    for piece in re.split(r"[,;]\s+", bare):
+        if _title_ok(piece) and is_action_heading(piece) and len(piece.split()) >= 2:
+            return piece.rstrip(".")
+    best = ""
+    for m in re.finditer(r"\s+(?:and|to|for|by|using|until|with)\s+", bare):
+        left = bare[: m.start()]
+        if _title_ok(left) and is_action_heading(left) and len(left.split()) >= 2 and "," not in left:
+            best = left
+    if best:
+        return best
+    return head.rstrip(".") if len(head.split()) <= 15 else "Do the cited check below"
+
+
+def _complete_item(x: str) -> bool:
+    """Leader R3: a Do this line is a whole sentence. A cut-off ('Check for
+    voltage at.'), a condition with no action ('If the burner will not come
+    on,.'), a lone label, or a condition whose result is not a clause is dropped."""
+    t = (x or "").strip()
+    body = t.rstrip(".!:")
+    if not body or re.fullmatch(r"(?i)(caution|warning|note|important|danger)", body):
+        return False
+    if _DANGLING_END_RE.search(body) or re.search(r",\s*\W*$", t):
+        return False
+    if re.match(r"(?i)^read on the\b", t):
+        return False  # tail of 'the voltage should read on the posts …' with its subject gone
+    if re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", t):
+        m = re.search(r",\s+(?:then\s+)?([^,]+?)[.!]?$", t)
+        then = re.search(r"\bthen\s+\S", t)
+        if not m and not then and not re.search(r"(?i)\s(?:change|replace|repair|check|test|reset|turn|go|stop|call|remove|measure)\s", t):
+            return False
+        if m and not then:
+            tail = m.group(1)
+            if not (is_action_heading(tail) or _CTX_FINITE_RE.search(tail) or _SAFETY_KEEP_RE.search(tail)):
+                return False
+    return True
+
+
 def _do_this_items(acts: list[str]) -> str:
     """Number Do this lines; strip every leading OCR list index so we never emit '2. 2.'."""
     cleaned = []
@@ -4440,6 +4555,9 @@ def _do_this_items(acts: list[str]) -> str:
         a = re.sub(r"\b(?:as\s+)?(?:shown\s+)?in\s+the\s+(?:diagram|figure|illustration|drawing)\s+(?:below|above)\b", "on the cited page", a, flags=re.I)
         # Figure-cut OCR: an excerpt that ends on an unclosed '(Fig.' reference.
         a = re.sub(r"\s*\((?:Figs?|Figure)\.?\s*$", "", a).strip()
+        # OCR: the PD test sheet's 'jumper chair' is the 3-pin jumper header on the same page.
+        a = re.sub(r"\bjumper chair\b", "jumper header", a)
+        a = re.sub(r"\bvolt age\b", "voltage", a)
         if a and a[-1] not in ".!?:":
             a += "."
         if a and not re.fullmatch(r"\d+[.)]?", a):
@@ -4455,6 +4573,7 @@ def _do_this_items(acts: list[str]) -> str:
             and re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", cur)
             and "," not in cur
             and is_action_heading(cleaned[i + 1])
+            and not re.fullmatch(r"(?i)(caution|warning|note|important|danger)[.:!]?", cleaned[i + 1].strip())
         ):
             nxt = cleaned[i + 1]
             cand = re.sub(r"[.:;\s]+$", "", cur) + ", " + nxt[:1].lower() + nxt[1:]
@@ -4487,6 +4606,7 @@ def _do_this_items(acts: list[str]) -> str:
             continue
         final.append(cur)
         i += 1
+    final = [x for x in final if _complete_item(re.sub(r"^[A-Z]+:\s+", "", x))]
     return " ".join(f"{n}. {a}" for n, a in enumerate(final, 1))
 
 
@@ -4543,6 +4663,113 @@ def _route_notes(notes: list[str]) -> tuple[list[str], list[str]]:
     return acts, ctx[:4]
 
 
+_OWNER_DEAD_END_RE = re.compile(
+    r"(?i)\b(?:contact (?:your )?(?:local )?(?:service cent(?:er|re)|dealer)|call(?:ing)? a service (?:person|center))\b"
+)
+_HEATER_PATH_RE = re.compile(
+    r"(?i)\b(?:heat(?:ing)? element|heater leads?|in AC mode|AC fuse|incoming AC voltage)\b"
+)
+_AC_WORKS_GAS_FAILS_RE = re.compile(
+    r"(?i)\b(?:cools?|works?|runs?)\s+(?:fine\s+)?on\s+(?:120\s*V\s*)?(?:AC|electric)\b.*\b(?:LP|gas|propane)\b"
+)
+
+
+def _concern_path_filter(raw_steps: list[str], concern: str) -> list[str]:
+    """Leader R3: keep lines on the concern's own path.
+
+    An owner-manual dead end ('contact your local service center') is not a
+    bay step. When the concern says the unit works on AC/electric and fails on
+    gas, the electric heater checks are off the gas path (B11 heater-lead residue).
+    """
+    out = [r for r in raw_steps if not _OWNER_DEAD_END_RE.search(r or "")]
+    if _AC_WORKS_GAS_FAILS_RE.search(concern or ""):
+        out = [r for r in out if not _HEATER_PATH_RE.search(r or "")]
+    return out or raw_steps
+
+
+def _ac_step(n, head, where, tools, acts, good, bad, fail, nxt):
+    t = f"Step {n}: {head}. Where: {where}. "
+    if tools:
+        t += f"Tools: {tools}. "
+    t += "Do this: " + " ".join(f"{i}. {a}" for i, a in enumerate(acts, 1)) + " "
+    t += f"Good looks like: {good} Bad looks like: {bad} If it fails: {fail} Next: {nxt}"
+    return t
+
+
+def _ac_general_prove(category: str, concern: str) -> dict | None:
+    """Leader R3 (B40/B56): when the library holds only the install and
+    operating manual, an AC fan/selector or icing concern gets a labelled
+    general prove (trade practice), like the B24 furnace control. No OEM
+    numbers are invented; thresholds stay qualitative."""
+    c = (concern or "").lower()
+    if not (re.search(r"(?i)air\s*cond|\bac\b|rooftop|a/c", (category or "") + " " + c)):
+        return None
+    if re.search(r"\b(?:ices?|icing|iced|frost|freez(?:e|es|ing))\b", c):
+        return {
+            "primary": "General AC icing prove (trade practice): airflow, then thermostat, then charge. Install and operating manual only; no OEM diagnostic for this concern.",
+            "context": (
+                "The shop library has only the install and operating manual for this unit, so this sheet uses a "
+                "general AC icing prove (trade practice), not a brand-specific OEM sequence. An evaporator ices when "
+                "too little air crosses it, when the compressor never cycles off, or when the charge is low. "
+                "Prove airflow first, then the thermostat, then the charge."
+            ),
+            "bay_order": [
+                _ac_step(1, "Thaw the coil and check the return air filter", "At the ceiling assembly return grille and filter", "",
+                         ["Turn the AC to fan only until the coil is fully thawed.", "Inspect the filter and clean it if it is dirty.", "Clear anything that blocks the return grille."],
+                         "The coil is clear of ice, the filter is clean and the return grille is open.",
+                         "The filter is dirty or the return air is blocked.",
+                         "Clean the filter, clear the return and retest before going on.", "Go to Step 2."),
+                _ac_step(2, "Check blower airflow on high fan", "At every discharge louver of the ceiling assembly", "",
+                         ["Set the fan to high.", "Feel the airflow at every louver.", "With power off, spin the blower wheel by hand."],
+                         "Strong, even airflow and the wheel spins freely.",
+                         "Weak airflow, a slow blower, or a wheel that drags.",
+                         "Stop and tell the shop before any blower part swap.", "Go to Step 3."),
+                _ac_step(3, "Check that the thermostat cycles the compressor off", "At the wall thermostat or ceiling control, then at the return air sensor", "",
+                         ["Set cooling a few degrees below room temperature.", "Watch for the compressor to stop at set point.", "Check that the return air sensor sits in the return air stream."],
+                         "The compressor stops at set point.",
+                         "The compressor runs nonstop while the coil ices.",
+                         "Stop and tell the shop before any control or sensor swap.", "Go to Step 4."),
+                _ac_step(4, "Hand the charge check to a certified tech", "At the rooftop unit, sealed system", "",
+                         ["Retest cooling with airflow and the thermostat proved.", "If the coil still ices, have a certified tech check the charge.", "Do not open the sealed system in the bay."],
+                         "The coil stays clear on the retest. That is the confirmed correction.",
+                         "The coil ices again with airflow and the thermostat proved.",
+                         "Stop and tell the shop before any part swap.", "Retest the complaint. If it is gone, that is the confirmed correction."),
+            ],
+        }
+    if re.search(r"\b(?:fan|blower|selector|speed)\b", c):
+        return {
+            "primary": "General AC fan and selector prove (trade practice): power, selector, speed leads, motor. Install and operating manual only; no OEM diagnostic for this concern.",
+            "context": (
+                "The shop library has only the install and operating manual for this unit, so this sheet uses a "
+                "general AC fan and selector prove (trade practice), not a brand-specific OEM sequence. "
+                "Prove power to the unit first, then the selector switch, then the fan speed leads, then the motor."
+            ),
+            "bay_order": [
+                _ac_step(1, "Set or reset the circuit breaker", "At the coach breaker panel", "Multimeter on AC volts",
+                         ["Set or reset the AC circuit breaker.", "Check for line voltage at the rooftop unit."],
+                         "Line voltage is at the unit.", "No line voltage at the unit.",
+                         "Stop and tell the shop before any part swap.", "Go to Step 2."),
+                _ac_step(2, "Check the selector switch in each position", "At the selector switch behind the ceiling assembly", "Multimeter on ohms",
+                         ["Turn the power off.", "Check continuity through the selector switch in each fan position."],
+                         "Continuity moves to a new output in each position.",
+                         "No continuity, or the same output in every position.",
+                         "Stop and tell the shop before any selector swap.", "Go to Step 3."),
+                _ac_step(3, "Check voltage on each fan speed lead", "At the blower motor speed leads", "Multimeter on AC volts",
+                         ["Turn the power on.", "Set the selector to each fan speed.", "Check voltage on the matching motor speed lead."],
+                         "Voltage moves to the matching lead at each speed.",
+                         "The selector passed but a speed lead has no voltage.",
+                         "Stop and tell the shop before any part swap.", "Go to Step 4."),
+                _ac_step(4, "Check the blower motor and its run capacitor", "At the blower motor", "Multimeter",
+                         ["With voltage on the speed lead, watch the blower speed change.", "Check the run capacitor if the motor hums or runs slow."],
+                         "The speed changes with each selector position. That is the confirmed correction.",
+                         "Voltage is on the lead but the speed does not change.",
+                         "Stop and tell the shop before any motor swap.", "Retest the complaint. If it is gone, that is the confirmed correction."),
+            ],
+        }
+    return None
+
+
+
 def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4571,14 +4798,7 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
             else:
                 held.extend(acts)
             continue
-        words = body[0].rstrip(".").split()
-        cut = words[:10]
-        if len(words) > 10:
-            # Do not end a title on a dangling word ('… and that the', '… they are').
-            while len(cut) > 3 and re.fullmatch(r"(?i)(?:the|a|an|and|or|that|to|of|for|with|are|is|they|it|be|from|in|on|at|by|make|sure|so|if|then|,)[,.]?", cut[-1]):
-                cut = cut[:-1]
-            cut = [w.rstrip(",;") for w in cut]
-        head = _action_heading(" ".join(cut))
+        head = _whole_title(body[0])
         rows.append({"head": head, "acts": held + acts})
         held = []
     if held and rows:
@@ -4602,8 +4822,18 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
-        parts.append("Do this: " + _do_this_items(r["acts"]))
-        parts.append("Good looks like: The step is done as the cited page says.")
+        good = "The step is done as the cited page says."
+        acts_r = []
+        for a in r["acts"]:
+            # Leader R3 (B36): an OEM target in a trailing '(14.5-14.6 for …)' is the pass look.
+            sm = re.search(r"\s*\((\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?\s+for\s+[^()]+)\)\.?$", a)
+            if sm:
+                spec = re.sub(r"^(\d+(?:\.\d+)?\s*-\s*\d+(?:\.\d+)?)", r"\1 volts DC", sm.group(1).strip().lower())
+                good = f"The meter reads {spec}."
+                a = a[: sm.start()].rstrip() + "."
+            acts_r.append(a)
+        parts.append("Do this: " + _do_this_items(acts_r))
+        parts.append(f"Good looks like: {good}")
         parts.append("If it fails: Stay on this step until it passes.")
         if i + 1 < len(rows):
             parts.append(f"Next: Go to Step {i + 2}.")
@@ -8470,6 +8700,7 @@ def compile_bay_procedure(
             bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
             notes: list[str] = []
             if not labeled:
+                bay_order = _concern_path_filter(bay_order, concern)
                 bay_order = _label_fallback_steps(bay_order, notes=notes) or bay_order
             context = ""
             install_only = _install_operate_only(ranked) and not fact12_mislabeled_only
@@ -8481,8 +8712,12 @@ def compile_bay_procedure(
                 )
             if notes:
                 context = " From the cited manual: " + " ".join(_as_sentence(n) for n in notes)
+            ac_general = _ac_general_prove(category, concern) if install_only else None
+            if ac_general:
+                bay_order = ac_general["bay_order"]
+                context = " " + ac_general["context"]
             spec = {
-                "primary_cite": (
+                "primary_cite": ac_general["primary"] if ac_general else (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only
                     else (_generic_primary_cite(ranked).rstrip(".") + ". Install and operating manual only; no OEM diagnostic for this concern.")
                     if install_only else _generic_primary_cite(ranked)
