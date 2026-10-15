@@ -3723,7 +3723,7 @@ def _furnace_path(ranked) -> dict:
                 FlowNode(
                     "s",
                     "start",
-                    "The fan turns on, then shuts off. No warm air.",
+                    "The fan turns on, then shuts off without warm air.",
                     0.50,
                     0.09,
                     w=420,
@@ -3741,10 +3741,10 @@ def _furnace_path(ranked) -> dict:
                 FlowNode(
                     "p2",
                     "process",
-                    "Remove the jumper.\nProve the sail switch.",
+                    "Remove the jumper. Prove the sail switch.",
                     0.32,
                     0.49,
-                    w=280,
+                    w=220,
                     h=86,
                 ),
                 FlowNode(
@@ -3794,15 +3794,33 @@ def _furnace_path(ranked) -> dict:
             ],
         ),
         "bay_order": [
-            (
-                ('Bypass the wall thermostat at the furnace. Jumper R/W at the furnace thermostat terminals so the coach thermostat and its wiring are out of the path. If it runs on the jumper, the fault is the thermostat or wiring. Then replace the wall thermostat. That is the confirmed correction.')
-            ),
-            (
-                ('Remove the jumper and prove the sail switch. Do this if the furnace does not run with R/W jumped. Run the blower and check the sail switch. Power in with no power out means the sail is not closed. Then prove airflow and the sail before the board. Power in and power out both present means the sail passed. Then go to the limit check.')
-            ),
-            (
-                ('Check the limit switch, then the module board, from the cited furnace pages. Do this when the sail passes and there is still no heat. If heat returns, that is the confirmed correction.')
-            ),
+            # Batch fix (furnace template, B15/B23/B24/S08): labeled steps (PF-10).
+            # Same checks and order as before: jumper R/W, then the sail switch,
+            # then the limit switch and module board from the cited pages.
+            "Step 1: Bypass the wall thermostat at the furnace. "
+            "Where: At the furnace thermostat terminals R and W. "
+            "Tools: A jumper wire. "
+            "Do this: 1. Jumper R/W at the furnace thermostat terminals. "
+            "2. This takes the coach thermostat and its wiring out of the path. "
+            "Good looks like: The furnace runs on the jumper, so the fault is the thermostat or wiring. "
+            "Bad looks like: The furnace stays dead with R and W jumped. "
+            "If it fails: Remove the jumper and go to Step 2. "
+            "Next: Replace the wall thermostat. That is the confirmed correction.",
+            "Step 2: Remove the jumper and prove the sail switch. "
+            "Where: At the sail switch, on its power-in and power-out terminals. "
+            "Tools: Multimeter on DC volts. "
+            "Do this: 1. Remove the R/W jumper. 2. Run the blower. 3. Check power in and power out at the sail switch. "
+            "Good looks like: Power in and power out are both present, so the sail passed. "
+            "Bad looks like: Power in with no power out, so the sail is not closed. "
+            "If it fails: Prove airflow and the sail before the board. "
+            "Next: Go to Step 3.",
+            "Step 3: Check the limit switch, then the module board. "
+            "Where: At the limit switch and the module board, from the cited furnace pages. "
+            "Do this: 1. Check the limit switch. 2. Then check the module board, from the cited furnace pages. "
+            "Good looks like: Heat returns. That is the confirmed correction. "
+            "Bad looks like: Still no heat while the sail passes. "
+            "If it fails: Stop and tell the shop before any part swap. "
+            "Next: Retest the complaint. If it is gone, that is the confirmed correction.",
         ],
         "do_not": [
             "Do not condemn the module board before the wall thermostat is jumped at the furnace.",
