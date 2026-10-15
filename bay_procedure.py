@@ -4395,9 +4395,33 @@ def _do_this_items(acts: list[str]) -> str:
         # OCR often stacks indexes ('2. 2. Test...'); peel them all.
         while re.match(r"^\d+[.)](?:\s+|$)", a):
             a = re.sub(r"^\d+[.)]\s*", "", a).strip()
+        # Figure-cut OCR: an excerpt that ends on an unclosed '(Fig.' reference.
+        a = re.sub(r"\s*\((?:Figs?|Figure)\.?\s*$", "", a).strip()
+        if a and a[-1] not in ".!?:":
+            a += "."
         if a and not re.fullmatch(r"\d+[.)]?", a):
             cleaned.append(_lab_cap(a))
-    return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
+    # A bare condition line joins the action after it ONLY when the joined line
+    # stays within 15 words (Leader 1:22 PM; the broad c72a3fc join regressed PF-06).
+    joined = []
+    i = 0
+    while i < len(cleaned):
+        cur = cleaned[i]
+        if (
+            i + 1 < len(cleaned)
+            and re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", cur)
+            and "," not in cur
+            and is_action_heading(cleaned[i + 1])
+        ):
+            nxt = cleaned[i + 1]
+            cand = re.sub(r"[.:;\s]+$", "", cur) + ", " + nxt[:1].lower() + nxt[1:]
+            if len(cand.split()) <= 15:
+                joined.append(cand)
+                i += 2
+                continue
+        joined.append(cur)
+        i += 1
+    return " ".join(f"{n}. {a}" for n, a in enumerate(joined, 1))
 
 
 _SAFETY_KEEP_RE = re.compile(
