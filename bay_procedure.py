@@ -4992,7 +4992,8 @@ def rank_bay_chunks(
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
         return rank_chunks_for_fcr_fan_fault(pages, query, limit=limit)
     if is_air_conditioning_context(category_name, model_text, concern):
-        return rank_chunks_for_ac(pages, query, limit=limit)
+        ranked_ac = rank_chunks_for_ac(pages, query, limit=max(limit, len(pages)))
+        return _rank_by_concern_terms(ranked_ac, concern, model_text, limit)
     if is_water_heater_context(category_name, model_text, concern):
         return rank_chunks_for_water_heater(pages, query, limit=limit)
     if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
@@ -5003,7 +5004,51 @@ def rank_bay_chunks(
         return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
     if is_thetford_flush_leak_context(category_name, model_text, concern):
         return _rank_thetford_leak_pages(pages, limit)
-    return pages[:limit]
+    return _rank_by_concern_terms(pages, concern, model_text, limit)
+
+
+_CONCERN_SYNONYMS = {
+    "lp": ("gas", "flame", "burner", "ignit", "thermocouple", "lp"),
+    "gas": ("gas", "flame", "burner", "ignit", "thermocouple", "lp"),
+    "flame": ("gas", "flame", "burner", "ignit", "thermocouple"),
+    "ice": ("ice", "icing", "frost", "freez", "evaporator", "airflow", "filter", "coil"),
+    "ices": ("ice", "icing", "frost", "freez", "evaporator", "airflow", "filter", "coil"),
+    "icing": ("ice", "icing", "frost", "freez", "evaporator", "airflow", "filter", "coil"),
+    "frost": ("ice", "frost", "freez", "evaporator", "airflow", "filter"),
+    "fan": ("fan", "speed", "blower", "motor"),
+    "selector": ("selector", "switch", "control", "speed"),
+}
+_CONCERN_STOP = {
+    "the", "and", "but", "not", "will", "then", "does", "nothing", "comes", "with", "for", "when",
+    "after", "from", "this", "that", "unit", "rooftop", "ceiling", "assembly", "cools", "cool",
+    "change", "light", "check", "on", "120v",
+}
+
+
+def _rank_by_concern_terms(pages, concern: str = "", model_text: str = "", limit: int = 8) -> list:
+    """Generic fallback: pages naming the concern's own terms first (stable).
+
+    Leader page-read 1:23 PM: an LP/no-flame concern must not cite ice-maker or
+    water-valve pages ahead of the gas pages from the same manual.
+    """
+    pages = list(pages or [])
+    model_words = {w.lower() for w in re.findall(r"[A-Za-z0-9]+", model_text or "")}
+    terms: set[str] = set()
+    for w in re.findall(r"[A-Za-z0-9]+", (concern or "").lower()):
+        if len(w) < 3 and w != "lp":
+            continue
+        if w in _CONCERN_STOP or w in model_words:
+            continue
+        terms.update(_CONCERN_SYNONYMS.get(w, (w,)))
+    if not terms or len(pages) <= 1:
+        return pages[:limit]
+
+    def score(item):
+        text = (chunk_as_dict(item).get("excerpt") or "").lower()
+        return sum(1 for t in terms if t in text)
+
+    order = sorted(range(len(pages)), key=lambda i: (-score(pages[i]), i))
+    return [pages[i] for i in order][:limit]
 
 
 def _page_int(value):
