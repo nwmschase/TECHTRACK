@@ -127,6 +127,23 @@ def _rules_one(line: str) -> list[str]:
             _sent(f"This {m.group(3)} has {m.group(4)}"),
             *_perform_lines(m.group(5), m.group(6)),
         ]
+    # Truncated WARNING (OCR dropped the word): 'Symbol above is a sign that...'
+    m = re.match(
+        r"^(?:(?:Safety|WARNING)\s+)?(?:The\s+)?(?:WARNING\s+)?Symbol above is a sign that (.+?) and may cause (.+) if not (?:performed|safely adhered to)\s*(.*)$",
+        s,
+        re.I,
+    )
+    if m:
+        rest = m.group(3).strip().strip(" .")
+        out = [
+            _sent('Safety: The "WARNING" symbol above is a sign of this risk'),
+            _sent(m.group(1) if m.group(1)[0].isupper() else m.group(1)[0].upper() + m.group(1)[1:]),
+            _sent(f"It may cause {m.group(2)} if not safely adhered to"),
+        ]
+        if rest:
+            out.append(_sent(rest))
+        return out
+
     # Trailing parenthetical '(not ...)' -> its own sentence about the last named part.
     tail = []
     m = re.match(r"^(.+?\bthe ([a-z][\w\- ]{1,30}?))\s*\((not [^)]+)\)\.?$", s, re.I)
@@ -384,22 +401,29 @@ def rewrite_plain_line(line: str, trigger: int = 15) -> list[str]:
     return out
 
 
+def _strip_leading_index(text: str) -> str:
+    """Drop one leading '1.' / '2)' list index from OCR so Do this does not emit '2. 2.'."""
+    return re.sub(r"^\s*\d+[.)]\s+", "", (text or "").strip(), count=1)
+
+
 def rewrite_line(line: str) -> list[str]:
     """Short action lines for one long line, or [line] unchanged when the rewrite is not faithful."""
-    src = (line or "").strip()
-    if len(_words(src)) <= TARGET_WORDS:
+    src = _strip_leading_index(line or "")
+    if not src:
         return [line]
+    if len(_words(src)) <= TARGET_WORDS:
+        return [src]
     try:
         out = _rules_one(src)
     except re.error:
         out = []
-    if not out or out == [_sent(src)] or any(len(_words(x)) > TARGET_WORDS for x in out):
+    if not out or out == [_sent(src)] or any(len(_words(x)) > HARD_LIMIT for x in out):
         chunks = _chunk_or_none(src)
         if chunks:
             _log(src, "chunked")
             return chunks
         _log(src, "fallback" if out and out != [_sent(src)] else "nochange", "rules and chunker could not keep it faithful")
-        return [line]
+        return [src]
     ok, why = fidelity_ok(src, out)
     if not ok:
         _log(src, "fallback", why)

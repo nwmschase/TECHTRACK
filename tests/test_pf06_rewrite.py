@@ -63,9 +63,11 @@ class RewriteTests(unittest.TestCase):
         self.assertTrue(r.fidelity_ok(src, out)[0])
         self.assertIn("death or serious injury if not performed safely", " ".join(out))
 
-    def test_unfaithful_or_still_long_falls_back_to_original(self):
+    def test_or_split_keeps_every_word(self):
         src = "Replace the AA battery inside or plug in coiled cord between REMOTE and RECEIVER to operate in CORDED mode."
-        self.assertEqual(r.rewrite_line(src), [src])
+        out = r.rewrite_line(src)
+        self.assertTrue(r.fidelity_ok(src, out)[0] or out == [src])
+        self.assertTrue(all(len(x.split()) <= 15 for x in out))
 
     def test_deterministic(self):
         src = "When running all four jacks, stop often to check level and ensure that all 4 jacks are on the ground."
@@ -136,3 +138,39 @@ class PlainPathTests(unittest.TestCase):
         out = r.rewrite_plain_line(src)
         if any(x.rstrip().endswith(":") for x in out):
             self.fail("plain path emitted a bare If/then line")
+
+
+class RemainingFailTests(unittest.TestCase):
+    def test_leading_ocr_index_stripped(self):
+        out = r.rewrite_line("2. Test of the defrost heating element in the fresh food side.")
+        self.assertTrue(all(not x.lstrip().startswith("2.") for x in out))
+        self.assertIn("defrost", " ".join(out).lower())
+
+    def test_truncated_warning_symbol_rewrites(self):
+        src = (
+            "Symbol above is a sign that a safety risk is involved and may cause "
+            "personal injury and/or product or property damage if not safely adhered "
+            "to and within the parameters set forth in this manual."
+        )
+        out = r.rewrite_line(src)
+        self.assertGreater(len(out), 1)
+        self.assertTrue(r.fidelity_ok(src, out)[0])
+        self.assertTrue(all(len(x.split()) <= 15 for x in out))
+
+    def test_statement_only_manual_becomes_one_labeled_step(self):
+        import bay_procedure as bp
+        out = bp._label_fallback_steps([
+            "Using a DC Voltmeter Check the Converter output as above.",
+            "Gel Jumper To set the charger to work with Gel batteries, add a jumper.",
+            "This is a standard.100 spacing jumper available from us or computer stores.",
+            "If this check fails, stay on it.",
+        ])
+        self.assertEqual(len(out), 1)
+        self.assertIn("Do the cited check", out[0])
+        self.assertIn("Gel Jumper", out[0])
+        self.assertNotIn("If this check fails, stay on it", out[0].split("Do this:")[0])
+
+    def test_do_this_does_not_double_number(self):
+        import bay_procedure as bp
+        out = bp._label_fallback_steps(["2. Test of the defrost heating element in the fresh food side."])
+        self.assertNotRegex(out[0], r"Do this: \d+\. \d+\.")

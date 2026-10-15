@@ -1208,7 +1208,7 @@ def _ensure_next_step(text: str, *, last: bool = False) -> str:
         if last:
             text += (
                 " If this check fails, stay on it. If it passes and the complaint is gone, "
-                "that is the confirmed correction. If the complaint remains, use the next cited library check."
+                "that is the confirmed correction. If the complaint remains, use the next cited check."
             )
         else:
             text += " If this check fails, stay on it. If it passes, go to the next check."
@@ -4139,7 +4139,7 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
         for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
             acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
         acts = _split_actions(acts)
-        parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(acts, 1)))
+        parts.append("Do this: " + _do_this_items(acts))
         if not st.get("good"):
             # Batch fix PF-10 (B03/B06): a step with only a Bad line still names its pass look.
             st["good"] = "The step is done as the cited page says, with none of the bad look below"
@@ -4273,6 +4273,16 @@ def _is_note_fragment(text: str) -> bool:
     return bool(_NOTE_FRAG_RE.match((text or "").strip()))
 
 
+def _do_this_items(acts: list[str]) -> str:
+    """Number Do this lines; strip a leading OCR list index so we never emit '2. 2.'."""
+    cleaned = []
+    for a in acts or []:
+        a = re.sub(r"^\s*\d+[.)]\s*", "", (a or "").strip()).strip()
+        if a and not re.fullmatch(r"\d+[.)]?", a):
+            cleaned.append(_lab_cap(a))
+    return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
+
+
 def _label_fallback_steps(lines: list[str]) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4283,7 +4293,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
     rows, held = [], []
     for line in lines or []:
         sents = [x.strip() for x in _split_sentences(line or "") if x.strip()]
-        body = [x for x in sents if not _FALLBACK_FILLER_RE.match(x)] or sents
+        body = [x for x in sents if not _FALLBACK_FILLER_RE.match(x)]
         if not body:
             continue
         acts = []
@@ -4307,11 +4317,13 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
     if held and rows:
         rows[-1]["acts"].extend(held)
     elif held:
-        return []
+        # General fix: statement-only manuals still become one labeled step so
+        # paint does not fall back to plain bay-order (B36 PF-10/SL-2/PF-09).
+        rows.append({"head": "Do the cited check", "acts": held})
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
-        parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(r["acts"], 1)))
+        parts.append("Do this: " + _do_this_items(r["acts"]))
         parts.append("Good looks like: The step is done as the cited page says.")
         parts.append("If it fails: Stay on this step until it passes.")
         if i + 1 < len(rows):
@@ -10195,7 +10207,14 @@ def bay_plain_step_lines(step: str, number: int) -> tuple[str, list[str]]:
     rest = [x for a in rest for x in pf06_rewrite.rewrite_plain_line(a)]
     if not rest:
         return f"Step {number}: {title}", []
-    return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(rest, 1)]
+    cleaned = []
+    for a in rest:
+        a = re.sub(r"^\s*\d+[.)]\s*", "", (a or "").strip()).strip()
+        if a and not re.fullmatch(r"\d+[.)]?", a):
+            cleaned.append(a)
+    if not cleaned:
+        return f"Step {number}: {title}", []
+    return f"Step {number}: {title}", ["Do this:"] + [f"{i}. {a}" for i, a in enumerate(cleaned, 1)]
 
 
 _CONDITION_START = r"^(?:If|When|Once|After|Before|Until|Unless|On a|On an|On the|With)\b"
