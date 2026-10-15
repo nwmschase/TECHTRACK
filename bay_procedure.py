@@ -4132,6 +4132,44 @@ def attach_manual_repair_branch(proc, ranked, path_kind: str):
     return proc
 
 
+_FALLBACK_FILLER_RE = re.compile(
+    r"^(?:if this check fails, stay on it|if it passes|if the complaint (?:is gone|remains))\b",
+    re.I,
+)
+
+
+def _label_fallback_steps(lines: list[str]) -> list[str]:
+    """PF-10 (redo): every fallback line becomes one labeled step.
+
+    One step per line, none dropped, so a long appliance path keeps its full
+    story. All of the line's own sentences stay in Do this; only the
+    stay-on-it / go-next filler moves into If it fails / Next.
+    """
+    rows = []
+    for line in lines or []:
+        sents = [x.strip() for x in _split_sentences(line or "") if x.strip()]
+        body = [x for x in sents if not _FALLBACK_FILLER_RE.match(x)] or sents
+        if not body:
+            continue
+        acts = []
+        for x in body:
+            acts.extend(short_actions(_lab_cap(x)) or [_lab_cap(x)])
+        head = " ".join(body[0].rstrip(".").split()[:10])
+        rows.append({"head": head, "acts": acts})
+    out = []
+    for i, r in enumerate(rows):
+        parts = [f"Step {i + 1}: {_lab_cap(r['head'])}"]
+        parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(r["acts"], 1)))
+        parts.append("Good looks like: The step is done as the cited page says.")
+        parts.append("If it fails: Stay on this step until it passes.")
+        if i + 1 < len(rows):
+            parts.append(f"Next: {_lab_cap(rows[i + 1]['head'])}")
+        else:
+            parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
+        out.append(" ".join(parts))
+    return out
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = []
@@ -7941,6 +7979,8 @@ def compile_bay_procedure(
             if long_path and len(labeled) < MAX_BAY_ORDER // 2:
                 labeled = []  # a long appliance path keeps its full story
             bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
+            if not labeled:
+                bay_order = _label_fallback_steps(bay_order) or bay_order
             spec = {
                 "primary_cite": (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
