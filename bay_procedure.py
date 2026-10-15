@@ -3975,6 +3975,26 @@ def _lab_cap(text: str) -> str:
 STEP_WHERE_DEFAULT = "At the part named in this step."
 
 
+# Batch fix PF-02: OCR title-case inside a sentence ("at the controller Power /
+# Ground input") reads as a run-on. Case only: the word drops to lower case
+# after a lower-case word unless it is a brand or has inner capitals. No word
+# is removed or reworded.
+_KEEP_CAPS = {
+    "furrion", "lippert", "onecontrol", "thetford", "dometic", "kwikee", "happijac", "atwood",
+    "power gear", "coleman", "girard", "suburban", "atwood", "norcold", "level", "best",
+}
+_RUNON_FIX_RE = re.compile(r"(?<=\b[a-z]{3})([a-z]*\s+)([A-Z][a-z]{2,})\b")
+
+
+def _fix_title_case_runon(text: str) -> str:
+    def sub(m):
+        word = m.group(2)
+        if word.lower() in _KEEP_CAPS:
+            return m.group(0)
+        return m.group(1) + word.lower()
+    return _RUNON_FIX_RE.sub(sub, text or "")
+
+
 def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     """Labeled bay checks from manual sentences, or [] when none apply."""
     steps: list[dict] = []
@@ -4050,7 +4070,7 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
             parts.append(f"Next: {_lab_cap(nxt)}")
         else:
             parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
-        out.append(" ".join(parts))
+        out.append(_fix_title_case_runon(" ".join(parts)))
     return out
 
 
@@ -4170,7 +4190,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
             parts.append(f"Next: {_lab_cap(rows[i + 1]['head'])}")
         else:
             parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
-        out.append(" ".join(parts))
+        out.append(_fix_title_case_runon(" ".join(parts)))
     return out
 
 
