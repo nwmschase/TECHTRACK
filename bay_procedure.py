@@ -3702,13 +3702,31 @@ def _topic_figures(ranked, title: str, caption: str, excerpt: str) -> list[BayFi
     return [seed]
 
 
-def _furnace_brand_steps(ranked) -> list[str]:
-    """Labeled steps from the ranked furnace manual pages, or [] when thin."""
-    raw: list[str] = []
+_FURNACE_ACTION_RE = re.compile(
+    r"^(?:(?:If|When|Once|After|Before|Unless|Until)\b[^,]{3,},\s+(?:then\s+)?)?"
+    r"(?:check|test|measure|replace|repair|reset|confirm|seat|set|leave|turn|press|open|close|remove|"
+    r"install|clean|tighten|retest|go|stop|look|run|disconnect|reconnect|verify|inspect|clear|"
+    r"correct|watch|find|use|note|record|reseat|bypass|jump|jumper|keep|move|apply|attach|connect|"
+    r"pull|push|lift|lower|drain|fill|flush|plug|unplug|hold|wait|seal|unscrew|loosen|purge|cycle|"
+    r"light|relight|observe|ensure|make|be|do|never|always|allow|place|adjust|shut|probe|"
+    r"refer|see|perform|operate|proceed|return|secure|mount|slide|insert|lift)\b",
+    re.I,
+)
+
+
+def _furnace_split_manual(ranked) -> tuple[list[str], list[str]]:
+    """Manual sentences split into (actions, descriptive). OEM wording unchanged.
+
+    Leader 11:03: present-tense descriptions ('The board detects a flame.') are
+    not Do-this actions; they go to pattern context word for word.
+    """
+    acts: list[str] = []
+    desc: list[str] = []
     for d in ranked or []:
         row = chunk_as_dict(d)
         for sentence in _split_sentences(clean_ocr_prose(row.get("excerpt") or "")):
             text = _strip_ocr_bullet(re.sub(r"\s+", " ", sentence)).strip()
+            text = re.sub(r"^\d+[.)]\s*", "", text).strip()
             if (
                 len(text) < 20
                 or _PARTS_DUMP_RE.search(text)
@@ -3716,11 +3734,20 @@ def _furnace_brand_steps(ranked) -> list[str]:
                 or _FILLER_RE.search(text)
             ):
                 continue
-            raw.append(text)
-            if len(raw) >= MAX_BAY_ORDER:
-                break
-        if len(raw) >= MAX_BAY_ORDER:
-            break
+            words = re.findall(r"[A-Za-z][\w'/-]*", text)
+            if words and sum(w.isupper() and len(w) > 1 for w in words) >= 0.6 * len(words):
+                continue  # all-caps figure/label run, same rule as figure-label dumps
+            if _FURNACE_ACTION_RE.match(text):
+                if len(acts) < MAX_BAY_ORDER:
+                    acts.append(text)
+            elif len(desc) < 6 and text not in desc:
+                desc.append(text)
+    return acts, desc
+
+
+def _furnace_brand_steps(ranked) -> list[str]:
+    """Labeled steps from the brand manual's action sentences, or [] when thin."""
+    raw, _desc = _furnace_split_manual(ranked)
     if not raw:
         return []
     labeled = _labeled_generic_steps(raw)
@@ -3728,6 +3755,14 @@ def _furnace_brand_steps(ranked) -> list[str]:
         return labeled[:MAX_BAY_ORDER]
     fallback = _label_fallback_steps(raw)
     return fallback[:MAX_BAY_ORDER] if len(fallback) >= 3 else []
+
+
+def _furnace_manual_context(ranked, who: str) -> str:
+    """Descriptive OEM lines for pattern meaning, quoted as written."""
+    _acts, desc = _furnace_split_manual(ranked)
+    if not desc:
+        return ""
+    return f" How it works, from the {who} furnace manual: " + " ".join(_as_sentence(x) for x in desc)
 
 
 def _furnace_general_bay_order() -> list[str]:
@@ -3792,6 +3827,7 @@ def _furnace_path(ranked, brand: str = "", model: str = "", concern: str = "") -
             "pattern_means": (
                 f"{_as_sentence(concern or 'The furnace will not heat')} "
                 f"Work the cited checks from the {who} furnace manual on this sheet."
+                + _furnace_manual_context(ranked, who)
             ),
             "flowchart": _generic_flowchart(
                 concern or f"{who} furnace concern", heads or ["Prove the cited furnace path"]
@@ -3819,6 +3855,7 @@ def _furnace_path(ranked, brand: str = "", model: str = "", concern: str = "") -
             "Prove the wall thermostat first by jumping R/W at the furnace. A furnace that "
             "runs on that jumper needs a wall thermostat. A furnace that does not run on "
             "that jumper needs a sail-switch prove."
+            + _furnace_manual_context(ranked, who)
         ),
         "flowchart": Flowchart(
             readable=True,
