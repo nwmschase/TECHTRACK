@@ -4262,7 +4262,8 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
         for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
             acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
         acts = _split_actions(acts)
-        parts.append("Do this: " + _do_this_items(acts))
+        # Orphan 'If …:' lines are dropped; never leave Do this empty (PF-10).
+        parts.append("Do this: " + (_do_this_items(acts) or _do_this_items([st["head"]])))
         if not st.get("good"):
             # Batch fix PF-10 (B03/B06): a step with only a Bad line still names its pass look.
             st["good"] = "The step is done as the cited page says, with none of the bad look below"
@@ -4585,6 +4586,8 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
                 back, ctx = _route_notes([a for a in r["acts"] if a not in keep])
                 notes.extend(ctx)
                 r["acts"] = [a for a in r["acts"] if a in keep or a in back]
+    # A step whose only line was an orphan 'If …:' has nothing to do: drop it (PF-10).
+    rows = [r for r in rows if _do_this_items(r["acts"]).strip()] or rows
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
@@ -5016,8 +5019,7 @@ def rank_bay_chunks(
     if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
         return rank_chunks_for_fcr_fan_fault(pages, query, limit=limit)
     if is_air_conditioning_context(category_name, model_text, concern):
-        ranked_ac = rank_chunks_for_ac(pages, query, limit=max(limit, len(pages)))
-        return _rank_by_concern_terms(ranked_ac, concern, model_text, limit)
+        return rank_chunks_for_ac(pages, query, limit=limit)
     if is_water_heater_context(category_name, model_text, concern):
         return rank_chunks_for_water_heater(pages, query, limit=limit)
     if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
@@ -5028,6 +5030,8 @@ def rank_bay_chunks(
         return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
     if is_thetford_flush_leak_context(category_name, model_text, concern):
         return _rank_thetford_leak_pages(pages, limit)
+    if _is_furnace_bay(category_name, model_text, concern):
+        return pages[:limit]
     return _rank_by_concern_terms(pages, concern, model_text, limit)
 
 
