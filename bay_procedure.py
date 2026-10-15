@@ -4306,10 +4306,34 @@ def _manual_branch_sentences(ranked) -> list[str]:
     return out
 
 
+_INSTALL_WIRING_RE = re.compile(
+    r"\b(?:junction box|electrical cord|\d+-pin|strain relief|wire harness|wiring harness|route the|romex|cable clamp)\b",
+    re.I,
+)
+
+
+def _install_operate_only(ranked) -> bool:
+    """Every cited page is an install / operating / owner's manual (no OEM diagnosis)."""
+    titles = [str(chunk_as_dict(d).get("title") or "") for d in ranked or []]
+    if not titles:
+        return False
+    for t in titles:
+        if re.search(r"troubleshoot|service|diagnos|repair", t, re.I):
+            return False
+        if not re.search(r"install|operat|instruction|owner|user", t, re.I):
+            return False
+    return True
+
+
 def manual_repair_branch(ranked, concern: str = "") -> dict | None:
     """One REPAIR BRANCH from the cited manual pages, or None when they do not cover removal and installation."""
     removal, install, safety = [], [], []
+    wiring_job = bool(re.search(r"\b(?:power|wir(?:e|ing)|electrical|breaker|fuse|volt|no power|dead)\b", concern or "", re.I))
     for s in _manual_branch_sentences(ranked):
+        # An install-wiring sequence is not a repair for a non-electrical concern
+        # (Leader page-read: B56 icing got a junction-box / 6-pin branch).
+        if not wiring_job and _INSTALL_WIRING_RE.search(s):
+            continue
         if _MANUAL_SAFETY_RE.search(s) and len(s.split()) <= 24:
             safety.append(s)
             continue
@@ -8433,11 +8457,20 @@ def compile_bay_procedure(
             if not labeled:
                 bay_order = _label_fallback_steps(bay_order, notes=notes) or bay_order
             context = ""
+            install_only = _install_operate_only(ranked) and not fact12_mislabeled_only
+            if install_only:
+                context += (
+                    " The shop library has only the install and operating manual for this unit. "
+                    "It gives no OEM diagnostic procedure for this concern, so the checks below are "
+                    "the install and operating checks it does give, not an OEM diagnosis."
+                )
             if notes:
                 context = " From the cited manual: " + " ".join(_as_sentence(n) for n in notes)
             spec = {
                 "primary_cite": (
-                    FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
+                    FACT12_MISLABEL_CITE if fact12_mislabeled_only
+                    else (_generic_primary_cite(ranked).rstrip(".") + ". Install and operating manual only; no OEM diagnostic for this concern.")
+                    if install_only else _generic_primary_cite(ranked)
                 ),
                 "pattern_means": _generic_pattern_means(concern, long_path=long_path) + context,
                 "flowchart": _generic_flowchart(
