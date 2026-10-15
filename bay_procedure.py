@@ -4132,6 +4132,50 @@ def attach_manual_repair_branch(proc, ranked, path_kind: str):
     return proc
 
 
+_FALLBACK_FILLER_RE = re.compile(
+    r"^(?:if this check fails|if it passes|if the complaint (?:is gone|remains)|record the complaint|"
+    r"do that first cited check|do the next cited check|retest the complaint after|write the first reading|"
+    r"note|safety|warning|caution)\b",
+    re.I,
+)
+
+
+def _label_fallback_steps(lines: list[str]) -> list[str]:
+    """Batch fix (c), PF-10: every fallback step carries Do this, Good looks like, and Next.
+
+    Common work-instruction practice: one action block, one visible pass result,
+    one next move per step. Step text stays the manual's words; only the pass
+    line and the next line are structural. Returns [] when nothing is usable.
+    """
+    rows = []
+    for line in lines or []:
+        sents = [s.strip() for s in _split_sentences(scrub_sheet_text(line or "")) if s.strip()]
+        sents = [s for s in sents if not _FALLBACK_FILLER_RE.match(s)]
+        if not sents or not is_action_heading(sents[0]):
+            continue
+        acts = [a for a in (short_actions(_lab_cap(sents[0])) or []) if 2 <= len(a.split()) <= 15]
+        if not acts:
+            continue
+        head = " ".join(acts[0].rstrip(".").split()[:10])
+        if any(r["head"].lower() == head.lower() for r in rows):
+            continue
+        rows.append({"head": head, "acts": acts})
+        if len(rows) >= MAX_BAY_ORDER:
+            break
+    out = []
+    for i, r in enumerate(rows):
+        parts = [f"Step {i + 1}: {_lab_cap(r['head'])}"]
+        parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(r["acts"], 1)))
+        parts.append("Good looks like: The step is done as the cited page says.")
+        parts.append("If it fails: Stay on this step until it passes.")
+        if i + 1 < len(rows):
+            parts.append(f"Next: {_lab_cap(rows[i + 1]['head'])}")
+        else:
+            parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
+        out.append(" ".join(parts))
+    return out
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = []
@@ -7941,6 +7985,8 @@ def compile_bay_procedure(
             if long_path and len(labeled) < MAX_BAY_ORDER // 2:
                 labeled = []  # a long appliance path keeps its full story
             bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
+            if not labeled:
+                bay_order = _label_fallback_steps(bay_order) or bay_order
             spec = {
                 "primary_cite": (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
