@@ -3995,6 +3995,54 @@ def _fix_title_case_runon(text: str) -> str:
     return _RUNON_FIX_RE.sub(sub, text or "")
 
 
+# Batch fix PF-06 (safe split): an action above 15 words prints on more lines
+# only at a comma or semicolon (outside parentheses) where both sides are
+# actions. The mark becomes a period and the next line is capitalised; every
+# word is kept, no line starts with And/Or, and every line keeps its verb.
+_PF06_LIMIT = 15
+
+
+def split_long_action(action: str) -> list[str]:
+    text = re.sub(r"\s+", " ", action or "").strip()
+    if len(text.split()) <= _PF06_LIMIT:
+        return [text] if text else []
+    cuts = []
+    for m in re.finditer(r"[,;]\s+", text):
+        left, right = text[: m.start()], text[m.end():]
+        if left.count("(") != left.count(")"):
+            continue
+        if re.match(r"(?:and|or|but)\b", right, re.I):
+            continue
+        cuts.append((m.start(), m.end()))
+    pieces, start = [], 0
+    for a, b in cuts:
+        pieces.append(text[start:a])
+        start = b
+    pieces.append(text[start:])
+    if len(pieces) < 2 or not all(is_action_heading(_cap(p)) for p in pieces):
+        return [text]
+    lines, cur = [], ""
+    for piece in pieces:
+        cand = f"{cur}, {piece}" if cur else piece
+        if cur and len(cand.split()) > _PF06_LIMIT:
+            lines.append(cur)
+            cur = piece
+        else:
+            cur = cand
+    lines.append(cur)
+    lines = [_finish(_cap(x.rstrip(".") )) for x in lines]
+    if [w.strip(".,;").lower() for w in " ".join(lines).split()] != [w.strip(".,;").lower() for w in text.split()]:
+        return [text]
+    return lines
+
+
+def _split_actions(acts: list[str]) -> list[str]:
+    out = []
+    for a in acts or []:
+        out.extend(split_long_action(a))
+    return out
+
+
 def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     """Labeled bay checks from manual sentences, or [] when none apply."""
     steps: list[dict] = []
@@ -4062,6 +4110,7 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
         acts = []
         for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
             acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
+        acts = _split_actions(acts)
         parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(acts, 1)))
         if not st.get("good"):
             # Batch fix PF-10 (B03/B06): a step with only a Bad line still names its pass look.
@@ -4126,7 +4175,7 @@ def manual_repair_branch(ranked, concern: str = "") -> dict | None:
             m = _WHERE_SPLIT_RE.search(s.rstrip("."))
             if m and len(s[: m.start()].split()) >= 2:
                 where = _lab_cap(m.group(1))
-            for act in short_actions(_lab_cap(s)) or [_lab_cap(s)]:
+            for act in _split_actions(short_actions(_lab_cap(s)) or [_lab_cap(s)]):
                 out.append(_branch_step(_lab_cap(act), where or "At the part named in this step.", good, bad,
                                         "Go to the next step.", section=section, fail="Stop and tell the shop."))
         return out
@@ -4200,6 +4249,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         acts = []
         for x in body:
             acts.extend(short_actions(_lab_cap(x)) or [_lab_cap(x)])
+        acts = _split_actions(acts)
         head = _action_heading(" ".join(body[0].rstrip(".").split()[:10]))
         rows.append({"head": head, "acts": acts})
     out = []

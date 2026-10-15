@@ -729,3 +729,4 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Batch fix PF-02, branch-only: in labeled generic/fallback steps an OCR title-case word after a lower-case word drops to lower case (brands kept); case only, no word removed.
 - Batch fix PF-10 (B03/B06), branch-only: a labeled generic step with only a Bad line gets 'Good looks like: The step is done as the cited page says, with none of the bad look below.'
 - Batch fix SL-2 (B01/B04), branch-only: a fallback step heading that opens with a condition becomes the action after it, else 'Check the condition in this step'; the manual sentence stays whole in Do this.
+- Batch fix PF-06 (safe split), branch-only: an action over 15 words splits only at a comma/semicolon where both sides are actions; the mark becomes a period; every word kept; no line starts with And/Or; otherwise the line stays whole.
