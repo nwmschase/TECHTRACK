@@ -302,6 +302,8 @@ def _best_split(sub: list[str]) -> list[str] | None:
             continue
         if not (_VERBISH.search(left) and _VERBISH.search(right)):
             continue
+        if left.count("(") != left.count(")"):
+            continue  # never split inside parentheses
         # Never cut a condition mid-clause (that would invent a comma).
         if re.match(r"^(?:If|When|Unless|Until|Once|As|While|Because|Since)\b", left, re.I) and not left.rstrip().endswith(","):
             continue
@@ -339,6 +341,8 @@ def _clause_split(p: str) -> list[str]:
         best = None
         for i in range(max(3, mid - 4), min(len(toks) - 3, mid + 5)):
             left, right = " ".join(toks[:i]), " ".join(toks[i:])
+            if left.count("(") != left.count(")"):
+                continue
             if len(_words(left)) <= HARD_LIMIT and len(_words(right)) <= HARD_LIMIT:
                 if _VERBISH.search(left) and _VERBISH.search(right):
                     best = i
@@ -390,6 +394,8 @@ def _prose_chunks(s: str) -> list[str]:
                     out.extend(_prose_chunks(piece) if len(_words(piece)) > HARD_LIMIT else [_sent(piece)])
             if all(len(_words(x)) <= HARD_LIMIT for x in out):
                 return out
+    # Periods inside parentheses ('(45 sec.)') never end a sentence.
+    s = re.sub(r"\([^()]*\)", lambda m: m.group(0).replace(".", "\u0002"), s)
     pieces = []
     for part in re.split(r"(?<=[.;])\s+", s):
         pieces.extend(_peel_parens(part))
@@ -441,7 +447,7 @@ def _prose_chunks(s: str) -> list[str]:
             out.append(body)
         else:
             out.append(_sent(x.rstrip(",;")))
-    return out
+    return [x.replace("\u0002", ".") for x in out]
 
 
 
@@ -467,7 +473,8 @@ def _same_words(src: str, out: list[str]) -> bool:
 def _segment_ok(seg: str, out: list[str]) -> bool:
     if any(len(_words(x)) > HARD_LIMIT for x in out):
         return False
-    if any(len(_words(x)) >= 4 and not _VERBISH.search(x) for x in out):
+    # A parenthetical line ('(for example, by …)') is exempt, as in SL-1.
+    if any(len(_words(x)) >= 4 and not _VERBISH.search(x) and not x.lstrip().startswith("(") for x in out):
         return False
     # A condition never stands alone, cut from the command it governs.
     if len(out) > 1 and any(re.match(r"^(?:If|When|Unless|Until|Once)\b", x) and "," not in x for x in out):

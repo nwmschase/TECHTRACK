@@ -4401,12 +4401,19 @@ def _action_heading(head: str) -> str:
     names the check generically; the full manual sentence stays in Do this.
     """
     head = (head or "").strip()
-    if not _COND_HEAD_RE.match(head):
+    if not _COND_HEAD_RE.match(head) and not re.match(r"^With\b[^,]*$", head):
         return head
     m = re.search(r"(?:,\s*|\s+then\s+)(.+)$", head)
     rest = m.group(1).strip() if m else ""
     if rest and is_action_heading(rest):
         return _lab_cap(rest).rstrip(".")
+    # No comma ('With unit in AC mode check for voltage'): title from the first
+    # action word on; the full sentence stays in Do this.
+    words = head.rstrip(".").split()
+    for i in range(1, len(words)):
+        tail = " ".join(words[i:])
+        if is_action_heading(tail):
+            return _lab_cap(tail).rstrip(".")
     return "Check the condition in this step"
 
 
