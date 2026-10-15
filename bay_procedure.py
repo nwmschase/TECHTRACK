@@ -4274,10 +4274,13 @@ def _is_note_fragment(text: str) -> bool:
 
 
 def _do_this_items(acts: list[str]) -> str:
-    """Number Do this lines; strip a leading OCR list index so we never emit '2. 2.'."""
+    """Number Do this lines; strip every leading OCR list index so we never emit '2. 2.'."""
     cleaned = []
     for a in acts or []:
-        a = re.sub(r"^\s*\d+[.)]\s*", "", (a or "").strip()).strip()
+        a = (a or "").strip()
+        # OCR often stacks indexes ('2. 2. Test...'); peel them all.
+        while re.match(r"^\d+[.)](?:\s+|$)", a):
+            a = re.sub(r"^\d+[.)]\s*", "", a).strip()
         if a and not re.fullmatch(r"\d+[.)]?", a):
             cleaned.append(_lab_cap(a))
     return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
@@ -10209,7 +10212,9 @@ def bay_plain_step_lines(step: str, number: int) -> tuple[str, list[str]]:
         return f"Step {number}: {title}", []
     cleaned = []
     for a in rest:
-        a = re.sub(r"^\s*\d+[.)]\s*", "", (a or "").strip()).strip()
+        a = (a or "").strip()
+        while re.match(r"^\d+[.)](?:\s+|$)", a):
+            a = re.sub(r"^\d+[.)]\s*", "", a).strip()
         if a and not re.fullmatch(r"\d+[.)]?", a):
             cleaned.append(a)
     if not cleaned:

@@ -402,8 +402,11 @@ def rewrite_plain_line(line: str, trigger: int = 15) -> list[str]:
 
 
 def _strip_leading_index(text: str) -> str:
-    """Drop one leading '1.' / '2)' list index from OCR so Do this does not emit '2. 2.'."""
-    return re.sub(r"^\s*\d+[.)]\s+", "", (text or "").strip(), count=1)
+    """Drop every leading '1.' / '2)' list index from OCR so Do this does not emit '2. 2.'."""
+    a = (text or "").strip()
+    while re.match(r"^\d+[.)](?:\s+|$)", a):
+        a = re.sub(r"^\d+[.)]\s*", "", a).strip()
+    return a
 
 
 def rewrite_line(line: str) -> list[str]:
