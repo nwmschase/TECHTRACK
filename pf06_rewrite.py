@@ -20,6 +20,7 @@ import os
 import re
 
 TARGET_WORDS = 12
+HARD_LIMIT = 15  # profile_check WORD_LIMIT; pack to this
 
 # Function words a rewrite may remove (modal/passive/hedge glue, articles, OCR 'T o').
 _DROPPABLE = {
@@ -214,7 +215,7 @@ def _is_table_line(s: str) -> bool:
     return codes >= 3 or (codes >= 2 and caps >= len(toks) * 0.5)
 
 
-def _pack(pieces: list[str], limit: int) -> list[str]:
+def _pack(pieces: list[str], limit: int = HARD_LIMIT) -> list[str]:
     out, cur = [], ""
     for p in pieces:
         p = p.strip()
@@ -253,14 +254,31 @@ def _prose_chunks(s: str) -> list[str]:
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"\s+\*\s+", ". ", s)
     s = re.sub(r"\s+(?=(?:action|problem|step)\s+\d+\b)", ". ", s, flags=re.I)
+    # Keep a leading condition with its first command when they fit together.
+    m = re.match(r"^((?:If|When|Unless|Until|Once)\b[^,]{3,}),\s+(.+)$", s)
+    if m and len(_words(s)) > HARD_LIMIT:
+        cond, rest = m.group(1), m.group(2)
+        first, *more = re.split(r",\s+(?:and\s+)?(?=[A-Za-z])|(?<=\.)\s+", rest)
+        joined = f"{cond}, {first}"
+        if len(_words(joined)) <= HARD_LIMIT:
+            out = [_sent(joined)]
+            for piece in more:
+                if piece.strip():
+                    out.extend(_prose_chunks(piece) if len(_words(piece)) > HARD_LIMIT else [_sent(piece)])
+            if all(len(_words(x)) <= HARD_LIMIT for x in out):
+                return out
     pieces = re.split(r"(?<=[.;])\s+", s)
     lines = []
     for p in pieces:
-        if len(_words(p)) <= TARGET_WORDS:
+        if len(_words(p)) <= HARD_LIMIT:
             lines.append(p)
             continue
-        sub = re.split(r"(?<=,)\s+|\s+(?=(?:so|that|which|where|while)\b)", p)
-        lines.extend(_pack(sub, TARGET_WORDS))
+        sub = re.split(
+            r"(?<=,)\s+|\s+(?=(?:so|that|which|where|while|if|or a)\b)",
+            p,
+            flags=re.I,
+        )
+        lines.extend(_pack(sub, HARD_LIMIT))
     return [_sent(x.rstrip(",;")) for x in lines if x.strip(" .,;")]
 
 
@@ -284,7 +302,7 @@ def _same_words(src: str, out: list[str]) -> bool:
 
 
 def _segment_ok(seg: str, out: list[str]) -> bool:
-    if any(len(_words(x)) > TARGET_WORDS for x in out):
+    if any(len(_words(x)) > HARD_LIMIT for x in out):
         return False
     if any(len(_words(x)) >= 4 and not _VERBISH.search(x) for x in out):
         return False
