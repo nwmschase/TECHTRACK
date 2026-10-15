@@ -3855,7 +3855,6 @@ def _furnace_path(ranked, brand: str = "", model: str = "", concern: str = "") -
             "Prove the wall thermostat first by jumping R/W at the furnace. A furnace that "
             "runs on that jumper needs a wall thermostat. A furnace that does not run on "
             "that jumper needs a sail-switch prove."
-            + _furnace_manual_context(ranked, who)
         ),
         "flowchart": Flowchart(
             readable=True,
