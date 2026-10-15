@@ -3702,20 +3702,123 @@ def _topic_figures(ranked, title: str, caption: str, excerpt: str) -> list[BayFi
     return [seed]
 
 
-def _furnace_path(ranked) -> dict:
-    """Same climax GD uses: jumper R/W at the furnace, then the sail switch."""
-    return {
-        "primary_cite": _fitted_cite(
+def _furnace_brand_steps(ranked) -> list[str]:
+    """Labeled steps from the ranked furnace manual pages, or [] when thin."""
+    raw: list[str] = []
+    for d in ranked or []:
+        row = chunk_as_dict(d)
+        for sentence in _split_sentences(clean_ocr_prose(row.get("excerpt") or "")):
+            text = _strip_ocr_bullet(re.sub(r"\s+", " ", sentence)).strip()
+            if (
+                len(text) < 20
+                or _PARTS_DUMP_RE.search(text)
+                or _figure_label_dump(text)
+                or _FILLER_RE.search(text)
+            ):
+                continue
+            raw.append(text)
+            if len(raw) >= MAX_BAY_ORDER:
+                break
+        if len(raw) >= MAX_BAY_ORDER:
+            break
+    if not raw:
+        return []
+    labeled = _labeled_generic_steps(raw)
+    if len(labeled) >= 3:
+        return labeled[:MAX_BAY_ORDER]
+    fallback = _label_fallback_steps(raw)
+    return fallback[:MAX_BAY_ORDER] if len(fallback) >= 3 else []
+
+
+def _furnace_general_bay_order() -> list[str]:
+    """Trade-practice thermostat jumper / sail prove (not brand OEM)."""
+    return [
+        "Step 1: Bypass the wall thermostat at the furnace. "
+        "Where: At the furnace thermostat terminals R and W. "
+        "Tools: A jumper wire. "
+        "Do this: 1. Jumper R/W at the furnace thermostat terminals. "
+        "2. This takes the coach thermostat and its wiring out of the path. "
+        "Good looks like: The furnace runs on the jumper, so the fault is the thermostat or wiring. "
+        "Bad looks like: The furnace stays dead with R and W jumped. "
+        "If it fails: Remove the jumper and go to Step 2. "
+        "Next: Replace the wall thermostat. That is the confirmed correction.",
+        "Step 2: Remove the jumper and prove the sail switch. "
+        "Where: At the sail switch, on its power-in and power-out terminals. "
+        "Tools: Multimeter on DC volts. "
+        "Do this: 1. Remove the R/W jumper. 2. Run the blower. 3. Check power in and power out at the sail switch. "
+        "Good looks like: Power in and power out are both present, so the sail passed. "
+        "Bad looks like: Power in with no power out, so the sail is not closed. "
+        "If it fails: Prove airflow and the sail before the board. "
+        "Next: Go to Step 3.",
+        "Step 3: Check the limit switch, then the module board. "
+        "Where: At the limit switch and the module board, from the cited furnace pages. "
+        "Do this: 1. Check the limit switch. 2. Then check the module board, from the cited furnace pages. "
+        "Good looks like: Heat returns. That is the confirmed correction. "
+        "Bad looks like: Still no heat while the sail passes. "
+        "If it fails: Stop and tell the shop before any part swap. "
+        "Next: Retest the complaint. If it is gone, that is the confirmed correction.",
+    ]
+
+
+def _furnace_path(ranked, brand: str = "", model: str = "", concern: str = "") -> dict:
+    """Brand-first furnace sheet; general jumper/sail prove only when the brand manual is thin.
+
+    Leader 9:45 AM: Atwood/Dometic/Suburban (+ other furnace brands) pull brand/model
+    steps from that brand's manual when present. Shared 'jumper R/W' as the only
+    PRIMARY path was a repair-guide standard break. Thin manuals fall back to
+    general trade practice and label PRIMARY/pattern as general.
+    """
+    brand = (brand or "").strip()
+    who = brand or "Furnace"
+    brand_steps = _furnace_brand_steps(ranked)
+    if brand_steps:
+        cite = _fitted_cite(
             ranked,
-            ("furnace", "thermostat", "sail"),
-            "Suburban furnace service manual, thermostat bypass",
+            ("furnace", "ignition", "sail", "limit", "thermostat", "lockout"),
+            f"{who} furnace service manual",
             "furnace",
+        )
+        # Never leave a Suburban-only primary on a non-Suburban job.
+        if brand and "suburban" not in brand.lower() and "suburban" in (cite or "").lower():
+            cite = _as_sentence(_clip(f"{who} furnace service manual", 91))
+        heads = []
+        for block in brand_steps:
+            head = re.sub(r"^Step\s+\d+:\s*", "", block)
+            head = head.split(" Where:")[0].split(" Do this:")[0].strip()
+            if head:
+                heads.append(head)
+        return {
+            "primary_cite": cite,
+            "pattern_means": (
+                f"{_as_sentence(concern or 'The furnace will not heat')} "
+                f"Work the cited checks from the {who} furnace manual on this sheet."
+            ),
+            "flowchart": _generic_flowchart(
+                concern or f"{who} furnace concern", heads or ["Prove the cited furnace path"]
+            ),
+            "bay_order": brand_steps,
+            "do_not": [
+                "Do not condemn the module board before the cited thermostat and airflow checks.",
+                "Do not leave a sail-switch jumper in place.",
+            ],
+            "sources": [],
+            "display_model": "",
+            "flow_tall": True,
+            "full_story": True,
+        }
+
+    # General trade-practice fallback — labeled so it is never mistaken for OEM.
+    return {
+        "primary_cite": _as_sentence(
+            "General furnace prove (trade practice): thermostat jumper, then sail switch"
         ),
         "pattern_means": (
-            "The fan turns on and then shuts off, and the furnace will not blow warm. "
-            "Prove the wall thermostat first by jumping R/W at the furnace. A furnace "
-            "that runs on that jumper needs a wall thermostat. A furnace that does not "
-            "run on that jumper needs a sail-switch prove."
+            f"{_as_sentence(concern or 'The furnace will not heat')} "
+            "The brand manual did not give enough steps for this concern, so this sheet "
+            "uses a general furnace prove (trade practice), not a brand-specific OEM sequence. "
+            "Prove the wall thermostat first by jumping R/W at the furnace. A furnace that "
+            "runs on that jumper needs a wall thermostat. A furnace that does not run on "
+            "that jumper needs a sail-switch prove."
         ),
         "flowchart": Flowchart(
             readable=True,
@@ -3793,44 +3896,18 @@ def _furnace_path(ranked) -> dict:
                 FlowEdge("d2", "n2", "NO", "right", "left"),
             ],
         ),
-        "bay_order": [
-            # Batch fix (furnace template, B15/B23/B24/S08): labeled steps (PF-10).
-            # Same checks and order as before: jumper R/W, then the sail switch,
-            # then the limit switch and module board from the cited pages.
-            "Step 1: Bypass the wall thermostat at the furnace. "
-            "Where: At the furnace thermostat terminals R and W. "
-            "Tools: A jumper wire. "
-            "Do this: 1. Jumper R/W at the furnace thermostat terminals. "
-            "2. This takes the coach thermostat and its wiring out of the path. "
-            "Good looks like: The furnace runs on the jumper, so the fault is the thermostat or wiring. "
-            "Bad looks like: The furnace stays dead with R and W jumped. "
-            "If it fails: Remove the jumper and go to Step 2. "
-            "Next: Replace the wall thermostat. That is the confirmed correction.",
-            "Step 2: Remove the jumper and prove the sail switch. "
-            "Where: At the sail switch, on its power-in and power-out terminals. "
-            "Tools: Multimeter on DC volts. "
-            "Do this: 1. Remove the R/W jumper. 2. Run the blower. 3. Check power in and power out at the sail switch. "
-            "Good looks like: Power in and power out are both present, so the sail passed. "
-            "Bad looks like: Power in with no power out, so the sail is not closed. "
-            "If it fails: Prove airflow and the sail before the board. "
-            "Next: Go to Step 3.",
-            "Step 3: Check the limit switch, then the module board. "
-            "Where: At the limit switch and the module board, from the cited furnace pages. "
-            "Do this: 1. Check the limit switch. 2. Then check the module board, from the cited furnace pages. "
-            "Good looks like: Heat returns. That is the confirmed correction. "
-            "Bad looks like: Still no heat while the sail passes. "
-            "If it fails: Stop and tell the shop before any part swap. "
-            "Next: Retest the complaint. If it is gone, that is the confirmed correction.",
-        ],
+        "bay_order": _furnace_general_bay_order(),
         "do_not": [
             "Do not condemn the module board before the wall thermostat is jumped at the furnace.",
             "Do not leave the sail switch jumped.",
+            "Do not treat this general prove as a brand-specific OEM sequence.",
         ],
         "sources": [],
         "display_model": "",
         "flow_tall": True,
         "full_story": True,
     }
+
 
 
 def _e2_fan_path(ranked) -> dict:
@@ -8191,7 +8268,9 @@ def compile_bay_procedure(
         spec = _e2_fan_path(ranked)
         path_kind = "e2"
     elif furnace:
-        spec = _furnace_path(ranked)
+        spec = _furnace_path(
+            ranked, brand=brand or "", model=model or "", concern=concern or ""
+        )
         path_kind = "furnace"
     elif is_level_up_lead_jack_drift_context(category, model_text, concern):
         spec = _lead_jack_drift_path()

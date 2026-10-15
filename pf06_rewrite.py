@@ -219,7 +219,7 @@ def _log(source: str, result: str, reason: str = "") -> None:
 _CODE_TOK = re.compile(r"^(?:[A-Z]{1,4}-?\d[\w/\-]*|\d+[A-Z][\w/\-]*|[A-Z]\d+[A-Z]?)$")
 _VERBISH = re.compile(
     r"\b(?:is|are|was|were|be|will|can|could|should|must|may|does|do|did|has|have|"
-    + _VERBS + r"|read|jumper|bypass|allow|attempt|undergo|preceded|wish|see|cause|light|run|heat|cool|blow|flash|display|show)\w*\b",
+    + _VERBS + r"|read|jumper|bypass|allow|attempt|undergo|preceded|wish|see|cause|light|run|heat|cool|blow|flash|display|show|refer|consult|follow|note|complete|continue|observe)\w*\b",
     re.I,
 )
 _TABLE_LEAD = "Read:"
@@ -267,10 +267,97 @@ def _table_rows(s: str) -> list[str]:
     return out
 
 
+def _peel_parens(s: str) -> list[str]:
+    """Peel trailing/embedded parentheticals so each piece can pack under HARD_LIMIT.
+
+    Keeps every token (parens included). Prefer this over a rewrite that would
+    drop 'see … for more information' or similar fidelity-required words.
+    """
+    if len(_words(s)) <= HARD_LIMIT or "(" not in s:
+        return [s]
+    out, rest = [], s
+    # Peel from the outside: "... (see …)." → body + "(see …)."
+    while len(_words(rest)) > HARD_LIMIT:
+        m = re.search(r"(\([^()]{3,}\)\.?)$", rest)
+        if not m:
+            break
+        body = rest[: m.start()].rstrip(" ,;")
+        paren = m.group(1).strip()
+        if body and paren:
+            out.append(body)
+            rest = paren
+        else:
+            break
+    out.append(rest)
+    return [x for x in out if x.strip()]
+
+
+def _clause_split(p: str) -> list[str]:
+    """Split one long clause at safe boundaries; word order unchanged."""
+    if len(_words(p)) <= HARD_LIMIT:
+        return [p]
+    # Prefer comma / connective breaks that keep every token.
+    sub = re.split(
+        r"(?<=,)\s+"
+        r"|\s+(?=(?:so|that|which|where|while|if|or a|then|before|after|during)\b)"
+        r"|\s+(?=and\s+(?:verify|check|confirm|replace|remove|install|reinstall|clean|prove|test|measure|inspect)\b)"
+        r"|\s+(?=with\s+a\b)"
+        r"|\s+(?=from\s+the\b)"
+        r"|\s+(?=for\s+(?:more|terminal|further)\b)",
+        p,
+        flags=re.I,
+    )
+    packed = _pack(sub, HARD_LIMIT)
+    # Still over? Force-split at mid whitespace while keeping order (no word drop).
+    final = []
+    for piece in packed:
+        if len(_words(piece)) <= HARD_LIMIT:
+            final.append(piece)
+            continue
+        toks = _words(piece)
+        # Prefer a break near the middle that leaves both sides verbish when possible.
+        mid = len(toks) // 2
+        best = None
+        for i in range(max(3, mid - 4), min(len(toks) - 3, mid + 5)):
+            left, right = " ".join(toks[:i]), " ".join(toks[i:])
+            if len(_words(left)) <= HARD_LIMIT and len(_words(right)) <= HARD_LIMIT:
+                if _VERBISH.search(left) and _VERBISH.search(right):
+                    best = i
+                    break
+                if best is None:
+                    best = i
+        if best is None:
+            # Last resort: pack by HARD_LIMIT word windows (order preserved).
+            final.extend(_pack(toks, HARD_LIMIT))
+        else:
+            final.append(" ".join(toks[:best]))
+            final.extend(_clause_split(" ".join(toks[best:])))
+    return final
+
+
 def _prose_chunks(s: str) -> list[str]:
+    """Clause-break split that keeps EVERY token (Leader 9:45 AM).
+
+    Prefer safe splits over a rewrite that would fail fidelity. Parentheticals
+    peel first; then connective/comma breaks; then mid-line word windows.
+    """
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"\s+\*\s+", ". ", s)
+    # Split OCR "Problem 5 … action 1 …" section runs, but do not break
+    # mid-phrase "proceed to step 10" / "return to step 6" (fidelity).
+    _step_refs = []
+    def _mask_step_ref(m):
+        _step_refs.append(m.group(0))
+        return f"\x00STEPREF{len(_step_refs) - 1}\x00"
+    s = re.sub(
+        r"\b(?:to|from|in|at|of|see)\s+step\s+\d+\b",
+        _mask_step_ref,
+        s,
+        flags=re.I,
+    )
     s = re.sub(r"\s+(?=(?:action|problem|step)\s+\d+\b)", ". ", s, flags=re.I)
+    for i, ref in enumerate(_step_refs):
+        s = s.replace(f"\x00STEPREF{i}\x00", ref)
     # Keep a leading condition with its first command when they fit together.
     m = re.match(r"^((?:If|When|Unless|Until|Once)\b[^,]{3,}),\s+(.+)$", s)
     if m and len(_words(s)) > HARD_LIMIT:
@@ -284,19 +371,59 @@ def _prose_chunks(s: str) -> list[str]:
                     out.extend(_prose_chunks(piece) if len(_words(piece)) > HARD_LIMIT else [_sent(piece)])
             if all(len(_words(x)) <= HARD_LIMIT for x in out):
                 return out
-    pieces = re.split(r"(?<=[.;])\s+", s)
+    pieces = []
+    for part in re.split(r"(?<=[.;])\s+", s):
+        pieces.extend(_peel_parens(part))
     lines = []
     for p in pieces:
         if len(_words(p)) <= HARD_LIMIT:
             lines.append(p)
             continue
-        sub = re.split(
-            r"(?<=,)\s+|\s+(?=(?:so|that|which|where|while|if|or a)\b)",
-            p,
-            flags=re.I,
-        )
-        lines.extend(_pack(sub, HARD_LIMIT))
-    return [_sent(x.rstrip(",;")) for x in lines if x.strip(" .,;")]
+        lines.extend(_clause_split(p))
+    # Re-attach / format If/When splits without inventing mid-sentence caps.
+    # Bare conditions get a trailing comma (segment_ok / SL-3). A following
+    # command that began lowercase keeps that casing so every token form stays.
+    merged = []
+    i = 0
+    while i < len(lines):
+        cur = (lines[i] or "").strip()
+        if (
+            i + 1 < len(lines)
+            and re.match(r"^(?:If|When|Unless|Until|Once)\b", cur, re.I)
+        ):
+            nxt = (lines[i + 1] or "").strip()
+            cond = cur.rstrip(",;")
+            joined = f"{cond}, {nxt}"
+            if len(_words(joined)) <= HARD_LIMIT:
+                merged.append(joined)
+                i += 2
+                continue
+            if "," not in cur:
+                merged.append(cond + ",")
+                i += 1
+                continue
+        merged.append(cur)
+        i += 1
+    out = []
+    for x in merged:
+        if not x.strip(" .,;"):
+            continue
+        if re.match(r"^(?:If|When|Unless|Until|Once)\b", x) and x.rstrip().endswith(","):
+            body = re.sub(r"\s+", " ", x.rstrip(",")).strip()
+            if body and body[0].islower():
+                pass
+            elif body:
+                body = body[0].upper() + body[1:]
+            out.append(body.rstrip(".") + ",")
+        elif x[:1].islower():
+            body = re.sub(r"\s+", " ", x).strip().rstrip(",;")
+            if body and body[-1] not in ".!?":
+                body += "."
+            out.append(body)
+        else:
+            out.append(_sent(x.rstrip(",;")))
+    return out
+
 
 
 def chunk_long_line(src: str) -> list[str]:
@@ -396,6 +523,15 @@ def rewrite_plain_line(line: str, trigger: int = 15) -> list[str]:
         return [line]
     out = rewrite_line(src)
     if any(re.match(r"^(?:If|When|Unless|Until|Once|Before|After)\b", x) and x.rstrip().endswith(":") for x in out):
+        # Prefer a clause-break split that keeps every token over a bare If:
+        # rewrite (Leader 9:45 AM). Refuse rather than ship SL-3.
+        chunks = _chunk_or_none(src)
+        if chunks and not any(
+            re.match(r"^(?:If|When|Unless|Until|Once|Before|After)\b", x) and x.rstrip().endswith(":")
+            for x in chunks
+        ):
+            _log(src, "chunked", "plain path: clause-break over bare If:")
+            return chunks
         _log(src, "fallback", "plain path: split If/then")
         return [line]
     return out
@@ -429,6 +565,10 @@ def rewrite_line(line: str) -> list[str]:
         return [src]
     ok, why = fidelity_ok(src, out)
     if not ok:
+        chunks = _chunk_or_none(src)
+        if chunks:
+            _log(src, "chunked", why)
+            return chunks
         _log(src, "fallback", why)
         return [line]
     _log(src, "rewritten")
