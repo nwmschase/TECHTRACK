@@ -4399,6 +4399,11 @@ def _do_this_items(acts: list[str]) -> str:
     return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
 
 
+_SAFETY_KEEP_RE = re.compile(
+    r"\b(?:caution|warning|danger|must not|never|do not|don't|shall not|exceed|death|injury|fire|explosion)\b", re.I
+)
+
+
 def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4441,7 +4446,7 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
         # verbless fragment is context, not a Do-this action. Move it word for
         # word to pattern meaning; Do this keeps actions and conditions only.
         for r in rows:
-            keep = [a for a in r["acts"] if is_action_heading(a) or _COND_HEAD_RE.match(a)]
+            keep = [a for a in r["acts"] if is_action_heading(a) or _COND_HEAD_RE.match(a) or _SAFETY_KEEP_RE.search(a)]
             if keep:
                 notes.extend(a for a in r["acts"] if a not in keep)
                 r["acts"] = keep
