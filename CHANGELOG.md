@@ -727,3 +727,4 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Batch fix SL-2, branch-only: labeled generic and fallback steps always print a Where line (the step's own place, else 'At the part named in this step.'), so line 1 under a heading is never the heading repeated.
 - 2026-10-15 PF-06 split 6e9dc14 reverted: batch 3/10 < 4/10 (B07, B09 got SL-1 verbless split lines); guards clean.
 - Batch fix PF-02, branch-only: in labeled generic/fallback steps an OCR title-case word after a lower-case word drops to lower case (brands kept); case only, no word removed.
+- Batch fix PF-10 (B03/B06), branch-only: a labeled generic step with only a Bad line gets 'Good looks like: The step is done as the cited page says, with none of the bad look below.'

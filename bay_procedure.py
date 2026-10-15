@@ -4063,6 +4063,9 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
         for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
             acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
         parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(acts, 1)))
+        if not st.get("good"):
+            # Batch fix PF-10 (B03/B06): a step with only a Bad line still names its pass look.
+            st["good"] = "The step is done as the cited page says, with none of the bad look below"
         for key, label in (("good", "Good looks like"), ("bad", "Bad looks like"), ("fail", "If it fails")):
             if st.get(key):
                 parts.append(f"{label}: {_lab_cap(st[key])}")
