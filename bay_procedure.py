@@ -3972,6 +3972,9 @@ def _lab_cap(text: str) -> str:
     return text if text[-1] in ".!?" else text + "."
 
 
+STEP_WHERE_DEFAULT = "At the part named in this step."
+
+
 def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     """Labeled bay checks from manual sentences, or [] when none apply."""
     steps: list[dict] = []
@@ -4031,8 +4034,9 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     for i, st in enumerate(labeled):
         nxt = labeled[i + 1]["head"] if i + 1 < len(labeled) else "Retest the complaint"
         parts = [f"Step {i + 1}: {_lab_cap(st['head'])}"]
-        if st["where"]:
-            parts.append(f"Where: {_lab_cap(st['where'])}")
+        # Batch fix SL-2: a labeled step opens with Where, so line 1 under the
+        # heading is never the heading repeated (profile layout).
+        parts.append(f"Where: {_lab_cap(st['where'])}" if st["where"] else f"Where: {STEP_WHERE_DEFAULT}")
         if st["meter"]:
             parts.append("Tools: Multimeter.")
         acts = []
@@ -4158,7 +4162,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         rows.append({"head": head, "acts": acts})
     out = []
     for i, r in enumerate(rows):
-        parts = [f"Step {i + 1}: {_lab_cap(r['head'])}"]
+        parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
         parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(r["acts"], 1)))
         parts.append("Good looks like: The step is done as the cited page says.")
         parts.append("If it fails: Stay on this step until it passes.")

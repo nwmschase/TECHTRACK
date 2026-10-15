@@ -724,3 +724,4 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - 2026-10-15 1:21 AM PT Leader decision: fix (d) bef4e28 and its follow-up e3e5eb6 reverted (f9cd816, b9c0dfe); code back to cd2ff6f. Reason: (d) dropped manual text and added a page cap; the follow-up traded batch passes for a test.
 - 2026-10-15 1:22 AM PT Leader: fix (c) cd2ff6f reverted (code = 2edecea); it broke test_generic_appliance_paths_are_full_story_with_flowchart. PF-10 to be redone keeping >=6 long-path steps.
 - Batch fix (c2), branch-only, PF-10 redo: each fallback bay line becomes one labeled step (Do this, Good looks like, If it fails, Next); no line or manual sentence dropped, so long appliance paths keep their full story.
+- Batch fix SL-2, branch-only: labeled generic and fallback steps always print a Where line (the step's own place, else 'At the part named in this step.'), so line 1 under a heading is never the heading repeated.
