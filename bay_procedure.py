@@ -4050,6 +4050,88 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     return out
 
 
+# Batch fix (a), Leader 2026-10-14 10:23 PM: a sheet built from a manual gets a
+# repair branch when the cited pages give removal AND installation steps.
+# Order follows common service-manual practice: safety, removal, installation,
+# verification. Step text is the manual's own sentences; only the confirm step
+# and the per-step pass/fail looks are structural.
+_REMOVE_RE = re.compile(r"^(?:remove|disconnect|unbolt|unscrew|loosen|take off|pull out|drain|unplug|detach)\b", re.I)
+_INSTALL_RE = re.compile(r"^(?:install|attach|reconnect|tighten|torque|insert|slide|secure|reinstall|mount|bolt|connect|fasten|replace|plug)\b", re.I)
+_MANUAL_SAFETY_RE = re.compile(r"\b(?:warning|caution|disconnect (?:the )?(?:battery|power)|keep (?:people|hands)|gloves|eye protection|support the|block the wheels)\b", re.I)
+
+
+def _manual_branch_sentences(ranked) -> list[str]:
+    out, seen = [], set()
+    for d in ranked or []:
+        row = chunk_as_dict(d)
+        for sentence in _split_sentences(clean_ocr_prose(row.get("excerpt") or "")):
+            s = _strip_ocr_bullet(re.sub(r"\s+", " ", sentence)).strip()
+            s = re.sub(r"^(?:\d+[.)]\s*)+", "", s)
+            key = s.lower()[:70]
+            if (
+                len(s) < 12 or key in seen or _PARTS_DUMP_RE.search(s) or _figure_label_dump(s)
+                or s.count("(") != s.count(")") or _METER_RE.search(s) or re.search(r"test light|voltmeter|meter\b", s, re.I)
+            ):
+                continue
+            seen.add(key)
+            out.append(s)
+    return out
+
+
+def manual_repair_branch(ranked, concern: str = "") -> dict | None:
+    """One REPAIR BRANCH from the cited manual pages, or None when they do not cover removal and installation."""
+    removal, install, safety = [], [], []
+    for s in _manual_branch_sentences(ranked):
+        if _MANUAL_SAFETY_RE.search(s) and len(s.split()) <= 24:
+            safety.append(s)
+            continue
+        if _REMOVE_RE.match(s) and len(removal) < 4:
+            removal.append(s)
+        elif _INSTALL_RE.match(s) and removal and len(install) < 4:
+            install.append(s)
+    if not removal or not install:
+        return None
+
+    def steps(sentences, section, good, bad):
+        out = []
+        for s in sentences:
+            where = ""
+            m = _WHERE_SPLIT_RE.search(s.rstrip("."))
+            if m and len(s[: m.start()].split()) >= 2:
+                where = _lab_cap(m.group(1))
+            for act in short_actions(_lab_cap(s)) or [_lab_cap(s)]:
+                out.append(_branch_step(_lab_cap(act), where or "At the part named in this step.", good, bad,
+                                        "Go to the next step.", section=section, fail="Stop and tell the shop."))
+        return out
+
+    before = ([safety[0]] if safety else []) + [
+        "General shop safety, not an OEM step: keep people clear and wear gloves.",
+    ]
+    branch_steps = (
+        steps(removal, "removal", "The step is done as the cited page says.", "The step cannot be done as written.")
+        + steps(install, "installation", "The step is done as the cited page says.", "The step cannot be done as written.")
+    )
+    branch_steps.append(_branch_step(
+        "Confirm the complaint is gone.",
+        "At the unit, on a full retest.",
+        "The complaint does not come back on the retest.",
+        "The original concern shows again during the retest.",
+        "This branch is complete.",
+        fail="Redo the branch, then go back to the diagnosis.",
+        section="prove",
+    ))
+    return {"title": "Repair from the cited manual", "heading": "REPAIR BRANCH", "before": before, "steps": branch_steps}
+
+
+def attach_manual_repair_branch(proc, ranked, path_kind: str):
+    if path_kind or proc.procedures:
+        return proc
+    branch = manual_repair_branch(ranked, proc.concern)
+    if branch:
+        proc.procedures = [branch]
+    return proc
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = []
@@ -8137,6 +8219,7 @@ def compile_bay_procedure(
     if dial_off:
         proc = _lock_dial_off_part_numbers(proc)
     proc = bind_primary_sources(apply_shop_channel_wording(proc))
+    proc = attach_manual_repair_branch(proc, ranked, path_kind)
     return dedupe_sheet_figures(
         attach_facr_procedures(
             attach_thetford_repair_procedures(
