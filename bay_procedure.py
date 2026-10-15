@@ -4165,6 +4165,25 @@ _FALLBACK_FILLER_RE = re.compile(
 )
 
 
+_COND_HEAD_RE = re.compile(r"^(?:if|when|once|after|before|until|unless)\b", re.I)
+
+
+def _action_heading(head: str) -> str:
+    """Batch fix SL-2 (B01/B04): a heading is an action, never a condition.
+
+    'If X, do Y' -> 'Do Y'. When no action follows the condition, the heading
+    names the check generically; the full manual sentence stays in Do this.
+    """
+    head = (head or "").strip()
+    if not _COND_HEAD_RE.match(head):
+        return head
+    m = re.search(r"(?:,\s*|\s+then\s+)(.+)$", head)
+    rest = m.group(1).strip() if m else ""
+    if rest and is_action_heading(rest):
+        return _lab_cap(rest).rstrip(".")
+    return "Check the condition in this step"
+
+
 def _label_fallback_steps(lines: list[str]) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4181,7 +4200,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         acts = []
         for x in body:
             acts.extend(short_actions(_lab_cap(x)) or [_lab_cap(x)])
-        head = " ".join(body[0].rstrip(".").split()[:10])
+        head = _action_heading(" ".join(body[0].rstrip(".").split()[:10]))
         rows.append({"head": head, "acts": acts})
     out = []
     for i, r in enumerate(rows):

@@ -728,3 +728,4 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - 2026-10-15 PF-06 split 6e9dc14 reverted: batch 3/10 < 4/10 (B07, B09 got SL-1 verbless split lines); guards clean.
 - Batch fix PF-02, branch-only: in labeled generic/fallback steps an OCR title-case word after a lower-case word drops to lower case (brands kept); case only, no word removed.
 - Batch fix PF-10 (B03/B06), branch-only: a labeled generic step with only a Bad line gets 'Good looks like: The step is done as the cited page says, with none of the bad look below.'
+- Batch fix SL-2 (B01/B04), branch-only: a fallback step heading that opens with a condition becomes the action after it, else 'Check the condition in this step'; the manual sentence stays whole in Do this.
