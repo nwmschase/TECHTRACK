@@ -4123,7 +4123,8 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
             if st.get(key):
                 parts.append(f"{label}: {_lab_cap(st[key])}")
         if i + 1 < len(labeled):
-            parts.append(f"Next: {_lab_cap(nxt)}")
+            # Batch fix PF-02 (a): Next points to the step by number, not a cut head.
+            parts.append(f"Next: Go to Step {i + 2}.")
         else:
             parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
         out.append(_fix_title_case_runon(" ".join(parts)))
@@ -4285,7 +4286,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         parts.append("Good looks like: The step is done as the cited page says.")
         parts.append("If it fails: Stay on this step until it passes.")
         if i + 1 < len(rows):
-            parts.append(f"Next: {_lab_cap(rows[i + 1]['head'])}")
+            parts.append(f"Next: Go to Step {i + 2}.")
         else:
             parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
         out.append(_fix_title_case_runon(" ".join(parts)))
@@ -10209,6 +10210,17 @@ def _add_step(cur: _SheetFlow, index: int, step: str, figures: list | None = Non
         re.match(r"^(?:Where|Good looks like|Next|If it fails|Safety|Tools):", line) for line in lines
     ):
         heading, lines = bay_plain_step_lines(step, index)
+    # Batch fix PF-02 (a): when the painted number differs from the stored one,
+    # 'Next: Go to Step N' moves by the same amount, so it names the right step.
+    own = re.match(r"\s*Step\s+(\d+)\s*:", step or "")
+    shift = index - int(own.group(1)) if own else 0
+    if shift:
+        heading = re.sub(r"^Step\s+\d+", f"Step {index}", heading)
+        lines = [
+            re.sub(r"\bGo to Step (\d+)\b", lambda m: f"Go to Step {int(m.group(1)) + shift}", ln)
+            if ln.startswith("Next:") else ln
+            for ln in lines
+        ]
     prev_where = getattr(cur, "diag_prev_where", "") if index > 1 else ""
     if any(re.match(r"^(?:Where|Good looks like|Next|If it fails):", line) for line in lines):
         # A labeled check is held to the profile. A plain bay-order line stays as written.
