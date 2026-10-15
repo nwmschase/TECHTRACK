@@ -31,12 +31,16 @@ class FidelityCheckTests(unittest.TestCase):
     def test_faithful_rewrite_passes(self):
         ok, _ = r.fidelity_ok(
             "Remove the dump valve assembly and bench test it by applying power and ground to the coil (not polarity sensitive).",
-            ["Remove the dump valve assembly.", "Bench test it by applying power and ground to the coil.", "The coil is not polarity sensitive."],
+            ["Remove the dump valve assembly.", "Bench test it by applying power and ground to the coil.", "Note that the coil is not polarity sensitive."],
         )
         self.assertTrue(ok)
 
 
 class RewriteTests(unittest.TestCase):
+    def test_parenthetical_note_stays_an_action_line(self):
+        out = r.rewrite_line("Remove the dump valve assembly and bench test it by applying power and ground to the coil (not polarity sensitive).")
+        self.assertEqual(out[-1], "Note that the coil is not polarity sensitive.")
+
     def test_short_line_unchanged(self):
         self.assertEqual(r.rewrite_line("Check the fuse."), ["Check the fuse."])
 

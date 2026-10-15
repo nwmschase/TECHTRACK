@@ -130,7 +130,7 @@ def _rules_one(line: str) -> list[str]:
     tail = []
     m = re.match(r"^(.+?\bthe ([a-z][\w\- ]{1,30}?))\s*\((not [^)]+)\)\.?$", s, re.I)
     if m:
-        s, tail = m.group(1), [_sent(f"The {m.group(2).split()[-1]} is {m.group(3)}")]
+        s, tail = m.group(1), [_sent(f"Note that the {m.group(2).split()[-1]} is {m.group(3)}")]
     out = []
     # Leading condition with a comma: 'If C, A1, A2, and A3' -> 'If C:' + actions.
     m = re.match(r"^((?:[A-Z]{2,}(?: [A-Z]{2,})*:?\s+)?(?:If|When|Before|After|Once)\b[^,]{3,}),\s+(.+)$", s)
