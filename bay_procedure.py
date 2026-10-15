@@ -4397,25 +4397,6 @@ def _do_this_items(acts: list[str]) -> str:
             a = re.sub(r"^\d+[.)]\s*", "", a).strip()
         if a and not re.fullmatch(r"\d+[.)]?", a):
             cleaned.append(_lab_cap(a))
-    # A bare condition ('Before you operate the water heater.', 'If … burner:.')
-    # never stands alone: join it to the action after it, every word kept.
-    joined = []
-    i = 0
-    while i < len(cleaned):
-        cur = cleaned[i]
-        if (
-            i + 1 < len(cleaned)
-            and re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", cur)
-            and "," not in cur
-            and is_action_heading(cleaned[i + 1])
-        ):
-            nxt = cleaned[i + 1]
-            joined.append(re.sub(r"[.:;\s]+$", "", cur) + ", " + nxt[:1].lower() + nxt[1:])
-            i += 2
-            continue
-        joined.append(re.sub(r":\.$", ":", cur))
-        i += 1
-    cleaned = joined
     return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
 
 
