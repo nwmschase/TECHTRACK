@@ -214,7 +214,7 @@ GENERIC_LONG_SCAFFOLD = (
     "If this check fails, stay on it. If it passes, go to the next cited check.",
     "Do the next cited check. Note the threshold and what good versus bad looks like on the cited page.",
     "Retest the complaint after those checks.",
-    "If the complaint is gone, that is the confirmed correction. If it remains after the cited checks pass, use the next correction named in Sources.",
+    "If the complaint is gone, that is the confirmed correction.",
 )
 
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
@@ -3565,6 +3565,15 @@ def _is_raw_ocr_step(text: str) -> bool:
     return False
 
 
+def _excerpt_sentences(text: str) -> list[str]:
+    """Sentences of one library excerpt, minus a final fragment cut by the chunk
+    boundary ('Check to make sure all the vents are ope'). Leader page-read 1:23 PM."""
+    parts = _split_sentences(text or "")
+    if parts and not re.search(r"[.!?:)\"']\s*$", parts[-1]):
+        parts = parts[:-1]
+    return parts
+
+
 def _steps_from_ranked(pages) -> list[str]:
     """Yes/no and check sentences from the cited pages. Timeline headers are not steps."""
     pieces = []
@@ -3574,7 +3583,7 @@ def _steps_from_ranked(pages) -> list[str]:
         if _is_install_manual(row.get("title") or "", row.get("excerpt") or ""):
             continue
         cleaned = clean_ocr_prose(row.get("excerpt") or "")
-        for sentence in _split_sentences(cleaned):
+        for sentence in _excerpt_sentences(cleaned):
             sentence = _strip_ocr_bullet(sentence)
             if _is_raw_ocr_step(sentence) or _is_header_residue(sentence):
                 continue
@@ -3724,7 +3733,7 @@ def _furnace_split_manual(ranked) -> tuple[list[str], list[str]]:
     desc: list[str] = []
     for d in ranked or []:
         row = chunk_as_dict(d)
-        for sentence in _split_sentences(clean_ocr_prose(row.get("excerpt") or "")):
+        for sentence in _excerpt_sentences(clean_ocr_prose(row.get("excerpt") or "")):
             text = _strip_ocr_bullet(re.sub(r"\s+", " ", sentence)).strip()
             text = re.sub(r"^\d+[.)]\s*", "", text).strip()
             if (
@@ -3835,8 +3844,8 @@ def _furnace_path(ranked, brand: str = "", model: str = "", concern: str = "") -
             ),
             "bay_order": brand_steps,
             "do_not": [
-                "Do not condemn the module board before the cited thermostat and airflow checks.",
-                "Do not leave a sail-switch jumper in place.",
+                "Do not condemn the module board before the cited checks on this sheet.",
+                "Do not swap parts before the cited checks pass or fail.",
             ],
             "sources": [],
             "display_model": "",
@@ -4395,6 +4404,8 @@ def _do_this_items(acts: list[str]) -> str:
         # OCR often stacks indexes ('2. 2. Test...'); peel them all.
         while re.match(r"^\d+[.)](?:\s+|$)", a):
             a = re.sub(r"^\d+[.)]\s*", "", a).strip()
+        # No figure is placed with plain steps: do not point the tech at one.
+        a = re.sub(r"\b(?:as\s+)?(?:shown\s+)?in\s+the\s+(?:diagram|figure|illustration|drawing)\s+(?:below|above)\b", "on the cited page", a, flags=re.I)
         # Figure-cut OCR: an excerpt that ends on an unclosed '(Fig.' reference.
         a = re.sub(r"\s*\((?:Figs?|Figure)\.?\s*$", "", a).strip()
         if a and a[-1] not in ".!?:":
@@ -4421,7 +4432,26 @@ def _do_this_items(acts: list[str]) -> str:
                 continue
         joined.append(cur)
         i += 1
-    return " ".join(f"{n}. {a}" for n, a in enumerate(joined, 1))
+    # Lone 'CAUTION.' / 'NOTE.' labels lead the line after them; an orphan
+    # 'If …:' with no action it can join (≤15 words) is dropped, never printed
+    # as ':.' (Leader page-read 1:23 PM).
+    final = []
+    i = 0
+    while i < len(joined):
+        cur = joined[i]
+        if re.fullmatch(r"(?i)(caution|warning|note|important|danger)[.:!]?", cur.strip()):
+            if i + 1 < len(joined):
+                final.append(cur.strip().rstrip(".:!").upper() + ": " + joined[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+        if re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", cur) and "," not in cur and re.search(r":\s*\.?\s*$", cur):
+            i += 1
+            continue
+        final.append(cur)
+        i += 1
+    return " ".join(f"{n}. {a}" for n, a in enumerate(final, 1))
 
 
 _SAFETY_KEEP_RE = re.compile(
@@ -4505,7 +4535,14 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
             else:
                 held.extend(acts)
             continue
-        head = _action_heading(" ".join(body[0].rstrip(".").split()[:10]))
+        words = body[0].rstrip(".").split()
+        cut = words[:10]
+        if len(words) > 10:
+            # Do not end a title on a dangling word ('… and that the', '… they are').
+            while len(cut) > 3 and re.fullmatch(r"(?i)(?:the|a|an|and|or|that|to|of|for|with|are|is|they|it|be|from|in|on|at|by|make|sure|so|if|then|,)[,.]?", cut[-1]):
+                cut = cut[:-1]
+            cut = [w.rstrip(",;") for w in cut]
+        head = _action_heading(" ".join(cut))
         rows.append({"head": head, "acts": held + acts})
         held = []
     if held and rows:
