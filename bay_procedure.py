@@ -4037,9 +4037,15 @@ def split_long_action(action: str) -> list[str]:
 
 
 def _split_actions(acts: list[str]) -> list[str]:
+    """Batch fix PF-06 rewrite: a long line is rewritten into short action lines
+    (pf06_rewrite, offline rules + fidelity gate). A line the gate rejects comes
+    back unchanged and takes the old safe comma split."""
+    import pf06_rewrite
+
     out = []
     for a in acts or []:
-        out.extend(split_long_action(a))
+        for line in pf06_rewrite.rewrite_line(a):
+            out.extend(split_long_action(line))
     return out
 
 
