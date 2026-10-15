@@ -2972,7 +2972,7 @@ SHOP_BRAND_TOKENS = (
     "bal", "keystone", "jayco", "brinkley", "kz", "victron", "renogy",
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
     "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
-    "coleman", "airxcel", "thetford", "happijac", "happi jac",
+    "coleman", "airxcel", "thetford", "happijac", "happi jac", "kwikee",
 )
 _THETFORD_UNIT_RE = re.compile(r"\bthetford\b|\b42070\b|style\s*ii", re.I)
 _TOILET_JOB_RE = re.compile(

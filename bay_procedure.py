@@ -7627,6 +7627,13 @@ def _plain_kit_procedures(packets, job: str) -> list:
     return built
 
 
+def _spec_off_brand(spec: dict, asked: set) -> bool:
+    """True when a code-owned sheet's cited manuals all name a maker the tech did not."""
+    titles = [str(src.get("title") or "") for src in (spec.get("sources") or [])]
+    named = [canonical_shop_brands(t) for t in titles if canonical_shop_brands(t)]
+    return bool(named) and not any(b & asked for b in named)
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -7653,8 +7660,11 @@ def compile_bay_procedure(
     if category in ("(any)", "-"):
         category = ""
     model_text = model_text_from(brand, model)
-    _, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
-    ranked = rank_bay_chunks(chunks, category, model_text, concern, limit=8)
+    brand_pages, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
+    asked_brands = set(asked_brands_for_lookup(category, model_text, concern))
+    # Batch fix 1: with a named brand, rank only that brand's (or unbranded) pages.
+    rank_from = brand_pages if (asked_brands and brand_pages and not brand_miss) else chunks
+    ranked = rank_bay_chunks(rank_from, category, model_text, concern, limit=8)
     ranked, fact12_mislabeled_only = _separate_mislabeled_fact12(ranked, model_text)
 
     dial_off = is_fcr_dial_off_compressor_run_context(category, model_text, concern)
@@ -7671,6 +7681,27 @@ def compile_bay_procedure(
     girard_e8 = is_girard_petit_tube_context(category, model_text, concern)
     stabilizer_rr = is_stabilizer_override_pin_context(category, model_text, concern)
     cooktop_tip = is_cooktop_tip_sheet_context(category, model_text, concern)
+
+    def _generic_spec():
+            long_path = is_long_appliance_path(category, concern)
+            step_pages = [] if fact12_mislabeled_only else list(ranked)
+            bay_order = _generic_bay_order(_steps_from_ranked(step_pages), long_path=long_path)
+            spec = {
+                "primary_cite": (
+                    FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
+                ),
+                "pattern_means": _generic_pattern_means(concern, long_path=long_path),
+                "flowchart": _generic_flowchart(concern or "Customer concern", bay_order),
+                "bay_order": bay_order,
+                "do_not": [
+                    "Do not skip the next cited check.",
+                    "Do not guess a part swap before the cited checks on this sheet.",
+                ],
+                "sources": [],
+                "flow_tall": True,
+                "full_story": long_path,
+            }
+            return spec
 
     path_kind = ""
     if dial_off:
@@ -7725,24 +7756,16 @@ def compile_bay_procedure(
         spec = _thetford_leak_path(concern, ranked)
         path_kind = "thetford_leak"
     else:
-        long_path = is_long_appliance_path(category, concern)
-        step_pages = [] if fact12_mislabeled_only else list(ranked)
-        bay_order = _generic_bay_order(_steps_from_ranked(step_pages), long_path=long_path)
-        spec = {
-            "primary_cite": (
-                FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
-            ),
-            "pattern_means": _generic_pattern_means(concern, long_path=long_path),
-            "flowchart": _generic_flowchart(concern or "Customer concern", bay_order),
-            "bay_order": bay_order,
-            "do_not": [
-                "Do not skip the next cited check.",
-                "Do not guess a part swap before the cited checks on this sheet.",
-            ],
-            "sources": [],
-            "flow_tall": True,
-            "full_story": long_path,
-        }
+        spec = _generic_spec()
+    # Batch fix 1: a code-owned sheet that cites another maker's manual never
+    # prints for a named brand; the library pages for that brand are used instead.
+    if asked_brands and path_kind not in ("", "brand_miss") and _spec_off_brand(spec, asked_brands):
+        if brand_miss:
+            spec = _no_brand_match_path(brand, model, concern)
+            path_kind = "brand_miss"
+        else:
+            spec = _generic_spec()
+            path_kind = ""
 
     if coleman:
         sources = _coleman_sources(ranked)

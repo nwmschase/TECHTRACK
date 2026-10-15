@@ -6017,7 +6017,53 @@ def _retrieve_bay_library_chunks(category_name: str, model_text: str, concern: s
         search_sym,
         limit=12,
     )
-    return chunks or []
+    return _bay_brand_supplement(list(chunks or []), model_text, concern, category_name)
+
+
+_BAY_STOP = set("the a an and or of on to in is it its won't wont not but no one with for from when only".split())
+
+
+def _bay_brand_supplement(chunks, model_text: str, concern: str, category_name: str = ""):
+    """Batch fix 1: a named brand keeps its own manuals.
+
+    When the tech named a brand and the normal search returned none of that
+    brand's pages, add the best-matching pages from documents whose brand
+    (or title) is that brand. Read-only DB query; another maker is never added.
+    """
+    asked = set(_gdc.asked_brands_for_lookup(category_name, model_text, concern))
+    if not asked:
+        return chunks
+    def _doc_brands(doc):
+        declared = _gdc.canonical_shop_brands(getattr(doc, "brand", "") or "")
+        return declared or _gdc.canonical_shop_brands(getattr(doc, "title", "") or "")
+    docs = {}
+    try:
+        for doc in session.query(Document).all():
+            if _doc_brands(doc) & asked:
+                docs[doc.id] = doc
+    except Exception:
+        return chunks
+    if not docs:
+        return chunks
+    if any(getattr(ch, "document_id", None) in docs for ch in chunks):
+        # Keep the brand's pages and unbranded pages; drop another maker's.
+        keep = []
+        for ch in chunks:
+            doc = session.get(Document, getattr(ch, "document_id", None))
+            if ch.document_id in docs or doc is None or not _doc_brands(doc):
+                keep.append(ch)
+        return keep
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", f"{model_text} {concern}".lower()) if w not in _BAY_STOP}
+    scored = []
+    for ch in session.query(DocChunk).filter(DocChunk.document_id.in_(list(docs))).all():
+        text = f"{ch.title or ''} {ch.chunk_text or ''}".lower()
+        sc = sum(1 for w in words if w in text) + 2 * sum(1 for w in words if w in (ch.title or "").lower())
+        if sc:
+            scored.append((sc, -(ch.page or 0), ch))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    best_doc = scored[0][2].document_id if scored else None
+    top = [ch for _sc, _p, ch in scored if ch.document_id == best_doc][:6]
+    return top or chunks
 
 
 def _merge_stored_figures(proc, chunks):
