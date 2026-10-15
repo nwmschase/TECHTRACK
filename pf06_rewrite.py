@@ -362,7 +362,7 @@ def _prose_chunks(s: str) -> list[str]:
     m = re.match(r"^((?:If|When|Unless|Until|Once)\b[^,]{3,}),\s+(.+)$", s)
     if m and len(_words(s)) > HARD_LIMIT:
         cond, rest = m.group(1), m.group(2)
-        first, *more = re.split(r",\s+(?:and\s+)?(?=[A-Za-z])|(?<=\.)\s+", rest)
+        first, *more = re.split(r",\s+(?=[A-Za-z])|(?<=\.)\s+", rest)
         joined = f"{cond}, {first}"
         if len(_words(joined)) <= HARD_LIMIT:
             out = [_sent(joined)]
