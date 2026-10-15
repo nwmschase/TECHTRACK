@@ -4399,7 +4399,7 @@ def _do_this_items(acts: list[str]) -> str:
     return " ".join(f"{n}. {a}" for n, a in enumerate(cleaned, 1))
 
 
-def _label_fallback_steps(lines: list[str]) -> list[str]:
+def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
     One step per line, none dropped, so a long appliance path keeps its full
@@ -4436,6 +4436,15 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         # General fix: statement-only manuals still become one labeled step so
         # paint does not fall back to plain bay-order (B36 PF-10/SL-2/PF-09).
         rows.append({"head": "Do the cited check", "acts": held})
+    if notes is not None and rows:
+        # Leader 11:03/11:47 (SL-1 option 2, program-wide): a manual statement or
+        # verbless fragment is context, not a Do-this action. Move it word for
+        # word to pattern meaning; Do this keeps actions and conditions only.
+        for r in rows:
+            keep = [a for a in r["acts"] if is_action_heading(a) or _COND_HEAD_RE.match(a)]
+            if keep:
+                notes.extend(a for a in r["acts"] if a not in keep)
+                r["acts"] = keep
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
@@ -8259,13 +8268,17 @@ def compile_bay_procedure(
             if long_path and len(labeled) < MAX_BAY_ORDER // 2:
                 labeled = []  # a long appliance path keeps its full story
             bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
+            notes: list[str] = []
             if not labeled:
-                bay_order = _label_fallback_steps(bay_order) or bay_order
+                bay_order = _label_fallback_steps(bay_order, notes=notes) or bay_order
+            context = ""
+            if notes:
+                context = " From the cited manual: " + " ".join(_as_sentence(n) for n in notes)
             spec = {
                 "primary_cite": (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
                 ),
-                "pattern_means": _generic_pattern_means(concern, long_path=long_path),
+                "pattern_means": _generic_pattern_means(concern, long_path=long_path) + context,
                 "flowchart": _generic_flowchart(
                     concern or "Customer concern",
                     [re.sub(r"^Step\s+\d+:\s*", "", b).split(" Where:")[0].split(" Do this:")[0] for b in bay_order],
