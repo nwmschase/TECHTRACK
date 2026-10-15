@@ -4067,6 +4067,10 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
             else:
                 cur.setdefault("good", c)
             continue
+        if _is_note_fragment(sent) and is_action_heading(sent):
+            if steps:
+                steps[-1]["do"] = f"{steps[-1]['do'].rstrip()} {sent}".strip()
+            continue
         if not is_action_heading(sent):
             continue
         body = sent.rstrip(".")
@@ -4233,6 +4237,17 @@ def _action_heading(head: str) -> str:
     return "Check the condition in this step"
 
 
+# Batch fix PF-02 (b): a scanned NOTE / safety / WARNING fragment is not a bay
+# step. Its words are kept in full: they join the Do this of the step before
+# (or the step after, when it comes first), so it never becomes a step head or
+# a Next pointer.
+_NOTE_FRAG_RE = re.compile(r"^\W*(?:note|notice|warning|caution|danger|important|safety)\b\s*[:\-]?", re.I)
+
+
+def _is_note_fragment(text: str) -> bool:
+    return bool(_NOTE_FRAG_RE.match((text or "").strip()))
+
+
 def _label_fallback_steps(lines: list[str]) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4240,7 +4255,7 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
     story. All of the line's own sentences stay in Do this; only the
     stay-on-it / go-next filler moves into If it fails / Next.
     """
-    rows = []
+    rows, held = [], []
     for line in lines or []:
         sents = [x.strip() for x in _split_sentences(line or "") if x.strip()]
         body = [x for x in sents if not _FALLBACK_FILLER_RE.match(x)] or sents
@@ -4250,8 +4265,19 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         for x in body:
             acts.extend(short_actions(_lab_cap(x)) or [_lab_cap(x)])
         acts = _split_actions(acts)
+        if _is_note_fragment(body[0]):
+            if rows:
+                rows[-1]["acts"].extend(acts)
+            else:
+                held.extend(acts)
+            continue
         head = _action_heading(" ".join(body[0].rstrip(".").split()[:10]))
-        rows.append({"head": head, "acts": acts})
+        rows.append({"head": head, "acts": held + acts})
+        held = []
+    if held and rows:
+        rows[-1]["acts"].extend(held)
+    elif held:
+        return []
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
