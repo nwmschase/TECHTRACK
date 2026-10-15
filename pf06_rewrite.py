@@ -259,7 +259,7 @@ def _prose_chunks(s: str) -> list[str]:
         if len(_words(p)) <= TARGET_WORDS:
             lines.append(p)
             continue
-        sub = re.split(r"(?<=,)\s+|\s+(?=(?:so|that|which|so that|where|while|during|upon|into|before|after|until|unless)\b)", p)
+        sub = re.split(r"(?<=,)\s+|\s+(?=(?:so|that|which|where|while)\b)", p)
         lines.extend(_pack(sub, TARGET_WORDS))
     return [_sent(x.rstrip(",;")) for x in lines if x.strip(" .,;")]
 
