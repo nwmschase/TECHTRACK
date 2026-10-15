@@ -8011,7 +8011,10 @@ def compile_bay_procedure(
                 labeled = []  # a long appliance path keeps its full story
             bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
             if not labeled:
-                bay_order = _label_fallback_steps(bay_order) or bay_order
+                fb = _label_fallback_steps(bay_order)
+                # Same rule as the labeled path: a long appliance path keeps its full story.
+                if fb and not (long_path and len(fb) < MAX_BAY_ORDER // 2):
+                    bay_order = fb
             spec = {
                 "primary_cite": (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
