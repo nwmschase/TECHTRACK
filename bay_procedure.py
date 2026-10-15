@@ -209,12 +209,12 @@ LONG_APPLIANCE_CONCERN_RE = re.compile(
     re.I,
 )
 GENERIC_LONG_SCAFFOLD = (
-    "Record the complaint, the model name, and the first cited check from the shop library.",
+    "Record the complaint, the model name, and the first cited check on this sheet.",
     "Do that first cited check and write pass or fail on this sheet.",
     "If this check fails, stay on it. If it passes, go to the next cited check.",
     "Do the next cited check. Note the threshold and what good versus bad looks like from the excerpt.",
     "Retest the complaint after those checks.",
-    "If the complaint is gone, that is the confirmed correction. If it remains after the cited checks pass, use the next library correction named in Sources.",
+    "If the complaint is gone, that is the confirmed correction. If it remains after the cited checks pass, use the next correction named in Sources.",
 )
 
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
@@ -3933,6 +3933,123 @@ def _e2_fan_path(ranked) -> dict:
     }
 
 
+# Batch fix 2 (Leader 2026-10-14 8:57 PM): library steps become labeled checks.
+# Every label comes from the manual sentence it sits on: the location phrase is
+# Where, a meter word is Tools, the manual's If-lines are Bad/Good/If it fails,
+# and Next names the following step. Nothing is added that the page does not say.
+_PARTS_DUMP_RE = re.compile(r"\bx\s*\d\b|\w+x\s+\d\b|sold separately|\bqty\b|\?\s*$", re.I)
+_FILLER_RE = re.compile(r"stay on it|go to the next (?:cited )?check|confirmed correction", re.I)
+_WHERE_SPLIT_RE = re.compile(r"\s+((?:at|on|in|between|under|behind|inside)\s+(?:the|pin|each|both)\b.+)$", re.I)
+_NEG_COND_RE = re.compile(r"\b(?:no|not|less than|bad|fails?|low|dead|open|damaged|loose|worn|leaks?)\b", re.I)
+_METER_RE = re.compile(r"\d\s?V\b|\bV\s?DC\b|\bVAC\b|\b(?:volts?|voltage|continuity|ohms?|amps?|resistance)\b", re.I)
+
+
+def _figure_label_dump(text: str) -> bool:
+    words = re.findall(r"[A-Za-z][\w'-]*", text or "")
+    caps = sum(1 for w in words if w[:1].isupper())
+    return len(words) >= 8 and caps >= 0.6 * len(words) and not re.search(r"\b(?:if|then|check|test)\b", text, re.I)
+
+
+def _cond_split(sentence: str):
+    m = re.match(r"^(If|When)\s+(.+?),\s*(?:then\s+)?(.+?)\.?$", sentence.strip())
+    if not m:
+        return None
+    return m.group(2).strip(), m.group(3).strip()
+
+
+def _good_from_bad(cond: str) -> str:
+    if re.search(r"\b(?:or|and|if)\b", cond, re.I):
+        return ""
+    m = re.match(r"^(?:there is |there's )?no (.+?)(?: is present)?$", cond, re.I)
+    return f"{m.group(1)[:1].upper()}{m.group(1)[1:]} is present." if m else ""
+
+
+def _lab_cap(text: str) -> str:
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if not text:
+        return ""
+    text = text[:1].upper() + text[1:]
+    return text if text[-1] in ".!?" else text + "."
+
+
+def _labeled_generic_steps(sentences: list[str]) -> list[str]:
+    """Labeled bay checks from manual sentences, or [] when none apply."""
+    steps: list[dict] = []
+    for raw in sentences or []:
+        sent = _strip_ocr_bullet(re.sub(r"\s+", " ", raw or "").strip()).strip()
+        sent = re.sub(r"^[a-z]{1,9}:\s*", "", sent)  # OCR-cut label like 'onnector:'
+        if len(sent) < 12 or _PARTS_DUMP_RE.search(sent) or _figure_label_dump(sent) or _FILLER_RE.search(sent):
+            continue
+        cond = _cond_split(sent)
+        if cond:
+            if not steps:
+                continue
+            c, act = cond
+            cur = steps[-1]
+            if _NEG_COND_RE.search(c):
+                cur.setdefault("bad", c)
+                if is_action_heading(act):
+                    cur.setdefault("fail", act)
+                good = _good_from_bad(c)
+                if good:
+                    cur.setdefault("good", good)
+            else:
+                cur.setdefault("good", c)
+            continue
+        if not is_action_heading(sent):
+            continue
+        body = sent.rstrip(".")
+        where = ""
+        m = _WHERE_SPLIT_RE.search(body)
+        head = body
+        if m and len(body[: m.start()].split()) >= 2:
+            head, where = body[: m.start()].strip(), m.group(1).strip()
+        do = sent
+        when = re.search(r"\s+((?:when|while|with)\s+.+)$", where or "", re.I)
+        if when and len(sent.split()) > BAY_ACTION_WORDS:
+            # 'Check X at Y when Z' -> Where: at Y; Do this: Check X. Check it when Z.
+            where = where[: when.start()].strip()
+            do = f"{head}. {head.split()[0]} it {when.group(1)}"
+        elif where and len(sent.split()) > BAY_ACTION_WORDS:
+            do = head
+        elif not where:
+            cut = re.search(r"\s+(?:for|to|using|until)\s+\S+", head)
+            if cut and len(head[: cut.start()].split()) >= 2:
+                head = head[: cut.start()].strip()
+        if any(st["head"].lower() == head.lower() for st in steps) and where:
+            more = " ".join(where.split()[:6]).rstrip(",")
+            head = f"{head} {more}"
+        if len(head.split()) > 10:
+            continue
+        steps.append({"head": head, "where": where, "do": do, "meter": bool(_METER_RE.search(sent))})
+        if len(steps) >= MAX_BAY_ORDER:
+            break
+    labeled = [st for st in steps if st.get("bad") or st.get("good")]
+    if not labeled:
+        return []
+    out = []
+    for i, st in enumerate(labeled):
+        nxt = labeled[i + 1]["head"] if i + 1 < len(labeled) else "Retest the complaint"
+        parts = [f"Step {i + 1}: {_lab_cap(st['head'])}"]
+        if st["where"]:
+            parts.append(f"Where: {_lab_cap(st['where'])}")
+        if st["meter"]:
+            parts.append("Tools: Multimeter.")
+        acts = []
+        for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
+            acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
+        parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(acts, 1)))
+        for key, label in (("good", "Good looks like"), ("bad", "Bad looks like"), ("fail", "If it fails")):
+            if st.get(key):
+                parts.append(f"{label}: {_lab_cap(st[key])}")
+        if i + 1 < len(labeled):
+            parts.append(f"Next: {_lab_cap(nxt)}")
+        else:
+            parts.append("Next: Retest the complaint. If it is gone, that is the confirmed correction.")
+        out.append(" ".join(parts))
+    return out
+
+
 def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
     cleaned = []
     usable = []
@@ -3949,7 +4066,11 @@ def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
         if not step or _is_raw_ocr_step(step):
             continue
         last = (i == len(usable) - 1) and not long_path
-        cleaned.append(_ensure_next_step(step, last=last))
+        done = _ensure_next_step(step, last=last)
+        # Batch fix 2: the pass/fail filler prints once, not on every step.
+        if not last and any("stay on it" in c for c in cleaned) and "stay on it" in done and "stay on it" not in step:
+            done = _as_sentence(scrub_sheet_text(step))
+        cleaned.append(done)
     if not cleaned:
         cleaned.append(
             _ensure_next_step(
@@ -3975,12 +4096,12 @@ def _generic_pattern_means(concern: str, *, long_path: bool) -> str:
     lead = _as_sentence(concern or "This is the customer complaint")
     if long_path:
         return (
-            f"{lead} Work this as a full appliance path from the shop library excerpts. "
+            f"{lead} Work this as a full appliance path from the cited manual pages. "
             "Do each cited check on this sheet. Write pass or fail and the next step after every check. "
             "Thresholds and pass or fail meaning stay on this page."
         )
     return (
-        f"{lead} Use the next cited checks from this shop's library excerpts. "
+        f"{lead} Use the next cited checks from the manual pages on this sheet. "
         "Each step on this sheet says what to do next after a pass or a fail."
     )
 
@@ -4010,7 +4131,7 @@ def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchar
             FlowNode("p2", "process", first, 0.32, 0.55, w=260, h=80),
             FlowNode("d2", "decision", "Is the complaint\ngone?", 0.32, 0.75, w=220, h=100),
             FlowNode("y2", "end", "That is the confirmed\ncorrection.", 0.32, 0.93, w=260, h=72),
-            FlowNode("n2", "end", "Use the next cited\nlibrary check.", 0.82, 0.75, w=200, h=72),
+            FlowNode("n2", "end", "Go to the next step\non this sheet.", 0.82, 0.75, w=200, h=72),
         ],
         edges=[
             FlowEdge("s", "d1"),
@@ -7662,6 +7783,8 @@ def compile_bay_procedure(
     model_text = model_text_from(brand, model)
     brand_pages, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
     asked_brands = set(asked_brands_for_lookup(category, model_text, concern))
+    # The off-brand fallback below uses only the Brand field the tech typed.
+    typed_brands = canonical_shop_brands(brand or "")
     # Batch fix 1: with a named brand, rank only that brand's (or unbranded) pages.
     rank_from = brand_pages if (asked_brands and brand_pages and not brand_miss) else chunks
     ranked = rank_bay_chunks(rank_from, category, model_text, concern, limit=8)
@@ -7685,13 +7808,24 @@ def compile_bay_procedure(
     def _generic_spec():
             long_path = is_long_appliance_path(category, concern)
             step_pages = [] if fact12_mislabeled_only else list(ranked)
-            bay_order = _generic_bay_order(_steps_from_ranked(step_pages), long_path=long_path)
+            raw_steps = _steps_from_ranked(step_pages)
+            raw_steps = [
+                r for r in raw_steps
+                if not (_PARTS_DUMP_RE.search(r) or _figure_label_dump(r) or _FILLER_RE.search(r))
+            ]
+            labeled = _labeled_generic_steps(raw_steps)
+            if long_path and len(labeled) < MAX_BAY_ORDER // 2:
+                labeled = []  # a long appliance path keeps its full story
+            bay_order = labeled or _generic_bay_order(raw_steps, long_path=long_path)
             spec = {
                 "primary_cite": (
                     FACT12_MISLABEL_CITE if fact12_mislabeled_only else _generic_primary_cite(ranked)
                 ),
                 "pattern_means": _generic_pattern_means(concern, long_path=long_path),
-                "flowchart": _generic_flowchart(concern or "Customer concern", bay_order),
+                "flowchart": _generic_flowchart(
+                    concern or "Customer concern",
+                    [re.sub(r"^Step\s+\d+:\s*", "", b).split(" Where:")[0].split(" Do this:")[0] for b in bay_order],
+                ),
                 "bay_order": bay_order,
                 "do_not": [
                     "Do not skip the next cited check.",
@@ -7759,7 +7893,12 @@ def compile_bay_procedure(
         spec = _generic_spec()
     # Batch fix 1: a code-owned sheet that cites another maker's manual never
     # prints for a named brand; the library pages for that brand are used instead.
-    if asked_brands and path_kind not in ("", "brand_miss") and _spec_off_brand(spec, asked_brands):
+    if (
+        typed_brands
+        and path_kind not in ("", "brand_miss")
+        and not _bay_product_lock(category, model_text, concern)
+        and _spec_off_brand(spec, typed_brands)
+    ):
         if brand_miss:
             spec = _no_brand_match_path(brand, model, concern)
             path_kind = "brand_miss"
@@ -9735,6 +9874,7 @@ _EXTRA_HEADING_VERBS = {
     "seal", "shut", "cycle", "light", "relight", "verify", "ask", "call", "observe", "count", "time",
     "record", "write", "test", "measure", "reseat", "escalate", "straighten", "drop", "wash", "center",
     "clamp", "hoist", "make", "point", "r&r", "reposition", "raise", "put", "pour", "tape", "unplug", "plug", "bring", "back-probe", "jumper",
+    "recharge", "charge", "grease", "lubricate", "bleed", "refill", "top",
 }
 
 
