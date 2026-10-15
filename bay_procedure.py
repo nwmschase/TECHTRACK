@@ -4467,6 +4467,10 @@ def _do_this_items(acts: list[str]) -> str:
     # Lone 'CAUTION.' / 'NOTE.' labels lead the line after them; an orphan
     # 'If …:' with no action it can join (≤15 words) is dropped, never printed
     # as ':.' (Leader page-read 1:23 PM).
+    def _orphan(x):
+        return bool(re.match(r"^(?:If|When|Before|After|Once|Until|Unless)\b", x) and "," not in x and re.search(r":\s*\.?\s*$", x))
+
+    joined = [x for x in joined if not _orphan(x)]
     final = []
     i = 0
     while i < len(joined):
