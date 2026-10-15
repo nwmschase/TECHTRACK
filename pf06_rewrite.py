@@ -219,7 +219,7 @@ def _log(source: str, result: str, reason: str = "") -> None:
 _CODE_TOK = re.compile(r"^(?:[A-Z]{1,4}-?\d[\w/\-]*|\d+[A-Z][\w/\-]*|[A-Z]\d+[A-Z]?)$")
 _VERBISH = re.compile(
     r"\b(?:is|are|was|were|be|will|can|could|should|must|may|does|do|did|has|have|"
-    + _VERBS + r"|read|jumper|bypass|allow|attempt|undergo|preceded|wish|see|cause|light|run|heat|cool|blow|flash|display|show|refer|consult|follow|note|complete|continue|observe)\w*\b",
+    + _VERBS + r"|read|jumper|bypass|allow|attempt|undergo|preceded|wish|see|cause|light|run|heat|cool|blow|flash|display|show|refer|consult|follow|note|complete|continue|observe|send|provide|supply|detect|ignite|spark|flow|energiz|sens|reach|trip|lock|purg)\w*\b",
     re.I,
 )
 _TABLE_LEAD = "Read:"
@@ -292,6 +292,25 @@ def _peel_parens(s: str) -> list[str]:
     return [x for x in out if x.strip()]
 
 
+def _best_split(sub: list[str]) -> list[str] | None:
+    """Two-piece split at a clause boundary where both halves fit and read as
+    actions/statements (verbish). Every token kept, order unchanged."""
+    best = None
+    for i in range(1, len(sub)):
+        left, right = " ".join(sub[:i]), " ".join(sub[i:])
+        if len(_words(left)) > HARD_LIMIT or len(_words(right)) > HARD_LIMIT:
+            continue
+        if not (_VERBISH.search(left) and _VERBISH.search(right)):
+            continue
+        # Never cut a condition mid-clause (that would invent a comma).
+        if re.match(r"^(?:If|When|Unless|Until|Once|As|While|Because|Since)\b", left, re.I) and not left.rstrip().endswith(","):
+            continue
+        score = abs(len(_words(left)) - len(_words(right)))
+        if best is None or score < best[0]:
+            best = (score, [left, right])
+    return best[1] if best else None
+
+
 def _clause_split(p: str) -> list[str]:
     """Split one long clause at safe boundaries; word order unchanged."""
     if len(_words(p)) <= HARD_LIMIT:
@@ -307,7 +326,7 @@ def _clause_split(p: str) -> list[str]:
         p,
         flags=re.I,
     )
-    packed = _pack(sub, HARD_LIMIT)
+    packed = _best_split(sub) or _pack(sub, HARD_LIMIT)
     # Still over? Force-split at mid whitespace while keeping order (no word drop).
     final = []
     for piece in packed:
@@ -389,7 +408,7 @@ def _prose_chunks(s: str) -> list[str]:
         cur = (lines[i] or "").strip()
         if (
             i + 1 < len(lines)
-            and re.match(r"^(?:If|When|Unless|Until|Once)\b", cur, re.I)
+            and re.match(r"^(?:If|When|Unless|Until|Once|As|While|Because|Since)\b", cur, re.I)
         ):
             nxt = (lines[i + 1] or "").strip()
             cond = cur.rstrip(",;")
@@ -408,7 +427,7 @@ def _prose_chunks(s: str) -> list[str]:
     for x in merged:
         if not x.strip(" .,;"):
             continue
-        if re.match(r"^(?:If|When|Unless|Until|Once)\b", x) and x.rstrip().endswith(","):
+        if re.match(r"^(?:If|When|Unless|Until|Once|As|While|Because|Since)\b", x) and x.rstrip().endswith(","):
             body = re.sub(r"\s+", " ", x.rstrip(",")).strip()
             if body and body[0].islower():
                 pass
