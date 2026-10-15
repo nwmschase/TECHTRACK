@@ -9123,7 +9123,7 @@ def _place_branch_label(text: str, port, side: str, obstacles, frame, size: floa
                     candidates.append((x, py + lift + (h - block.ascent)))
                     candidates.append((x, (py - lift - h) + (h - block.ascent)))
         elif by < ay:
-            for along in (4.0, 10.0, 16.0):
+            for along in (4.0, 10.0, 16.0, 24.0, 32.0):
                 for side in (8.0, 14.0, 22.0, 32.0):
                     top = py - along
                     candidates.append((px - side - w, top - block.ascent))
@@ -9298,6 +9298,10 @@ def layout_flowchart(flow: Flowchart, frame_x: float, frame_y: float, frame_w: f
         dst = placed[edge.to_id]
         x1, y1 = _port(src["cx"], src["cy"], src["w"], src["h"], edge.from_side)
         x2, y2 = _port(dst["cx"], dst["cy"], dst["w"], dst["h"], edge.to_side)
+        if edge.from_side == "bottom" and edge.to_side == "top" and 0 < abs(x2 - x1) < dst["w"] / 2.0 - 12.0:
+            # Batch fix 3: a small offset lands straight on the box top. The old
+            # 15-25 pt jog put YES beside a sideways stub (profile PF-20).
+            x2 = x1
         pts = _route_elbow(x1, y1, x2, y2, edge.from_side, edge.to_side, node_boxes, frame)
         shapes.append(
             DrawnShape(
