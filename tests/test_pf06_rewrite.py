@@ -75,3 +75,28 @@ class RewriteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GeneralChunkTests(unittest.TestCase):
+    def test_table_rows_keep_every_value(self):
+        src = "Terminals Switch Position L-1-3 Lo Heat L-1 Lo Fan L-2 Hi Fan L-1-4 Lo Cool L-2-4 Hi Cool"
+        out = r.rewrite_line(src)
+        self.assertGreater(len(out), 1)
+        for tok in ("L-1-3", "L-1", "L-2", "L-1-4", "L-2-4"):
+            self.assertIn(tok, " ".join(out))
+        self.assertTrue(all(len(x.split()) <= 12 for x in out))
+
+    def test_prose_chunks_keep_word_order(self):
+        src = "Problem 5 The ice maker is not working action 1 Check the 5 amp fuse in the back control unit."
+        out = r.rewrite_line(src)
+        self.assertEqual(" ".join(out).replace(".", "").lower().split(), src.replace(".", "").lower().split())
+
+    def test_condition_never_cut_from_its_command(self):
+        src = "If ignition is not successful, the module board will attempt 2 more trials for ignition, each trail for ignition will be preceded by a 15-18 second purge."
+        out = r.rewrite_line(src)
+        self.assertFalse(any(x.startswith("If") and "," not in x for x in out if len(out) > 1))
+
+    def test_failed_segment_stays_as_written(self):
+        src = "Read the codes L-1 Lo L-2 Hi L-3 Med * If you do not wish to remove the wires from the switch, check them in place."
+        out = r.rewrite_line(src)
+        self.assertIn("If you do not wish to remove the wires from the switch, check them in place", " ".join(out))

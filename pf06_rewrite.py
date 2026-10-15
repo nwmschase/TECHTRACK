@@ -196,6 +196,125 @@ def _log(source: str, result: str, reason: str = "") -> None:
         pass
 
 
+# General fix (a): scanned table rows and long prose. Every word is kept in order;
+# only the line breaks (and a 'Read the table row:' lead for table rows) change.
+_CODE_TOK = re.compile(r"^(?:[A-Z]{1,4}-?\d[\w/\-]*|\d+[A-Z][\w/\-]*|[A-Z]\d+[A-Z]?)$")
+_VERBISH = re.compile(
+    r"\b(?:is|are|was|were|be|will|can|could|should|must|may|does|do|did|has|have|"
+    + _VERBS + r"|read|jumper|bypass|allow|attempt|undergo|preceded|wish|see|cause|light|run|heat|cool|blow|flash|display|show)\w*\b",
+    re.I,
+)
+_TABLE_LEAD = "Read:"
+
+
+def _is_table_line(s: str) -> bool:
+    toks = _words(s)
+    codes = sum(1 for t in toks if _CODE_TOK.match(t.strip(",.;:*")))
+    caps = sum(1 for t in toks if re.match(r"^[A-Z][A-Za-z]*$", t))
+    return codes >= 3 or (codes >= 2 and caps >= len(toks) * 0.5)
+
+
+def _pack(pieces: list[str], limit: int) -> list[str]:
+    out, cur = [], ""
+    for p in pieces:
+        p = p.strip()
+        if not p:
+            continue
+        cand = f"{cur} {p}".strip()
+        if cur and len(_words(cand)) > limit:
+            out.append(cur)
+            cur = p
+        else:
+            cur = cand
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _table_rows(s: str) -> list[str]:
+    toks = _words(s)
+    rows, cur = [], []
+    for t in toks:
+        if _CODE_TOK.match(t.strip(",.;:*")) and cur and any(not _CODE_TOK.match(x.strip(",.;:*")) for x in cur):
+            rows.append(" ".join(cur))
+            cur = []
+        cur.append(t)
+    if cur:
+        rows.append(" ".join(cur))
+    limit = TARGET_WORDS - len(_words(_TABLE_LEAD))
+    out = []
+    for r in rows:
+        for chunk in _pack(_words(r), limit):
+            out.append(f"{_TABLE_LEAD} {chunk.rstrip('.;,')}.")
+    return out
+
+
+def _prose_chunks(s: str) -> list[str]:
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"\s+\*\s+", ". ", s)
+    s = re.sub(r"\s+(?=(?:action|problem|step)\s+\d+\b)", ". ", s, flags=re.I)
+    pieces = re.split(r"(?<=[.;])\s+", s)
+    lines = []
+    for p in pieces:
+        if len(_words(p)) <= TARGET_WORDS:
+            lines.append(p)
+            continue
+        sub = re.split(r"(?<=,)\s+|\s+(?=(?:so|that|which|so that|where|while|during|upon|into|before|after|until|unless)\b)", p)
+        lines.extend(_pack(sub, TARGET_WORDS))
+    return [_sent(x.rstrip(",;")) for x in lines if x.strip(" .,;")]
+
+
+def chunk_long_line(src: str) -> list[str]:
+    """General fix (a): table rows or prose clauses, every word kept, <=12 words a line."""
+    out = []
+    for seg in re.split(r"\s+\*\s+|(?<=[.;])\s+(?=[A-Z])", src):
+        if not seg.strip():
+            continue
+        if len(_words(seg)) <= TARGET_WORDS:
+            out.append(_sent(seg))
+        else:
+            out.extend(_table_rows(seg) if _is_table_line(seg) else _prose_chunks(seg))
+    return out
+
+
+def _same_words(src: str, out: list[str]) -> bool:
+    a = [w.lower().strip(".,;:*\"'") for w in _words(src)]
+    b = [w.lower().strip(".,;:*\"'") for w in _words(" ".join(out).replace(_TABLE_LEAD, " "))]
+    return [w for w in a if w] == [w for w in b if w]
+
+
+def _segment_ok(seg: str, out: list[str]) -> bool:
+    if any(len(_words(x)) > TARGET_WORDS for x in out):
+        return False
+    if any(len(_words(x)) >= 4 and not _VERBISH.search(x) for x in out):
+        return False
+    # A condition never stands alone, cut from the command it governs.
+    if len(out) > 1 and any(re.match(r"^(?:If|When|Unless|Until|Once)\b", x) and "," not in x for x in out):
+        return False
+    return _same_words(seg, out) and fidelity_ok(seg, out)[0]
+
+
+def _chunk_or_none(src: str) -> list[str] | None:
+    """Each segment (table row block or prose sentence) is chunked and gated on its own;
+    a segment that fails stays exactly as written."""
+    out, changed = [], False
+    for seg in re.split(r"\s+\*\s+|(?<=[.;])\s+(?=[A-Z])", src):
+        if not seg.strip():
+            continue
+        if len(_words(seg)) <= TARGET_WORDS:
+            out.append(seg.strip())
+            continue
+        lines = _table_rows(seg) if _is_table_line(seg) else _prose_chunks(seg)
+        if len(lines) > 1 and _segment_ok(seg, lines):
+            out.extend(lines)
+            changed = True
+        else:
+            out.append(seg.strip())
+    if not changed or not fidelity_ok(src, out)[0]:
+        return None
+    return out
+
+
 def rewrite_line(line: str) -> list[str]:
     """Short action lines for one long line, or [line] unchanged when the rewrite is not faithful."""
     src = (line or "").strip()
@@ -205,11 +324,12 @@ def rewrite_line(line: str) -> list[str]:
         out = _rules_one(src)
     except re.error:
         out = []
-    if not out or out == [_sent(src)]:
-        _log(src, "nochange")
-        return [line]
-    if any(len(_words(x)) > TARGET_WORDS for x in out):
-        _log(src, "fallback", "a line is still over the word target")
+    if not out or out == [_sent(src)] or any(len(_words(x)) > TARGET_WORDS for x in out):
+        chunks = _chunk_or_none(src)
+        if chunks:
+            _log(src, "chunked")
+            return chunks
+        _log(src, "fallback" if out and out != [_sent(src)] else "nochange", "rules and chunker could not keep it faithful")
         return [line]
     ok, why = fidelity_ok(src, out)
     if not ok:
