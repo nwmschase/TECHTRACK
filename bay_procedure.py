@@ -3972,28 +3972,6 @@ def _lab_cap(text: str) -> str:
     return text if text[-1] in ".!?" else text + "."
 
 
-# Batch fix (d), PF-06: plain-language practice is one action per line, about
-# 12 words, never above 15. Split a long action only at a clause mark it
-# already has (comma, semicolon, ' and '); a piece still too long drops.
-_PF06_LIMIT = 15
-
-
-def _fit_action_words(acts: list[str]) -> list[str]:
-    out = []
-    for a in acts or []:
-        a = (a or "").strip()
-        if not a:
-            continue
-        if len(a.split()) <= _PF06_LIMIT:
-            out.append(a)
-            continue
-        for piece in re.split(r"[;,]\s+|\s+and\s+|\s+(?=(?:before|after|until)\b)", a.rstrip(".")):
-            piece = piece.strip()
-            if 2 <= len(piece.split()) <= _PF06_LIMIT and not re.match(r"^(?:or|but|if|when|which)\b", piece, re.I):
-                out.append(_finish(_lab_cap(piece)))
-    return out
-
-
 def _labeled_generic_steps(sentences: list[str]) -> list[str]:
     """Labeled bay checks from manual sentences, or [] when none apply."""
     steps: list[dict] = []
@@ -4060,7 +4038,6 @@ def _labeled_generic_steps(sentences: list[str]) -> list[str]:
         acts = []
         for piece in re.split(r":\s+|(?<=\.)\s+", st["do"]):
             acts.extend(short_actions(_lab_cap(piece)) or [_lab_cap(piece)])
-        acts = _fit_action_words(acts) or [_lab_cap(st["head"])]
         parts.append("Do this: " + " ".join(f"{n}. {_lab_cap(a)}" for n, a in enumerate(acts, 1)))
         for key, label in (("good", "Good looks like"), ("bad", "Bad looks like"), ("fail", "If it fails")):
             if st.get(key):
@@ -4108,9 +4085,9 @@ def manual_repair_branch(ranked, concern: str = "") -> dict | None:
         if _MANUAL_SAFETY_RE.search(s) and len(s.split()) <= 24:
             safety.append(s)
             continue
-        if _REMOVE_RE.match(s) and len(removal) < 2:
+        if _REMOVE_RE.match(s) and len(removal) < 4:
             removal.append(s)
-        elif _INSTALL_RE.match(s) and removal and len(install) < 2:
+        elif _INSTALL_RE.match(s) and removal and len(install) < 4:
             install.append(s)
     if not removal or not install:
         return None
@@ -4122,7 +4099,7 @@ def manual_repair_branch(ranked, concern: str = "") -> dict | None:
             m = _WHERE_SPLIT_RE.search(s.rstrip("."))
             if m and len(s[: m.start()].split()) >= 2:
                 where = _lab_cap(m.group(1))
-            for act in _fit_action_words(short_actions(_lab_cap(s)) or [_lab_cap(s)]):
+            for act in short_actions(_lab_cap(s)) or [_lab_cap(s)]:
                 out.append(_branch_step(_lab_cap(act), where or "At the part named in this step.", good, bad,
                                         "Go to the next step.", section=section, fail="Stop and tell the shop."))
         return out
@@ -4149,8 +4126,6 @@ def manual_repair_branch(ranked, concern: str = "") -> dict | None:
 def attach_manual_repair_branch(proc, ranked, path_kind: str):
     if path_kind or proc.procedures:
         return proc
-    if len(proc.bay_order or []) >= 6:
-        return proc  # 3-page cap: a long diagnosis keeps the sheet without a branch page
     branch = manual_repair_branch(ranked, proc.concern)
     if branch:
         proc.procedures = [branch]
