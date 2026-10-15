@@ -214,7 +214,7 @@ GENERIC_LONG_SCAFFOLD = (
     "If this check fails, stay on it. If it passes, go to the next cited check.",
     "Do the next cited check. Note the threshold and what good versus bad looks like on the cited page.",
     "Retest the complaint after those checks.",
-    "If the complaint is gone, that is the confirmed correction.",
+    "If the complaint is gone, that is the confirmed correction. If it remains, stop and tell the shop before any part swap.",
 )
 
 # Bay PDF Firefly prove — CAN port labels (GD chat keeps the Leader short prove).
