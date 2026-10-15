@@ -212,7 +212,7 @@ GENERIC_LONG_SCAFFOLD = (
     "Record the complaint, the model name, and the first cited check on this sheet.",
     "Do that first cited check and write pass or fail on this sheet.",
     "If this check fails, stay on it. If it passes, go to the next cited check.",
-    "Do the next cited check. Note the threshold and what good versus bad looks like from the excerpt.",
+    "Do the next cited check. Note the threshold and what good versus bad looks like on the cited page.",
     "Retest the complaint after those checks.",
     "If the complaint is gone, that is the confirmed correction. If it remains after the cited checks pass, use the next correction named in Sources.",
 )
