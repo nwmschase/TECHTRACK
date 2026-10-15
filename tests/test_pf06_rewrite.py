@@ -100,3 +100,18 @@ class GeneralChunkTests(unittest.TestCase):
         src = "Read the codes L-1 Lo L-2 Hi L-3 Med * If you do not wish to remove the wires from the switch, check them in place."
         out = r.rewrite_line(src)
         self.assertIn("If you do not wish to remove the wires from the switch, check them in place", " ".join(out))
+
+
+class StatementHeadingTests(unittest.TestCase):
+    def test_statement_lines_join_previous_step(self):
+        import bay_procedure as bp
+        out = bp._label_fallback_steps([
+            "Check the fuse in the back control unit.",
+            "This will reset power to the unit.",
+            "Is heated by the burner flame generating a small current.",
+            "Measure the voltage at the board.",
+        ])
+        heads = [o.split(" Where:")[0].rstrip(".") for o in out]
+        self.assertEqual(heads, ["Step 1: Check the fuse in the back control unit", "Step 2: Measure the voltage at the board"])
+        self.assertIn("This will reset power to the unit", out[0])
+        self.assertIn("Is heated by the burner flame", out[0])

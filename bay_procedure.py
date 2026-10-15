@@ -4272,7 +4272,12 @@ def _label_fallback_steps(lines: list[str]) -> list[str]:
         for x in body:
             acts.extend(short_actions(_lab_cap(x)) or [_lab_cap(x)])
         acts = _split_actions(acts)
-        if _is_note_fragment(body[0]):
+        # General fix (b): a manual statement or verbless line ('This will reset
+        # power to the unit', 'Is heated by the burner flame ...') is information,
+        # not a step. Its words join the step before (never dropped), so it never
+        # becomes a heading. Conditions keep the SL-2 rule in _action_heading.
+        statement = not _COND_HEAD_RE.match(body[0]) and not is_action_heading(body[0])
+        if _is_note_fragment(body[0]) or statement:
             if rows:
                 rows[-1]["acts"].extend(acts)
             else:
