@@ -3760,6 +3760,7 @@ def _furnace_brand_steps(ranked) -> list[str]:
 def _furnace_manual_context(ranked, who: str) -> str:
     """Descriptive OEM lines for pattern meaning, quoted as written."""
     _acts, desc = _furnace_split_manual(ranked)
+    desc = [d for d in desc if _context_ok(d)][:4]
     if not desc:
         return ""
     return f" How it works, from the {who} furnace manual: " + " ".join(_as_sentence(x) for x in desc)
@@ -4404,6 +4405,48 @@ _SAFETY_KEEP_RE = re.compile(
 )
 
 
+_CTX_FINITE_RE = re.compile(
+    r"\b(?:is|are|was|were|will|can|could|should|must|may|does|do|has|have|"
+    r"[a-z]{3,}s)\b"
+)
+_CTX_BAD_START_RE = re.compile(
+    r"^(?:this section|the following|or|and|but|however|upon completion|also|then|from|to|for|with|in|on|at|by|is|are|was|were|will|can|"
+    r"yes|no|read:|note\b|for example|that|which|when|if|\(|\d)",
+    re.I,
+)
+_CTX_BAD_END_RE = re.compile(r"\b(?:the|a|an|and|or|of|to|for|with|is|are|be|from|by|in|on|at|that|may|will|can|should)\.?$", re.I)
+_CTX_ACTION_PREFIX_RE = re.compile(r"^(?:(?:NO|YES|[a-z]\)|\d+[.)]|action\s+\d+)\s+)+", re.I)
+
+
+def _context_ok(text: str) -> bool:
+    """A manual sentence that reads as real context in pattern meaning."""
+    t = (text or "").strip()
+    words = re.findall(r"[A-Za-z][\w'/-]*", t)
+    if len(words) < 5 or len(words) > 30:
+        return False
+    if not t[:1].isupper() or _CTX_BAD_START_RE.match(t) or _CTX_BAD_END_RE.search(t.rstrip(".")):
+        return False
+    if sum(w.isupper() and len(w) > 1 for w in words) >= 3:
+        return False
+    if re.search(r"[/\\]G\d|\?\s|\s-\s*$|[^\x00-\x7f]{2,}|\b[a-z]\.\s|\bct j\b", t):
+        return False
+    if t.count('"') % 2 or t.count("(") != t.count(")"):
+        return False
+    return bool(_CTX_FINITE_RE.search(t))
+
+
+def _route_notes(notes: list[str]) -> tuple[list[str], list[str]]:
+    """Split moved lines into (actions to keep in Do this, clean context). Scraps go."""
+    acts, ctx = [], []
+    for n in notes:
+        body = _CTX_ACTION_PREFIX_RE.sub("", (n or "").strip())
+        if body and body != n.strip() and is_action_heading(body):
+            acts.append(n)
+        elif _context_ok(n) and n not in ctx:
+            ctx.append(n)
+    return acts, ctx[:4]
+
+
 def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[str]:
     """PF-10 (redo): every fallback line becomes one labeled step.
 
@@ -4448,8 +4491,9 @@ def _label_fallback_steps(lines: list[str], notes: list | None = None) -> list[s
         for r in rows:
             keep = [a for a in r["acts"] if is_action_heading(a) or _COND_HEAD_RE.match(a) or _SAFETY_KEEP_RE.search(a)]
             if keep:
-                notes.extend(a for a in r["acts"] if a not in keep)
-                r["acts"] = keep
+                back, ctx = _route_notes([a for a in r["acts"] if a not in keep])
+                notes.extend(ctx)
+                r["acts"] = [a for a in r["acts"] if a in keep or a in back]
     out = []
     for i, r in enumerate(rows):
         parts = [f"Step {i + 1}: {_lab_cap(r['head'])}", f"Where: {STEP_WHERE_DEFAULT}"]
