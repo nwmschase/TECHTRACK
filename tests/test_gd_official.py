@@ -76,7 +76,7 @@ class TestPin(unittest.TestCase):
                              chat_fn=_chat("x"), pin_store={}, web_fetch_fn=lambda unit: seen.append(unit) or {})
         self.assertEqual(len(seen), 1)
         self.assertEqual(r["mode"], "no_manual")
-        self.assertIn("will not use another brand", r["reply"])
+        self.assertIn("general trade knowledge", r["reply"])
 
     def test_official_domains_only(self):
         self.assertTrue(go.url_is_official("https://www.lci1.com/x.pdf", "lippert"))
@@ -159,6 +159,34 @@ class TestSectionAndWalk(unittest.TestCase):
         self.assertIn("12V CHARGING-PATH WALK", sysmsg)
         self.assertIn("battery capacity test", sysmsg)
         self.assertIn("MODEL UNKNOWN", sysmsg)
+
+    def test_verify_first_and_npf_rule(self):
+        chat, store = _chat("1. Run the fridge 2 hours and measure both compartments [General trade knowledge]"), {}
+        m = "Furrion FCR fridge (model unknown)"
+        lib = FakeLib([], {})
+        go.official_turn("fridge not cold, freezer ok", "Refrigerators", m, [], library=lib, chat_fn=chat, pin_store=store)
+        self.assertIn("VERIFY THE CUSTOMER COMPLAINT", chat.calls[0][0][0]["content"])
+        hist = [{"role": "user", "content": "fridge not cold"}, {"role": "assistant", "content": "1. Run it"}]
+        go.official_turn("Ran it 3 hours, fridge reached 38F, freezer 0F", "Refrigerators", m, hist, library=lib, chat_fn=chat, pin_store=store)
+        sysmsg = chat.calls[1][0][0]["content"]
+        self.assertIn("No Problem Found", sysmsg)
+        self.assertIn("complaint_verified", sysmsg)
+
+    def test_reported_fact_is_never_asked_again(self):
+        pin = {"facts": {"lcd_text": "LCD shows motor fault", "plugs": "plugs seated"}}
+        out = go.drop_reasks("1. Read the LCD text and report it\n2. Check plugs are seated\n3. Retract all jacks", pin)
+        self.assertNotIn("LCD", out)
+        self.assertNotIn("plugs", out)
+        self.assertIn("Retract", out)
+
+    def test_unity_not_sure_identifies_board_first(self):
+        chat, store = _chat("1. Find the controller label [General trade knowledge]"), {}
+        go.official_turn("slides will not move", "Slide-Outs", GC, [], library=LIB, chat_fn=chat, pin_store=store, unity_gate="Not sure")
+        self.assertIn("NOT SURE", chat.calls[0][0][0]["content"])
+        hist = [{"role": "user", "content": "slides will not move"}, {"role": "assistant", "content": "1. Find label"}]
+        go.official_turn("Label says Unity X270D IDS part# 123", "Slide-Outs", GC, hist, library=LIB, chat_fn=chat, pin_store=store, unity_gate="Not sure")
+        self.assertEqual(store["gd_pin"]["unity_mode"], "yes")
+        self.assertIn("ONECONTROL / UNITY PATH", chat.calls[1][0][0]["content"])
 
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)

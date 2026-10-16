@@ -5131,6 +5131,9 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
 GD_OFFICIAL_METHOD = True
 GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
 REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
+# Test hooks: replay tests set these to stay offline. None = live xAI.
+_gd_official_chat = None
+_gd_official_web = None
 
 
 def _gd_legacy_hint(history, user_msg, category_name, model_text) -> str:
@@ -5139,9 +5142,13 @@ def _gd_legacy_hint(history, user_msg, category_name, model_text) -> str:
         key = _gdc._job_key(history, user_msg, category_name, model_text) or ""
     except Exception:
         key = ""
+    if key == "dometic":
+        return getattr(_gdc, "DOMETIC_NOCOOL_CONFIRM_FAN", "")
     if key == "leadjack":
         try:
-            return _gdc.ensure_level_up_lead_jack_reply("", history, user_msg, category_name, model_text)[:600]
+            step = _gdc.ensure_level_up_lead_jack_reply("", history, user_msg, category_name, model_text)
+            # Whole shop path: coil -> plumbing -> override screw -> cartridge (with its manual page).
+            return (step + "\n" + getattr(_gdc, "LEADJACK_CARTRIDGE_LINE", "")).strip()
         except Exception:
             return ""
     return f"legacy job branch: {key}" if key else ""
@@ -5158,12 +5165,16 @@ def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate=
     library = _go.OrmLibrary(session, Document, DocChunk)
 
     def chat_fn(messages, max_tokens, effort):
+        if _gd_official_chat is not None:
+            return _gd_official_chat(messages, max_tokens, effort)
         return gd_llm.complete_chat(
             messages, temperature=0.2, max_tokens=max_tokens, secret_fn=_secret,
             reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI],
         )
 
     def web_fn(unit):
+        if _gd_official_web is not None:
+            return _gd_official_web(unit)
         key = _secret("XAI_API_KEY") or ""
         return _go.fetch_official_manual(unit, key) if key else {}
 
@@ -5175,7 +5186,7 @@ def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate=
             hints=_gd_legacy_hint(history, user_msg, category_name, model_text),
             log_path=GD_USAGE_LOG,
             unity_gate=unity_gate,
-            web_get=_go.official_pdf_text,
+            web_get=(lambda url: "") if _gd_official_web is not None else _go.official_pdf_text,
         )
     except Exception:
         # Primary model failed: legacy coach on the fallback, labeled reduced mode.

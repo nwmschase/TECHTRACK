@@ -66,7 +66,7 @@ BRAND_ALIASES = {
 }
 KNOWN_BRANDS = tuple(sorted(set(OFFICIAL_DOMAINS) | set(BRAND_ALIASES), key=len, reverse=True))
 
-NO_TAG_RE = re.compile(r"\b(no\s+(model\s+)?(tag|label|data\s*plate)|model\s+(unknown|not\s+known)|can'?t\s+find\s+(the\s+)?(tag|label|model))", re.I)
+NO_TAG_RE = re.compile(r"\b(no\s+(model\s+)?(tag|label|data\s*plate)|model\s+(unknown|not\s+known|not\s+recovered)|can'?t\s+find\s+(the\s+)?(tag|label|model))", re.I)
 LOW_V_UNDER_LOAD_RE = re.compile(
     r"\b(voltage\s+drop\w*|drop\w*\s+(heavily\s+)?under\s+load|low\s+voltage|volts?\s+(drops?|sag\w*)|sag\w*\s+under\s+load|"
     r"battery\s+voltage\s+(drops?|dropped|sags?|falls?))\b",
@@ -125,6 +125,9 @@ def model_tokens(model_text: str) -> list:
 def identify_unit(history, user_msg: str, category_name: str, model_text: str) -> dict:
     blob = " ".join([model_text or ""] + [m.get("content", "") for m in (history or []) if m.get("role") == "user"] + [user_msg or ""])
     brand = detect_brand(model_text) or detect_brand(blob)
+    if not brand and re.search(r"\d", model_text or ""):
+        first = re.match(r"\s*(?:\d{4}\s+)?([A-Za-z][\w\-]+)", model_text or "")
+        brand = first.group(1).lower() if first else ""  # unlisted brand (e.g. Brinkley): no OEM allowlist
     toks = model_tokens(model_text) or model_tokens(" ".join(m.get("content", "") for m in (history or []) if m.get("role") == "user") + " " + (user_msg or ""))
     has_model = any(re.search(r"\d", x) for x in toks) or any(x in ("ground control", "unity") for x in toks)
     # No tag on the unit: brand + product type is the identification; model specs stay unconfirmed.
@@ -150,7 +153,9 @@ def unit_question(unit: dict) -> str:
     return (
         f"{SAFETY_LINE}\n"
         f"Before any test steps I need the exact unit: {', '.join(missing)}. "
-        "Type it from the data plate or add a photo of the plate."
+        "Type it from the data plate or add a photo of the plate.\n"
+        "While you are at the unit, verify the customer complaint: operate it the way the customer does, give it time, "
+        "and tell me exactly what it does (readings, panel display)."
     )
 
 
@@ -390,6 +395,24 @@ METHOD_RULES = f"""You are TechTrack Guided Diagnostics for Tacoma RV Center tec
 - Plain shop English. No preamble, no "according to the manual".
 """
 
+VERIFY_FIRST_RULE = """
+STEP ONE (official rule 8): the complaint is NOT yet verified. Your first lines must have the tech VERIFY THE CUSTOMER COMPLAINT:
+operate the unit as the customer would, give it the time it needs (e.g. pull-down time for a fridge/AC), and measure/observe the symptom
+(temps, voltages, what the panel shows). Ask for the result. No diagnostic tests or part calls until the complaint is verified.
+A safety line may come first.
+"""
+
+NPF_RULE = f"""
+If the verification shows the unit WORKS AS DESIGNED (complaint not reproduced, readings normal), say "No Problem Found - operating as designed",
+give a short customer explanation in plain words (why it seemed wrong), and condemn NO part. Otherwise continue the diagnostic walk.
+"""
+
+UNITY_NOT_SURE_RULE = """
+ONECONTROL / UNITY = NOT SURE: before the load-specific tests, walk the tech through identifying the controller: find the OneControl/Unity
+controller (or confirm none exists), read its label: model (e.g. Unity X270D) and IDS part #. When the tech reports it, the Unity path
+applies if it is a OneControl/Unity board; if there is none, continue without the Unity path.
+"""
+
 CHARGE_PATH_RULES = f"""
 12V CHARGING-PATH WALK (the appliance is cleared and the tech found low battery voltage under load). Hand off to this walk.
 The WHOLE walk is [{LABEL_GENERAL}]; tag every line of it that way. Never invent model-specific specs for the appliance
@@ -432,6 +455,17 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
     held = [s for s, v in pin.get("checked", {}).items() if v == "not checked"]
     if held:
         sysmsg += f"\nHELD STEP (tech reported NOT CHECKED, re-ask it now before anything else): {held[-1]}\n"
+    facts = pin.get("facts") or {}
+    if facts:
+        sysmsg += "\nFACTS ON FILE (already reported by the tech; NEVER ask for these again, build on them):\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items()) + "\n"
+    if "plugs" not in facts:
+        sysmsg += "\nInclude one plug/connector seating check (controller, panel and motor connectors for this circuit) early in the walk unless the tech already reported it.\n"
+    if not facts.get("complaint_verified"):
+        sysmsg += VERIFY_FIRST_RULE
+    else:
+        sysmsg += NPF_RULE
+    if pin.get("unity_mode") == "identify":
+        sysmsg += UNITY_NOT_SURE_RULE
     reported = [m.get("content", "") for m in (history or []) if m.get("role") == "user"][1:] + [user_msg]
     reported = [r for r in reported if r and not NOT_CHECKED_RE.search(r)]
     if reported:
@@ -582,6 +616,57 @@ def official_pdf_text(url: str, brand: str = "lippert", http=None) -> str:
     return "\n\n".join(f"[PAGE {i+1}]\n{t}" for i, t in enumerate(pages))
 
 
+# Reported facts: once in session state, never asked again (Leader 2026-10-16).
+FACT_PATTERNS = {
+    "complaint_verified": re.compile(r"\b(verif\w*|confirm\w*|reproduc\w*|duplicat\w*|ran\s+(it|the)|operated|tested\s+it|works?\s+as\s+designed|could\s*n.t\s+reproduce|reached|got\s+down\s+to|temps?\b|degrees|\d+\s*°?\s*f\b)", re.I),
+    "lcd_text": re.compile(r"\b(lcd|screen|display|touch\s*pad|touchpad|panel)\b.*\b(shows?|says|reads|display\w*|blank|ready|error)\b", re.I),
+    "fault_code": re.compile(r"\b(e\d{1,2}|er\d{1,2}|code\s+\w+|fault\s+code|no\s+(fault|error)\s+code|motor\s+fault|blinking\s+\d)\b", re.I),
+    "unity_label": re.compile(r"\b(ids\s*(part)?\s*#?|x270\w*|label\s+says|unity\s+(board|controller)\s+label|no\s+onecontrol|not\s+(a\s+)?onecontrol)\b", re.I),
+    "fuses": re.compile(r"\b(fuses?|breakers?)\b", re.I),
+    "motor_fault": re.compile(r"\bmotor\s+fault\b", re.I),
+    "zero_point_done": re.compile(r"\bzero[\s-]?point\b.*\b(done|complete\w*|finished|calibrated)\b", re.I),
+    "plugs": re.compile(r"\b(plugs?|connectors?|connections?|harness)\b.*\b(seated|checked|tight|good|ok|fine|loose)\b|\bno\s+loose\s+connections\b", re.I),
+    "input_voltage": re.compile(r"\b\d+(\.\d+)?\s*v(dc|ac)?\b|\bvoltage\s+(good|ok|correct)\b", re.I),
+}
+ASK_PATTERNS = {
+    "lcd_text": re.compile(r"\b(lcd|screen|display|touch\s*pad)\b.*\b(text|message|code|shows?|read)\b", re.I),
+    "unity_label": re.compile(r"\b(label|ids|part\s*(number|#))\b", re.I),
+    "fuses": re.compile(r"\b(fuses?|breakers?)\b", re.I),
+    "motor_fault": re.compile(r"\bmotor\s+fault\b", re.I),
+    "zero_point_done": re.compile(r"\bzero[\s-]?point\b", re.I),
+    "plugs": re.compile(r"\b(plugs?|connectors?)\b.*\b(seat\w*|check|tight)\b", re.I),
+    "complaint_verified": re.compile(r"\b(verify|confirm|reproduce|operate)\b.*\b(complaint|problem|symptom|unit)\b", re.I),
+}
+
+
+def record_facts(pin: dict, user_msg: str) -> None:
+    if not user_msg or NOT_CHECKED_RE.search(user_msg):
+        return
+    facts = pin.setdefault("facts", {})
+    for key, rx in FACT_PATTERNS.items():
+        if key == "complaint_verified" and pin.get("turns", 0) == 0 and not re.search(r"verif|confirm|reproduc|ran |operated|tested", user_msg, re.I):
+            continue  # the customer complaint itself is not a verification
+        if rx.search(user_msg) and key not in facts:
+            facts[key] = user_msg.strip()[:300]
+
+
+def drop_reasks(reply: str, pin: dict) -> str:
+    """Remove a line that asks again for a fact already on file. Keeps procedure lines that only mention it."""
+    facts = pin.get("facts") or {}
+    if not facts:
+        return reply
+    kept, dropped = [], 0
+    for line in (reply or "").splitlines():
+        asks = bool(re.search(r"\?|\b(report|send|tell me|read|check|confirm|find|locate)\b", line, re.I))
+        hit = any(k in facts and rx.search(line) for k, rx in ASK_PATTERNS.items())
+        if asks and hit and not re.search(r"\bverify\b|VERIFY|after the (repair|new)|\bre-?(run|check)\b", line):
+            dropped += 1
+            continue
+        kept.append(line)
+    out = "\n".join(kept).strip()
+    return out if out and dropped < len(kept) + dropped else reply
+
+
 def turn_cost(usage: dict) -> float:
     p = int(usage.get("prompt_tokens") or 0)
     c = int(usage.get("cached_tokens") or 0)
@@ -644,25 +729,37 @@ def official_turn(
                     doc = {"id": None, "title": web.get("title") or web.get("url"), "url": web["url"]}
                     sect = wsect
         if not doc or not sect.get("text"):
-            reply = (
-                f"{SAFETY_LINE}\nNo {unit.get('brand') or ''} {unit.get('model')} manual is in the shop library"
-                + (" and no official manufacturer copy was found online" if web_fetch_fn else "")
-                + ". Upload the manual (or the data-plate photo) and send again. I will not use another brand's manual."
-            )
-            return {"reply": reply, "mode": "no_manual", "pin": None, "usage": {}, "seconds": round(time.time() - t0, 2)}
+            # No same-brand manual in the library or on an official site: never borrow another brand.
+            doc = {"id": None, "title": "NO MANUAL", "url": ""}
+            sect = {"pages": [], "text": (
+                f"NO {unit.get('brand') or ''} {unit.get('model')} MANUAL in the shop library or on an official OEM site. "
+                f"Every step must be tagged [{LABEL_GENERAL}]. Never state brand- or model-specific specs; say 'spec not available - "
+                "confirm with the OEM' instead. Never use another brand's manual."), "mode": "no_manual"}
         web_src = bool(doc.get("url"))
         pin.update({
             "doc_id": doc.get("id"), "doc_title": doc.get("title", ""), "url": doc.get("url", ""),
             "revision": doc.get("revision_date", ""),
-            "source_label": f"{LABEL_WEB}: {doc['url']}" if web_src else f"{LABEL_LIBRARY}: {doc.get('title','')}",
+            "source_label": (f"{LABEL_WEB}: {doc['url']}" if web_src else
+                             (LABEL_GENERAL if doc.get("title") == "NO MANUAL" else f"{LABEL_LIBRARY}: {doc.get('title','')}")),
             "pages": sect["pages"], "section_text": sect["text"], "mode": sect["mode"],
             "needs_fault_code": bool(FAULT_CODE_HINT_RE.search(sect["text"])),
             "turns": 0,
         })
         apply_unity_path(pin, library, unity_gate, user_msg + " " + model_text + " " + category_name, exclude_doc_ids, web_get)
+        if (unity_gate or "").strip() == "Not sure" and ONECONTROL_COMPLAINT_RE.search(user_msg + " " + model_text + " " + category_name) \
+                and unit.get("brand") in ("", "lippert"):
+            pin["unity_mode"] = "identify"
+        record_facts(pin, user_msg)
         pin_store["gd_pin"] = pin
     else:
         update_step_state(pin, history, user_msg)
+        record_facts(pin, user_msg)
+        if pin.get("unity_mode") == "identify" and "unity_label" in (pin.get("facts") or {}):
+            if re.search(r"no\s+onecontrol|not\s+(a\s+)?onecontrol|no\s+unity|none", pin["facts"]["unity_label"], re.I):
+                pin["unity_mode"] = "no"
+            else:
+                pin["unity_mode"] = "yes"
+                apply_unity_path(pin, library, "Yes", user_msg + " " + model_text + " " + category_name + " " + " ".join(m.get("content", "") for m in history if m.get("role") == "user"), exclude_doc_ids, web_get)
         if unity_gate == "Yes" and not pin.get("unity_path"):
             apply_unity_path(pin, library, unity_gate, user_msg + " " + model_text + " " + category_name, exclude_doc_ids, web_get)
     if not pin.get("charge_path") and LOW_V_UNDER_LOAD_RE.search(user_msg or ""):
@@ -673,17 +770,27 @@ def official_turn(
     reduced = False
     reply = chat_fn(msgs, REPLY_MAX_TOKENS, effort)
     usage = usage_fn() if usage_fn else {}
+    reply = drop_reasks(reply, pin)
     reply = enforce_labels(reply, pin)
     reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
     if first:
-        head = f"Using: {pin['doc_title']}" + (f" ({pin['url']})" if pin.get("url") else "") + f" - read {pin['mode'].replace('_',' ')}, pages {pin['pages'][0]}-{pin['pages'][-1]}."
-        reply = head + "\n" + reply
+        if pin["mode"] == "no_manual":
+            head = "No manual for this unit in the library or on an official OEM site - steps below are general trade knowledge."
+        else:
+            head = f"Using: {pin['doc_title']}" + (f" ({pin['url']})" if pin.get("url") else "") + f" - read {pin['mode'].replace('_',' ')}, pages {pin['pages'][0]}-{pin['pages'][-1]}."
+        reply = SAFETY_LINE + "\n" + head + "\n" + reply
     if pin.get("needs_fault_code") and re.search(r"fault|error|code", reply, re.I):
         pin["fault_code_asked"] = True
     pin["turns"] = pin.get("turns", 0) + 1
     secs = round(time.time() - t0, 2)
     ctx_chars = sum(len(m.get("content") or "") for m in msgs)
-    rec = {"stage": "walk", "first": first, "messages_sent": len(msgs), "context_chars_sent": ctx_chars,
+    web_calls = 0
+    try:
+        web_calls = int(((pin.get("web") or {}).get("search_usage") or {}).get("server_side_tool_usage_details", {}).get("web_search_calls") or 0)
+    except Exception:
+        web_calls = 0
+    pin["web_calls_session"] = web_calls
+    rec = {"stage": "walk", "first": first, "web_calls_session": web_calls, "web_calls_flag_over_12": web_calls > 12, "messages_sent": len(msgs), "context_chars_sent": ctx_chars,
            "section_chars": len(pin.get("section_text") or ""), "unity_ref_chars": len(pin.get("unity_text") or ""),
            "max_tokens": REPLY_MAX_TOKENS, "doc": pin["doc_title"], "mode": pin["mode"], "effort": effort,
            "usage": usage, "cost_usd": turn_cost(usage) if usage else None, "seconds": secs}
