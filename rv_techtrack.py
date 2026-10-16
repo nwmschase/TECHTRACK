@@ -3201,6 +3201,71 @@ def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
     return chunks
 
 
+MAXXFAN_REMOTE_TERMS = (
+    "low battery", "power bars", "transmission signal", "transmit",
+    "beep sound from the", "signal from the remote", "ir receiver",
+    "ir sensor", "aim remote", "aaa batteries",
+)
+
+
+def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
+    """MaxxFan handheld-remote complaint: put the unit's own remote-check pages first.
+
+    Pulls windows from the MaxxAir documents already retrieved this turn that
+    carry the OEM remote checks (low-battery bars, transmit symbol, fan beep,
+    IR receiver, aim at ceiling unit). Same-brand only: no other document is added.
+    """
+    chunks = list(chunks or [])
+    if _gdc.asked_brands_for_lookup("", model_text or "", user_msg or "") != {"maxxair"}:
+        return chunks
+    if "remote" not in (user_msg or "").lower():
+        return chunks
+    doc_ids = {
+        getattr(ch, "document_id", None)
+        for ch in chunks
+        if "maxxair" in _gdc.canonical_shop_brands(
+            getattr(ch, "title", "") or "", getattr(ch, "_lookup_brand", "") or ""
+        )
+    }
+    doc_ids.discard(None)
+    if not doc_ids:
+        return chunks
+    try:
+        pool = session.query(DocChunk).filter(DocChunk.document_id.in_(list(doc_ids))).all()
+    except Exception:
+        pool = []
+
+    def hits(ch) -> int:
+        low = (getattr(ch, "chunk_text", "") or "").lower()
+        return sum(1 for term in MAXXFAN_REMOTE_TERMS if term in low)
+
+    model_nums = re.findall(r"\b\d{4}k\b", (model_text or "").lower())
+    # A page whose remote guide names this model (4501K -> p9) outranks a sister model's page.
+    model_pages = {
+        (ch.document_id, int(ch.page or 0))
+        for ch in pool
+        if any(num in (ch.chunk_text or "").lower() for num in model_nums)
+        and "remote" in (ch.chunk_text or "").lower()
+    }
+    extra = sorted(
+        [ch for ch in pool if hits(ch) > 0],
+        key=lambda ch: (
+            -(1 if (ch.document_id, int(ch.page or 0)) in model_pages else 0),
+            -hits(ch),
+            int(ch.page or 0),
+        ),
+    )
+    seen = set()
+    out = []
+    for ch in extra + chunks:
+        key = (getattr(ch, "document_id", None), getattr(ch, "page", None), (getattr(ch, "chunk_text", "") or "")[:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ch)
+    return out[: max(limit, 6)]
+
+
 def supplement_ice_moisture_pages(chunks, model_text: str, user_msg: str):
     """Pull known CCD-0008122 Ice and Moisture p.36 into GD excerpts."""
     chunks = list(chunks or [])
@@ -5353,6 +5418,8 @@ def _ask_manual_context(
         chunks = rank_chunks_for_stabilizer_override(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
+    else:
+        chunks = supplement_maxxfan_remote_pages(chunks, model_text, figure_query or symptom, limit=limit)
     honesty = ""
     if level_up:
         chunks = drop_unity_chunks_for_level_up(chunks)
