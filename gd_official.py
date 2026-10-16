@@ -232,12 +232,33 @@ def score_document(unit: dict, doc: dict) -> tuple:
     return (hits, trouble, True)
 
 
+PRODUCT_TYPES = {
+    "fridge": r"refrigerat|fridge|freezer",
+    "water_heater": r"water\s*heater|tankless|gswh",
+    "furnace": r"furnace",
+    "ac": r"air\s*condition|\ba/?c\b|rooftop|heat\s*pump",
+    "cooktop": r"cooktop|range|oven|burner",
+    "leveling": r"level|jack|stabiliz",
+    "awning": r"awning",
+    "slide": r"slide",
+}
+
+
+def product_types(text: str) -> set:
+    t = (text or "").lower()
+    return {k for k, rx in PRODUCT_TYPES.items() if re.search(rx, t)}
+
+
 def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
     """Best same-brand document with a model match, or None (=> web trigger)."""
     best, best_key = None, None
+    unit_types = product_types(unit.get("model", "") + " " + unit.get("category", ""))
     for doc in library.documents():
         if doc["id"] in exclude_ids:
             continue
+        doc_types = product_types(str(doc.get("title", "")))
+        if unit_types and doc_types and not (unit_types & doc_types):
+            continue  # same brand, different product (e.g. Girard fridge manual for a Girard water heater)
         hits, trouble, ok = score_document(unit, doc)
         if not ok or hits <= 0:
             continue
