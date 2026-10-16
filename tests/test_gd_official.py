@@ -240,6 +240,24 @@ class TestSectionAndWalk(unittest.TestCase):
         story = go.warranty_story({"facts": {}}, hist)
         self.assertIn("OPEN - pending OEM authorization", story.split("5. CORRECTION")[1])
 
+    def test_followup_model_stem_and_family_manual(self):
+        self.assertIn("fcr10dcgta", go.model_tokens("Furrion FCR10DCGTA-BG-PWH"))
+        lib = FakeLib([{"id": 1, "title": "Suburban Water Heater Service Manual"},
+                       {"id": 2, "title": "Suburban Furnace Service Manual"},
+                       {"id": 3, "title": "Suburban Water Heater Warranty Form"}], {})
+        unit = go.identify_unit([], "gas will not light", "Water Heaters", "Suburban SW6DE water heater")
+        doc = go.pin_document(lib, unit)
+        self.assertEqual(doc["id"], 1)
+
+    def test_followup_denied_low_voltage_does_not_start_charge_walk(self):
+        self.assertFalse(go.low_v_reported("LCD looks normal, no Low Voltage or other error text"))
+        self.assertTrue(go.low_v_reported("battery voltage drops to 9 V under load"))
+
+    def test_followup_writeup_for_other_symptom_is_skipped(self):
+        lib = FakeLib([{"id": 218, "title": "Level Up Advantage 807662 Manual Mode Flash Home - Shop Writeup"}], {})
+        unit = go.identify_unit([], "front jacks drift when slides run", "Leveling", "Lippert Level Up hydraulic leveling 807662")
+        self.assertIsNone(go.pin_document(lib, unit))
+
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
 

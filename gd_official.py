@@ -116,6 +116,10 @@ def model_tokens(model_text: str) -> list:
         tok = m.group(0).strip(".-")
         if tok and tok not in toks:
             toks.append(tok)
+        # Trim/color suffixes: FCR10DCGTA-BG-PWH also matches FCR10DCGTA (RC12).
+        stem = tok.split("-")[0]
+        if "-" in tok and re.search(r"\d", stem) and len(stem) >= 5 and stem not in toks:
+            toks.append(stem)
     for phrase in ("touchscreen", "touch screen", "ground control", "unity", "level-up", "level up", "schwintek", "in-wall", "touch panel"):
         if phrase in t and phrase not in toks:
             toks.append(phrase)
@@ -139,6 +143,7 @@ def identify_unit(history, user_msg: str, category_name: str, model_text: str) -
         "model": (model_text or "").strip(),
         "tokens": toks,
         "category": category_name or "",
+        "symptom": next((m.get("content", "") for m in (history or []) if m.get("role") == "user"), user_msg or ""),
         "identified": bool(brand and has_model),
         "model_unknown": bool(brand and no_tag),
     }
@@ -262,6 +267,11 @@ def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
         hits, trouble, ok = score_document(unit, doc)
         if not ok or hits <= 0:
             continue
+        title_l = str(doc.get("title", "")).lower()
+        if re.search(r"write-?up", title_l):
+            sym = {w for w in re.findall(r"[a-z]{4,}", (unit.get("symptom") or "").lower()) if w not in _STOP}
+            if len(sym & set(re.findall(r"[a-z]{4,}", title_l))) < 2:
+                continue  # a shop writeup for a different symptom (RC20: 'Manual Mode Flash' for jack drift)
         # Model-number tokens (digits) must match when the unit has them.
         digit_toks = [t for t in unit.get("tokens", []) if re.search(r"\d", t) and len(t) >= 3]
         text = _norm(" ".join(str(doc.get(k, "")) for k in ("title", "models", "doc_number", "clean_title", "keywords")))
@@ -270,10 +280,35 @@ def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
         if best_key is None or key > best_key:
             best, best_key = doc, key
     if not best:
-        return None
+        return family_service_manual(library, unit, exclude_ids)
     digit_toks = [t for t in unit.get("tokens", []) if re.search(r"\d", t) and len(t) >= 3]
     if digit_toks and not best_key[0]:
-        return None
+        return family_service_manual(library, unit, exclude_ids)
+    return best
+
+
+def family_service_manual(library, unit: dict, exclude_ids=()) -> dict | None:
+    """No model hit: the brand's own service/troubleshooting manual for the same product type (RC22 SW6DE ->
+    Suburban Water Heater Service Manual), before going to the web. Labeled as a family manual in the walk."""
+    types = product_types(unit.get("model", "") + " " + unit.get("category", ""))
+    brand = unit.get("brand") or ""
+    if not brand or not types or unit.get("model_unknown") or not any(re.search(r"\d", t) for t in unit.get("tokens", [])):
+        return None  # needs a real model number; model-unknown units stay on general knowledge
+    best, best_key = None, None
+    for doc in library.documents():
+        if doc["id"] in exclude_ids:
+            continue
+        title = str(doc.get("title", ""))
+        tl = title.lower()
+        if brand not in _norm(title + " " + str(doc.get("brand") or "")) or brand_conflict(unit, doc):
+            continue
+        if not (product_types(title) & types) or not re.search(r"service|troubleshoot", tl):
+            continue
+        if re.search(r"warranty|form|recall|write-?up|\bti[\s-]*\d", tl):
+            continue
+        key = ("master" in tl or "service manual" in tl, "troubleshoot" in tl, -len(title))
+        if best_key is None or key > best_key:
+            best, best_key = dict(doc, family=True), key
     return best
 
 
@@ -508,6 +543,10 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += NPF_RULE
     if pin.get("unity_mode") == "identify":
         sysmsg += UNITY_NOT_SURE_RULE
+    if pin.get("turns", 0) >= 8 and not pin.get("fixed"):
+        sysmsg += ("\nSTALL CHECK: 8+ turns without a confirmed fix. Do not keep cycling checks the tech cannot do. Either give the one test "
+                   "that would decide it, or close out: list the findings (complaint verified, each test + reading, ruled out) as "
+                   "OEM AUTHORIZATION FINDINGS and tell the tech to call the OEM tech line with them (rule 9).\n")
     if pin.get("unavailable"):
         sysmsg += ("\nSTEPS THE TECH COULD NOT DO (never ask them again): \n- " + "\n- ".join(pin["unavailable"][-6:]) +
                    "\nUse an alternate test that isolates the same thing, or move to the next step. If the results already isolate the fault "
@@ -701,6 +740,16 @@ def is_repeat(reply: str, history: list) -> bool:
     return bool(a) and len(a & b) / max(1, len(a | b)) > 0.8
 
 
+def low_v_reported(text: str) -> bool:
+    """Low voltage under load was reported, not denied ("no Low Voltage error" must not trigger, RC20)."""
+    for m in LOW_V_UNDER_LOAD_RE.finditer(text or ""):
+        before = (text or "")[max(0, m.start() - 40):m.start()].lower()
+        if re.search(r"\b(no|not|without|never|none|nor)\b[^.;]*$", before):
+            continue
+        return True
+    return False
+
+
 def record_facts(pin: dict, user_msg: str) -> None:
     if user_msg and UNAVAILABLE_RE.search(user_msg):
         pin.setdefault("unavailable", []).append(user_msg.strip()[:300])
@@ -834,7 +883,7 @@ def official_turn(
                 apply_unity_path(pin, library, "Yes", user_msg + " " + model_text + " " + category_name + " " + " ".join(m.get("content", "") for m in history if m.get("role") == "user"), exclude_doc_ids, web_get)
         if unity_gate == "Yes" and not pin.get("unity_path"):
             apply_unity_path(pin, library, unity_gate, user_msg + " " + model_text + " " + category_name, exclude_doc_ids, web_get)
-    if not pin.get("charge_path") and LOW_V_UNDER_LOAD_RE.search(user_msg or ""):
+    if not pin.get("charge_path") and low_v_reported(user_msg):
         pin["charge_path"] = True
     first = pin.get("turns", 0) == 0
     msgs = build_messages(pin, history, user_msg, hints)
