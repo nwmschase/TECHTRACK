@@ -416,6 +416,11 @@ METHOD_RULES = f"""You are TechTrack Guided Diagnostics for Tacoma RV Center tec
 - Plain shop English. No preamble, no "according to the manual".
 """
 
+NO_SPECIAL_TESTER_RULE = """
+Never REQUIRE a proprietary tester (e.g. Peacemaker/AC bypass tool). If you mention one, give the component-by-component isolation
+with a meter as the primary path (capacitor, fan motor, compressor windings/amps, relays/board), so a tech without it can finish.
+"""
+
 VERIFY_FIRST_RULE = """
 STEP ONE (official rule 8): the complaint is NOT yet verified. Your first lines must have the tech VERIFY THE CUSTOMER COMPLAINT:
 operate the unit as the customer would, give it the time it needs (e.g. pull-down time for a fridge/AC), and measure/observe the symptom
@@ -481,6 +486,7 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += "\nFACTS ON FILE (already reported by the tech; NEVER ask for these again, build on them):\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items()) + "\n"
     if "plugs" not in facts:
         sysmsg += "\nInclude one plug/connector seating check (controller, panel and motor connectors for this circuit) early in the walk unless the tech already reported it.\n"
+    sysmsg += NO_SPECIAL_TESTER_RULE
     if not facts.get("complaint_verified"):
         sysmsg += VERIFY_FIRST_RULE
     else:
