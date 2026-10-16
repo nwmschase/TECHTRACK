@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 
 import gd_official as go
@@ -64,6 +65,7 @@ MULTI_ACTION_RE = re.compile(
     re.I,
 )
 MAX_ACTION_WORDS = 16
+FIGURE_PAGE_SLACK = 1  # the figure sits on the step's manual page or the next/previous one
 
 
 class NoManual(Exception):
@@ -221,7 +223,7 @@ def _image_block_figures(pdf_bytes: bytes, taken: dict) -> list:
                 clip = (clip + (-4, -4, 4, 4)) & page.rect
                 pix = page.get_pixmap(clip=clip, dpi=150)
                 png = pix.tobytes("png")
-                label = re.sub(r"\s+", " ", cap[0]).strip() if cap else f"Figure on page {pno}"
+                label = re.sub(r"\s+", " ", cap[0]).strip() if cap else "Manual figure"
                 out.append({"page": pno, "label": label, "png": png, "width": pix.width, "height": pix.height,
                             "bbox": tuple(r)})
                 taken.setdefault(pno, []).append({"bbox": tuple(r)})
@@ -230,10 +232,33 @@ def _image_block_figures(pdf_bytes: bytes, taken: dict) -> list:
     return out
 
 
+MAX_WORDS_IN_FIGURE = 25
+
+
+def _drop_text_crops(pdf_bytes: bytes, figures: list) -> list:
+    """A crop that is mostly printed text (a symptom table) is not a figure."""
+    import pymupdf as fitz
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        keep = []
+        for f in figures:
+            page = doc[f["page"] - 1]
+            words = page.get_text("words", clip=fitz.Rect(f["bbox"]))
+            if len(words) <= MAX_WORDS_IN_FIGURE or page.get_images():
+                if len(words) > MAX_WORDS_IN_FIGURE * 2:
+                    continue
+                keep.append(f)
+        return keep
+    finally:
+        doc.close()
+
+
 def manual_figures_index(pdf_bytes: bytes) -> dict:
     import manual_figures as mf
 
     idx = mf.index_pdf_bytes(pdf_bytes)
+    idx["figures"] = _drop_text_crops(pdf_bytes, idx["figures"])
     taken = {}
     for f in idx["figures"]:
         taken.setdefault(f["page"], []).append(f)
@@ -292,6 +317,9 @@ def validate_sheet(sheet: Sheet) -> dict:
     unknown = [f for f in used if f not in sheet.figures]
     if unknown:
         errs.append(f"figure ids not in the pinned manual: {unknown}")
+    for s in all_steps(sheet):
+        if s.figure in sheet.figures and s.page and abs(sheet.figures[s.figure]["page"] - int(s.page)) > FIGURE_PAGE_SLACK:
+            errs.append(f"figure {s.figure} (page {sheet.figures[s.figure]['page']}) is not on the step's page {s.page}")
     dup = {f for f in used if used.count(f) > 1}
     if dup:
         errs.append(f"figure used twice: {sorted(dup)}")
@@ -330,20 +358,30 @@ STEP RULES (hard):
 - page = the manual page number the step comes from ([PAGE n] markers). source = "manual", or "general" only for a shop step the
   manual does not print (keep these few).
 - figure = the id of the manual figure that shows THIS step, from the FIGURES list (its page is near the step page). Use each figure once.
-  Put a figure on every step that has a matching figure, in diagnosis AND in every branch.
+  The figure page must be the step page or the page next to it, and must show the part or point the step acts on.
+  Never put a figure on a step it does not show. Every branch that has matching figures in the manual gets them.
 - A remark that is not an action (caution, wait explanation, "already done in diagnosis? skip") is kind "note": no number, only "action" text.
+- next uses sheet labels only: "Good: go to step 4. Bad: go to Branch B." Never internal ids like D2.
+- Write probe/state/good/bad/next as short plain sentences that start with a capital and end with a period.
 - Never write generic filler such as "at the part named in this step" or "the step is done as the cited page says".
 Reply with JSON only:
 {"flow":[{"q":"","yes":"","no":""}],"diagnosis":[STEP],"branches":[{"title":"","before":[""],"steps":[STEP]}],"do_not":[""]}
 STEP = {"kind":"step|note","action":"","probe":"","state":"","good":"","bad":"","next":"","page":0,"figure":null,"source":"manual|general"}"""
 
 
-def _xai(messages, api_key, model="grok-4.6", http=None, timeout=600.0):
+def _xai(messages, api_key, model="grok-4.6", http=None, timeout=420.0):
     http = http or __import__("httpx")
-    r = http.post("https://api.x.ai/v1/chat/completions", timeout=timeout,
-                  headers={"Authorization": f"Bearer {api_key}"},
-                  json={"model": model, "messages": messages, "response_format": {"type": "json_object"}})
-    data = r.json()
+    for attempt in range(3):
+        try:
+            r = http.post("https://api.x.ai/v1/chat/completions", timeout=timeout,
+                          headers={"Authorization": f"Bearer {api_key}"},
+                          json={"model": model, "messages": messages, "response_format": {"type": "json_object"}})
+            data = r.json()
+            break
+        except Exception:
+            if attempt == 2:
+                raise
+            time.sleep(20)
     if "choices" not in data:
         raise RuntimeError(f"xAI error: {str(data)[:300]}")
     return data["choices"][0]["message"]["content"], data.get("usage", {})
@@ -359,6 +397,7 @@ def extract_plan(unit, concern, manual, section, figures, api_key, *, reference=
     chat = chat or (lambda m: _xai(m, api_key))
     usage, last = [], None
     for attempt in range(retries + 1):
+        print(f"[rule11] extract attempt {attempt + 1}", flush=True)
         text, u = chat(msgs)
         usage.append(u)
         plan = json.loads(re.search(r"\{.*\}", text, re.S).group(0))
@@ -369,6 +408,7 @@ def extract_plan(unit, concern, manual, section, figures, api_key, *, reference=
             return plan, usage
         except (StepRuleError, NoFigures) as exc:
             sheet_errs = str(exc)
+            print(f"[rule11] rule errors: {sheet_errs[:400]}", flush=True)
             last = exc
         msgs += [{"role": "assistant", "content": text},
                  {"role": "user", "content": f"These steps break the rules: {sheet_errs}\nFix every one (split multi-action steps into separate steps; add probe/state/good/bad; place figures). Reply with the full JSON again."}]
@@ -384,6 +424,19 @@ def plan_to_sheet(case, concern, unit, manual, plan, figures) -> Sheet:
 
 
 # ---------------- render ----------------
+def _sentence(t: str) -> str:
+    t = re.sub(r"\s+", " ", str(t or "")).strip()
+    if not t:
+        return t
+    t = t[0].upper() + t[1:]
+    return t if t[-1] in ".!?)" else t + "."
+
+
+def _tidy(s: Step) -> Step:
+    from dataclasses import replace
+    return replace(s, **{k: _sentence(getattr(s, k)) for k in ("probe", "state", "good", "bad", "next")})
+
+
 def render_pdf(sheet: Sheet, out_pdf: str, out_md: str | None = None) -> dict:
     """Profile layout: header, case flowchart, diagnosis, branches, Do Not, sources.
     Raises before writing anything when the sheet breaks rule 11."""
@@ -426,8 +479,8 @@ def render_pdf(sheet: Sheet, out_pdf: str, out_md: str | None = None) -> dict:
         f = sheet.figures[fid]
         tw = W * 0.75
         th = tw * f["height"] / max(1, f["width"])
-        if th > 380:
-            th = 380
+        if th > 300:
+            th = 300
             tw = th * f["width"] / f["height"]
         return Image(BytesIO(f["png"]), tw, th, hAlign="CENTER")
 
@@ -439,6 +492,7 @@ def render_pdf(sheet: Sheet, out_pdf: str, out_md: str | None = None) -> dict:
                 md.append(f"*Note: {s.action}*\n")
                 continue
             n += 1
+            s = _tidy(s)
             lines = [("Probe point", s.probe), ("Switch state", s.state), ("Do this", s.action),
                      ("Good reading", s.good), ("Bad reading", s.bad), ("Next", s.next)]
             f = [Paragraph(E(f"Step {n}: {s.action.rstrip('.')}"), ST)]

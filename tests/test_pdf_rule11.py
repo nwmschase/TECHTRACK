@@ -133,6 +133,11 @@ class Rule11(unittest.TestCase):
         self.assertIn("*Note: Housing already down", md)
         self.assertIn("**Step 1: Measure DC volts at Plug 3**", md)
 
+    def test_figure_must_be_on_the_step_page(self):
+        with self.assertRaises(r11.StepRuleError):
+            r11.validate_sheet(sheet([good_step(page=14, figure="p5-Fig-3")]))
+        r11.validate_sheet(sheet([good_step(page=6, figure="p5-Fig-3")]))
+
     def test_manual_step_needs_page(self):
         with self.assertRaises(r11.StepRuleError):
             r11.validate_sheet(sheet([good_step(page=None, figure="p5-Fig-3")]))
