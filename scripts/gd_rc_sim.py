@@ -28,6 +28,9 @@ UNITS = {  # model field the tech would type, category, Unity selector
     "RC23": ("2026 Brinkley Model Z 3100 fifth wheel front jack", "Leveling", "No"),
     "RC28": ("BAL Exact-Slide Emforce cable slide, column tag 22000928", "Slide-Outs", "No"),
     "RC29": ("Furrion FACR13LPSA2-PS rooftop A/C", "Air Conditioning", "No"),
+    "RC11": ("Lippert Level Up Advantage 807662 with Firefly/OneControl", "Leveling", "Yes"),
+    "RC20": ("Lippert Level Up hydraulic leveling 807662", "Leveling", "No"),
+    "RC22": ("Suburban SW6DE water heater", "Water Heaters", "No"),
     "RC27": ("Furrion FCR fridge (model unknown)", "Refrigerators", "No"),
 }
 
