@@ -43,12 +43,10 @@ Answer GD's latest instructions briefly (1-3 sentences) like a tech would, using
 CASE FILE:
 """
 
-JUDGE_SYS = """Grade a Guided Diagnostics transcript against a real case. Reply JSON only:
-{"verified_first": bool, "reached_known_fix": bool, "condemned_wrong_part": bool, "npf_called": bool, "fix_step_index": int|null, "reason": "<=40 words"}
-verified_first: GD's first diagnostic instruction asked the tech to verify/operate the unit to confirm the complaint.
-reached_known_fix: GD directed (or confirmed) the case file's Fix (or, for NPF cases, called No Problem Found with a customer explanation).
-condemned_wrong_part: GD told the tech to replace/condemn a part NOT in the case Fix. Asking to test a part is not condemning.
-fix_step_index: the GD turn number (1-based) where the fix was first directed, else null."""
+JUDGE_SYS = """Write a NEUTRAL note on a Guided Diagnostics transcript (Chase's rule: no pass/fail; Chase and Leader decide).
+Reply JSON only: {"label": "clear tangent" | "for review", "verified_complaint_first": bool, "fix_reached": "<what repair GD directed, or none>",
+"parts_condemned": ["..."], "note": "<=30 words, neutral"}
+Use "clear tangent" ONLY if GD went way off track (wrong appliance/system) or gave unsafe instructions; otherwise "for review"."""
 
 
 def chat(messages, max_tokens=600, effort="low"):
