@@ -254,9 +254,11 @@ class TestSectionAndWalk(unittest.TestCase):
         self.assertTrue(go.low_v_reported("battery voltage drops to 9 V under load"))
 
     def test_followup_writeup_for_other_symptom_is_skipped(self):
-        lib = FakeLib([{"id": 218, "title": "Level Up Advantage 807662 Manual Mode Flash Home - Shop Writeup"}], {})
+        lib = FakeLib([{"id": 218, "title": "Level Up Advantage 807662 Manual Mode Flash Home - Shop Writeup"},
+                       {"id": 5, "title": "Lippert Power Tongue Jack Troubleshooting and Service Manual"},
+                       {"id": 348, "title": "Lippert Level Up LCD Travel Trailer Troubleshooting Guide"}], {})
         unit = go.identify_unit([], "front jacks drift when slides run", "Leveling", "Lippert Level Up hydraulic leveling 807662")
-        self.assertIsNone(go.pin_document(lib, unit))
+        self.assertEqual(go.pin_document(lib, unit)["id"], 348)
 
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)

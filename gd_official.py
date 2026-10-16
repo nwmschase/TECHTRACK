@@ -304,6 +304,9 @@ def family_service_manual(library, unit: dict, exclude_ids=()) -> dict | None:
             continue
         if not (product_types(title) & types) or not re.search(r"service|troubleshoot", tl):
             continue
+        lines = [t for t in unit.get("tokens", []) if not re.search(r"\d", t)]
+        if lines and not any(t in _norm(title) for t in lines):
+            continue  # product line must match (RC20: Level Up, not Power Tongue Jack)
         if re.search(r"warranty|form|recall|write-?up|\bti[\s-]*\d", tl):
             continue
         key = ("master" in tl or "service manual" in tl, "troubleshoot" in tl, -len(title))
