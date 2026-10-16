@@ -188,6 +188,14 @@ class TestSectionAndWalk(unittest.TestCase):
         self.assertEqual(store["gd_pin"]["unity_mode"], "yes")
         self.assertIn("ONECONTROL / UNITY PATH", chat.calls[1][0][0]["content"])
 
+    def test_rule9_warranty_shop_voice_and_findings(self):
+        out = go.shop_voice("Compressor is sealed. Contact an authorized service agent for repair.")
+        self.assertNotIn("service agent", out.lower())
+        self.assertIn("submit them to the OEM for authorization", out)
+        chat, store = _chat("1. Verify the noise [General trade knowledge]"), {}
+        go.official_turn("AC grinding noise", "Air Conditioning", "Furrion FACR13LPSA2-PS", [], library=FakeLib([], {}), chat_fn=chat, pin_store=store)
+        self.assertIn("OEM AUTHORIZATION FINDINGS", chat.calls[0][0][0]["content"])
+
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
 

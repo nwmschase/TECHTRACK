@@ -428,6 +428,14 @@ followed by re-adjustment/sync and cycle verification. Print part numbers only w
 When a component is condemned and the tech asks whether anything else needs checking, either name the one remaining check or commit to the repair.
 """
 
+WARRANTY_SHOP_RULE = """
+RULE 9 - the user is a WARRANTY SHOP tech, never a consumer. Never say "call a technician / contact a service agent / have it serviced".
+When the source says contact an authorized service agent / the OEM, or a part is not field-serviceable or not on the parts list:
+tell the tech to document the findings and submit them to the OEM for authorization, and output a block titled
+"OEM AUTHORIZATION FINDINGS" with: Complaint verified (how); Tests and readings (each); Ruled out; Manual page showing the part is not
+field-serviceable (or "not on the parts list"); Requested authorization (e.g. replace complete unit).
+"""
+
 VERIFY_FIRST_RULE = """
 STEP ONE (official rule 8): the complaint is NOT yet verified. Your first lines must have the tech VERIFY THE CUSTOMER COMPLAINT:
 operate the unit as the customer would, give it the time it needs (e.g. pull-down time for a fridge/AC), and measure/observe the symptom
@@ -493,7 +501,7 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += "\nFACTS ON FILE (already reported by the tech; NEVER ask for these again, build on them):\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items()) + "\n"
     if "plugs" not in facts:
         sysmsg += "\nInclude one plug/connector seating check (controller, panel and motor connectors for this circuit) early in the walk unless the tech already reported it.\n"
-    sysmsg += NO_SPECIAL_TESTER_RULE + PAIRED_RULE
+    sysmsg += NO_SPECIAL_TESTER_RULE + PAIRED_RULE + WARRANTY_SHOP_RULE
     if not facts.get("complaint_verified"):
         sysmsg += VERIFY_FIRST_RULE
     else:
@@ -706,6 +714,14 @@ def record_facts(pin: dict, user_msg: str) -> None:
             facts[key] = user_msg.strip()[:300]
 
 
+CONSUMER_RE = re.compile(r"(call|contact|consult|have)\s+(a|an|your)\s+(qualified\s+|certified\s+|authorized\s+|local\s+)*(technician|service\s+(agent|center|tech)|dealer|professional)[^.\n]*\.?", re.I)
+
+
+def shop_voice(reply: str) -> str:
+    """Rule 9: consumer 'call a technician' lines become the shop's OEM-authorization step."""
+    return CONSUMER_RE.sub("document the findings and submit them to the OEM for authorization.", reply or "")
+
+
 def drop_reasks(reply: str, pin: dict) -> str:
     """Remove a line that asks again for a fact already on file. Keeps procedure lines that only mention it."""
     facts = pin.get("facts") or {}
@@ -842,6 +858,7 @@ def official_turn(
         except Exception:
             pass
     reply = drop_reasks(reply, pin)
+    reply = shop_voice(reply)
     reply = enforce_labels(reply, pin)
     reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
     if first:
