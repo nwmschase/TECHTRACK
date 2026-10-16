@@ -5224,8 +5224,19 @@ def guided_diagnostics_reply(
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
-    if GD_OFFICIAL_METHOD and ai_available() and photo_review is None and not (photo and photo[0]):
-        official = _gd_official_reply(user_msg, category_name, model_text, history, unity_gate, pin_store)
+    if GD_OFFICIAL_METHOD and ai_available():
+        official_msg = user_msg
+        if photo_review is None and photo and photo[0]:
+            # Label / circuit-diagram photos feed the official walk (RC30): the photo read becomes part of what the tech reported.
+            try:
+                import gd_step_photo as _photos
+                photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", "", user_msg)
+            except Exception:
+                photo_review = None
+        sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
+        if sees:
+            official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
+        official = _gd_official_reply(official_msg, category_name, model_text, history, unity_gate, pin_store)
         if official is not None:
             return official, None
     if photo_review is None and photo and photo[0]:

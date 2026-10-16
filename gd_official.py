@@ -112,14 +112,15 @@ def model_tokens(model_text: str) -> list:
     t = _norm(model_text)
     t = t.replace("gc3.0", "gc 3.0").replace("gc 3", "ground control 3")
     toks = []
-    for m in re.finditer(r"[a-z]*\d[\w.\-]*", t):
+    for m in re.finditer(r"[a-z]+-?\d[\w.\-]*|[a-z]*\d[\w.\-]*", t):
         tok = m.group(0).strip(".-")
         if tok and tok not in toks:
             toks.append(tok)
     for phrase in ("touchscreen", "touch screen", "ground control", "unity", "level-up", "level up", "schwintek", "in-wall", "touch panel"):
         if phrase in t and phrase not in toks:
             toks.append(phrase)
-    return [x for x in toks if x not in _STOP and not re.fullmatch(r"(19|20)\d\d", x)]
+    return [x for x in toks if x not in _STOP and not re.fullmatch(r"(19|20)\d\d", x)
+            and not re.fullmatch(r"\d+(\.\d+)?(v|vac|vdc|a|amp|w|btu|k|cu|ft|in|gpm|lb)", x) and not re.fullmatch(r"\d", x)]
 
 
 def identify_unit(history, user_msg: str, category_name: str, model_text: str) -> dict:
@@ -234,6 +235,11 @@ def score_document(unit: dict, doc: dict) -> tuple:
 
 PRODUCT_TYPES = {
     "fridge": r"refrigerat|fridge|freezer",
+    "vent_fan": r"vent\s*fan|roof\s*vent|maxx\s*fan|fan\s*tastic",
+    "tv_audio": r"\btv\b|television|stereo|soundbar|speaker",
+    "toilet": r"toilet",
+    "generator": r"generator",
+    "inverter": r"inverter|converter|charger",
     "water_heater": r"water\s*heater|tankless|gswh",
     "furnace": r"furnace",
     "ac": r"air\s*condition|\ba/?c\b|rooftop|heat\s*pump",
@@ -249,8 +255,47 @@ def product_types(text: str) -> set:
     return {k for k, rx in PRODUCT_TYPES.items() if re.search(rx, t)}
 
 
+def model_keys(unit: dict) -> list:
+    """Exact model keys: full tokens, the part before a trim suffix, and the series prefix (FCR08DCGTA -> fcr08dcgta, fcr08)."""
+    keys = []
+    for t in unit.get("tokens", []):
+        if not re.search(r"\d", t) or len(t) < 4:
+            continue
+        for k in (t, t.split("-")[0], (re.match(r"[a-z]{2,}\d{2,}", t) or [None])[0]):
+            if k and len(k) >= 4 and k not in keys:
+                keys.append(k)
+    return keys
+
+
+def exact_model_doc(library, unit: dict, exclude_ids=()) -> dict | None:
+    """Rule 1: an exact model key in a doc's title or model field wins outright (same brand, same product type)."""
+    keys = model_keys(unit)
+    if not keys:
+        return None
+    types = product_types(unit.get("model", "") + " " + unit.get("category", ""))
+    best, best_key = None, None
+    for doc in library.documents():
+        if doc["id"] in exclude_ids or brand_conflict(unit, doc):
+            continue
+        compact = re.sub(r"[^a-z0-9]", "", _norm(" ".join(str(doc.get(k, "")) for k in ("title", "models", "doc_number"))))
+        hit = [k for k in keys if re.sub(r"[^a-z0-9]", "", k) in compact]
+        if not hit:
+            continue
+        dt = product_types(str(doc.get("title", "")))
+        if types and dt and not (types & dt):
+            continue
+        tl = str(doc.get("title", "")).lower()
+        key = (max(len(re.sub(r"[^a-z0-9]", "", k)) for k in hit), bool(re.search(r"troubleshoot|service", tl)), -len(tl))
+        if best_key is None or key > best_key:
+            best, best_key = doc, key
+    return best
+
+
 def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
     """Best same-brand document with a model match, or None (=> web trigger)."""
+    exact = exact_model_doc(library, unit, exclude_ids)
+    if exact:
+        return exact
     best, best_key = None, None
     unit_types = product_types(unit.get("model", "") + " " + unit.get("category", ""))
     for doc in library.documents():
@@ -258,7 +303,11 @@ def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
             continue
         doc_types = product_types(str(doc.get("title", "")))
         if unit_types and doc_types and not (unit_types & doc_types):
-            continue  # same brand, different product (e.g. Girard fridge manual for a Girard water heater)
+            continue
+        if unit_types and not doc_types:
+            mtext = _norm(" ".join(str(doc.get(k, "")) for k in ("title", "models", "doc_number")))
+            if not any(re.search(r"\d", t) and len(t) >= 5 and t in mtext for t in unit.get("tokens", [])):
+                continue  # can't tell the product type and no model match: never borrow it (RC30 vent fan)  # same brand, different product (e.g. Girard fridge manual for a Girard water heater)
         hits, trouble, ok = score_document(unit, doc)
         if not ok or hits <= 0:
             continue
@@ -499,6 +548,10 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
     facts = pin.get("facts") or {}
     if facts:
         sysmsg += "\nFACTS ON FILE (already reported by the tech; NEVER ask for these again, build on them):\n" + "\n".join(f"- {k}: {v}" for k, v in facts.items()) + "\n"
+    if facts.get("label_diagram"):
+        sysmsg += ("\nUNIT LABEL / DIAGRAM (tech-reported; this unit's own wiring - it beats general knowledge): " + facts["label_diagram"] +
+                   "\nUse it: check every fuse, breaker and lead it shows AT THE UNIT (e.g. an inline fuse on the red lead) before sending the tech "
+                   "to the coach distribution panel. Ask where that inline fuse sits if the tech hasn't said.\n")
     if "plugs" not in facts:
         sysmsg += "\nInclude one plug/connector seating check (controller, panel and motor connectors for this circuit) early in the walk unless the tech already reported it.\n"
     sysmsg += NO_SPECIAL_TESTER_RULE + PAIRED_RULE + WARRANTY_SHOP_RULE
@@ -672,6 +725,7 @@ FACT_PATTERNS = {
     "motor_fault": re.compile(r"\bmotor\s+fault\b", re.I),
     "zero_point_done": re.compile(r"\bzero[\s-]?point\b.*\b(done|complete\w*|finished|calibrated)\b", re.I),
     "plugs": re.compile(r"\b(plugs?|connectors?|connections?|harness)\b.*\b(seated|checked|tight|good|ok|fine|loose)\b|\bno\s+loose\s+connections\b", re.I),
+    "label_diagram": re.compile(r"\b(label|sticker|data\s*plate|wiring\s*diagram|circuit\s*diagram|schematic)\b.*\b(shows?|says|reads|fuse|amp|\d+\s*a\b|lead|wire)", re.I),
     "input_voltage": re.compile(r"\b\d+(\.\d+)?\s*v(dc|ac)?\b|\bvoltage\s+(good|ok|correct)\b", re.I),
 }
 ASK_PATTERNS = {
@@ -863,7 +917,12 @@ def official_turn(
     reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
     if first:
         if pin["mode"] == "no_manual":
-            head = "No manual for this unit in the library or on an official OEM site - steps below are general trade knowledge."
+            kind = {"fridge": "fridge", "water_heater": "water heater", "furnace": "furnace", "ac": "A/C", "cooktop": "cooktop",
+                    "leveling": "leveling", "awning": "awning", "slide": "slide-out", "vent_fan": "vent fan"}
+            t = sorted(product_types(unit.get("model", "") + " " + unit.get("category", "")))
+            what = f"{(unit.get('brand') or '').title()} {kind.get(t[0], '') if t else ''}".strip() or "this unit"
+            head = (f"No {what} manual found in the library or on an official OEM site - using the unit label if you have it, "
+                    "otherwise steps below are general trade knowledge.")
         else:
             head = f"Using: {pin['doc_title']}" + (f" ({pin['url']})" if pin.get("url") else "") + f" - read {pin['mode'].replace('_',' ')}, pages {pin['pages'][0]}-{pin['pages'][-1]}."
         reply = SAFETY_LINE + "\n" + head + "\n" + reply
@@ -891,7 +950,7 @@ TAG_RE = re.compile(r"\[(Library:[^\]]*|Manufacturer site:[^\]]*|General trade k
 REPAIR_RE = re.compile(r"\b(replaced|installed|repaired|reseated|adjusted|calibrat\w*|realigned|re-?aligned|resynced|tightened|no problem found|npf|operating as designed)\b", re.I)
 
 
-OUTCOME_RE = re.compile(r"\b(works|working|fixed|resolved|tested\s+good|now\s+\w+s\b|verified|operat\w+\s+(normally|correctly|as\s+designed)|job\s+complete|cools|heats|levels)\b", re.I)
+OUTCOME_RE = re.compile(r"\b(works|working|fixed|resolved|tested\s+good|now\s+\w+s\b|verified|operat\w+\s+(normally|correctly|as\s+designed)|job\s+complete|cools|cooling|heats|levels|powers?\s+(up|on)|powered\s+(up|on)|back\s+on|lights?\s+(on|up)|runs|running)\b", re.I)
 NPF_RE = re.compile(r"\b(no\s+problem\s+found|npf|operating\s+as\s+designed|works\s+as\s+designed)\b", re.I)
 
 

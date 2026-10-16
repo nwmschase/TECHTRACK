@@ -31,6 +31,7 @@ UNITS = {  # model field the tech would type, category, Unity selector
     "RC11": ("Lippert Level Up Advantage 807662 with Firefly/OneControl", "Leveling", "Yes"),
     "RC20": ("Lippert Level Up hydraulic leveling 807662", "Leveling", "No"),
     "RC22": ("Suburban SW6DE water heater", "Water Heaters", "No"),
+    "RC30": ("Furrion FCR08DCGTA 12V DC refrigerator (label cut off after GTA)", "Refrigerators", "No"),
     "RC27": ("Furrion FCR fridge (model unknown)", "Refrigerators", "No"),
 }
 
@@ -81,6 +82,7 @@ def run(case, out, db, max_turns=14):
         msg = chat(tech_hist).strip()
         if "[END]" in msg and t > 1:
             history_end = msg
+            history.append({"role": "user", "content": msg.replace("[END]", "").strip()})  # final correction reaches the story
             lines += [f"## Tech final", history_end, ""]
             break
     pin = store.get("gd_pin") or {}

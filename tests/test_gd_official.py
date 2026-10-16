@@ -240,6 +240,34 @@ class TestSectionAndWalk(unittest.TestCase):
         story = go.warranty_story({"facts": {}}, hist)
         self.assertIn("OPEN - pending OEM authorization", story.split("5. CORRECTION")[1])
 
+    def test_rc30_exact_model_beats_same_brand_12v_fan(self):
+        lib = FakeLib([{"id": 283, "title": 'Furrion 14" 12V Vent Fan (V2.0) with Lid Troubleshooting and Service Manual', "models": "FVF14D90A2"},
+                       {"id": 186, "title": "Furrion FCR08 FCR10 12V Refrigerator Troubleshooting and Service Manual CCD-0008122"},
+                       {"id": 298, "title": "Furrion Arctic 8 & 10 cu.ft. Refrigerator Troubleshooting and Service Manual", "models": "FCR08DCGTA;FCR10DCGTA"}], {})
+        unit = go.identify_unit([], "fridge has no power, 12V", "Refrigerators", "Furrion FCR08DCGTA 12V DC refrigerator")
+        self.assertIn(go.pin_document(lib, unit)["id"], (186, 298))
+
+    def test_rc30_never_borrows_another_product(self):
+        lib = FakeLib([{"id": 283, "title": 'Furrion 14" 12V Vent Fan Troubleshooting and Service Manual', "models": "FVF14D90A2"}], {})
+        unit = go.identify_unit([], "fridge no power 12V", "Refrigerators", "Furrion FCR08DCGTA 12V DC refrigerator")
+        self.assertIsNone(go.pin_document(lib, unit))
+        self.assertNotIn("12v", go.model_tokens("Furrion FCR08DCGTA 12V"))
+
+    def test_rc30_label_diagram_is_used(self):
+        pin = {"facts": {}, "turns": 1}
+        go.record_facts(pin, "Label/photo shows: wiring diagram, 15A inline fuse on the red lead")
+        self.assertIn("label_diagram", pin["facts"])
+        chat, store = _chat("1. Check the inline fuse [General trade knowledge]"), {"gd_pin": None}
+        go.official_turn("Label shows a 15A fuse on the red lead", "Refrigerators", "Furrion FCR08DCGTA", [], library=FakeLib([], {}), chat_fn=chat, pin_store=store)
+        self.assertIn("UNIT LABEL / DIAGRAM", chat.calls[0][0][0]["content"])
+
+    def test_rc30_story_captures_final_correction(self):
+        hist = [{"role": "user", "content": "no power"}, {"role": "assistant", "content": "1. Check fuse [Library: CCD-0008122 p.20]"},
+                {"role": "user", "content": "15A inline fuse open"}, {"role": "assistant", "content": "Replace the fuse, verify."},
+                {"role": "user", "content": "Replaced the 15A inline fuse under the front; fridge powers up and is cooling."}]
+        story = go.warranty_story({"facts": {}}, hist)
+        self.assertIn("Replaced the 15A inline fuse", story.split("5. CORRECTION")[1])
+
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
 
