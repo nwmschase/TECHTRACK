@@ -5367,6 +5367,28 @@ def _ask_chat_transcript(history: list) -> str:
     return "\n\n".join(lines)
 
 
+def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit):
+    """Every library search (GD reduced mode, Bay PDF) obeys the ONE selector, gd_official.select_manual:
+    exact model first, product-type and brand hard filters, never another product's manual. Returns (chunks, miss_line)."""
+    try:
+        import gd_official as _go
+
+        unit = _go.identify_unit([], symptom or "", category_name or "", model_text or "")
+        if not unit.get("brand") and not _go.model_keys(unit):
+            return chunks, ""  # nothing to select on: legacy keyword search stands
+        sel = _go.select_manual(_go.OrmLibrary(session, Document, DocChunk), unit)
+        doc = sel.get("doc")
+        if not doc:
+            return [], sel.get("miss_line") or ""
+        mine = [c for c in (chunks or []) if int(getattr(c, "document_id", 0) or 0) == int(doc["id"])]
+        if not mine:
+            mine = (session.query(DocChunk).filter(DocChunk.document_id == doc["id"])
+                    .order_by(DocChunk.page, DocChunk.id).limit(max(int(limit or 8), 8)).all())
+        return mine, ""
+    except Exception:
+        return chunks, ""
+
+
 def _ask_manual_context(
     category_name: str,
     model_text: str,
@@ -5507,8 +5529,11 @@ def _ask_manual_context(
         honesty = format_water_heater_library_honesty(list_library_catalog_docs(), chunks)
         if skip_wh_unity and not chunks:
             return [], honesty
+    chunks, miss = _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit)
+    if miss:
+        honesty = (honesty + "\n" if honesty else "") + miss + " - use the unit label or labeled general trade knowledge."
     if not chunks:
-        return [], ""
+        return [], honesty or ""
     parts = []
     for i, ch in enumerate(chunks, 1):
         label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"
