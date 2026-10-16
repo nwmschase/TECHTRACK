@@ -2400,6 +2400,26 @@ def search_manual_chunks(
                 all_chunks = []
     else:
         all_chunks = [ch for ch in all_chunks if _brand_keep(ch)]
+        # Unrecognised brand on a typed unit: another maker's manual is not a
+        # source for it. Better a library miss than a wrong-brand cite.
+        all_chunks = [
+            ch for ch in all_chunks
+            if _gdc.unnamed_unit_page_allowed(
+                model_text or "",
+                " ".join(
+                    part for part in (
+                        ch.title or "",
+                        getattr(ch, "keywords", "") or "",
+                        _gdc.library_filename_words(getattr(ch, "_lookup_file_path", "") or ""),
+                        getattr(ch, "_lookup_brand", "") or "",
+                        getattr(ch, "_lookup_models", "") or "",
+                        getattr(ch, "_lookup_clean_title", "") or "",
+                        getattr(ch, "_lookup_product_line", "") or "",
+                        getattr(ch, "_lookup_doc_number", "") or "",
+                    ) if part
+                ),
+            )
+        ]
     all_chunks = _gdc.filter_chunks_for_unit(all_chunks, "", model_text or "", symptom or "")
     if not all_chunks:
         return []
