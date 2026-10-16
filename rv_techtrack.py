@@ -5223,7 +5223,7 @@ def guided_diagnostics_reply(
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
-    if GD_OFFICIAL_METHOD and photo_review is None and not (photo and photo[0]):
+    if GD_OFFICIAL_METHOD and ai_available() and photo_review is None and not (photo and photo[0]):
         official = _gd_official_reply(user_msg, category_name, model_text, history, unity_gate, pin_store)
         if official is not None:
             return official, None
