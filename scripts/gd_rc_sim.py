@@ -26,6 +26,7 @@ UNITS = {  # model field the tech would type, category, Unity selector
     "RC18": ("Lippert front stabilizer jack (model not recovered)", "Leveling", "Not sure"),
     "RC19": ("Suburban SDN2U cooktop", "Range & Cooktops", "No"),
     "RC23": ("2026 Brinkley Model Z 3100 fifth wheel front jack", "Leveling", "No"),
+    "RC28": ("BAL Exact-Slide Emforce cable slide, column tag 22000928", "Slide-Outs", "No"),
     "RC27": ("Furrion FCR fridge (model unknown)", "Refrigerators", "No"),
 }
 

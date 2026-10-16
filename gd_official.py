@@ -46,7 +46,7 @@ OFFICIAL_DOMAINS = {
     "atwood": ("dometic.com", "airxcel.com"),
     "coleman-mach": ("airxcel.com", "rvcomfort.com"),
     "girard": ("girardrv.com",),
-    "bal": ("norcoindustries.com", "balrv.com"),
+    "bal": ("norcoindustries.com", "balrv.com", "balrvproducts.com"),
     "norcold": ("norcold.com", "thetford.com"),
     "truma": ("truma.com", "trumaservice.com"),
     "power gear": ("lci1.com", "lippert.com"),
