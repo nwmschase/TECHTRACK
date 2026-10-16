@@ -3,7 +3,7 @@
 **Owner:** Chase Molloy / Tacoma RV Center  
 **App:** https://techtrack-37lks9ceccfqe8a3k3prpy.streamlit.app/  
 **Repo:** https://github.com/nwmschase/TECHTRACK (`rv_techtrack.py`)  
-**Spine coverage:** inception through current main **v4.19.63** (`2d259ef`); pre-v4.7.1 filled from git **2026-09-16**; v4.18.1–v4.19.54 backfilled from git/PRs/tags **2026-10-11**  
+**Spine coverage:** inception through current main **v4.19.64** (`dbd2cce`); pre-v4.7.1 filled from git **2026-09-16**; v4.18.1–v4.19.54 backfilled from git/PRs/tags **2026-10-11**  
 **Known-good tags:** `known-good-v41954` → `a76c68f` (v4.19.54 + docs, pre-v4.19.55); `known-good-v41952` → `8acbcbf` (v4.19.52, latest); `known-good-v41950` → `e7b2bad`; `known-good-v41949` → `cd04634`; `known-good-v41948` → `4dd6f68`; `known-good-v41947` → `b546299`; `known-good-v41942` → `f25ec8a`; `known-good-v41941-pre74` → `69d30e7`; `known-good-v41940` → `1dd8c6d`; `known-good-v4.19.39-importer` → `1a34c92`; `known-good-v4.19.39` → `d646e40`; `known-good-v4.19.38` → `110c4b8`; `known-good-v4.19.36` → `d45710a`; `known-good-v4.19.34` → `9933fe7`; `known-good-v4.19.29` → `7d11571`. Current main v4.19.56 is `known-good-v41954` (`a76c68f`) shop code plus a version stamp and carries no known-good tag of its own.  
 **Profiles:** GD-PROFILE v1.1 and PDF-PROFILE v1.1 (Chase, 2026-10-11), at `/workspace/techtrack-validation/profiles/`.  
 **Rule:** Append an entry on every merge, deploy, or revert in the same commit cycle; mirrored in repo as CHANGELOG.md.  
@@ -708,6 +708,13 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - A show-me answers where the part is. It does not name a tool and it does not repeat the previous turn's good or bad result. It ends with "Then do that check and tell me what you see." The water-valve action is "Take the toilet off the closet bolts."
 - The no-model show-me offers "Send a photo if it helps." It does not order a photo.
 
+
+### v4.19.64 — 2026-10-16 15:59 PT — PR #90 squash-merged (head `806f867`) — main SHA `dbd2cce56553ae90ee89b96ea4814589a5aa80e2`
+- ROOT CAUSE: gd_official.model_tokens kept "12V" as a model token and pin_document counted any digit-token hit as a model match, so the Furrion 12V Vent Fan tied the FCR08 fridge manual and won on id order; the type gate passed unknown-type docs; the wrong doc counted as found so no web lookup ran (RC30)
+- One manual selector (gd_official.select_manual) for GD and the library/Bay search: exact model key from model field, complaint or label wins outright; category product type and brand are hard filters; ratings are not model tokens
+- No eligible doc = "No <brand> <model> <type> manual found", counts as not found, official web lookup runs; label/diagram text and photos drive the walk; warranty story records the final correction
+- LOCKED tests (RC30 pins CCD-0008122, RC17, Thetford, MaxxFan, unknown brand, web fallback); sweep 89/93; suite green except accepted test_two_sends
+- Known-good tags: `known-good-pre-selector-2026-10-16` → `ab090e4` (pre-merge rollback point)
 
 ### v4.19.63 — 2026-10-16 14:58 PT — PR #89 squash-merged (head `a5483e7`) — main SHA `2d259efb2a686ae95e72a609b2db76a48f4d5f69`
 - Guided Diagnostics official method (`GD_OFFICIAL_METHOD=True`, gd_official.py): unit gate, own-brand manual pin (library, then official OEM domains only), full troubleshooting section read, one labeled step at a time (Library / Manufacturer site / General trade knowledge)
