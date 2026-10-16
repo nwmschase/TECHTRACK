@@ -884,3 +884,63 @@ def official_turn(
            "usage": usage, "cost_usd": turn_cost(usage) if usage else None, "seconds": secs}
     log_turn(log_path, rec)
     return {"reply": reply, "mode": pin["mode"], "pin": pin, "usage": usage, "seconds": secs, "reduced": reduced, "cost_usd": rec["cost_usd"], "context_chars_sent": ctx_chars}
+
+
+# ---------------- Rule 10: warranty story from recorded facts only ----------------
+TAG_RE = re.compile(r"\[(Library:[^\]]*|Manufacturer site:[^\]]*|General trade knowledge|INFERRED[^\]]*)\]")
+REPAIR_RE = re.compile(r"\b(replaced|installed|repaired|reseated|adjusted|calibrat\w*|realigned|re-?aligned|resynced|tightened|no problem found|npf|operating as designed)\b", re.I)
+
+
+def warranty_story(pin: dict, history: list, model_text: str = "") -> str:
+    """Complaint / findings / tests / cause / correction built ONLY from what the tech typed and the sources GD cited.
+
+    Deterministic: no model call, so no reading can be invented. Tech text is quoted verbatim.
+    """
+    pin = pin or {}
+    msgs = [m for m in (history or []) if m.get("role") in ("user", "assistant")]
+    users = [(i, m["content"].strip()) for i, m in enumerate(msgs) if m["role"] == "user" and (m.get("content") or "").strip()]
+    if not users:
+        return "No session recorded."
+    complaint = users[0][1]
+    facts = pin.get("facts") or {}
+    verified = facts.get("complaint_verified", "")
+    tests = []
+    for i, text in users[1:]:
+        if text == verified:
+            continue
+        prev = next((msgs[j]["content"] for j in range(i - 1, -1, -1) if msgs[j]["role"] == "assistant"), "")
+        tags = sorted(set(TAG_RE.findall(prev))) or ["source not cited"]
+        tests.append(f"- {text}\n  (step source: {'; '.join(tags)})")
+    last_gd = next((m["content"] for m in reversed(msgs) if m["role"] == "assistant"), "")
+    repairs = [t for _, t in users[1:] if REPAIR_RE.search(t)]
+    escalated = "OEM AUTHORIZATION FINDINGS" in "\n".join(m["content"] for m in msgs if m["role"] == "assistant")
+    unit = (pin.get("unit") or {}).get("model") or model_text or "not recorded"
+    out = [
+        f"UNIT: {unit}",
+        "",
+        "1. CUSTOMER COMPLAINT",
+        complaint,
+        "",
+        "2. ON-ARRIVAL FINDINGS (complaint verification)",
+        verified or "Not recorded in this session.",
+        "",
+        "3. TESTS AND READINGS (tech's recorded words, with the manual source of each step)",
+        "\n".join(tests) or "None recorded.",
+        "",
+        "4. CAUSE",
+        ("Per the tests above; GD's last diagnosis: " + _first_line(last_gd)) if tests else "Not determined in this session.",
+        "",
+        "5. CORRECTION",
+        repairs[-1] if repairs else "OPEN - no correction recorded in this session.",
+    ]
+    if escalated:
+        out += ["", "OEM AUTHORIZATION: this story is the submission (rule 9). Requested authorization per GD's findings block above."]
+    return "\n".join(out)
+
+
+def _first_line(text: str) -> str:
+    for line in (text or "").splitlines():
+        l = line.strip()
+        if l and not l.startswith(("Safety first", "Using:", "No manual")):
+            return l[:400]
+    return "not recorded"

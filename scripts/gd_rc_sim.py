@@ -97,6 +97,7 @@ def run(case, out, db, max_turns=14):
     lines += ["## Pin", "```", json.dumps({k: pin.get(k) for k in ("doc_title", "url", "mode", "pages", "unity_mode", "unity_path", "charge_path", "facts")}, indent=1, default=str), "```",
               "## Judge", "```", json.dumps(v, indent=1), "```"]
     open(os.path.join(out, f"{case}.md"), "w").write("\n".join(lines))
+    open(os.path.join(out, f"{case}.story.md"), "w").write(go.warranty_story(pin, history, model))
     json.dump(v, open(os.path.join(out, f"{case}.verdict.json"), "w"), indent=1)
     print(json.dumps(v))
 

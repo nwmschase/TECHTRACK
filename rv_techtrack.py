@@ -5912,6 +5912,15 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
+    # Rule 10: on the official GD path the story comes from the session's recorded facts only.
+    if GD_OFFICIAL_METHOD:
+        try:
+            import gd_official as _go
+            _pin = (st.session_state.get("gd_pin_store") or {}).get("gd_pin")
+            if _pin:
+                return _go.warranty_story(_pin, history, model_text)
+        except Exception:
+            pass
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
     tech_lines = []
     coach_lines = []

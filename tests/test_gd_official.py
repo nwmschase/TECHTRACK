@@ -1,3 +1,4 @@
+import re
 """GD official method: unit gate, wrong-brand refusal, section read, step hold, labels, verify.
 
 Does not import rv_techtrack. No network.
@@ -195,6 +196,42 @@ class TestSectionAndWalk(unittest.TestCase):
         chat, store = _chat("1. Verify the noise [General trade knowledge]"), {}
         go.official_turn("AC grinding noise", "Air Conditioning", "Furrion FACR13LPSA2-PS", [], library=FakeLib([], {}), chat_fn=chat, pin_store=store)
         self.assertIn("OEM AUTHORIZATION FINDINGS", chat.calls[0][0][0]["content"])
+
+    def _story(self):
+        hist = [
+            {"role": "user", "content": "AC makes grinding noise"},
+            {"role": "assistant", "content": "1. Run it and listen [General trade knowledge]"},
+            {"role": "user", "content": "Verified: ran it, grinding noise from the rooftop unit"},
+            {"role": "assistant", "content": "2. Measure compressor amps [Library: FACR13 Service Manual p.12]"},
+            {"role": "user", "content": "Compressor 7.27 A at 117 VAC, noise from inside compressor"},
+            {"role": "assistant", "content": "OEM AUTHORIZATION FINDINGS\nRequest: replace complete unit"},
+            {"role": "user", "content": "Replaced the complete rooftop unit, tested, works"},
+        ]
+        pin = {"facts": {"complaint_verified": hist[2]["content"]}, "unit": {"model": "Furrion FACR13LPSA2-PS"}}
+        return go.warranty_story(pin, hist), hist
+
+    def test_rule10_story_has_no_invented_readings(self):
+        story, hist = self._story()
+        typed = " ".join(m["content"] for m in hist)
+        for num in re.findall(r"\d+(?:\.\d+)?\s*(?:A|VAC|V|F|kOhm)\b", story):
+            self.assertIn(num, typed)
+        self.assertNotIn("delta", story.lower())
+
+    def test_rule10_three_sections_separate(self):
+        story, _ = self._story()
+        a, b, c = story.index("1. CUSTOMER COMPLAINT"), story.index("2. ON-ARRIVAL FINDINGS"), story.index("3. TESTS AND READINGS")
+        self.assertLess(a, b); self.assertLess(b, c)
+        self.assertIn("AC makes grinding noise", story[a:b])
+        self.assertIn("Verified: ran it", story[b:c])
+        self.assertNotIn("7.27", story[a:c])
+
+    def test_rule10_every_test_cited(self):
+        story, _ = self._story()
+        tests = story.split("3. TESTS AND READINGS")[1].split("4. CAUSE")[0]
+        self.assertIn("7.27 A at 117 VAC", tests)
+        self.assertIn("Library: FACR13 Service Manual p.12", tests)
+        self.assertIn("OEM AUTHORIZATION", story)
+        self.assertIn("Replaced the complete rooftop unit", story.split("5. CORRECTION")[1])
 
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
