@@ -544,6 +544,8 @@ def apply_unity_path(pin: dict, library, unity_gate: str, blob: str, exclude_ids
     """Selector Yes + OneControl-managed complaint: add the Unity/X270 path and Lippert Unity references."""
     if (unity_gate or "").strip() != "Yes" or not ONECONTROL_COMPLAINT_RE.search(blob or ""):
         return
+    if (pin.get("unit") or {}).get("brand") not in ("", None, "lippert"):
+        return  # another brand's own controller (e.g. BAL) is not OneControl-managed
     pin["unity_path"] = True
     parts, refs, pages = [], [], set(pin.get("pages") or [])
     oem, shop = _unity_docs(library, exclude_ids)
