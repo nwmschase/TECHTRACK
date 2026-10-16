@@ -5085,6 +5085,8 @@ def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate=
             usage_fn=gd_llm.last_usage, web_fetch_fn=web_fn,
             hints=_gd_legacy_hint(history, user_msg, category_name, model_text),
             log_path=GD_USAGE_LOG,
+            unity_gate=unity_gate,
+            web_get=_go.official_pdf_text,
         )
     except Exception:
         # Primary model failed: legacy coach on the fallback, labeled reduced mode.

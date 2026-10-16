@@ -38,7 +38,7 @@ LABEL_GENERAL = "General trade knowledge"
 
 # Official OEM domains only (Leader 2026-10-16). Suffix match on the host.
 OFFICIAL_DOMAINS = {
-    "lippert": ("lci1.com", "lippert.com", "lippertcomponents.com"),
+    "lippert": ("lci1.com", "lippert.com", "lippertcomponents.com", "=lci-support-doc.s3.amazonaws.com"),
     "dometic": ("dometic.com",),
     "furrion": ("furrion.com",),
     "thetford": ("thetford.com",),
@@ -66,6 +66,12 @@ BRAND_ALIASES = {
 }
 KNOWN_BRANDS = tuple(sorted(set(OFFICIAL_DOMAINS) | set(BRAND_ALIASES), key=len, reverse=True))
 
+NO_TAG_RE = re.compile(r"\b(no\s+(model\s+)?(tag|label|data\s*plate)|model\s+(unknown|not\s+known)|can'?t\s+find\s+(the\s+)?(tag|label|model))", re.I)
+LOW_V_UNDER_LOAD_RE = re.compile(
+    r"\b(voltage\s+drop\w*|drop\w*\s+(heavily\s+)?under\s+load|low\s+voltage|volts?\s+(drops?|sag\w*)|sag\w*\s+under\s+load|"
+    r"battery\s+voltage\s+(drops?|dropped|sags?|falls?))\b",
+    re.I,
+)
 NOT_CHECKED_RE = re.compile(
     r"\b(not\s+(yet\s+)?checked|haven'?t\s+checked|didn'?t\s+check|did\s+not\s+check|not\s+tested|skipped|n/?c)\b",
     re.I,
@@ -110,10 +116,10 @@ def model_tokens(model_text: str) -> list:
         tok = m.group(0).strip(".-")
         if tok and tok not in toks:
             toks.append(tok)
-    for phrase in ("ground control", "unity", "level-up", "level up", "schwintek", "in-wall", "touch panel"):
+    for phrase in ("touchscreen", "touch screen", "ground control", "unity", "level-up", "level up", "schwintek", "in-wall", "touch panel"):
         if phrase in t and phrase not in toks:
             toks.append(phrase)
-    return [x for x in toks if x not in _STOP]
+    return [x for x in toks if x not in _STOP and not re.fullmatch(r"(19|20)\d\d", x)]
 
 
 def identify_unit(history, user_msg: str, category_name: str, model_text: str) -> dict:
@@ -121,12 +127,17 @@ def identify_unit(history, user_msg: str, category_name: str, model_text: str) -
     brand = detect_brand(model_text) or detect_brand(blob)
     toks = model_tokens(model_text) or model_tokens(" ".join(m.get("content", "") for m in (history or []) if m.get("role") == "user") + " " + (user_msg or ""))
     has_model = any(re.search(r"\d", x) for x in toks) or any(x in ("ground control", "unity") for x in toks)
+    # No tag on the unit: brand + product type is the identification; model specs stay unconfirmed.
+    no_tag = bool(NO_TAG_RE.search(blob))
+    if brand and no_tag:
+        has_model = True
     return {
         "brand": brand,
         "model": (model_text or "").strip(),
         "tokens": toks,
         "category": category_name or "",
         "identified": bool(brand and has_model),
+        "model_unknown": bool(brand and no_tag),
     }
 
 
@@ -200,13 +211,17 @@ def score_document(unit: dict, doc: dict) -> tuple:
     """(model_hits, troubleshooting_title, brand_ok). Metadata fields first, title second."""
     if brand_conflict(unit, doc):
         return (-1, 0, False)
+    if unit.get("brand") and _doc_brand(doc) != unit["brand"]:
+        return (-1, 0, False)  # a named brand needs a document of that brand
     meta = _norm(" ".join([doc.get("models", ""), doc.get("product_line", ""), doc.get("doc_number", ""), doc.get("clean_title", "")]))
     title = _norm(doc.get("title", ""))
     hits = 0
+    meta_ns, title_ns = meta.replace(" ", ""), title.replace(" ", "")
     for tok in unit.get("tokens", []):
-        if tok in meta:
+        t_ns = tok.replace(" ", "")
+        if tok in meta or t_ns in meta_ns:
             hits += 2
-        elif tok in title:
+        elif tok in title or t_ns in title_ns:
             hits += 1
     trouble = 1 if re.search(r"troubleshoot|diagnos|service manual", title) else 0
     return (hits, trouble, True)
@@ -271,7 +286,13 @@ def allowed_domains_for(brand: str) -> tuple:
 
 def url_is_official(url: str, brand: str) -> bool:
     host = (urlparse(url or "").hostname or "").lower()
-    return bool(host) and any(host == d or host.endswith("." + d) for d in allowed_domains_for(brand))
+    for d in allowed_domains_for(brand):
+        if d.startswith("="):
+            if host == d[1:]:  # exact host only (OEM CDN on a shared domain)
+                return True
+        elif host == d or host.endswith("." + d):
+            return True
+    return False
 
 
 def _pdf_text(data: bytes) -> str:
@@ -291,7 +312,7 @@ def fetch_official_manual(unit: dict, api_key: str, *, model: str = "grok-4.6", 
     Session only. Nothing is written to R2 here. Returns {} when no official copy is found.
     """
     brand = unit.get("brand", "")
-    domains = list(allowed_domains_for(brand))[:5]
+    domains = [d.lstrip("=") for d in allowed_domains_for(brand)][:5]
     if not domains or not api_key:
         return {}
     import httpx
@@ -299,7 +320,8 @@ def fetch_official_manual(unit: dict, api_key: str, *, model: str = "grok-4.6", 
     http = http or httpx
     prompt = (
         f"Find the official manufacturer PDF service/troubleshooting manual for: {brand} {unit.get('model','')}. "
-        "Reply with JSON only: {\"url\": \"<direct pdf url>\", \"title\": \"<document title>\"}. "
+        "Use as few searches as possible (3 or fewer). "
+        "Reply with JSON only: {\"url\": \"<direct pdf url or the official document page url>\", \"title\": \"<document title>\"}. "
         "Use only the allowed domains. If none exists, reply {\"url\": \"\"}."
     )
     body = {"model": model, "input": [{"role": "user", "content": prompt}],
@@ -323,12 +345,22 @@ def fetch_official_manual(unit: dict, api_key: str, *, model: str = "grok-4.6", 
         found = {}
     url = (found.get("url") or "").strip()
     usage = data.get("usage", {}) or {}
+    ticks = usage.get("cost_in_usd_ticks")
+    if ticks:
+        usage = {**usage, "cost_usd": round(ticks / 1e10, 4)}
     result = {"search_usage": usage, "search_seconds": round(time.time() - t0, 1), "url": url, "title": found.get("title", "")}
     if not url or not url_is_official(url, brand):
         result["refused"] = bool(url)
         result["url"] = "" if not url_is_official(url, brand) else url
         return result
     try:
+        if not url.lower().split("?")[0].endswith(".pdf"):
+            page = http.get(url, timeout=timeout, follow_redirects=True)
+            links = [u for u in re.findall(r"https?://[^\"' <>]+?\.pdf", page.text or "") if url_is_official(u, brand)]
+            if not links:
+                return {**result, "error": "no official PDF link on the document page"}
+            result["page_url"], url = url, links[0]
+            result["url"] = url
         pdf = http.get(url, timeout=timeout, follow_redirects=True)
         final = str(getattr(pdf, "url", url))
         if not url_is_official(final, brand):
@@ -353,7 +385,43 @@ METHOD_RULES = f"""You are TechTrack Guided Diagnostics for Tacoma RV Center tec
 - After any repair or calibration, end with a VERIFY step (run the function again, confirm it completes / the complaint is gone).
 - Every step line ends with a source tag: [{LABEL_LIBRARY}: <manual title> p.<page>] or [{LABEL_WEB}: <url> p.<page>] or [{LABEL_GENERAL}].
   Only cite pages that appear in the excerpt below. {LABEL_GENERAL} may drive a step only if labeled, never for brand-specific specs (voltages, codes, part numbers, button sequences).
+- Read the conversation. NEVER repeat a step the tech already answered or reported. Use the tech's latest result to choose the NEXT step in the section's order (or branch).
+- If the tech reports a finding that skips ahead (e.g. a fault code or an output reading), accept it and continue from that point; ask for any earlier step only if the section says it must come first.
 - Plain shop English. No preamble, no "according to the manual".
+"""
+
+CHARGE_PATH_RULES = f"""
+12V CHARGING-PATH WALK (the appliance is cleared and the tech found low battery voltage under load). Hand off to this walk.
+The WHOLE walk is [{LABEL_GENERAL}]; tag every line of it that way. Never invent model-specific specs for the appliance
+(e.g. its required voltage); if one is needed and not in the excerpt, say "spec not in the manual excerpt - confirm with the OEM".
+ C1. Have the tech MAP what is installed, source to battery: converter/charger, fuses and breakers, battery isolator/disconnect,
+     busbars, battery BMS (lithium), cable runs. Wait for the map before testing.
+ C2. VOLTAGE-DROP TEST each component IN ORDER from converter to battery, WITH CURRENT FLOWING (charging or a load on):
+     meter leads across each component (input side to output side of the same conductor), one component per line, report each reading.
+     Any single component or connection dropping noticeably more than the others is the fault; fix or replace it.
+ C3. VERIFY: after the repair, recheck voltage at the battery under charge, let the batteries charge, then rerun the original function
+     (e.g. Auto Level) and confirm it completes.
+ C4. FLAG a battery capacity test (amp-draw / Ah load test or BMS state-of-health) before release if it was not done.
+Do not recommend replacing the appliance controller/touchpad when it powered, communicated, and the voltage under load was low.
+"""
+
+ONECONTROL_COMPLAINT_RE = re.compile(
+    r"\b(slide|slides|slide-?out|awning|level\w*|jack|jacks|light|lights|tank|tanks|water\s+pump|generator|"
+    r"stabilizer|landing\s+gear|onecontrol|one\s+control|unity|x270\w*|touch\s+panel|panel)\b",
+    re.I,
+)
+
+UNITY_PATH_RULES = f"""
+ONECONTROL / UNITY PATH (selector = Yes; this complaint is a OneControl-managed load). Include these checks in order,
+merged with the pinned procedure, skipping any the tech already reported:
+ U1. Identify the controller: model (e.g. Unity X270D) and IDS part # from its label (ask for a label photo or the number).
+ U2. Controller input: battery voltage at the controller power inputs, and its dedicated fuses/breakers (amp rating and that each feed is dedicated).
+ U3. Comms: panel/app command reaches the controller (audible relay click at the controller, panel/app response).
+ U4. Output: meter on the controller's motor output terminals for that load WHILE the command is held, both directions. Good = full battery voltage that switches polarity between extend and retract. Bad = open/floating or collapses under command.
+ U5. Split controller vs. motor/wiring: if output is good at the controller but the motor does not run, test the harness/motor at the motor end (and load-test). If output is bad at the controller with good input and comms, the controller output has failed.
+ U6. After controller replacement: transfer wiring, program/pair/resync per the OneControl procedure, then VERIFY every load on that controller (slides, awning, etc.).
+Brand-specific values (voltages, amp ratings, terminal names, button sequences, part numbers) must come from a cited Lippert source in the excerpts; otherwise say "per Lippert doc - not in excerpt" and do not invent them.
+U-steps not in the excerpts are tagged [{LABEL_GENERAL}].
 """
 
 
@@ -364,8 +432,20 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
     held = [s for s, v in pin.get("checked", {}).items() if v == "not checked"]
     if held:
         sysmsg += f"\nHELD STEP (tech reported NOT CHECKED, re-ask it now before anything else): {held[-1]}\n"
+    reported = [m.get("content", "") for m in (history or []) if m.get("role") == "user"][1:] + [user_msg]
+    reported = [r for r in reported if r and not NOT_CHECKED_RE.search(r)]
+    if reported:
+        sysmsg += "\nTECH HAS REPORTED (treat as done; do NOT ask these again; move to the next step):\n- " + "\n- ".join(reported[-12:]) + "\n"
     if pin.get("needs_fault_code") and not pin.get("fault_code_asked"):
         sysmsg += "\nThis system stores fault codes: ask for the current fault code in this reply.\n"
+    if pin.get("unity_path"):
+        sysmsg += UNITY_PATH_RULES
+        if pin.get("unity_text"):
+            sysmsg += "\n===== LIPPERT ONECONTROL / UNITY REFERENCE =====\n" + pin["unity_text"] + "\n"
+    if pin.get("charge_path"):
+        sysmsg += CHARGE_PATH_RULES
+    if pin["unit"].get("model_unknown"):
+        sysmsg += "\nMODEL UNKNOWN (no tag): use only generic steps for this brand's system type; never state model-specific specs.\n"
     if hints:
         sysmsg += f"\nSHOP HINT (not a source, do not cite): {hints}\n"
     sysmsg += "\n===== FULL TROUBLESHOOTING SECTION =====\n" + pin.get("section_text", "")
@@ -417,6 +497,8 @@ def update_step_state(pin: dict, history: list, user_msg: str) -> None:
         return
     first_step = ""
     for line in last_asst.splitlines():
+        if line.strip().startswith("Using:"):
+            continue
         if re.match(r"^\s*(\d+[.)]|[-•*])\s+\S", line) or len(line.strip()) > 20:
             first_step = _TAG_RE.sub("", line).strip()
             break
@@ -432,10 +514,77 @@ def update_step_state(pin: dict, history: list, user_msg: str) -> None:
         pin["fault_code_asked"] = True
 
 
+UNITY_DOC_RE = re.compile(r"unity|onecontrol|x270", re.I)
+
+
+# Lippert official OneControl Unity Board troubleshooting manual (CCD-0002117), served from Lippert's
+# support CDN (linked from https://support.lci1.com/documents/ccd-0002117).
+LIPPERT_UNITY_REF_URL = "https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0002117.pdf"
+
+
+def _unity_docs(library, exclude_ids=()):
+    oem, shop = None, None
+    for doc in library.documents():
+        if doc["id"] in exclude_ids or _doc_brand(doc) not in ("", "lippert"):
+            continue
+        title = doc.get("title", "")
+        t = title + " " + doc.get("keywords", "")
+        if not (UNITY_DOC_RE.search(title) and re.search(r"diagnos|troubleshoot|service", t, re.I)):
+            continue
+        if re.search(r"troubleshooting and service manual", title, re.I) and not re.search(r"tacoma|primary", t, re.I):
+            oem = oem or doc
+        else:
+            score = bool(re.search(r"x270", t, re.I))
+            if shop is None or score > shop[0]:
+                shop = (score, doc)
+    return oem, (shop[1] if shop else None)
+
+
+def apply_unity_path(pin: dict, library, unity_gate: str, blob: str, exclude_ids=(), web_get=None) -> None:
+    """Selector Yes + OneControl-managed complaint: add the Unity/X270 path and Lippert Unity references."""
+    if (unity_gate or "").strip() != "Yes" or not ONECONTROL_COMPLAINT_RE.search(blob or ""):
+        return
+    pin["unity_path"] = True
+    parts, refs, pages = [], [], set(pin.get("pages") or [])
+    oem, shop = _unity_docs(library, exclude_ids)
+    for doc, kind in ((oem, "Lippert OEM"), (shop, "shop diagnostic")):
+        if not doc or doc.get("id") == pin.get("doc_id"):
+            continue
+        sect = load_section(library.chunks(doc["id"]), "unity output relay voltage fuse")
+        parts.append(f"[{kind}; source tag: {LABEL_LIBRARY}: {doc['title']}]\n" + sect["text"])
+        refs.append(doc["title"])
+        pages |= set(sect["pages"])
+    if not oem and web_get:
+        try:
+            text = web_get(LIPPERT_UNITY_REF_URL)
+        except Exception:
+            text = ""
+        if text:
+            parts.append(f"[Lippert OEM; source tag: {LABEL_WEB}: {LIPPERT_UNITY_REF_URL}]\n" + text)
+            refs.append(LIPPERT_UNITY_REF_URL)
+    pin["unity_refs"] = refs
+    pin["unity_text"] = "\n\n".join(parts)
+    pin["pages"] = sorted(pages)
+
+
+def official_pdf_text(url: str, brand: str = "lippert", http=None) -> str:
+    """Download one official-domain PDF and return its text (pages split by [PAGE n])."""
+    if not url_is_official(url, brand):
+        return ""
+    import httpx
+
+    r = (http or httpx).get(url, timeout=60, follow_redirects=True)
+    if not url_is_official(str(getattr(r, "url", url)), brand):
+        return ""
+    pages = [t for t in _pdf_text(r.content).split("\f") if t.strip()]
+    return "\n\n".join(f"[PAGE {i+1}]\n{t}" for i, t in enumerate(pages))
+
+
 def turn_cost(usage: dict) -> float:
     p = int(usage.get("prompt_tokens") or 0)
     c = int(usage.get("cached_tokens") or 0)
-    o = int(usage.get("completion_tokens") or 0)
+    # xAI chat completions report reasoning tokens apart from completion tokens; both bill as output.
+    o = int(usage.get("completion_tokens") or 0) + int(usage.get("reasoning_tokens") or 0)
     return round(((p - c) * PRICE_PER_M["input"] + c * PRICE_PER_M["cached"] + o * PRICE_PER_M["output"]) / 1e6, 5)
 
 
@@ -463,6 +612,8 @@ def official_turn(
     hints: str = "",
     log_path: str = "",
     exclude_doc_ids=(),
+    unity_gate: str = "",
+    web_get=None,
 ) -> dict:
     """One GD turn. Returns {reply, mode, pin, usage, seconds, reduced}.
 
@@ -506,9 +657,14 @@ def official_turn(
             "needs_fault_code": bool(FAULT_CODE_HINT_RE.search(sect["text"])),
             "turns": 0,
         })
+        apply_unity_path(pin, library, unity_gate, user_msg + " " + model_text + " " + category_name, exclude_doc_ids, web_get)
         pin_store["gd_pin"] = pin
     else:
         update_step_state(pin, history, user_msg)
+        if unity_gate == "Yes" and not pin.get("unity_path"):
+            apply_unity_path(pin, library, unity_gate, user_msg + " " + model_text + " " + category_name, exclude_doc_ids, web_get)
+    if not pin.get("charge_path") and LOW_V_UNDER_LOAD_RE.search(user_msg or ""):
+        pin["charge_path"] = True
     first = pin.get("turns", 0) == 0
     msgs = build_messages(pin, history, user_msg, hints)
     effort = FIRST_READ_REASONING if first else LATER_REASONING
@@ -524,7 +680,10 @@ def official_turn(
         pin["fault_code_asked"] = True
     pin["turns"] = pin.get("turns", 0) + 1
     secs = round(time.time() - t0, 2)
-    rec = {"stage": "walk", "first": first, "doc": pin["doc_title"], "mode": pin["mode"], "effort": effort,
+    ctx_chars = sum(len(m.get("content") or "") for m in msgs)
+    rec = {"stage": "walk", "first": first, "messages_sent": len(msgs), "context_chars_sent": ctx_chars,
+           "section_chars": len(pin.get("section_text") or ""), "unity_ref_chars": len(pin.get("unity_text") or ""),
+           "max_tokens": REPLY_MAX_TOKENS, "doc": pin["doc_title"], "mode": pin["mode"], "effort": effort,
            "usage": usage, "cost_usd": turn_cost(usage) if usage else None, "seconds": secs}
     log_turn(log_path, rec)
-    return {"reply": reply, "mode": pin["mode"], "pin": pin, "usage": usage, "seconds": secs, "reduced": reduced, "cost_usd": rec["cost_usd"]}
+    return {"reply": reply, "mode": pin["mode"], "pin": pin, "usage": usage, "seconds": secs, "reduced": reduced, "cost_usd": rec["cost_usd"], "context_chars_sent": ctx_chars}

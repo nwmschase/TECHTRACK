@@ -83,6 +83,8 @@ class TestPin(unittest.TestCase):
         self.assertTrue(go.url_is_official("https://corporate.lippert.com/a.pdf", "lippert"))
         self.assertFalse(go.url_is_official("https://www.manualslib.com/a.pdf", "lippert"))
         self.assertFalse(go.url_is_official("https://lci1.com.evil.net/a.pdf", "lippert"))
+        self.assertTrue(go.url_is_official(go.LIPPERT_UNITY_REF_URL, "lippert"))
+        self.assertFalse(go.url_is_official("https://other-bucket.s3.amazonaws.com/a.pdf", "lippert"))
 
 
 class TestSectionAndWalk(unittest.TestCase):
@@ -126,6 +128,37 @@ class TestSectionAndWalk(unittest.TestCase):
     def test_verify_after_repair(self):
         self.assertIn("VERIFY", go.ensure_verify("1. Perform zero point calibration."))
         self.assertEqual(go.ensure_verify("1. Verify it levels."), "1. Verify it levels.")
+
+    def test_unity_selector_drives_path(self):
+        lib = FakeLib(LIB.documents() + [_doc(9, "PRIMARY Lippert OneControl Unity Board Diagnostic", "", "", "X270D")],
+                      {**LIB._c, 9: [{"page": 1, "text": "Troubleshooting. BAT1 BAT2 30A. Output polarity diagnose. " * 20}]})
+        chat = _chat("1. Read the controller label [General trade knowledge]")
+        store = {}
+        go.official_turn("awning will not extend", "Awnings", GC, [], library=lib, chat_fn=chat, pin_store=store, unity_gate="Yes")
+        sysmsg = chat.calls[0][0][0]["content"]
+        self.assertIn("ONECONTROL / UNITY PATH", sysmsg)
+        self.assertIn("polarity", sysmsg)
+        self.assertIn("PRIMARY Lippert OneControl Unity Board Diagnostic", sysmsg)
+        store2, chat2 = {}, _chat("x")
+        go.official_turn("awning will not extend", "Awnings", GC, [], library=lib, chat_fn=chat2, pin_store=store2, unity_gate="No")
+        self.assertNotIn("ONECONTROL / UNITY PATH", chat2.calls[0][0][0]["content"])
+
+    def test_charge_path_handoff_and_no_tag_unit(self):
+        u = go.identify_unit([], "", "", "BAL touchscreen leveling (no model tag found)")
+        self.assertTrue(u["identified"])
+        self.assertTrue(u["model_unknown"])
+        lib = FakeLib([_doc(5, "BAL Electric Leveling System Touch Screen Diagnostic Form", "BAL")],
+                      {5: [{"page": 1, "text": "Troubleshooting touch screen diagnostic. " * 60}]})
+        chat, store = _chat("1. Map the charge path [General trade knowledge]"), {}
+        model = "BAL touchscreen leveling (no model tag found)"
+        go.official_turn("leveling intermittent", "Leveling", model, [], library=lib, chat_fn=chat, pin_store=store)
+        self.assertNotIn("12V CHARGING-PATH WALK", chat.calls[0][0][0]["content"])
+        hist = [{"role": "user", "content": "leveling intermittent"}, {"role": "assistant", "content": "1. Check comms"}]
+        go.official_turn("Battery voltage dropped heavily under load.", "Leveling", model, hist, library=lib, chat_fn=chat, pin_store=store)
+        sysmsg = chat.calls[1][0][0]["content"]
+        self.assertIn("12V CHARGING-PATH WALK", sysmsg)
+        self.assertIn("battery capacity test", sysmsg)
+        self.assertIn("MODEL UNKNOWN", sysmsg)
 
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
