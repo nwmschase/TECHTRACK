@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.63
+RV TechTrack v4.19.64
+- v4.19.64: One manual selector for every search (GD and the library/Bay search): an exact model number from the model field, complaint or label wins outright; category product type and brand are hard filters, so another product's or brand's manual is never pinned; "No <brand> <model> <type> manual found" counts as not found and the official web lookup runs. Label/diagram text and photos drive the walk. The warranty story records the final correction.
 - v4.19.63: Guided Diagnostics official method (GD_OFFICIAL_METHOD=True). GD identifies the unit, pins its own-brand manual (library, then official OEM sites), reads the full troubleshooting section, and walks the tech one labeled step at a time. Verify the complaint first or call No Problem Found. Reported facts are never asked again. The Unity selector drives the OneControl controller path. Warranty-shop OEM escalation with a findings block. The warranty story is built from recorded readings only. Groq fallback is labeled reduced mode.
 - v4.19.57: The live Thetford library path keeps every flowchart repair: supply connection, vacuum breaker, water valve, and flange seal. A retrieved figure no longer replaces those branches or pastes the How template into a reply. The supply connection is named in plain words, and a figure caption uses the cited page. Tools come from the kit sheet. A Bad line names a real failure or stays off. The Do Not list stays on this leak. Version stamp so this deploy is distinct from v4.19.56.
 - v4.19.56: Live v4.19.55 is reverted. Shop behavior is known-good-v41954 again. Version stamp so this deploy is distinct from v4.19.55.
@@ -231,7 +232,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.63"
+_GDC_REQUIRED_REVISION = "v4.19.64"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.

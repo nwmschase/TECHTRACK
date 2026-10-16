@@ -14,7 +14,7 @@ for did, d in docs.items():
     import re
     allm = [m.strip() for m in (d.get("models") or "").split(";") if m.strip() and any(ch.isdigit() for ch in m)]
     # Capacity ratings / series names in the models field are not model numbers (e.g. '6,000 lb', '8K', '2000 Series').
-    models = [m for m in allm if not re.search(r"\blb\b|series|^\d+k$|^\d[\d,]*$", m, re.I)]
+    models = [m for m in allm if not re.search(r"\d[\d,.]*\s*-?\s*(lbs?|pounds?)\b|series|^\d+k$|^\d[\d,]*$|^[a-z]-?\d$", m, re.I)]
     if not models:
         if allm:
             skipped.append((did, allm[0]))
