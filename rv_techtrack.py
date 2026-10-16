@@ -7452,6 +7452,14 @@ if is_manager and tab_mgr is not None:
                     type="primary",
                 )
 
+        with st.expander("🗂️ Library category fixes (dry run first)", expanded=False):
+            import library_category_fix as _catfix
+
+            _catfix.render_manager_panel(
+                st,
+                raw_connection=lambda: engine.raw_connection(),
+                backup_db=lambda: maybe_backup_db_to_r2(force=True),
+            )
         with st.expander("💾 Database Backup & Restore", expanded=True):
             last_ok = st.session_state.get("_db_backup_ok")
             last_n = st.session_state.get("_db_backup_docs")
