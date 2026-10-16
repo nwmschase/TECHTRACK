@@ -466,6 +466,10 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += NPF_RULE
     if pin.get("unity_mode") == "identify":
         sysmsg += UNITY_NOT_SURE_RULE
+    if pin.get("unavailable"):
+        sysmsg += ("\nSTEPS THE TECH COULD NOT DO (never ask them again): \n- " + "\n- ".join(pin["unavailable"][-6:]) +
+                   "\nUse an alternate test that isolates the same thing, or move to the next step. If the results already isolate the fault "
+                   "(e.g. motor runs on direct 12 V, wiring good, no output from the controller/panel), give the repair now.\n")
     reported = [m.get("content", "") for m in (history or []) if m.get("role") == "user"][1:] + [user_msg]
     reported = [r for r in reported if r and not NOT_CHECKED_RE.search(r)]
     if reported:
@@ -639,7 +643,25 @@ ASK_PATTERNS = {
 }
 
 
+UNAVAILABLE_RE = re.compile(r"\b(not\s+recorded|can.?t\s+(get|do|measure|reach|access)|unable\s+to|no\s+way\s+to|don.?t\s+have\s+(a|the)|n/?a\b|not\s+available)", re.I)
+
+
+def _norm_step(text: str) -> str:
+    lines = [l for l in (text or "").splitlines() if l.strip() and not l.startswith(("Safety first", "Using:", "No manual"))]
+    return re.sub(r"[^a-z0-9]+", " ", " ".join(lines).lower()).strip()
+
+
+def is_repeat(reply: str, history: list) -> bool:
+    prev = [m.get("content", "") for m in (history or []) if m.get("role") == "assistant"][-1:]
+    if not prev:
+        return False
+    a, b = set(_norm_step(reply).split()), set(_norm_step(prev[0]).split())
+    return bool(a) and len(a & b) / max(1, len(a | b)) > 0.8
+
+
 def record_facts(pin: dict, user_msg: str) -> None:
+    if user_msg and UNAVAILABLE_RE.search(user_msg):
+        pin.setdefault("unavailable", []).append(user_msg.strip()[:300])
     if not user_msg or NOT_CHECKED_RE.search(user_msg):
         return
     facts = pin.setdefault("facts", {})
@@ -770,6 +792,21 @@ def official_turn(
     reduced = False
     reply = chat_fn(msgs, REPLY_MAX_TOKENS, effort)
     usage = usage_fn() if usage_fn else {}
+    if is_repeat(reply, history):
+        pin["repeats"] = pin.get("repeats", 0) + 1
+        retry = msgs + [{"role": "assistant", "content": reply},
+                            {"role": "user", "content": "You repeated your previous step word for word. The tech already answered it. "
+                             "Do NOT repeat it. Give the next different step, or the repair if the evidence already isolates the fault."}]
+        try:
+            again = chat_fn(retry, REPLY_MAX_TOKENS, LATER_REASONING)
+            u2 = usage_fn() if usage_fn else {}
+            usage = {k: (usage.get(k, 0) + u2.get(k, 0)) if isinstance(u2.get(k), int) else u2.get(k, usage.get(k))
+                     for k in set(usage) | set(u2)}
+            usage["repeat_retry"] = True
+            if again and again.strip() and not is_repeat(again, history):
+                reply = again.strip()
+        except Exception:
+            pass
     reply = drop_reasks(reply, pin)
     reply = enforce_labels(reply, pin)
     reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
