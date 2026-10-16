@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.63
+RV TechTrack v4.19.64
+- v4.19.64: One manual selector for every search (GD and the library/Bay search): an exact model number from the model field, complaint or label wins outright; category product type and brand are hard filters, so another product's or brand's manual is never pinned; "No <brand> <model> <type> manual found" counts as not found and the official web lookup runs. Label/diagram text and photos drive the walk. The warranty story records the final correction.
 - v4.19.63: Guided Diagnostics official method (GD_OFFICIAL_METHOD=True). GD identifies the unit, pins its own-brand manual (library, then official OEM sites), reads the full troubleshooting section, and walks the tech one labeled step at a time. Verify the complaint first or call No Problem Found. Reported facts are never asked again. The Unity selector drives the OneControl controller path. Warranty-shop OEM escalation with a findings block. The warranty story is built from recorded readings only. Groq fallback is labeled reduced mode.
 - v4.19.57: The live Thetford library path keeps every flowchart repair: supply connection, vacuum breaker, water valve, and flange seal. A retrieved figure no longer replaces those branches or pastes the How template into a reply. The supply connection is named in plain words, and a figure caption uses the cited page. Tools come from the kit sheet. A Bad line names a real failure or stays off. The Do Not list stays on this leak. Version stamp so this deploy is distinct from v4.19.56.
 - v4.19.56: Live v4.19.55 is reverted. Shop behavior is known-good-v41954 again. Version stamp so this deploy is distinct from v4.19.55.
@@ -231,7 +232,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.63"
+_GDC_REQUIRED_REVISION = "v4.19.64"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
@@ -5224,8 +5225,19 @@ def guided_diagnostics_reply(
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
-    if GD_OFFICIAL_METHOD and ai_available() and photo_review is None and not (photo and photo[0]):
-        official = _gd_official_reply(user_msg, category_name, model_text, history, unity_gate, pin_store)
+    if GD_OFFICIAL_METHOD and ai_available():
+        official_msg = user_msg
+        if photo_review is None and photo and photo[0]:
+            # Label / circuit-diagram photos feed the official walk (RC30): the photo read becomes part of what the tech reported.
+            try:
+                import gd_step_photo as _photos
+                photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", "", user_msg)
+            except Exception:
+                photo_review = None
+        sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
+        if sees:
+            official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
+        official = _gd_official_reply(official_msg, category_name, model_text, history, unity_gate, pin_store)
         if official is not None:
             return official, None
     if photo_review is None and photo and photo[0]:
@@ -5354,6 +5366,28 @@ def _ask_chat_transcript(history: list) -> str:
         label = "Tech" if role == "user" else "Guided Diagnostics"
         lines.append(f"{label}: {content}")
     return "\n\n".join(lines)
+
+
+def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit):
+    """Every library search (GD reduced mode, Bay PDF) obeys the ONE selector, gd_official.select_manual:
+    exact model first, product-type and brand hard filters, never another product's manual. Returns (chunks, miss_line)."""
+    try:
+        import gd_official as _go
+
+        unit = _go.identify_unit([], symptom or "", category_name or "", model_text or "")
+        if not unit.get("brand") and not _go.model_keys(unit):
+            return chunks, ""  # nothing to select on: legacy keyword search stands
+        sel = _go.select_manual(_go.OrmLibrary(session, Document, DocChunk), unit)
+        doc = sel.get("doc")
+        if not doc:
+            return [], sel.get("miss_line") or ""
+        mine = [c for c in (chunks or []) if int(getattr(c, "document_id", 0) or 0) == int(doc["id"])]
+        if not mine:
+            mine = (session.query(DocChunk).filter(DocChunk.document_id == doc["id"])
+                    .order_by(DocChunk.page, DocChunk.id).limit(max(int(limit or 8), 8)).all())
+        return mine, ""
+    except Exception:
+        return chunks, ""
 
 
 def _ask_manual_context(
@@ -5496,8 +5530,11 @@ def _ask_manual_context(
         honesty = format_water_heater_library_honesty(list_library_catalog_docs(), chunks)
         if skip_wh_unity and not chunks:
             return [], honesty
+    chunks, miss = _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit)
+    if miss:
+        honesty = (honesty + "\n" if honesty else "") + miss + " - use the unit label or labeled general trade knowledge."
     if not chunks:
-        return [], ""
+        return [], honesty or ""
     parts = []
     for i, ch in enumerate(chunks, 1):
         label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"

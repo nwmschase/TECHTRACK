@@ -9,3 +9,6 @@ GD-PROFILE.md and PDF-PROFILE.md are the standard. Every change is recorded in P
 5. Leader then confirms with a message that starts with "✅ PROFILE UPDATED: GD vX.Y / PDF vX.Y" and a one-line summary.
 6. TT never edits a profile. TT flags conflicts to Leader.
 Each gate review checks the output against the profiles.
+
+## Change log
+- 2026-10-16 3:31 PM - Dev rule (GD + PDF): every fix starts with a written ROOT CAUSE analysis and fixes the root, never a one-case patch; every fix report and debrief opens with a ROOT CAUSE section. Chase-approved 2026-10-16 via Leader. (Row added to PROFILE-CHANGE-LOG.md.)
