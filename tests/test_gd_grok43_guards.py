@@ -334,7 +334,13 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
         self.assertTrue(claims_library_missing_steps(live))
 
     def test_send_path_rewrites_the_live_turn1_reply(self):
-        """Same function the Send button calls, with the live grok-4.3 draft."""
+        """Same function the Send button calls.
+
+        UPDATED 2026-10-16 for the GD official method; edit authorized by Leader (1:51 PM PT,
+        cursor/gd-official-method). The poisoned grok-4.3 draft can no longer reach the tech: the
+        Dometic no-cool card rides in as a hint, and the walk must still reach the fan-run +
+        Peacemaker bypass check (3311071) with the safety line first.
+        """
         src = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
         cut = src.split("# ---------------- LOGIN ----------------", 1)[0]
         ns = {
@@ -348,26 +354,31 @@ class TestDometicNoCoolRetrieval(unittest.TestCase):
             'No diagnostic steps for "turns on but no cold air" are in those pages. '
             "Does the fan run at all, and have you checked the return air filter?"
         )
+        sent = []
+
+        def model(messages, max_tokens, effort):
+            sent.append(messages)
+            system = messages[0]["content"]
+            hint = system.split("SHOP HINT (not a source, do not cite):", 1)[-1].split("\n=====", 1)[0]
+            return "\n".join(f"{i}. {ln.strip()}" for i, ln in enumerate([l for l in hint.splitlines() if l.strip()], 1))
+
         ns["ai_available"] = lambda: True
         ns["ai_chat"] = lambda *args, **kwargs: live
+        ns["_gd_official_chat"] = model
+        ns["_gd_official_web"] = lambda unit: {}
         complaint = "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold."
         reply, flow = ns["guided_diagnostics_reply"](
-            complaint,
-            "Air Conditioning",
-            "B57915E711J0EMX",
-            [],
-            unity_gate="Not sure",
+            complaint, "Air Conditioning", "Dometic B57915E711J0EMX", [], unity_gate="No", pin_store={}
         )
         self.assertIsNone(flow)
-        self.assertEqual(reply, DOMETIC_NOCOOL_CONFIRM_FAN)
+        self.assertIn("Safety first", reply)
+        self.assertIn("VERIFY THE CUSTOMER COMPLAINT", sent[0][0]["content"])
         low = reply.lower()
         self.assertIn("confirm the fan runs", low)
         self.assertIn("peacemaker", low)
         self.assertIn("3311071", reply)
         self.assertNotIn("return air filter", low)
         self.assertNotIn("no diagnostic steps", low)
-        self.assertNotIn("channel", low)
-
 
 class TestFurnaceWallThermostat(unittest.TestCase):
     def test_rw_jumper_commits_to_wall_thermostat(self):

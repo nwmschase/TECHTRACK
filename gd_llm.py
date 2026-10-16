@@ -18,7 +18,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.57"
+MODULE_REVISION = "v4.19.63"
 
 # Guided Diagnostics ask turns. A lower token cap and a low xAI reasoning
 # effort keep a shop turn from sitting on a long reasoning pass.
@@ -97,6 +97,32 @@ class LLMTimeoutError(TimeoutError):
 TIMEOUT_RETRY_SENTENCE = (
     "The AI took too long and was stopped. Send the same message again."
 )
+
+
+_last_usage: dict = {}
+
+
+def _record_usage(response, model: str = "") -> None:
+    """Keep token counts from the last completion for GD cost logging."""
+    global _last_usage
+    try:
+        u = getattr(response, "usage", None)
+        details = getattr(u, "prompt_tokens_details", None)
+        out_details = getattr(u, "completion_tokens_details", None)
+        _last_usage = {
+            "model": model or "",
+            "prompt_tokens": int(getattr(u, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(u, "completion_tokens", 0) or 0),
+            "cached_tokens": int(getattr(details, "cached_tokens", 0) or 0) if details else 0,
+            "reasoning_tokens": int(getattr(out_details, "reasoning_tokens", 0) or 0) if out_details else 0,
+        }
+    except Exception:
+        _last_usage = {"model": model or ""}
+
+
+def last_usage() -> dict:
+    """Token usage from the last successful completion (may be empty)."""
+    return dict(_last_usage)
 
 
 def last_provider() -> str:
@@ -316,6 +342,7 @@ def _completion_text(
         if extra_body:
             kwargs["extra_body"] = extra_body
         response = client.chat.completions.create(**kwargs)
+        _record_usage(response, model)
         content = response.choices[0].message.content
         return (content or "").strip()
 

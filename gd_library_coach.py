@@ -18,7 +18,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.19.57"
+COACH_REVISION = "v4.19.63"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -2973,6 +2973,7 @@ SHOP_BRAND_TOKENS = (
     "wfco", "progressive dynamics", "power gear", "schwintek", "carefree",
     "intelli-power", "pd", "on-an", "onan", "generac", "winegard", "girard",
     "coleman", "airxcel", "thetford", "happijac", "happi jac",
+    "maxxair", "maxx air", "maxxfan", "maxx fan",
 )
 _THETFORD_UNIT_RE = re.compile(r"\bthetford\b|\b42070\b|style\s*ii", re.I)
 _TOILET_JOB_RE = re.compile(
@@ -3009,10 +3010,17 @@ _BRAND_DISPLAY = {
     "power gear": "Power Gear",
     "intelli-power": "Intelli-Power",
     "pd": "PD",
+    "maxxair": "MaxxAir",
 }
 BRAND_CANON = {
     "airxcel": "coleman",
     "coleman": "coleman",
+    # MaxxAir (Airxcel) roof fans are their own brand. A Coleman-Mach AC book is
+    # not a MaxxFan source, and a MaxxFan manual is not a Coleman AC source.
+    "maxxair": "maxxair",
+    "maxx air": "maxxair",
+    "maxxfan": "maxxair",
+    "maxx fan": "maxxair",
 }
 COLEMAN_LIBRARY_NEEDLES = (
     "coleman", "airxcel", "1976-536", "1976-603", "1976-695",
@@ -3031,8 +3039,59 @@ def named_shop_brands(*texts: str) -> list:
 
 
 def canonical_shop_brands(*texts: str) -> set:
-    """Collapse maker aliases (Airxcel and Coleman-Mach) to one brand id."""
-    return {BRAND_CANON.get(b, b) for b in named_shop_brands(*texts)}
+    """Collapse maker aliases (Airxcel and Coleman-Mach) to one brand id.
+
+    "Airxcel" on a MaxxAir / MaxxFan page names the parent company, not
+    Coleman-Mach, so it does not add Coleman when MaxxAir is also named.
+    """
+    found = named_shop_brands(*texts)
+    canon = {BRAND_CANON.get(b, b) for b in found}
+    if "maxxair" in canon and "coleman" in canon and "coleman" not in found:
+        canon.discard("coleman")
+    return canon
+
+
+_UNIT_WORD_RE = re.compile(r"[a-z0-9][a-z0-9\-]*", re.I)
+_UNIT_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "unit", "model", "series", "rv", "12v", "120v",
+})
+
+
+def unit_identity_words(model_text: str = "") -> set:
+    """Words from the typed unit that can tie a library page to it.
+
+    Model numbers (anything with a digit, 3+ characters) and words of 4+
+    letters. Brand-only shop tokens are kept; they are what the page must name.
+    """
+    words = set()
+    for tok in _UNIT_WORD_RE.findall((model_text or "").lower()):
+        tok = tok.strip("-")
+        if tok in _UNIT_STOPWORDS:
+            continue
+        if re.search(r"\d", tok) and len(tok) >= 3:
+            words.add(tok)
+        elif len(tok) >= 4:
+            words.add(tok)
+    return words
+
+
+def unnamed_unit_page_allowed(model_text: str = "", identity: str = "") -> bool:
+    """Same-brand guard for a typed unit whose brand is not on the shop list.
+
+    With no recognised brand, a page that names a shop brand is kept only when
+    it also names a word or model number from the typed unit. An unknown-brand
+    unit (for example a new maker typed in the model box) therefore cannot be
+    answered or cited from another brand's manual. An empty unit field keeps
+    the old behaviour, and an unbranded page is never dropped here.
+    """
+    words = unit_identity_words(model_text)
+    if not words:
+        return True
+    ident = (identity or "").lower()
+    if not named_shop_brands(ident):
+        return True
+    ident_words = set(_UNIT_WORD_RE.findall(ident))
+    return bool(words & ident_words)
 
 
 def symptom_for_brand_detect(symptom: str) -> str:
@@ -4951,7 +5010,31 @@ def _unmatched_unit_line(
         return ""
     if _case_doc_cited(prior, current, chunks=chunks, brand=brand, model_text=model_text):
         return ""
+    if _case_has_brand_page(chunks=chunks, brand=brand):
+        # This turn retrieved the unit's own manual. "No {brand} document" would
+        # contradict the same-brand 📖 cite the reply carries.
+        return ""
     return library_miss_shop_line(brand)
+
+
+def _case_has_brand_page(chunks=None, brand: str = "") -> bool:
+    """True when a retrieved page for this case is the typed brand's own document.
+
+    Only a real brand counts (not "this brand" / "toilet"), and the match is on
+    the page identity (title, brand, filename, doc number), never the excerpt.
+    """
+    brand_l = (brand or "").strip().lower()
+    if not brand_l or brand_l in {"this brand", "toilet"}:
+        return False
+    docs = list(chunks) if chunks is not None else list(_CASE_CHUNKS.get() or ())
+    want = canonical_shop_brands(brand_l)
+    for chunk in docs:
+        ident = _chunk_identity(chunk)
+        if want and want & canonical_shop_brands(ident):
+            return True
+        if not want and brand_l in (ident or "").lower():
+            return True
+    return False
 
 
 def library_miss_reply_for_turn(

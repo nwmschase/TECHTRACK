@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.57
+RV TechTrack v4.19.63
+- v4.19.63: Guided Diagnostics official method (GD_OFFICIAL_METHOD=True). GD identifies the unit, pins its own-brand manual (library, then official OEM sites), reads the full troubleshooting section, and walks the tech one labeled step at a time. Verify the complaint first or call No Problem Found. Reported facts are never asked again. The Unity selector drives the OneControl controller path. Warranty-shop OEM escalation with a findings block. The warranty story is built from recorded readings only. Groq fallback is labeled reduced mode.
 - v4.19.57: The live Thetford library path keeps every flowchart repair: supply connection, vacuum breaker, water valve, and flange seal. A retrieved figure no longer replaces those branches or pastes the How template into a reply. The supply connection is named in plain words, and a figure caption uses the cited page. Tools come from the kit sheet. A Bad line names a real failure or stays off. The Do Not list stays on this leak. Version stamp so this deploy is distinct from v4.19.56.
 - v4.19.56: Live v4.19.55 is reverted. Shop behavior is known-good-v41954 again. Version stamp so this deploy is distinct from v4.19.55.
 - v4.19.55: Thetford HOW is one action per line, including the pedal grab and the pedal pull. A cited page with no figure shows that page image. Each step names its own bad look, or the Bad line is left off. A failed R2 upload does not count as stored, and Index status shows page-image and figure counts. Each Bay figure sits under the step that cites it, centered at 75% of the page width, and stays on that step's page. Guided Diagnostics replies are plain sentences with no label block and no step counter, and a manual figure appears only when the tech asks. The Bay PDF keeps the diagnosis flowchart, then a numbered branch for each repair. Established profiles v1.0 are in docs/profiles. Each repair branch has Before you start with the safety note once, numbered Removal and Installation, and a verify step with a pass or fail. A Guided Diagnostics photo is asked only when it would help. Version stamp so this deploy is distinct from v4.19.54.
@@ -230,7 +231,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.57"
+_GDC_REQUIRED_REVISION = "v4.19.63"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
@@ -2400,6 +2401,26 @@ def search_manual_chunks(
                 all_chunks = []
     else:
         all_chunks = [ch for ch in all_chunks if _brand_keep(ch)]
+        # Unrecognised brand on a typed unit: another maker's manual is not a
+        # source for it. Better a library miss than a wrong-brand cite.
+        all_chunks = [
+            ch for ch in all_chunks
+            if _gdc.unnamed_unit_page_allowed(
+                model_text or "",
+                " ".join(
+                    part for part in (
+                        ch.title or "",
+                        getattr(ch, "keywords", "") or "",
+                        _gdc.library_filename_words(getattr(ch, "_lookup_file_path", "") or ""),
+                        getattr(ch, "_lookup_brand", "") or "",
+                        getattr(ch, "_lookup_models", "") or "",
+                        getattr(ch, "_lookup_clean_title", "") or "",
+                        getattr(ch, "_lookup_product_line", "") or "",
+                        getattr(ch, "_lookup_doc_number", "") or "",
+                    ) if part
+                ),
+            )
+        ]
     all_chunks = _gdc.filter_chunks_for_unit(all_chunks, "", model_text or "", symptom or "")
     if not all_chunks:
         return []
@@ -3179,6 +3200,95 @@ def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
             chunks.append(ch)
             have.add(key)
     return chunks
+
+
+MAXXFAN_REMOTE_TERMS = (
+    "low battery", "power bars", "transmission signal", "transmit",
+    "beep sound from the", "signal from the remote", "ir receiver",
+    "ir sensor", "aim remote", "aaa batteries", "line of sight",
+)
+MAXXFAN_REMOTE_GUIDE_DOC = "11f90000k"
+MAXXFAN_REMOTE_GUIDE_PAGE = 9
+
+
+def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
+    """MaxxFan handheld-remote complaint: put the unit's own remote-check pages first.
+
+    Pulls windows from the MaxxAir documents already retrieved this turn that
+    carry the OEM remote checks (low-battery bars, transmit symbol, fan beep,
+    IR receiver, aim at ceiling unit). Same-brand only: no other document is added.
+    """
+    chunks = list(chunks or [])
+    if _gdc.asked_brands_for_lookup("", model_text or "", user_msg or "") != {"maxxair"}:
+        return chunks
+    if "remote" not in (user_msg or "").lower():
+        return chunks
+    doc_ids = {
+        getattr(ch, "document_id", None)
+        for ch in chunks
+        if "maxxair" in _gdc.canonical_shop_brands(
+            getattr(ch, "title", "") or "", getattr(ch, "_lookup_brand", "") or ""
+        )
+    }
+    doc_ids.discard(None)
+    if not doc_ids:
+        return chunks
+    # Other MaxxAir library docs (for example the manufacturer-site IR FAQ) are
+    # the same brand, so they may join even when this turn's search missed them.
+    try:
+        for doc in session.query(Document).filter(Document.brand.ilike("maxxair")).all():
+            doc_ids.add(doc.id)
+    except Exception:
+        pass
+    try:
+        pool = session.query(DocChunk).filter(DocChunk.document_id.in_(list(doc_ids))).all()
+    except Exception:
+        pool = []
+
+    def _is_maxxfan_p9_check(ch) -> bool:
+        if int(getattr(ch, "page", 0) or 0) != MAXXFAN_REMOTE_GUIDE_PAGE:
+            return False
+        ident = f"{getattr(ch, 'title', '') or ''} {getattr(ch, '_lookup_doc_number', '') or ''} {getattr(ch, '_lookup_file_path', '') or ''}".lower()
+        if MAXXFAN_REMOTE_GUIDE_DOC not in ident:
+            try:
+                doc = session.query(Document).get(ch.document_id)
+                ident += f" {doc.title or ''} {doc.doc_number or ''} {doc.file_path or ''}".lower() if doc else ""
+            except Exception:
+                pass
+        return MAXXFAN_REMOTE_GUIDE_DOC in ident and "low battery" in (ch.chunk_text or "").lower()
+
+    def hits(ch) -> int:
+        low = (getattr(ch, "chunk_text", "") or "").lower()
+        return sum(1 for term in MAXXFAN_REMOTE_TERMS if term in low)
+
+    model_nums = re.findall(r"\b\d{4}k\b", (model_text or "").lower())
+    # A page whose remote guide names this model (4501K -> p9) outranks a sister model's page.
+    model_pages = {
+        (ch.document_id, int(ch.page or 0))
+        for ch in pool
+        if any(num in (ch.chunk_text or "").lower() for num in model_nums)
+        and "remote" in (ch.chunk_text or "").lower()
+    }
+    extra = sorted(
+        [ch for ch in pool if hits(ch) > 0],
+        key=lambda ch: (
+            # 11F90000K p9 (battery bars, transmit symbol, fan beep) leads for any remote complaint.
+            -(1 if _is_maxxfan_p9_check(ch) else 0),
+            -(1 if "line of sight" in (ch.chunk_text or "").lower() else 0),
+            -(1 if (ch.document_id, int(ch.page or 0)) in model_pages else 0),
+            -hits(ch),
+            int(ch.page or 0),
+        ),
+    )
+    seen = set()
+    out = []
+    for ch in extra + chunks:
+        key = (getattr(ch, "document_id", None), getattr(ch, "page", None), (getattr(ch, "chunk_text", "") or "")[:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ch)
+    return out[: max(limit, 6)]
 
 
 def supplement_ice_moisture_pages(chunks, model_text: str, user_msg: str):
@@ -5018,6 +5128,84 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     return ((reply or "").rstrip() + "\n\n" + "\n".join(extra)).strip()
 
 
+# ---------------- GD OFFICIAL METHOD (Chase approved 2026-10-16) ----------------
+GD_OFFICIAL_METHOD = True
+GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
+REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
+# Test hooks: replay tests set these to stay offline. None = live xAI.
+_gd_official_chat = None
+_gd_official_web = None
+
+
+def _gd_legacy_hint(history, user_msg, category_name, model_text) -> str:
+    """Hard-coded job branches yield to the step walk; their key line is a hint only."""
+    try:
+        key = _gdc._job_key(history, user_msg, category_name, model_text) or ""
+    except Exception:
+        key = ""
+    if key == "dometic":
+        return getattr(_gdc, "DOMETIC_NOCOOL_CONFIRM_FAN", "")
+    if key == "leadjack":
+        try:
+            step = _gdc.ensure_level_up_lead_jack_reply("", history, user_msg, category_name, model_text)
+            # Whole shop path: coil -> plumbing -> override screw -> cartridge (with its manual page).
+            return (step + "\n" + getattr(_gdc, "LEADJACK_CARTRIDGE_LINE", "")).strip()
+        except Exception:
+            return ""
+    return f"legacy job branch: {key}" if key else ""
+
+
+def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate="", pin_store=None):
+    import gd_official as _go
+
+    if pin_store is None:
+        try:
+            pin_store = st.session_state.setdefault("gd_pin_store", {})
+        except Exception:
+            pin_store = {}
+    library = _go.OrmLibrary(session, Document, DocChunk)
+
+    def chat_fn(messages, max_tokens, effort):
+        if _gd_official_chat is not None:
+            return _gd_official_chat(messages, max_tokens, effort)
+        return gd_llm.complete_chat(
+            messages, temperature=0.2, max_tokens=max_tokens, secret_fn=_secret,
+            reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI],
+        )
+
+    def web_fn(unit):
+        if _gd_official_web is not None:
+            return _gd_official_web(unit)
+        key = _secret("XAI_API_KEY") or ""
+        return _go.fetch_official_manual(unit, key) if key else {}
+
+    try:
+        result = _go.official_turn(
+            user_msg, category_name, model_text, history,
+            library=library, chat_fn=chat_fn, pin_store=pin_store,
+            usage_fn=gd_llm.last_usage, web_fetch_fn=web_fn,
+            hints=_gd_legacy_hint(history, user_msg, category_name, model_text),
+            log_path=GD_USAGE_LOG,
+            unity_gate=unity_gate,
+            web_get=(lambda url: "") if _gd_official_web is not None else _go.official_pdf_text,
+        )
+    except Exception:
+        # Primary model failed: legacy coach on the fallback, labeled reduced mode.
+        try:
+            reply = ask_techtrack_reply(user_msg, category_name, model_text, history,
+                                        unity_gate=unity_gate, extra_system_rule=OPEN_LIBRARY_COACH_RULE)
+        except Exception as exc:
+            return f"The AI could not answer ({exc}). Send the same message again."
+        return REDUCED_MODE_LINE + "\n" + rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
+    pin = result.get("pin") or {}
+    if pin.get("doc_id"):
+        try:
+            record_cited_pages(f"📖 Source: {pin.get('doc_title')} - page {pin['pages'][0]}")
+        except Exception:
+            pass
+    return rewrite_shop_channel_words(result["reply"])
+
+
 def guided_diagnostics_reply(
     user_msg: str,
     category_name: str,
@@ -5027,13 +5215,19 @@ def guided_diagnostics_reply(
     ask_flow: dict = None,
     photo: tuple | None = None,
     photo_review: dict | None = None,
+    pin_store: dict | None = None,
 ):
     """
-    Open library coach is the product path.
+    Official method (gd_official) is the product path when GD_OFFICIAL_METHOD is on.
+    Open library coach is the reduced-mode fallback.
     Hard trees do not drive GD chat. Never 'path complete'. Never re-ask stated facts.
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
+    if GD_OFFICIAL_METHOD and ai_available() and photo_review is None and not (photo and photo[0]):
+        official = _gd_official_reply(user_msg, category_name, model_text, history, unity_gate, pin_store)
+        if official is not None:
+            return official, None
     if photo_review is None and photo and photo[0]:
         import gd_step_photo as _photos
 
@@ -5260,6 +5454,8 @@ def _ask_manual_context(
         chunks = rank_chunks_for_stabilizer_override(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
+    else:
+        chunks = supplement_maxxfan_remote_pages(chunks, model_text, figure_query or symptom, limit=limit)
     honesty = ""
     if level_up:
         chunks = drop_unity_chunks_for_level_up(chunks)
@@ -5717,6 +5913,15 @@ def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, hist
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
+    # Rule 10: on the official GD path the story comes from the session's recorded facts only.
+    if GD_OFFICIAL_METHOD:
+        try:
+            import gd_official as _go
+            _pin = (st.session_state.get("gd_pin_store") or {}).get("gd_pin")
+            if _pin:
+                return _go.warranty_story(_pin, history, model_text)
+        except Exception:
+            pass
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
     tech_lines = []
     coach_lines = []
@@ -6316,6 +6521,7 @@ with tab_ask:
     if st.session_state.pop("ask_clear_model", False):
         st.session_state["ask_model"] = ""
         st.session_state["gd_model_memory"] = ""
+        st.session_state.pop("gd_pin_store", None)
     _restore_widget("ask_model", "gd_model_memory")
     _restore_widget("ask_unity_gate", "gd_unity_memory", ["Not sure", "Yes", "No"])
     c1, c2 = st.columns(2)
@@ -6477,6 +6683,7 @@ with tab_ask:
                     unity_gate=unity_gate,
                     ask_flow=st.session_state.get("ask_flow"),
                     photo_review=photo_review,
+                    pin_store=st.session_state.setdefault("gd_pin_store", {}),
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
