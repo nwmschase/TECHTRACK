@@ -99,6 +99,32 @@ TIMEOUT_RETRY_SENTENCE = (
 )
 
 
+_last_usage: dict = {}
+
+
+def _record_usage(response, model: str = "") -> None:
+    """Keep token counts from the last completion for GD cost logging."""
+    global _last_usage
+    try:
+        u = getattr(response, "usage", None)
+        details = getattr(u, "prompt_tokens_details", None)
+        out_details = getattr(u, "completion_tokens_details", None)
+        _last_usage = {
+            "model": model or "",
+            "prompt_tokens": int(getattr(u, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(u, "completion_tokens", 0) or 0),
+            "cached_tokens": int(getattr(details, "cached_tokens", 0) or 0) if details else 0,
+            "reasoning_tokens": int(getattr(out_details, "reasoning_tokens", 0) or 0) if out_details else 0,
+        }
+    except Exception:
+        _last_usage = {"model": model or ""}
+
+
+def last_usage() -> dict:
+    """Token usage from the last successful completion (may be empty)."""
+    return dict(_last_usage)
+
+
 def last_provider() -> str:
     """``xai`` or ``groq`` after the last successful completion; empty before that."""
     return _last_provider
@@ -316,6 +342,7 @@ def _completion_text(
         if extra_body:
             kwargs["extra_body"] = extra_body
         response = client.chat.completions.create(**kwargs)
+        _record_usage(response, model)
         content = response.choices[0].message.content
         return (content or "").strip()
 

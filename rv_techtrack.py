@@ -5018,6 +5018,71 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
     return ((reply or "").rstrip() + "\n\n" + "\n".join(extra)).strip()
 
 
+# ---------------- GD OFFICIAL METHOD (Chase approved 2026-10-16) ----------------
+GD_OFFICIAL_METHOD = True
+GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
+REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
+
+
+def _gd_legacy_hint(history, user_msg, category_name, model_text) -> str:
+    """Hard-coded job branches yield to the step walk; their key line is a hint only."""
+    try:
+        key = _gdc._job_key(history, user_msg, category_name, model_text) or ""
+    except Exception:
+        key = ""
+    if key == "leadjack":
+        try:
+            return _gdc.ensure_level_up_lead_jack_reply("", history, user_msg, category_name, model_text)[:600]
+        except Exception:
+            return ""
+    return f"legacy job branch: {key}" if key else ""
+
+
+def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate="", pin_store=None):
+    import gd_official as _go
+
+    if pin_store is None:
+        try:
+            pin_store = st.session_state.setdefault("gd_pin_store", {})
+        except Exception:
+            pin_store = {}
+    library = _go.OrmLibrary(session, Document, DocChunk)
+
+    def chat_fn(messages, max_tokens, effort):
+        return gd_llm.complete_chat(
+            messages, temperature=0.2, max_tokens=max_tokens, secret_fn=_secret,
+            reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI],
+        )
+
+    def web_fn(unit):
+        key = _secret("XAI_API_KEY") or ""
+        return _go.fetch_official_manual(unit, key) if key else {}
+
+    try:
+        result = _go.official_turn(
+            user_msg, category_name, model_text, history,
+            library=library, chat_fn=chat_fn, pin_store=pin_store,
+            usage_fn=gd_llm.last_usage, web_fetch_fn=web_fn,
+            hints=_gd_legacy_hint(history, user_msg, category_name, model_text),
+            log_path=GD_USAGE_LOG,
+        )
+    except Exception:
+        # Primary model failed: legacy coach on the fallback, labeled reduced mode.
+        try:
+            reply = ask_techtrack_reply(user_msg, category_name, model_text, history,
+                                        unity_gate=unity_gate, extra_system_rule=OPEN_LIBRARY_COACH_RULE)
+        except Exception as exc:
+            return f"The AI could not answer ({exc}). Send the same message again."
+        return REDUCED_MODE_LINE + "\n" + rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
+    pin = result.get("pin") or {}
+    if pin.get("doc_id"):
+        try:
+            record_cited_pages(f"📖 Source: {pin.get('doc_title')} - page {pin['pages'][0]}")
+        except Exception:
+            pass
+    return rewrite_shop_channel_words(result["reply"])
+
+
 def guided_diagnostics_reply(
     user_msg: str,
     category_name: str,
@@ -5027,13 +5092,19 @@ def guided_diagnostics_reply(
     ask_flow: dict = None,
     photo: tuple | None = None,
     photo_review: dict | None = None,
+    pin_store: dict | None = None,
 ):
     """
-    Open library coach is the product path.
+    Official method (gd_official) is the product path when GD_OFFICIAL_METHOD is on.
+    Open library coach is the reduced-mode fallback.
     Hard trees do not drive GD chat. Never 'path complete'. Never re-ask stated facts.
     Returns (reply_text, None).
     """
     extra = OPEN_LIBRARY_COACH_RULE
+    if GD_OFFICIAL_METHOD and photo_review is None and not (photo and photo[0]):
+        official = _gd_official_reply(user_msg, category_name, model_text, history, unity_gate, pin_store)
+        if official is not None:
+            return official, None
     if photo_review is None and photo and photo[0]:
         import gd_step_photo as _photos
 
@@ -6316,6 +6387,7 @@ with tab_ask:
     if st.session_state.pop("ask_clear_model", False):
         st.session_state["ask_model"] = ""
         st.session_state["gd_model_memory"] = ""
+        st.session_state.pop("gd_pin_store", None)
     _restore_widget("ask_model", "gd_model_memory")
     _restore_widget("ask_unity_gate", "gd_unity_memory", ["Not sure", "Yes", "No"])
     c1, c2 = st.columns(2)
@@ -6477,6 +6549,7 @@ with tab_ask:
                     unity_gate=unity_gate,
                     ask_flow=st.session_state.get("ask_flow"),
                     photo_review=photo_review,
+                    pin_store=st.session_state.setdefault("gd_pin_store", {}),
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
