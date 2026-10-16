@@ -148,8 +148,11 @@ def find_manual(model_text: str, concern: str, category: str, library, *,
     tried = []
     exclude = []
     while True:
-        doc = go.pin_document(library, unit, exclude_ids=tuple(exclude))
+        sel = go.select_manual(library, unit, exclude_ids=tuple(exclude))
+        doc = sel["doc"]
         if not doc:
+            if not tried:
+                tried.append(sel.get("miss_line") or "library (no match)")
             break
         tried.append(doc.get("title", ""))
         data = pdf_for_doc(doc) if pdf_for_doc else None
@@ -157,6 +160,8 @@ def find_manual(model_text: str, concern: str, category: str, library, *,
         if data and chunks:
             return {"unit": unit, "origin": "library", "doc": doc, "title": doc.get("title", ""),
                     "label": go.LABEL_LIBRARY, "chunks": chunks, "pdf": data, "url": "", "tried": tried}
+        # CONTAINMENT: a pinned doc whose PDF file is unreachable is skipped (figures need the file).
+        # Follow-up: belongs in gd_official.select_manual (file availability), not here.
         exclude.append(doc["id"])
     if web and api_key:
         rec = _RecordingHttp(http or __import__("httpx"))

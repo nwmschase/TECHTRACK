@@ -89,7 +89,7 @@ class Rule11(unittest.TestCase):
     def test_uses_gd_functions_not_forks(self):
         import inspect
         src = inspect.getsource(r11)
-        for name in ("identify_unit", "pin_document", "load_section", "fetch_official_manual"):
+        for name in ("identify_unit", "select_manual", "load_section", "fetch_official_manual"):
             self.assertIn(f"go.{name}(", src)
             self.assertNotIn(f"def {name}(", src)
 
