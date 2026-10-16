@@ -369,22 +369,31 @@ Reply with JSON only:
 STEP = {"kind":"step|note","action":"","probe":"","state":"","good":"","bad":"","next":"","page":0,"figure":null,"source":"manual|general"}"""
 
 
-def _xai(messages, api_key, model="grok-4.6", http=None, timeout=420.0):
-    http = http or __import__("httpx")
+def _xai(messages, api_key, model="grok-4.6", http=None, timeout=900.0):
+    """Streamed chat call: long section reads keep the connection alive."""
+    import httpx
+
+    body = {"model": model, "messages": messages, "response_format": {"type": "json_object"},
+            "stream": True, "stream_options": {"include_usage": True}}
     for attempt in range(3):
         try:
-            r = http.post("https://api.x.ai/v1/chat/completions", timeout=timeout,
-                          headers={"Authorization": f"Bearer {api_key}"},
-                          json={"model": model, "messages": messages, "response_format": {"type": "json_object"}})
-            data = r.json()
-            break
+            text, usage = [], {}
+            with httpx.stream("POST", "https://api.x.ai/v1/chat/completions", json=body, timeout=httpx.Timeout(timeout, read=300),
+                              headers={"Authorization": f"Bearer {api_key}"}) as r:
+                if r.status_code != 200:
+                    raise RuntimeError(f"xAI {r.status_code}: {r.read()[:300]!r}")
+                for line in r.iter_lines():
+                    if not line.startswith("data: ") or line.strip() == "data: [DONE]":
+                        continue
+                    ev = json.loads(line[6:])
+                    for ch in ev.get("choices", []):
+                        text.append((ch.get("delta") or {}).get("content") or "")
+                    usage = ev.get("usage") or usage
+            return "".join(text), usage
         except Exception:
             if attempt == 2:
                 raise
             time.sleep(20)
-    if "choices" not in data:
-        raise RuntimeError(f"xAI error: {str(data)[:300]}")
-    return data["choices"][0]["message"]["content"], data.get("usage", {})
 
 
 def extract_plan(unit, concern, manual, section, figures, api_key, *, reference="", chat=None, retries=2):
