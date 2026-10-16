@@ -3204,8 +3204,10 @@ def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
 MAXXFAN_REMOTE_TERMS = (
     "low battery", "power bars", "transmission signal", "transmit",
     "beep sound from the", "signal from the remote", "ir receiver",
-    "ir sensor", "aim remote", "aaa batteries",
+    "ir sensor", "aim remote", "aaa batteries", "line of sight",
 )
+MAXXFAN_REMOTE_GUIDE_DOC = "11f90000k"
+MAXXFAN_REMOTE_GUIDE_PAGE = 9
 
 
 def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
@@ -3230,10 +3232,29 @@ def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limi
     doc_ids.discard(None)
     if not doc_ids:
         return chunks
+    # Other MaxxAir library docs (for example the manufacturer-site IR FAQ) are
+    # the same brand, so they may join even when this turn's search missed them.
+    try:
+        for doc in session.query(Document).filter(Document.brand.ilike("maxxair")).all():
+            doc_ids.add(doc.id)
+    except Exception:
+        pass
     try:
         pool = session.query(DocChunk).filter(DocChunk.document_id.in_(list(doc_ids))).all()
     except Exception:
         pool = []
+
+    def _is_maxxfan_p9_check(ch) -> bool:
+        if int(getattr(ch, "page", 0) or 0) != MAXXFAN_REMOTE_GUIDE_PAGE:
+            return False
+        ident = f"{getattr(ch, 'title', '') or ''} {getattr(ch, '_lookup_doc_number', '') or ''} {getattr(ch, '_lookup_file_path', '') or ''}".lower()
+        if MAXXFAN_REMOTE_GUIDE_DOC not in ident:
+            try:
+                doc = session.query(Document).get(ch.document_id)
+                ident += f" {doc.title or ''} {doc.doc_number or ''} {doc.file_path or ''}".lower() if doc else ""
+            except Exception:
+                pass
+        return MAXXFAN_REMOTE_GUIDE_DOC in ident and "low battery" in (ch.chunk_text or "").lower()
 
     def hits(ch) -> int:
         low = (getattr(ch, "chunk_text", "") or "").lower()
@@ -3250,6 +3271,9 @@ def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limi
     extra = sorted(
         [ch for ch in pool if hits(ch) > 0],
         key=lambda ch: (
+            # 11F90000K p9 (battery bars, transmit symbol, fan beep) leads for any remote complaint.
+            -(1 if _is_maxxfan_p9_check(ch) else 0),
+            -(1 if "line of sight" in (ch.chunk_text or "").lower() else 0),
             -(1 if (ch.document_id, int(ch.page or 0)) in model_pages else 0),
             -hits(ch),
             int(ch.page or 0),
