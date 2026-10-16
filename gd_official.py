@@ -891,6 +891,10 @@ TAG_RE = re.compile(r"\[(Library:[^\]]*|Manufacturer site:[^\]]*|General trade k
 REPAIR_RE = re.compile(r"\b(replaced|installed|repaired|reseated|adjusted|calibrat\w*|realigned|re-?aligned|resynced|tightened|no problem found|npf|operating as designed)\b", re.I)
 
 
+OUTCOME_RE = re.compile(r"\b(works|working|fixed|resolved|tested\s+good|now\s+\w+s\b|verified|operat\w+\s+(normally|correctly|as\s+designed)|job\s+complete|cools|heats|levels)\b", re.I)
+NPF_RE = re.compile(r"\b(no\s+problem\s+found|npf|operating\s+as\s+designed|works\s+as\s+designed)\b", re.I)
+
+
 def warranty_story(pin: dict, history: list, model_text: str = "") -> str:
     """Complaint / findings / tests / cause / correction built ONLY from what the tech typed and the sources GD cited.
 
@@ -912,7 +916,7 @@ def warranty_story(pin: dict, history: list, model_text: str = "") -> str:
         tags = sorted(set(TAG_RE.findall(prev))) or ["source not cited"]
         tests.append(f"- {text}\n  (step source: {'; '.join(tags)})")
     last_gd = next((m["content"] for m in reversed(msgs) if m["role"] == "assistant"), "")
-    repairs = [t for _, t in users[1:] if REPAIR_RE.search(t)]
+    repairs = [t for _, t in users[1:] if (REPAIR_RE.search(t) and OUTCOME_RE.search(t)) or NPF_RE.search(t)]
     escalated = "OEM AUTHORIZATION FINDINGS" in "\n".join(m["content"] for m in msgs if m["role"] == "assistant")
     unit = (pin.get("unit") or {}).get("model") or model_text or "not recorded"
     out = [
@@ -931,7 +935,7 @@ def warranty_story(pin: dict, history: list, model_text: str = "") -> str:
         ("Per the tests above; GD's last diagnosis: " + _first_line(last_gd)) if tests else "Not determined in this session.",
         "",
         "5. CORRECTION",
-        repairs[-1] if repairs else "OPEN - no correction recorded in this session.",
+        repairs[-1] if repairs else ("OPEN - pending OEM authorization." if escalated else "OPEN - no correction recorded in this session."),
     ]
     if escalated:
         out += ["", "OEM AUTHORIZATION: this story is the submission (rule 9). Requested authorization per GD's findings block above."]

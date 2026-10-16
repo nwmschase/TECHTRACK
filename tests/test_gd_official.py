@@ -233,6 +233,13 @@ class TestSectionAndWalk(unittest.TestCase):
         self.assertIn("OEM AUTHORIZATION", story)
         self.assertIn("Replaced the complete rooftop unit", story.split("5. CORRECTION")[1])
 
+    def test_rule10_reseat_test_is_not_the_correction(self):
+        hist = [{"role": "user", "content": "AC noise"}, {"role": "assistant", "content": "1. Reseat plugs [General trade knowledge]"},
+                {"role": "user", "content": "Reseated all plugs, all were tight"},
+                {"role": "assistant", "content": "OEM AUTHORIZATION FINDINGS"}]
+        story = go.warranty_story({"facts": {}}, hist)
+        self.assertIn("OPEN - pending OEM authorization", story.split("5. CORRECTION")[1])
+
     def test_cost(self):
         self.assertAlmostEqual(go.turn_cost({"prompt_tokens": 1_000_000, "cached_tokens": 0, "completion_tokens": 0}), 2.0)
 
