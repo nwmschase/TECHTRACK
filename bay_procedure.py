@@ -120,7 +120,7 @@ from gd_library_coach import (
 
 BAY_PROCEDURE_LABEL = "Bay procedure PDF"
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.64"
+MODULE_REVISION = "v4.19.65"
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 
@@ -3635,38 +3635,12 @@ def is_thetford_flush_leak_context(
 ) -> bool:
     """A Thetford toilet that leaks under the flush lever. Not a poor-flush job."""
     unit = f"{category or ''} {model_text or ''}"
-    thetford = bool(re.search(r"\bthetford\b|\b42070\b|style\s*ii", unit, re.I))
-    plumbing = bool(
-        re.search(r"plumb", category or "", re.I) and re.search(r"toilet", category or "", re.I)
-    )
-    if not thetford and not (plumbing and is_toilet_job(category, model_text, concern)):
+    # General rule (written): an OEM-authored repair path applies only to a unit of THAT OEM, named by the tech.
+    # The old fallback (any plumbing/toilet job -> Thetford path) borrowed a brand and is retired (F4).
+    thetford = asked_brands_for_lookup(category or "", model_text or "", "") == {"thetford"}
+    if not thetford:
         return False
     return bool(re.search(r"\bleaks?\b|\bleaking\b|\bweep", concern or "", re.I))
-
-
-def _thetford_leak_rank_score(page: dict) -> int:
-    """Leak rows and the two kits outrank poor flush, winterizing, and the riser."""
-    blob = f"{page.get('title') or ''} {page.get('excerpt') or ''}".lower()
-    score = 0
-    if "water supply line connection" in blob or "leak persists from water valve" in blob:
-        score += 80
-    if "vacuum breaker leaks while flushing" in blob:
-        score += 40
-    if re.search(r"\b42109\b", blob):
-        score += 60
-    if re.search(r"\b34122\b|\b34123\b", blob):
-        score += 60
-    if re.search(
-        r"poor flush|flow rate|blade/ball|\bfrozen\b|winteriz|toilet riser|\briser\b|scarico|opzioni",
-        blob,
-    ):
-        score -= 50
-    return score
-
-
-def _rank_thetford_leak_pages(pages, limit: int) -> list:
-    ordered = sorted(pages or [], key=_thetford_leak_rank_score, reverse=True)
-    return ordered[:limit]
 
 
 def _fitted_cite(ranked, needles, fallback: str, path_kind: str = "") -> str:
@@ -4204,8 +4178,7 @@ def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", c
     pages = [chunk_as_dict(ch) for ch in (chunks or [])]
     asked = set(asked_brands_for_lookup(category_name, model_text, concern))
     toilet = is_toilet_job(category_name, model_text, concern)
-    if toilet and not asked:
-        asked = {"thetford"}
+    # F4: no brand is ever assumed (the old "toilet job -> Thetford" default borrowed a brand the tech never named).
     coleman_job = is_coleman_2111_context(category_name, model_text, concern)
     if not asked:
         return pages, False
@@ -4282,29 +4255,39 @@ def _bay_product_lock(category_name: str = "", model_text: str = "", concern: st
     )
 
 
-def _rank_coleman_pages(pages, limit: int) -> list:
-    """Prefer the Coleman rooftop titles. A different brand cannot outrank them."""
+_RANK_STOP = {"with", "that", "this", "from", "when", "have", "will", "does", "dont", "won't", "wont", "unit", "customer",
+              "reports", "check", "checked", "after", "before", "there", "their", "about", "into", "only", "still", "just"}
 
-    def score(page) -> int:
-        blob = f"{page.get('title') or ''} {page.get('excerpt') or ''}".lower()
-        s = 0
-        if "coleman" in blob or "airxcel" in blob:
-            s += 20
-        if "12vdc" in blob or "12 vdc" in blob or "wall" in blob:
-            s += 8
-        if "1976-536" in blob or "1976-603" in blob:
-            s += 12
-        if "peacemaker" in blob:
-            s += 12
-        if "1976-695" in blob or "mechanical" in blob:
-            s += 8
-        if "furrion" in blob or "dometic" in blob:
-            s -= 40
+
+def rank_pages_for_concern(pages, model_text: str = "", concern: str = "", limit: int = 8) -> list:
+    """ONE page ranker inside an already-selected manual (replaces brand/page-keyed rankers, F4).
+
+    Score = 3 x the unit's model/part numbers on the page + complaint words on the page + 2 for a troubleshooting-table page.
+    A page that names a brand the tech did not name drops to the bottom. Ties keep manual page order.
+    """
+    import gd_official as _go
+
+    unit = _go.identify_unit([], concern or "", "", model_text or "")
+    keys = _go.model_keys(unit)
+    words = {w for w in re.findall(r"[a-z]{4,}", (concern or "").lower()) if w not in _RANK_STOP}
+    brand = unit.get("brand") or ""
+
+    def score(page):
+        d = page if isinstance(page, dict) else chunk_as_dict(page)
+        blob = f"{d.get('title') or ''} {d.get('excerpt') or d.get('chunk_text') or ''}".lower()
+        toks = _go._field_tokens(blob)
+        s = 3 * sum(1 for k in keys if _go._key_in(k, toks, "model"))
+        s += sum(1 for w in words if w in blob)
+        if re.search(r"troubleshoot|symptom|possible cause|probable cause|remedy|corrective action", blob):
+            s += 2
+        other = _go.detect_brand(blob)
+        if brand and other and other != brand:
+            s -= 100
         return s
 
-    ordered = sorted(pages or [], key=score, reverse=True)
-    kept = [p for p in ordered if score(p) > 0]
-    return (kept or ordered)[:limit]
+    indexed = list(enumerate(pages or []))
+    indexed.sort(key=lambda x: (-score(x[1]), x[0]))
+    return [p for _, p in indexed][:limit]
 
 
 def rank_bay_chunks(
@@ -4323,7 +4306,7 @@ def rank_bay_chunks(
     if is_dometic_b57915_nocoool_context(category_name, model_text, concern):
         return rank_chunks_for_dometic_nocoool(pages, query, limit=limit)
     if is_coleman_2111_context(category_name, model_text, concern):
-        return _rank_coleman_pages(pages, limit)
+        return rank_pages_for_concern(pages, model_text, concern, limit)
     if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
         ranked = rank_chunks_for_dial_off_run(pages, query, limit=limit)
         return [
@@ -4350,7 +4333,7 @@ def rank_bay_chunks(
     if is_stabilizer_override_pin_context(category_name, model_text, concern):
         return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
     if is_thetford_flush_leak_context(category_name, model_text, concern):
-        return _rank_thetford_leak_pages(pages, limit)
+        return rank_pages_for_concern(pages, model_text, concern, limit)
     return pages[:limit]
 
 

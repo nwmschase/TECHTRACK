@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.64
+RV TechTrack v4.19.65
+- v4.19.65: Manual selector root fix. Rating values (12 V, 50 Ah, 13,500 BTU, 6,000 lb) are never model numbers. Evidence is ranked by specificity: exact model in the doc fields, exact model in keywords or page text, series, then brand; brand alone never picks a manual. Two different manuals that match equally are not guessed between: no pick, and the official web lookup runs. Every library category maps to product types; an unmapped category or a model that only exists under another type asks the tech to confirm the unit type. A doc whose file or text cannot be reached is skipped for the next one. Brand-, page- and doc-keyed page rankers (Thetford, Coleman, MaxxFan page 9) are replaced by one page ranker; no toilet job assumes Thetford. Manager Tools has a library category audit (dry run, confirm, backup, rollback) and uploads warn when the category does not match the title.
 - v4.19.64: One manual selector for every search (GD and the library/Bay search): an exact model number from the model field, complaint or label wins outright; category product type and brand are hard filters, so another product's or brand's manual is never pinned; "No <brand> <model> <type> manual found" counts as not found and the official web lookup runs. Label/diagram text and photos drive the walk. The warranty story records the final correction.
 - v4.19.63: Guided Diagnostics official method (GD_OFFICIAL_METHOD=True). GD identifies the unit, pins its own-brand manual (library, then official OEM sites), reads the full troubleshooting section, and walks the tech one labeled step at a time. Verify the complaint first or call No Problem Found. Reported facts are never asked again. The Unity selector drives the OneControl controller path. Warranty-shop OEM escalation with a findings block. The warranty story is built from recorded readings only. Groq fallback is labeled reduced mode.
 - v4.19.57: The live Thetford library path keeps every flowchart repair: supply connection, vacuum breaker, water valve, and flange seal. A retrieved figure no longer replaces those branches or pastes the How template into a reply. The supply connection is named in plain words, and a figure caption uses the cited page. Tools come from the kit sheet. A Bad line names a real failure or stays off. The Do Not list stays on this leak. Version stamp so this deploy is distinct from v4.19.56.
@@ -232,7 +233,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.64"
+_GDC_REQUIRED_REVISION = "v4.19.65"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank and the Bay PDF, which import it.
@@ -3203,93 +3204,15 @@ def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
     return chunks
 
 
-MAXXFAN_REMOTE_TERMS = (
-    "low battery", "power bars", "transmission signal", "transmit",
-    "beep sound from the", "signal from the remote", "ir receiver",
-    "ir sensor", "aim remote", "aaa batteries", "line of sight",
-)
-MAXXFAN_REMOTE_GUIDE_DOC = "11f90000k"
-MAXXFAN_REMOTE_GUIDE_PAGE = 9
-
-
-def supplement_maxxfan_remote_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
-    """MaxxFan handheld-remote complaint: put the unit's own remote-check pages first.
-
-    Pulls windows from the MaxxAir documents already retrieved this turn that
-    carry the OEM remote checks (low-battery bars, transmit symbol, fan beep,
-    IR receiver, aim at ceiling unit). Same-brand only: no other document is added.
-    """
+def supplement_concern_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
+    """Re-order this turn's chunks with the ONE generic page ranker (model/part numbers on the page, complaint words,
+    troubleshooting tables; other brands last). Replaces the MaxxFan doc/page-keyed supplement (F4)."""
     chunks = list(chunks or [])
-    if _gdc.asked_brands_for_lookup("", model_text or "", user_msg or "") != {"maxxair"}:
+    if not chunks:
         return chunks
-    if "remote" not in (user_msg or "").lower():
-        return chunks
-    doc_ids = {
-        getattr(ch, "document_id", None)
-        for ch in chunks
-        if "maxxair" in _gdc.canonical_shop_brands(
-            getattr(ch, "title", "") or "", getattr(ch, "_lookup_brand", "") or ""
-        )
-    }
-    doc_ids.discard(None)
-    if not doc_ids:
-        return chunks
-    # Other MaxxAir library docs (for example the manufacturer-site IR FAQ) are
-    # the same brand, so they may join even when this turn's search missed them.
-    try:
-        for doc in session.query(Document).filter(Document.brand.ilike("maxxair")).all():
-            doc_ids.add(doc.id)
-    except Exception:
-        pass
-    try:
-        pool = session.query(DocChunk).filter(DocChunk.document_id.in_(list(doc_ids))).all()
-    except Exception:
-        pool = []
+    import bay_procedure as _bp
 
-    def _is_maxxfan_p9_check(ch) -> bool:
-        if int(getattr(ch, "page", 0) or 0) != MAXXFAN_REMOTE_GUIDE_PAGE:
-            return False
-        ident = f"{getattr(ch, 'title', '') or ''} {getattr(ch, '_lookup_doc_number', '') or ''} {getattr(ch, '_lookup_file_path', '') or ''}".lower()
-        if MAXXFAN_REMOTE_GUIDE_DOC not in ident:
-            try:
-                doc = session.query(Document).get(ch.document_id)
-                ident += f" {doc.title or ''} {doc.doc_number or ''} {doc.file_path or ''}".lower() if doc else ""
-            except Exception:
-                pass
-        return MAXXFAN_REMOTE_GUIDE_DOC in ident and "low battery" in (ch.chunk_text or "").lower()
-
-    def hits(ch) -> int:
-        low = (getattr(ch, "chunk_text", "") or "").lower()
-        return sum(1 for term in MAXXFAN_REMOTE_TERMS if term in low)
-
-    model_nums = re.findall(r"\b\d{4}k\b", (model_text or "").lower())
-    # A page whose remote guide names this model (4501K -> p9) outranks a sister model's page.
-    model_pages = {
-        (ch.document_id, int(ch.page or 0))
-        for ch in pool
-        if any(num in (ch.chunk_text or "").lower() for num in model_nums)
-        and "remote" in (ch.chunk_text or "").lower()
-    }
-    extra = sorted(
-        [ch for ch in pool if hits(ch) > 0],
-        key=lambda ch: (
-            # 11F90000K p9 (battery bars, transmit symbol, fan beep) leads for any remote complaint.
-            -(1 if _is_maxxfan_p9_check(ch) else 0),
-            -(1 if "line of sight" in (ch.chunk_text or "").lower() else 0),
-            -(1 if (ch.document_id, int(ch.page or 0)) in model_pages else 0),
-            -hits(ch),
-            int(ch.page or 0),
-        ),
-    )
-    seen = set()
-    out = []
-    for ch in extra + chunks:
-        key = (getattr(ch, "document_id", None), getattr(ch, "page", None), (getattr(ch, "chunk_text", "") or "")[:40])
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(ch)
-    return out[: max(limit, 6)]
+    return _bp.rank_pages_for_concern(chunks, model_text, user_msg, limit=max(limit, 6))
 
 
 def supplement_ice_moisture_pages(chunks, model_text: str, user_msg: str):
@@ -5368,6 +5291,14 @@ def _ask_chat_transcript(history: list) -> str:
     return "\n\n".join(lines)
 
 
+def _doc_file_available(doc) -> bool:
+    """A library doc counts only if its indexed text exists (chunks) - a doc with no reachable content is skipped by the selector."""
+    try:
+        return session.query(DocChunk.id).filter(DocChunk.document_id == doc["id"]).first() is not None
+    except Exception:
+        return True
+
+
 def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit):
     """Every library search (GD reduced mode, Bay PDF) obeys the ONE selector, gd_official.select_manual:
     exact model first, product-type and brand hard filters, never another product's manual. Returns (chunks, miss_line)."""
@@ -5377,7 +5308,7 @@ def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, 
         unit = _go.identify_unit([], symptom or "", category_name or "", model_text or "")
         if not unit.get("brand") and not _go.model_keys(unit):
             return chunks, ""  # nothing to select on: legacy keyword search stands
-        sel = _go.select_manual(_go.OrmLibrary(session, Document, DocChunk), unit)
+        sel = _go.select_manual(_go.OrmLibrary(session, Document, DocChunk), unit, available=_doc_file_available)
         doc = sel.get("doc")
         if not doc:
             return [], sel.get("miss_line") or ""
@@ -5489,7 +5420,7 @@ def _ask_manual_context(
             chunks, f"{model_text} {figure_query or symptom}", limit=limit
         )
     else:
-        chunks = supplement_maxxfan_remote_pages(chunks, model_text, figure_query or symptom, limit=limit)
+        chunks = supplement_concern_pages(chunks, model_text, figure_query or symptom, limit=limit)
     honesty = ""
     if level_up:
         chunks = drop_unity_chunks_for_level_up(chunks)
@@ -7101,7 +7032,15 @@ if is_manager and tab_mgr is not None:
                     utitle = st.text_input("Document Title", key="up_title")
                     ukw = st.text_input("Keywords (models, brand names - helps search)", key="up_kw", placeholder="Schwintek, In-Wall, Lippert, error codes")
                     ufile = st.file_uploader("PDF / PPTX / Image", type=["pdf", "pptx", "png", "jpg", "jpeg"], key="up_file")
-                    if st.button("Upload Document", type="primary"):
+                    import library_category_audit as _cataudit
+
+                    _cat_warn = _cataudit.upload_category_warning(utitle, ucat) if utitle else ""
+                    _cat_ok = True
+                    if _cat_warn:
+                        # R2: the chosen category disagrees with the document's own type words -> warn and require a confirmation.
+                        st.warning(f"Category check: {_cat_warn}")
+                        _cat_ok = st.checkbox(f"File it under '{ucat}' anyway", key="up_cat_confirm")
+                    if st.button("Upload Document", type="primary", disabled=not _cat_ok):
                         if utitle and ufile:
                             cat = session.query(Category).filter_by(name=ucat).first()
                             ext = (ufile.name.split(".")[-1] or "pdf").lower()
@@ -7384,7 +7323,14 @@ if is_manager and tab_mgr is not None:
                                 t = st.text_input("Title", value=default_title, key=f"r2t_{i}")
                                 cat_name = st.selectbox("Category", [c.name for c in cats], key=f"r2c_{i}")
                                 kw = st.text_input("Keywords", key=f"r2k_{i}", placeholder="Schwintek, model numbers…")
-                                if st.button("Link into library + index", key=f"r2l_{i}"):
+                                import library_category_audit as _cataudit
+
+                                _w = _cataudit.upload_category_warning(t or default_title, cat_name)
+                                _ok = True
+                                if _w:
+                                    st.warning(f"Category check: {_w}")
+                                    _ok = st.checkbox(f"Link under '{cat_name}' anyway", key=f"r2cc_{i}")
+                                if st.button("Link into library + index", key=f"r2l_{i}", disabled=not _ok):
                                     cat = session.query(Category).filter_by(name=cat_name).first()
                                     doc = Document(
                                         category_id=cat.id,
@@ -7452,6 +7398,14 @@ if is_manager and tab_mgr is not None:
                     type="primary",
                 )
 
+        with st.expander("🗂️ Library category audit (dry run first)", expanded=False):
+            import library_category_audit as _cataudit
+
+            _cataudit.render_manager_panel(
+                st,
+                raw_connection=lambda: engine.raw_connection(),
+                backup_db=lambda: maybe_backup_db_to_r2(force=True),
+            )
         with st.expander("💾 Database Backup & Restore", expanded=True):
             last_ok = st.session_state.get("_db_backup_ok")
             last_n = st.session_state.get("_db_backup_docs")

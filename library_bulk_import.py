@@ -1486,6 +1486,14 @@ def _import_one(
     title = _clip(item.get("title") or title_from_filename(item["filename"]), 250)
     keywords = _keywords(item)
     note = NEEDS_OCR_NOTE if needs else f"Indexed {len(chunks)} chunks from {len(pages)} pages"
+    try:  # R2 for unattended imports: a manifest category that disagrees with the title is flagged for the category audit.
+        import library_category_audit as _cataudit
+
+        _w = _cataudit.upload_category_warning(title, item.get("category_name") or DEFAULT_CATEGORY)
+        if _w:
+            note = f"CATEGORY CHECK: {_w} | {note}"
+    except Exception:
+        pass
     doc_id = _insert(
         session,
         """

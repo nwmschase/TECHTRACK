@@ -107,9 +107,29 @@ _STOP = {"lippert", "onecontrol", "the", "and", "with", "for", "rv", "point", "p
          "owner", "owners", "guide", "pn", "part"}
 
 
+# Units / ratings are never model numbers (F1). Number (with , or . grouping) + optional space/hyphen + unit word.
+UNIT_WORDS = (r"v|vac|vdc|volts?|a|amps?|amperes?|ah|mah|amp[\s-]?hours?|w|watts?|kw|kilowatts?|btu|btus|btuh|btu/hr?|"
+              r"lbs?|pounds?|cu\.?\s*ft|cu|ft|in|gpm|psi|hz|gal|gallons?|cfm|rpm|mm|cm")
+# 'K' is a unit only as thousands-of-BTU (8K, 13.5K, 15K: one or two integer digits); 4500K stays a model number.
+_K_VALUE = r"\d{1,2}(?:\.\d+)?\s*-?\s*k"
+UNIT_VALUE_RE = re.compile(r"(?<![a-z0-9.])(?:\d[\d,]*(?:\.\d+)?\s*-?\s*(?:" + UNIT_WORDS + r")|" + _K_VALUE + r")(?![a-z0-9])", re.I)
+_UNIT_TOKEN_RE = re.compile(r"\d[\d,]*(?:\.\d+)?-?(?:" + UNIT_WORDS.replace(r"\s*", "").replace(r"[\s-]?", "") + r")|"
+                            + _K_VALUE.replace(r"\s*", ""), re.I)
+
+
+def is_unit_token(tok: str) -> bool:
+    """True for a rating token such as 12v, 15a, 50ah, 13500btu, 6,000lb, 13.5k."""
+    return bool(_UNIT_TOKEN_RE.fullmatch((tok or "").strip().lower()))
+
+
+def strip_unit_values(text: str) -> str:
+    """Remove rating values with or without a space ('13500 BTU', '6,000 lb', '50Ah', '12 V') before tokenizing."""
+    return UNIT_VALUE_RE.sub(" ", text or "")
+
+
 def model_tokens(model_text: str) -> list:
-    """Distinctive model tokens: X270D, 803280, 3.0, 'ground control', 'gc'."""
-    t = _norm(model_text)
+    """Distinctive model tokens: X270D, 803280, 3.0, 'ground control', 'gc'. Rating values never become tokens."""
+    t = _norm(strip_unit_values(_norm(model_text)))
     t = t.replace("gc3.0", "gc 3.0").replace("gc 3", "ground control 3")
     toks = []
     for m in re.finditer(r"[a-z]+-?\d[\w.\-]*|[a-z]*\d[\w.\-]*", t):
@@ -120,7 +140,7 @@ def model_tokens(model_text: str) -> list:
         if phrase in t and phrase not in toks:
             toks.append(phrase)
     return [x for x in toks if x not in _STOP and not re.fullmatch(r"(19|20)\d\d", x)
-            and not re.fullmatch(r"\d+(\.\d+)?(v|vac|vdc|a|amp|w|btu|k|cu|ft|in|gpm|lb)", x) and not re.fullmatch(r"\d", x)]
+            and not is_unit_token(x) and not re.fullmatch(r"\d", x)]
 
 
 def identify_unit(history, user_msg: str, category_name: str, model_text: str) -> dict:
@@ -131,8 +151,8 @@ def identify_unit(history, user_msg: str, category_name: str, model_text: str) -
         brand = first.group(1).lower() if first else ""  # unlisted brand (e.g. Brinkley): no OEM allowlist
     toks = model_tokens(model_text) or model_tokens(" ".join(m.get("content", "") for m in (history or []) if m.get("role") == "user") + " " + (user_msg or ""))
     # Model numbers typed in the complaint or read off the label ("Label/photo shows: ...") count too (Leader 3:29 PM).
-    for t in re.findall(r"\b[a-z]{2,}-?\d{2,}[a-z0-9\-]*\b", _norm(blob)):
-        if len(t) >= 5 and t not in toks and not re.search(r"\d(v|vac|vdc|amp|a|w|psi|btu|ohm|f)$", t):
+    for t in re.findall(r"\b[a-z]{2,}-?\d{1,}[a-z0-9\-]*\b", _norm(strip_unit_values(_norm(blob)))):
+        if len(t) >= 4 and t not in toks and not is_unit_token(t) and not re.search(r"\d(v|vac|vdc|amp|a|w|psi|btu|ohm|f)$", t):
             toks.append(t)
     has_model = any(re.search(r"\d", x) for x in toks) or any(x in ("ground control", "unity") for x in toks)
     # No tag on the unit: brand + product type is the identification; model specs stay unconfirmed.
@@ -146,6 +166,8 @@ def identify_unit(history, user_msg: str, category_name: str, model_text: str) -
         "category": category_name or "",
         "identified": bool(brand and has_model),
         "model_unknown": bool(brand and no_tag),
+        # Unit type the tech states in their own words; used only when the category and model give no type (F3 confirmation).
+        "stated_types": sorted(product_types(" ".join([m.get("content", "") for m in (history or []) if m.get("role") == "user"] + [user_msg or ""]))),
     }
 
 
@@ -175,11 +197,22 @@ class SqliteLibrary:
 
     def documents(self):
         cur = self.c.execute(
-            "select id,title,coalesce(brand,''),coalesce(models,''),coalesce(product_line,''),"
-            "coalesce(clean_title,''),coalesce(doc_number,''),coalesce(keywords,''),coalesce(revision_date,'') from documents"
+            "select d.id,d.title,coalesce(d.brand,''),coalesce(d.models,''),coalesce(d.product_line,''),"
+            "coalesce(d.clean_title,''),coalesce(d.doc_number,''),coalesce(d.keywords,''),coalesce(d.revision_date,''),"
+            "coalesce(c.name,''),coalesce(d.content_sha256,''),coalesce(d.file_path,'') from documents d left join categories c on c.id=d.category_id"
         )
-        keys = ("id", "title", "brand", "models", "product_line", "clean_title", "doc_number", "keywords", "revision_date")
+        keys = ("id", "title", "brand", "models", "product_line", "clean_title", "doc_number", "keywords", "revision_date",
+                "category", "content_sha256", "file_path")
         return [dict(zip(keys, r)) for r in cur.fetchall()]
+
+    def docs_with_text(self, key, doc_ids):
+        """{doc_id: text of chunks mentioning key} for candidate docs (case-insensitive, hyphens ignored)."""
+        ids = set(doc_ids)
+        out = {}
+        for did, txt in self.c.execute("select document_id, chunk_text from doc_chunks where replace(lower(chunk_text),'-','') like ?", (f"%{key}%",)):
+            if did in ids:
+                out[did] = out.get(did, "") + " " + (txt or "")
+        return out
 
     def chunks(self, doc_id):
         cur = self.c.execute("select page, chunk_text from doc_chunks where document_id=? order by page, id", (doc_id,))
@@ -199,7 +232,31 @@ class OrmLibrary:
                 "id": d.id, "title": d.title or "", "brand": d.brand or "", "models": d.models or "",
                 "product_line": d.product_line or "", "clean_title": d.clean_title or "",
                 "doc_number": d.doc_number or "", "keywords": d.keywords or "", "revision_date": d.revision_date or "",
+                "category": getattr(getattr(d, "category", None), "name", "") or self._cat_name(d),
+                "content_sha256": getattr(d, "content_sha256", "") or "", "file_path": getattr(d, "file_path", "") or "",
             })
+        return out
+
+    def _cat_name(self, d):
+        try:
+            if not hasattr(self, "_cats"):
+                rows = self.s.execute(__import__("sqlalchemy").text("select id, name from categories")).fetchall()
+                self._cats = {r[0]: r[1] for r in rows}
+            return self._cats.get(getattr(d, "category_id", None), "")
+        except Exception:
+            return ""
+
+    def docs_with_text(self, key, doc_ids):
+        from sqlalchemy import func
+        ids = list(doc_ids)
+        if not ids:
+            return {}
+        rows = (self.s.query(self.C.document_id, self.C.chunk_text)
+                .filter(self.C.document_id.in_(ids))
+                .filter(func.replace(func.lower(self.C.chunk_text), "-", "").like(f"%{key}%")).all())
+        out = {}
+        for did, txt in rows:
+            out[did] = out.get(did, "") + " " + (txt or "")
         return out
 
     def chunks(self, doc_id):
@@ -237,21 +294,60 @@ def score_document(unit: dict, doc: dict) -> tuple:
     return (hits, trouble, True)
 
 
+# Word-bounded product-type words read from a doc's own title/product line or a unit's model text.
+# No model numbers or brand names here: types are named by what the product IS.
 PRODUCT_TYPES = {
-    "fridge": r"refrigerat|fridge|freezer",
-    "vent_fan": r"vent\s*fan|roof\s*vent|maxx\s*fan|fan\s*tastic",
+    "fridge": r"refrigerat|\bfridge|freezer|ice\s*maker",
+    "vent_fan": r"vent\s*fan|roof\s*vent|maxx\s*fan|fan\s*tastic|\bfantastic\s+fan",
     "tv_audio": r"\btv\b|television|stereo|soundbar|speaker",
     "toilet": r"toilet",
-    "generator": r"generator",
-    "inverter": r"inverter|converter|charger",
-    "water_heater": r"water\s*heater|tankless|gswh",
+    "plumbing": r"water\s*pump|\bfaucet|\bsewer|\bdrain\b|\bholding\s+tank|\bpex\b|\bplumbing|\bwaste\s+valve|\bmacerat",
+    "generator": r"generator|\bgenset",
+    "power": r"inverter|converter|charger|transfer\s*switch|power\s*(center|cent|distribution|management)|\bbatter(y|ies)\b|\bsurge\b",
+    "solar": r"\bsolar\b|charge\s*controller",
+    "water_heater": r"water\s*heater|tankless",
     "furnace": r"furnace",
-    "ac": r"air\s*condition|\ba/?c\b|rooftop|heat\s*pump",
-    "cooktop": r"cooktop|range|oven|burner",
-    "leveling": r"level|jack|stabiliz",
+    "ac": r"air\s*condition|\ba/c\b|\bac\b\s+unit|rooftop\s+(unit|a/?c|air)|heat\s*pump|climate\s*control",
+    "cooktop": r"cooktop|\brange\b|\boven\b|\bburner",
+    "leveling": r"\blevel(ing|er|ers)?\b|\bjacks?\b|stabiliz",
     "awning": r"awning",
-    "slide": r"slide",
+    "slide": r"\bslide",
+    "door_window": r"\bdoors?\b|\bwindows?\b|\blatch|\block(s|set)?\b|\bscreen\s+door",
+    "axle": r"\baxles?\b|suspension|\bbrakes?\b|\bhubs?\b|\bbearings?\b|equali[sz]er|\bleaf\s+spring|\btires?\b",
+    "hitch": r"coupler|\bhitch|\btow(ing)?\b|pin\s*box|king\s*pin|fifth\s*wheel\s+hitch|gooseneck",
+    "electronics": r"onecontrol|\btpms\b|\bcamera|\bmonitor|touch\s*(panel|screen)|control\s+(panel|board|box)|\bcontroller|\bremote\b|wireless|\bwi-?fi\b|bluetooth",
+    "steps": r"\bsteps?\b|\bstair",
+    "chassis": r"chassis|\bframes?\b",
 }
+
+# Document KINDS (form, bulletin, reference) are not product types: a bulletin about a leveling controller is a leveling doc.
+# Kind categories map to a kind type, used only when a doc names no product and for jobs filed under that kind category.
+# EVERY library/job category maps to types (F3). A category not listed here is UNMAPPED -> needs confirmation.
+CATEGORY_TYPES = {
+    "refrigerators": {"fridge"}, "furnaces": {"furnace"}, "water heaters": {"water_heater"},
+    "air conditioning": {"ac"}, "slideouts": {"slide"}, "slide-outs": {"slide"}, "leveling": {"leveling"},
+    "range & cooktops": {"cooktop"}, "plumbing / toilets": {"toilet", "plumbing"}, "awnings": {"awning"},
+    "electrical": {"power", "generator", "solar", "electronics"}, "solar": {"solar", "power"},
+    "id & reference": {"reference"}, "warranty forms": {"form"}, "tsb / recall": {"bulletin"},
+    "recalls-bulletins": {"bulletin"}, "doors-windows": {"door_window"},
+    "furrion-appliances": {"fridge", "cooktop", "ac", "vent_fan", "tv_audio", "water_heater", "furnace", "power", "electronics"},
+    "axles-suspension-brakes": {"axle"}, "couplers-hitches-towing": {"hitch"},
+    "electronics-onecontrol-tpms-cameras": {"electronics"}, "steps": {"steps"},
+    "plumbing-sewer-water": {"plumbing", "toilet"}, "chassis-frames": {"chassis", "axle"},
+}
+# Categories that file documents by KIND (forms, bulletins, recalls, reference), not by product: any product doc may live there.
+KIND_CATEGORIES = {"warranty forms", "tsb / recall", "recalls-bulletins", "id & reference"}
+TYPE_NAMES = {"fridge": "fridge", "water_heater": "water heater", "furnace": "furnace", "ac": "A/C", "cooktop": "cooktop/range",
+              "leveling": "leveling", "awning": "awning", "slide": "slide-out", "vent_fan": "vent fan", "toilet": "toilet",
+              "plumbing": "plumbing", "generator": "generator", "power": "converter/inverter/power", "solar": "solar",
+              "tv_audio": "TV/audio", "door_window": "door/window", "axle": "axle/brakes", "hitch": "hitch/coupler",
+              "electronics": "control panel/electronics", "steps": "steps", "chassis": "chassis/frame", "form": "form",
+              "bulletin": "bulletin", "reference": "reference"}
+
+# Evidence tiers (F2 specificity). Higher = more specific. A pick needs MIN_PICK_TIER or more.
+TIER_MODEL, TIER_MODEL_TEXT, TIER_SERIES, TIER_SERIES_TEXT, TIER_BRAND = 5, 4, 3, 2, 1
+MIN_PICK_TIER = TIER_SERIES_TEXT
+PRODUCT_LINE_PHRASES = ("ground control", "level up", "level-up", "unity", "schwintek", "touchscreen", "touch panel")
 
 
 def product_types(text: str) -> set:
@@ -260,115 +356,242 @@ def product_types(text: str) -> set:
 
 
 def model_keys(unit: dict) -> list:
-    """Exact model keys: full tokens, the part before a trim suffix, and the series prefix (FCR08DCGTA -> fcr08dcgta, fcr08)."""
-    keys = []
+    """Full model keys first, then series keys. (A) series = leading letters+digits (sw6de -> sw6, fcr08dcgta -> fcr08)
+    or the part before a trim suffix (gswh-2 -> gswh). Units/ratings never reach here (model_tokens strips them)."""
+    return [k for k, _ in model_key_tiers(unit)]
+
+
+def model_key_tiers(unit: dict) -> list:
+    """[(key, 'model'|'series')], compact (no hyphens), full model keys before series keys."""
+    full, series = [], []
     for t in unit.get("tokens", []):
-        if not re.search(r"\d", t) or len(t) < 4:
+        if not re.search(r"\d", t) or is_unit_token(t):
             continue
-        for k in (t, t.split("-")[0], (re.match(r"[a-z]{2,}\d{2,}", t) or [None])[0]):
-            if k and len(k) >= 4 and k not in keys:
-                keys.append(k)
-    return keys
+        c = re.sub(r"[-.]", "", t)
+        if len(c) >= 4 and c not in full:
+            full.append(c)
+        for s in (t.split("-")[0], (re.match(r"[a-z]+\d+", t) or [None])[0]):
+            if s and re.sub(r"[-.]", "", s) != c and len(s) >= 3 and (re.search(r"[a-z]", s) and len(s) >= 3) and s not in series:
+                series.append(s)
+    return [(k, "model") for k in full] + [(k, "series") for k in series if k not in full]
 
 
-# ---------------- ONE manual selector (GD + PDF builder, Leader 2026-10-16 3:29 PM) ----------------
-CATEGORY_TYPES = {
-    "refrigerators": {"fridge"}, "furnaces": {"furnace"}, "water heaters": {"water_heater"},
-    "air conditioning": {"ac"}, "slideouts": {"slide"}, "slide-outs": {"slide"}, "leveling": {"leveling"},
-    "range & cooktops": {"cooktop"}, "plumbing / toilets": {"toilet"}, "awnings": {"awning"},
-}
+def _field_tokens(text: str) -> set:
+    """Doc field -> alnum tokens; hyphenated tokens give both the joined form and each part (FCR08DCGTA-BL -> fcr08dcgtabl, fcr08dcgta, bl)."""
+    out = set()
+    for raw in re.split(r"[^a-z0-9\-.]+", _norm(text)):
+        raw = raw.strip("-.")
+        if not raw:
+            continue
+        out.add(re.sub(r"[-.]", "", raw))
+        out.update(p for p in re.split(r"[-.]", raw) if p)
+    return out
 
 
-def unit_product_types(unit: dict) -> set:
-    """Allowed doc types: the category is authoritative; the model text can add a type (e.g. 'Electrical' + 'vent fan')."""
-    cat = CATEGORY_TYPES.get((unit.get("category") or "").strip().lower(), set())
-    return set(cat) | product_types(unit.get("model", ""))
+def _key_in(key: str, toks: set, kind: str) -> bool:
+    """A full model key matches a doc token exactly. A series key matches a token equal to it or that continues with a
+    LETTER (sw6 -> sw6de, sw6del) but not a digit (sw6 !-> sw60)."""
+    if key in toks:
+        return True
+    if kind == "series":
+        return any(t.startswith(key) and len(t) > len(key) and t[len(key)].isalpha() for t in toks)
+    return False
 
 
 def doc_product_types(doc: dict) -> set:
-    return product_types(" ".join(str(doc.get(k, "") or "") for k in ("title", "clean_title", "product_line")))
+    """The doc's own words decide its type (title / clean title / product line); its filing category is used only
+    when the doc names no type. Content beats filing (a misfiled range is still a range)."""
+    own = product_types(" ".join(str(doc.get(k, "") or "") for k in ("title", "clean_title", "product_line")))
+    if own:
+        return own
+    return set(CATEGORY_TYPES.get((doc.get("category") or "").strip().lower(), set()))
+
+
+def unit_product_types(unit: dict) -> set:
+    """Allowed doc types for the job: category (authoritative) + type words in the model text. If neither gives a type,
+    the type the tech STATES in their own messages counts (that is the answer to the confirmation question)."""
+    cat = set(CATEGORY_TYPES.get((unit.get("category") or "").strip().lower(), set()))
+    t = cat | product_types(unit.get("model", ""))
+    return t or set(unit.get("stated_types") or ())
+
+
+def type_needs_confirmation(unit: dict) -> bool:
+    return not unit_product_types(unit)
+
+
+def doc_evidence(unit: dict, doc: dict, page_text: str = "") -> tuple:
+    """(tier, key_len, where). Structured fields (title/models/doc number/clean title/product line) beat keywords and page text;
+    a full model key beats a series key."""
+    tiers = model_key_tiers(unit)
+    meta = _field_tokens(" ".join(str(doc.get(k, "") or "") for k in ("title", "models", "doc_number", "clean_title", "product_line")))
+    soft = _field_tokens(str(doc.get("keywords", "") or "") + " " + (page_text or ""))
+    best = (0, 0, "")
+    for key, kind in tiers:
+        for toks, tier_model, tier_series, where in ((meta, TIER_MODEL, TIER_SERIES, "fields"), (soft, TIER_MODEL_TEXT, TIER_SERIES_TEXT, "text")):
+            if _key_in(key, toks, kind):
+                cand = (tier_model if kind == "model" else tier_series, len(key), where)
+                best = max(best, cand)
+    if best[0] < TIER_SERIES:
+        blob = _norm(" ".join(str(doc.get(k, "") or "") for k in ("title", "product_line", "clean_title", "models")))
+        for ph in PRODUCT_LINE_PHRASES:
+            if ph in unit.get("tokens", []) and ph in blob:
+                best = max(best, (TIER_SERIES, len(ph), "product line"))
+    return best
 
 
 def model_hit_len(unit: dict, doc: dict) -> int:
-    """Length of the longest exact model key found in the doc's title/model fields (0 = none)."""
-    keys = model_keys(unit)
-    if not keys:
-        return 0
-    compact = re.sub(r"[^a-z0-9]", "", _norm(" ".join(str(doc.get(k, "") or "") for k in ("title", "models", "doc_number", "clean_title"))))
-    hits = [len(re.sub(r"[^a-z0-9]", "", k)) for k in keys if re.sub(r"[^a-z0-9]", "", k) in compact]
-    return max(hits) if hits else 0
+    """Back-compat: key length of the best model/series evidence in the doc's fields+keywords (0 = none)."""
+    return doc_evidence(unit, doc)[1]
 
 
-def doc_eligible(unit: dict, doc: dict, exact: int) -> str:
-    """'' if the doc may be pinned, else the reason it can't. Hard filters: brand, then product type."""
+def doc_eligible(unit: dict, doc: dict, tier: int) -> str:
+    """'' if the doc may be pinned, else why not. Hard filters: brand, then product type (never skipped)."""
     ub, db = unit.get("brand") or "", _doc_brand(doc)
     if ub and db and ub != db:
         return "other brand"
-    if not db and not exact:
-        return "brand unknown and no model match"
-    if not ub and not exact:
-        return "unit brand unknown and no model match"
+    if not db and tier < TIER_MODEL_TEXT:
+        return "doc brand unknown and no exact model match"
+    if not ub and tier < TIER_MODEL_TEXT:
+        return "unit brand unknown and no exact model match"
     ut, dt = unit_product_types(unit), doc_product_types(doc)
-    if ut and dt and not (ut & dt):
+    if not ut:
+        return "unit type not confirmed"
+    if not dt:
+        return "doc type unknown"
+    if not (ut & dt):
         return "wrong product type"
-    if ut and not dt and not exact:
-        return "product type unknown and no model match"
     return ""
 
 
-def no_manual_line(unit: dict) -> str:
+def _doc_kind(doc: dict) -> int:
+    """General preference between documents for the SAME evidence: a troubleshooting/service manual over a plain manual over a
+    write-up / warranty form (forms carry no diagnostic steps)."""
+    tl = str(doc.get("title", "")).lower()
+    if re.search(r"write-?up|warranty|\bform\b|\bclaim\b", tl):
+        return 0
+    return 2 if re.search(r"trouble\s*shoot|diagnos|service\s+(manual|and\s+training|&\s+training)|repair\s+manual", tl) else 1
+
+
+def _identity_keys(doc: dict) -> set:
+    """Same manual = same file hash, same doc number, or same normalized title (duplicate uploads)."""
+    keys = set()
+    if doc.get("content_sha256"):
+        keys.add("h:" + doc["content_sha256"].lower())
+    for n in re.split(r"[;,]", str(doc.get("doc_number") or "")):
+        n = re.sub(r"[^a-z0-9]", "", n.lower())
+        if len(n) >= 5:
+            keys.add("n:" + n)
+    t = re.sub(r"[^a-z0-9]", "", str(doc.get("title", "")).lower())
+    if len(t) >= 12:
+        keys.add("t:" + t)
+    return keys or {"id:" + str(doc.get("id"))}
+
+
+def _distinct_manuals(docs: list) -> int:
+    """Number of different manuals among docs (union of shared identity keys)."""
+    groups = []
+    for d in docs:
+        k = _identity_keys(d)
+        hit = [g for g in groups if g & k]
+        merged = set(k).union(*hit) if hit else set(k)
+        groups = [g for g in groups if g not in hit] + [merged]
+    return len(groups)
+
+
+def _model_count(doc: dict) -> int:
+    return len([m for m in re.split(r"[;,]", str(doc.get("models") or "")) if m.strip()])
+
+
+def no_manual_line(unit: dict, how: str = "none", detail: str = "") -> str:
     t = sorted(unit_product_types(unit))
-    kind = {"fridge": "fridge", "water_heater": "water heater", "furnace": "furnace", "ac": "A/C", "cooktop": "cooktop",
-            "leveling": "leveling", "awning": "awning", "slide": "slide-out", "vent_fan": "vent fan", "toilet": "toilet"}
-    model = " ".join(model_keys(unit)[:1]).upper()
-    what = " ".join(x for x in ((unit.get("brand") or "").title(), model, kind.get(t[0], "") if t else "") if x)
+    shown = [x for x in unit.get("tokens", []) if re.search(r"\d", x) and re.sub(r"[-.]", "", x) in model_keys(unit)]
+    model = (shown[0] if shown else " ".join(model_keys(unit)[:1])).upper()
+    if how == "needs_confirmation":
+        return (f"Confirm the unit type before I pick a manual{(' for ' + detail) if detail else ''}: "
+                "what kind of unit is it (for example refrigerator, water heater, furnace, A/C, leveling, slide-out)?")
+    what = " ".join(x for x in ((unit.get("brand") or "").title(), model, TYPE_NAMES.get(t[0], "") if t else "") if x)
+    if how == "ambiguous":
+        return f"Several different {what or 'matching'} manuals match equally ({detail}); not guessing - checking the official site"
     return f"No {what or 'matching'} manual found"
 
 
-def select_manual(library, unit: dict, exclude_ids=()) -> dict:
-    """THE manual selector for every search (GD and PDF builder).
+def _text_hits(library, keys, doc_ids) -> dict:
+    """{doc_id: page text that mentions a key}, only for the given candidate docs. Uses library.docs_with_text when the
+    adapter has it (one query per key), else nothing (test fixtures)."""
+    fn = getattr(library, "docs_with_text", None)
+    if not fn or not keys or not doc_ids:
+        return {}
+    out = {}
+    for k in keys:
+        for did, txt in (fn(k, doc_ids) or {}).items():
+            out[did] = out.get(did, "") + " " + txt
+    return out
 
-    1. Exact model key (model field / complaint / label text, normalized: FCR08DCGTA -> fcr08dcgta, fcr08) in a doc's
-       title or model fields wins outright, above all scoring.
-    2. Product type hard filter (category -> allowed types). 3. Brand hard filter, no borrowing.
-    4. Nothing eligible -> doc None + 'No <brand> <model> <type> manual found'.
-    Returns {"doc", "how": exact|scored|none, "miss_line", "rejected": [(id, reason)]}.
+
+def select_manual(library, unit: dict, exclude_ids=(), available=None) -> dict:
+    """THE manual selector for every search (GD, library search, Bay PDF, rule 11).
+
+    1. Type gate first: no job type (unmapped category, no type word, none stated) -> how='needs_confirmation' (ask the tech).
+    2. Evidence per doc (specificity): exact model in fields (5) > exact model in keywords/page text (4) > series in fields (3)
+       > series in keywords/page text or product-line phrase (2) > brand only (1). A pick needs tier >= 2.
+    3. Hard filters: brand (no borrowing) and product type.
+    4. Best (tier, key length, doc kind). If the best group holds DIFFERENT manuals -> how='ambiguous', no pick (web lookup runs).
+       Duplicate uploads of one manual are one manual (identity: hash / doc number / title).
+    5. available(doc) -> bool (e.g. the PDF file can be fetched): an unavailable doc is skipped and the next group is tried.
+    6. Exact-model docs that exist only under another product type -> how='needs_confirmation' (category may be wrong).
+    Returns {"doc", "how": exact|series|ambiguous|needs_confirmation|none, "tier", "miss_line", "rejected": [(id, reason)]}.
     """
+    rejected = []
+    if type_needs_confirmation(unit):
+        return {"doc": None, "how": "needs_confirmation", "tier": 0, "miss_line": no_manual_line(unit, "needs_confirmation"), "rejected": rejected}
     docs = [d for d in library.documents() if d["id"] not in exclude_ids]
-    rejected, exact_best, exact_key = [], None, None
-    for doc in docs:
-        n = model_hit_len(unit, doc)
-        if not n:
+    keys = [k for k, _ in model_key_tiers(unit)]
+    ub = unit.get("brand") or ""
+    text_ids = [d["id"] for d in docs if not ub or _doc_brand(d) in ("", ub)]
+    page = _text_hits(library, keys, text_ids) if keys else {}
+    scored, wrong_type_exact = [], []
+    for d in docs:
+        tier, klen, where = doc_evidence(unit, d, page.get(d["id"], ""))
+        if tier < MIN_PICK_TIER:
             continue
-        why = doc_eligible(unit, doc, n)
+        why = doc_eligible(unit, d, tier)
         if why:
-            rejected.append((doc["id"], why))
+            rejected.append((d["id"], why))
+            if why == "wrong product type" and tier >= TIER_MODEL_TEXT and _doc_brand(d) in ("", ub):
+                wrong_type_exact.append(d)
             continue
-        tl = str(doc.get("title", "")).lower()
-        key = (n, bool(re.search(r"troubleshoot|service", tl)), not re.search(r"write-?up|warranty|form\b", tl), -len(tl))
-        if exact_key is None or key > exact_key:
-            exact_best, exact_key = doc, key
-    if exact_best:
-        return {"doc": exact_best, "how": "exact", "miss_line": "", "rejected": rejected}
-    best, best_key = None, None
-    for doc in docs:
-        why = doc_eligible(unit, doc, 0)
-        if why:
-            continue
-        hits, trouble, ok = score_document(unit, doc)
-        if not ok or hits <= 0:
-            continue
-        tl = str(doc.get("title", "")).lower()
-        if re.search(r"write-?up", tl):
-            sym = {w for w in re.findall(r"[a-z]{4,}", (unit.get("symptom") or "").lower()) if w not in _STOP}
-            if len(sym & set(re.findall(r"[a-z]{4,}", tl))) < 2:
+        # Specificity order: evidence tier, key length, doc kind, then a doc written for fewer models (more specific to this unit).
+        # A doc that names the model in its TITLE is about that model (more specific than one listing it among others).
+        in_title = int(tier >= TIER_SERIES and any(_key_in(k, _field_tokens(d.get("title", "")), kd) for k, kd in model_key_tiers(unit)))
+        scored.append(((tier, klen, in_title, _doc_kind(d), -_model_count(d) if _model_count(d) else -999), d))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    i = 0
+    while i < len(scored):
+        top = scored[i][0]
+        group = [d for k, d in scored if k == top]
+        i += len(group)
+        ok = []
+        for d in group:
+            if available is not None and not available(d):
+                rejected.append((d["id"], "file unreachable"))
                 continue
-        key = (trouble, hits)
-        if best_key is None or key > best_key:
-            best, best_key = doc, key
-    if best:
-        return {"doc": best, "how": "scored", "miss_line": "", "rejected": rejected}
-    return {"doc": None, "how": "none", "miss_line": no_manual_line(unit), "rejected": rejected}
+            ok.append(d)
+        if not ok:
+            continue
+        if _distinct_manuals(ok) > 1:
+            ids = ", ".join(str(d["id"]) for d in ok[:5])
+            return {"doc": None, "how": "ambiguous", "tier": top[0], "miss_line": no_manual_line(unit, "ambiguous", f"docs {ids}"),
+                    "rejected": rejected, "tied": [d["id"] for d in ok]}
+        pick = min(ok, key=lambda d: d["id"])  # duplicates of ONE manual: which copy is immaterial
+        return {"doc": pick, "how": "exact" if top[0] >= TIER_MODEL_TEXT else "series", "tier": top[0], "miss_line": "", "rejected": rejected}
+    if wrong_type_exact:
+        kinds = sorted({TYPE_NAMES.get(t, t) for d in wrong_type_exact for t in doc_product_types(d)})
+        unit_c = dict(unit, stated_types=())
+        return {"doc": None, "how": "needs_confirmation", "tier": 0,
+                "miss_line": no_manual_line(unit_c, "needs_confirmation",
+                                            f"{([x for x in unit.get('tokens', []) if re.search(r'[0-9]', x)] or [''])[0].upper()} (the library has it as {', '.join(kinds)}, not {unit.get('category') or 'this category'})"),
+                "rejected": rejected}
+    return {"doc": None, "how": "none", "tier": 0, "miss_line": no_manual_line(unit), "rejected": rejected}
 
 
 def pin_document(library, unit: dict, exclude_ids=()) -> dict | None:
@@ -898,9 +1121,14 @@ def official_turn(
             reply = unit_question(unit)
             log_turn(log_path, {"stage": "identify", "seconds": round(time.time() - t0, 2)})
             return {"reply": reply, "mode": "identify", "pin": None, "usage": {}, "seconds": round(time.time() - t0, 2)}
-        pin = {"unit": unit, "checked": {}, "fault_code_asked": False, "web": {}}
+        sel = select_manual(library, unit, exclude_ids=exclude_doc_ids)
+        if sel["how"] == "needs_confirmation":
+            # F3: no confirmed unit type (unmapped category, or the model only exists under another type): ask, never skip the gate.
+            log_turn(log_path, {"stage": "confirm_type", "seconds": round(time.time() - t0, 2)})
+            return {"reply": sel["miss_line"], "mode": "confirm_type", "pin": None, "usage": {}, "seconds": round(time.time() - t0, 2)}
+        pin = {"unit": unit, "checked": {}, "fault_code_asked": False, "web": {}, "selection": {"how": sel["how"], "tier": sel.get("tier", 0)}}
         pin.update(carry)
-        doc = pin_document(library, unit, exclude_ids=exclude_doc_ids)
+        doc = sel["doc"]
         sect = load_section(library.chunks(doc["id"]), user_msg + " " + model_text) if doc else {"thin": True}
         want_web = (doc is None) or sect.get("thin") or bool(WEB_ASK_RE.search(user_msg or ""))
         if want_web and web_fetch_fn:
