@@ -952,6 +952,11 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += ("\nSTEPS THE TECH COULD NOT DO (never ask them again): \n- " + "\n- ".join(pin["unavailable"][-6:]) +
                    "\nUse an alternate test that isolates the same thing, or move to the next step. If the results already isolate the fault "
                    "(e.g. motor runs on direct 12 V, wiring good, no output from the controller/panel), give the repair now.\n")
+    twice = [" ".join(a[0]) for a in (pin.get("asks") or []) if a[1] >= REPEAT_MAX_ASKS]
+    if twice:
+        sysmsg += ("\nNO-REPEAT RULE: these tests were already asked twice. NEVER ask them again. Accept the tech's answer (a normal/OK "
+                   "result counts as recorded), and either give the next different step or route to shop/OEM authorization:\n- "
+                   + "\n- ".join(twice[-8:]) + "\n")
     reported = [m.get("content", "") for m in (history or []) if m.get("role") == "user"][1:] + [user_msg]
     reported = [r for r in reported if r and not NOT_CHECKED_RE.search(r)]
     if reported:
@@ -1032,19 +1037,100 @@ def condemned_parts(reply: str) -> list:
     return out
 
 
-def isolation_recorded(part: str, tech_msgs: list) -> bool:
-    """True when a tech message names the part (any head word) AND carries an isolation reading (a measurement, continuity/open,
-    or a jumper/bypass result)."""
+# A tech's test RESULT without a number: names a test and gives its outcome ("Winding and ground checks look normal/OK").
+# A visual "plugs look seated/OK" is not a test result. A meter value is preferred, not required.
+TEST_RESULT_RE = re.compile(
+    r"\b(?:check(?:s|ed)?|test(?:s|ed)?|reading|reads?|measur\w*|ohm(?:s|ed)?|meter(?:ed)?|winding|ground)\b.{0,60}?"
+    r"\b(?:normal|ok|okay|good|fine|pass(?:ed|es)?|in\s+spec|within\s+spec|correct)\b"
+    r"|\b(?:normal|ok|okay|good|fine|pass(?:ed|es)?|in\s+spec)\b.{0,30}?\b(?:check(?:s|ed)?|test(?:s|ed)?|reading)\b",
+    re.I,
+)
+WHOLE_UNIT_HEADS = {"unit", "appliance", "rooftop"}
+
+
+def session_tests(history: list, user_msg: str = "") -> list:
+    """Every (GD request, tech answer) pair of the session, oldest first. The answer's request is the GD message just before it."""
+    pairs, last_gd = [], ""
+    for m in list(history or []) + ([{"role": "user", "content": user_msg}] if user_msg else []):
+        if m.get("role") == "assistant":
+            last_gd = m.get("content", "") or ""
+        elif m.get("role") == "user":
+            pairs.append((last_gd, m.get("content", "") or ""))
+    return pairs
+
+
+def _is_result(sentence: str) -> bool:
+    return bool(ISOLATION_RE.search(sentence) or TEST_RESULT_RE.search(sentence))
+
+
+def isolation_recorded(part: str, tech_msgs: list, requests: list = None) -> bool:
+    """True when the session holds a recorded test of the part: a tech sentence with a reading OR a test result (normal/OK) that
+    either names the part itself or answers a GD request that named the part. A whole-unit call (unit/appliance/rooftop) is an
+    elimination conclusion: it needs at least one recorded test result in the session."""
     heads = _part_heads(part)
-    for msg in tech_msgs or []:
-      for low in re.split(r"(?<=[.;!?])\s+|\n+", (msg or "").lower()):  # the reading and the part must share a sentence
-        if ISOLATION_RE.search(low) and any(re.search(r"\b" + re.escape(h) + r"s?\b", low) for h in heads):
-            return True
+    reqs = list(requests) if requests is not None else [""] * len(tech_msgs or [])
+    reqs += [""] * (len(tech_msgs or []) - len(reqs))
+    named = lambda text: any(re.search(r"\b" + re.escape(h) + r"s?\b", (text or "").lower()) for h in heads)
+    whole = bool(heads & WHOLE_UNIT_HEADS)
+    for msg, req in zip(tech_msgs or [], reqs):
+        for low in re.split(r"(?<=[.;!?])\s+|\n+", (msg or "").lower()):
+            if not _is_result(low):
+                continue
+            if whole or named(low) or (req and named(req)):
+                return True
     return False
 
 
-def unproven_condemns(reply: str, tech_msgs: list) -> list:
-    return [p for p in condemned_parts(reply) if not isolation_recorded(p, tech_msgs)]
+def unproven_condemns(reply: str, tech_msgs: list, requests: list = None) -> list:
+    return [p for p in condemned_parts(reply) if not isolation_recorded(p, tech_msgs, requests)]
+
+
+# ---- NO-REPEAT rule: GD never asks for the same test a third time ----
+ASK_LINE_RE = re.compile(r"\b(?:report|probe|measure|read|check|test|clamp|send|tell me)\b", re.I)
+REPEAT_MAX_ASKS = 2
+_ASK_STOP = {"the", "a", "an", "and", "or", "to", "of", "on", "at", "in", "it", "is", "each", "then", "same", "report", "power", "off",
+             "general", "trade", "knowledge", "library", "good", "bad", "not", "with", "for", "your", "all", "three", "those"}
+
+
+def _ask_sig(line: str) -> frozenset:
+    line = re.sub(r"\[(?:library|general|web)[^\]]*\]", " ", line or "", flags=re.I)
+    return frozenset(w for w in re.findall(r"[a-z]{3,}", line.lower()) if w not in _ASK_STOP)
+
+
+def _same_ask(a: frozenset, b: frozenset) -> bool:
+    return bool(a) and bool(b) and len(a & b) / max(1, len(a | b)) >= 0.6
+
+
+def ask_counts(pin: dict) -> list:
+    return pin.setdefault("asks", [])  # [[sorted words], count, last_answer]
+
+
+def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
+    """Drop any ask line already asked REPEAT_MAX_ASKS times; when that leaves no ask, accept the answer and route on."""
+    asks = ask_counts(pin)
+    kept, capped = [], []
+    for line in (reply or "").splitlines():
+        sig = _ask_sig(line) if ASK_LINE_RE.search(line) else frozenset()
+        if not sig:
+            kept.append(line); continue
+        hit = next((a for a in asks if _same_ask(sig, frozenset(a[0]))), None)
+        if hit and hit[1] >= REPEAT_MAX_ASKS:
+            capped.append(line.strip()); continue
+        if hit:
+            hit[1] += 1
+        else:
+            asks.append([sorted(sig), 1])
+        kept.append(line)
+    if not capped:
+        return reply
+    pin.setdefault("repeat_capped", []).extend(capped)
+    if not any(ASK_LINE_RE.search(l) for l in kept):
+        ans = (last_answer or "").strip()
+        kept.append(("Accepted as reported: \"" + ans[:160] + "\". " if ans else "Accepted as reported. ") +
+                    "That test has been asked twice and will not be asked again. If the recorded results isolate a part that is not "
+                    "field-serviceable, document the findings and submit them to the OEM for authorization; otherwise go to the next "
+                    f"step in the section. [{LABEL_GENERAL}]")
+    return "\n".join(kept)
 
 
 def hold_condemns(reply: str, parts: list) -> str:
@@ -1376,12 +1462,14 @@ def official_turn(
                 reply = again.strip()
         except Exception:
             pass
-    tech_msgs = [m.get("content", "") for m in (history or []) if m.get("role") == "user"] + [user_msg or ""]
-    held = unproven_condemns(reply, tech_msgs)
+    pairs = session_tests(history, user_msg)
+    tech_msgs, requests = [a for _, a in pairs], [q for q, _ in pairs]
+    held = unproven_condemns(reply, tech_msgs, requests)
     if held:  # deterministic hold, no extra model call (one primary call per turn)
         reply = hold_condemns(reply, held)
         pin.setdefault("condemn_held", []).extend(held)
     reply = drop_reasks(reply, pin)
+    reply = cap_repeats(reply, pin, user_msg)
     reply = shop_voice(reply)
     reply = enforce_labels(reply, pin)
     reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
