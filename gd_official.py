@@ -1247,6 +1247,257 @@ def hold_while_pending(reply: str, pending: list) -> str:
 
 
 
+
+# ===== ROOT RULE (Leader 1:45 AM 2026-10-17): structured pending tests with a component scope =====
+# A pending test is an object: the tech's not-done report, the GD request lines that asked for it, and the SCOPE = the components,
+# circuit and assembly that test isolates (from GD's own request + the pinned manual section). A replace/repair line for component X
+# survives only if X has its own recorded DECISIVE result AND no pending test's scope contains X. While any pending test's scope
+# covers the complaint path, the reply is STRUCTURAL: safety line(s), the pending test, the shop/OEM tech line. Nothing else.
+COMPONENT_WORDS = {
+    "jack", "cylinder", "hose", "fitting", "manifold", "valve", "cartridge", "solenoid", "coil", "pump", "hpu", "reservoir", "motor",
+    "controller", "board", "module", "pcb", "panel", "touchpad", "touchscreen", "lcd", "display", "harness", "connector", "breaker",
+    "fuse", "battery", "converter", "charger", "isolator", "thermostat", "selector", "sensor", "relay", "capacitor", "ptcr", "compressor",
+    "fan", "blower", "element", "electrode", "igniter", "thermocouple", "burner", "orifice", "regulator", "gas", "spark", "eco",
+    "column", "jamb", "cable", "bracket", "switch", "inverter", "terminator", "adb", "gear", "sprocket", "coupler", "evaporator",
+    "condenser", "heater", "tube",
+}
+# Assemblies/circuits: when a test's scope names 2+ members, the whole assembly is in scope (a drift test on solenoids and jacks
+# isolates the hydraulic circuit; a brown-wire test at the gas valve and board isolates the ignition circuit).
+COMPONENT_GROUPS = [
+    {"jack", "cylinder", "hose", "fitting", "manifold", "valve", "cartridge", "solenoid", "coil", "pump", "hpu", "reservoir"},
+    {"gas", "valve", "regulator", "orifice", "burner", "electrode", "igniter", "thermocouple", "module", "board", "spark", "eco"},
+]
+_COMPONENT_MULTI = [(re.compile(r"\bpower[\s-]+unit\b", re.I), "hpu"), (re.compile(r"\bcontrol\s+board\b", re.I), "board"),
+                    (re.compile(r"\bp\.?c\.?b\b", re.I), "pcb")]
+
+
+def components(text: str) -> set:
+    """Component nouns named in a text (singular). 'both front-jack hoses at the manifold' -> {jack, hose, manifold}."""
+    t = text or ""
+    out = {c for rx, c in _COMPONENT_MULTI if rx.search(t)}
+    for w in re.findall(r"[a-z]+", t.lower()):
+        s = w[:-2] if w.endswith("es") and w[:-2] in COMPONENT_WORDS else (w[:-1] if w.endswith("s") else w)
+        if s in COMPONENT_WORDS:
+            out.add(s)
+        elif w in COMPONENT_WORDS:
+            out.add(w)
+    for group in _PART_SYNONYMS:
+        if out & group:
+            out |= group & COMPONENT_WORDS
+    return out
+
+
+def _expand_assemblies(scope: set, threshold: int = 2) -> set:
+    """Widen a scope to every assembly it names 2+ members of. Members shared by several assemblies (valve) do not count, so a
+    gas valve plus a board never pulls in the hydraulic circuit."""
+    out = set(scope)
+    for g in COMPONENT_GROUPS:
+        own = g - set().union(*(h for h in COMPONENT_GROUPS if h is not g))
+        if len(scope & own) >= threshold:
+            out |= g
+    return out
+
+
+class PendingTest:
+    __slots__ = ("text", "request", "scope", "sig", "anchor")
+
+    def __init__(self, text, request, scope, sig, anchor=None):
+        self.text, self.request, self.scope, self.sig, self.anchor = text, list(request), frozenset(scope), sig, anchor
+
+    def __repr__(self):
+        return f"PendingTest({self.text[:60]!r}, scope={sorted(self.scope)})"
+
+
+_MEASURE_WORDS = {"voltage", "volt", "volts", "reading", "readings", "separate", "amp", "amps", "draw", "resistance", "ohm", "ohms",
+                  "continuity", "measure", "measured", "result", "results", "note", "notes", "value", "values", "pressure",
+                  # function words and post-repair words: a 'post-repair verify' or 'that check' names no isolation target
+                  "that", "this", "those", "these", "what", "with", "from", "have", "been", "still", "also", "post", "after",
+                  "before", "verify", "verification", "repair", "repaired", "call", "line", "tech"}
+
+
+def _link_words(sentence: str) -> set:
+    """Non-component test words of a not-done report ('plumbing', 'unplug', 'jump') used to find GD's request lines."""
+    return {w for w in _ask_sig(NOT_DONE_RE.sub(" ", sentence)) if w not in _PENDING_GENERIC and w not in _PART_GENERIC
+            and w not in _MEASURE_WORDS and w not in COMPONENT_WORDS and len(w) > 3}
+
+
+def _request_lines_for(sig_words: set, gd_msgs: list, comps: set = frozenset(), anchor: int = None) -> list:
+    """GD's own request for this test: lines sharing the test's components or test words, taken from the GD message just before
+    the not-done report (anchor), else the first later one that asked, else the nearest earlier one. Fixed per test, so a later
+    re-worded GD line cannot widen or narrow the scope."""
+    n = len(gd_msgs)
+    a = n - 1 if anchor is None else max(0, min(anchor, n - 1))
+    order = list(range(a, n)) + list(range(a - 1, -1, -1))
+    for gd in (gd_msgs[i] for i in order):
+        hits = [ln for ln in (gd or "").splitlines() if ln.strip() and not GUARD_LINE_RE.match(ln)
+                and not ln.startswith("Safety first") and not _replace_targets(ln)
+                and ((comps & components(ln)) or (sig_words & set(_ask_sig(ln))))]
+        if hits:
+            return hits
+    return []
+
+
+def pending_tests(pairs: list, section_text: str = "") -> list:
+    """Structured pending tests for a session. pairs = session_tests(history, user_msg): [(GD message before, tech message)]."""
+    pend, gd_msgs = [], []
+    sec_sents = re.split(r"(?<=[.;!?])\s+|\n+", section_text or "")
+    for gd, tech in pairs:
+        gd_msgs.append(gd)
+        for sent in _sents(tech):
+            sig = frozenset(w for w in _ask_sig(NOT_DONE_RE.sub(" ", sent)) if w not in _PENDING_GENERIC)
+            if NOT_DONE_RE.search(sent) and PENDING_TEST_WORD_RE.search(sent):
+                if sig and not any(_overlap(sig, p.sig) for p in pend):
+                    pend.append(PendingTest(sent, [], (), sig, len(gd_msgs) - 1))
+            elif sig and (_is_result(sent.lower()) or (DONE_REPORT_RE.search(sent) and PENDING_TEST_WORD_RE.search(sent))):
+                pend = [p for p in pend if not _overlap(sig, p.sig)]
+    out = []
+    for p in pend:  # scope from GD's own (most recent) request for that test, plus the pinned manual section
+        link, comps = _link_words(p.text), components(p.text)
+        req = _request_lines_for(link, gd_msgs, comps, p.anchor)
+        scope = comps | components("\n".join(req))
+        sec_comps = set()
+        for s in sec_sents:
+            if len((link | comps) & (set(_ask_sig(s)) | components(s))) >= 2:
+                sec_comps |= components(s)
+        # The pinned section supplies circuit/assembly membership: it can complete an assembly the request already touches
+        # (request: gray coil; manual: coil + manifold + hoses -> hydraulic circuit), never add a stray noun such as the symptom
+        # named in the manual's condition clause ("if the touchpad is unresponsive...").
+        scope = _expand_assemblies(scope)
+        for g in COMPONENT_GROUPS:
+            if scope & g and g - scope:
+                own = g - set().union(*(h for h in COMPONENT_GROUPS if h is not g))
+                if len((scope | sec_comps) & own) >= 2:
+                    scope |= g
+        out.append(PendingTest(p.text, req, scope, p.sig, p.anchor))
+    return out
+
+
+def complaint_path(tech_msgs: list, doc_title: str = "") -> set:
+    """Components on the complaint's path: those named in the complaint plus the appliance the pinned manual covers (a
+    Water Heater manual -> heater), widened to their assembly."""
+    first = (tech_msgs or [""])[0]
+    words = components(first) | components(doc_title or "")
+    out = set(words)
+    for g in COMPONENT_GROUPS:
+        if words & g:
+            out |= g
+    return out
+
+
+SWAP_REPORT_RE = re.compile(r"\b(?:replaced|swapped|installed|serviced|r\s*&\s*r'?d|changed\s+out)\b", re.I)
+DECISIVE_RE = re.compile(r"\bvolt(?:age)?[\s-]+drop\b|\bdrop\s+(?:was\s+)?across\b|\btests?\s+(?:good|bad|ok|normal|open|shorted)\b", re.I)
+
+
+def _decisive_sents(msg: str) -> list:
+    return [x.strip() for x in re.split(r"(?<=[.;!?])\s+|\n+", msg or "") if x.strip()]
+
+
+def decisive_result(part: str, tech_msgs: list) -> bool:
+    """X has its OWN recorded decisive result: a tech sentence that names X and records a meter reading, an open/jumper/bypass, or a
+    test outcome. Never a question, a not-done report, a failed swap ('Replaced X ... still'), or an observation of another part."""
+    words = components(part) or (_part_words(part) - {"unit"})
+    if not words:
+        return False
+    for msg in tech_msgs or []:
+        for s in _decisive_sents(msg):
+            low = s.lower()
+            if "?" in s or NOT_DONE_RE.search(s) or SWAP_REPORT_RE.search(s):
+                continue
+            if not any(re.search(r"\b" + re.escape(w) + r"(?:e?s)?\b", low) for w in words):
+                continue
+            if ISOLATION_RE.search(s) or TEST_RESULT_RE.search(s) or DECISIVE_RE.search(s):
+                return True
+    return False
+
+
+REPAIR_ANY_RE = re.compile(r"\b(?:repair|rebuild|reseal|re-?seal)\b", re.I)
+_REPAIR_NOUN_BEFORE = {"the", "a", "an", "this", "that", "shop", "post", "isolated", "proven", "any", "for", "its", "your", "of",
+                       "matching", "recorded", "same", "interim", "final", "after"}
+_REPAIR_NOUN_AFTER = {"is", "was", "are", "were", "path", "job", "order", "stands", "remains", "stays", "line", "cost", "time"}
+
+
+def _repair_verbs(line: str) -> list:
+    """Unnegated uses of repair/rebuild/reseal as a VERB (an instruction), not the noun ('the isolated repair', 'Repair is
+    already isolated', 'shop repair/interim')."""
+    out = []
+    for m in REPAIR_ANY_RE.finditer(line or ""):
+        before = re.findall(r"[a-z]+", line[:m.start()].lower())[-1:]
+        after = re.match(r"\s*([a-z]+|[:/,.)\]])", line[m.end():].lower())
+        if before and before[0] in _REPAIR_NOUN_BEFORE:
+            continue
+        if line[max(0, m.start() - 1):m.start()] == "-":  # post-repair, pre-repair
+            continue
+        if after and (after.group(1) in _REPAIR_NOUN_AFTER or after.group(1) in ":/,.)]"):
+            continue
+        if not _verb_negated(line, m.start()):
+            out.append(m)
+    return out
+
+
+def _replace_targets(line: str) -> list:
+    """Component targets of a replace/repair directive line (unnegated), or [] when the line directs no replace/repair."""
+    if GUARD_LINE_RE.match(line or "") or _follow_up_line(line or ""):
+        return []
+    hit = unnegated_condemn(line) or bool(_repair_verbs(line))
+    if not hit:
+        return []
+    parts = condemned_parts(line)
+    return parts or [line]
+
+
+def scope_gate(reply: str, ptests: list, tech_msgs: list) -> tuple:
+    """Gate mode (no pending scope covers the complaint path): each replace/repair line survives only if every target X has a
+    decisive result of its own and lies outside every pending test's scope. Returns (reply, held [(part, reason)])."""
+    out, held = [], []
+    for line in (reply or "").splitlines():
+        targets = _replace_targets(line)
+        reasons = []
+        for t in targets:
+            comps = components(t)
+            whole = bool(_part_heads(t) & WHOLE_UNIT_HEADS) or not comps
+            covering = [p for p in ptests if whole or (comps & p.scope)]
+            if covering:
+                reasons.append((t, f"inside the scope of the pending test (\"{covering[0].text[:120]}\")"))
+            elif not decisive_result(t, tech_msgs):
+                reasons.append((t, "no recorded decisive result of its own (a reading, open/jumper, or manual check on that part)"))
+        if reasons:
+            held.extend(reasons)
+            continue
+        out.append(line)
+    if held:
+        why = "; ".join(f"{p[:60]}: {r}" for p, r in held[:3])
+        out.insert(0, f"Hold all part replacement for the held part(s): {why}. Record that result, or call the shop/OEM tech line "
+                      f"with the findings so far. [{LABEL_GENERAL}]")
+    return "\n".join(out), held
+
+
+PHONE_RE = re.compile(r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b")
+
+
+def structural_reply(reply: str, covering: list, pin: dict) -> str:
+    """While a pending test's scope covers the complaint path: safety line(s), the pending test(s), the tech line. No other line of
+    the model's reply survives (no wording detectors)."""
+    lines = (reply or "").splitlines()
+    out = [ln for ln in lines if ln.startswith("Safety first")]
+    asked = pin.setdefault("structural_asks", {})
+    for t in covering:
+        key = t.text[:80]
+        out.append(f"Hold all part replacement: an isolation test is still pending (\"{t.text[:140]}\") and it covers the complaint "
+                   f"path ({', '.join(sorted(t.scope)[:8])}). No part on that path is replaced or repaired until its result is "
+                   f"recorded. [{LABEL_GENERAL}]")
+        if asked.get(key, 0) < REPEAT_MAX_ASKS:
+            out.extend(t.request or [f"Do the pending test now ({t.text[:140].rstrip('.')}), record the result, and send it. "
+                                     f"[{LABEL_GENERAL}]"])
+        else:
+            out.append("That test has been asked twice and will not be asked again. No result is recorded for it yet: do it once and "
+                       f"send the reading, or call the shop/OEM tech line with the findings so far. [{LABEL_GENERAL}]")
+        asked[key] = asked.get(key, 0) + 1
+    contacts = [ln for ln in lines if PHONE_RE.search(ln) and ln not in out]
+    out.append(f"If you cannot do that test, call the shop/OEM tech line with the findings so far. [{LABEL_GENERAL}]")
+    out.extend(contacts[:1])
+    return "\n".join(out)
+
+
 def isolation_recorded(part: str, tech_msgs: list, requests: list = None) -> bool:
     """True when the session holds a recorded test of the part: a tech sentence with a reading OR a test result (normal/OK) that
     either names the part itself or answers a GD request that named the part. A whole-unit call (unit/appliance/rooftop) is an
@@ -1858,22 +2109,31 @@ def official_turn(
     if unadj:
         reply = hold_for_adjustment(reply, unadj, sec)
         pin.setdefault("adjust_held", []).extend(unadj)
-    pend = pending_isolation_tests(tech_msgs)
-    if pend:
-        hp = hold_while_pending(reply, pend)
-        if hp != reply:
-            pin.setdefault("pending_held", []).append(pend[0][:200])
-            reply = hp
+    structural = False
+    ptests = pending_tests(pairs, sec)
+    if ptests:
+        path = complaint_path(tech_msgs, pin.get("doc_title", ""))
+        covering = [p for p in ptests if p.scope & path]
+        if covering:  # ROOT RULE: structural reply while a pending scope covers the complaint path
+            reply = structural_reply(reply, covering, pin)
+            pin.setdefault("structural_held", []).append(covering[0].text[:200])
+            structural = True
+        else:
+            reply, gheld = scope_gate(reply, ptests, tech_msgs)
+            if gheld:
+                pin.setdefault("scope_held", []).extend(f"{p[:80]}: {r[:80]}" for p, r in gheld)
     reply = drop_orphan_install_steps(reply)
     seq = sequence_condemns(reply)
     if seq != reply:
         pin.setdefault("sequence_held", []).append(first_fix_line(reply)[:200])
         reply = seq
-    reply = drop_reasks(reply, pin)
-    reply = cap_repeats(reply, pin, user_msg)
+    if not structural:
+        reply = drop_reasks(reply, pin)
+        reply = cap_repeats(reply, pin, user_msg)
     reply = shop_voice(reply)
     reply = enforce_labels(reply, pin)
-    reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
+    if not structural:
+        reply = ensure_verify(reply) if re.search(r"calibrat|replace|program|resync", reply, re.I) else reply
     if first:
         if pin["mode"] == "no_manual":
             kind = {"fridge": "fridge", "water_heater": "water heater", "furnace": "furnace", "ac": "A/C", "cooktop": "cooktop",

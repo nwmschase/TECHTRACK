@@ -71,14 +71,22 @@ class TestNoRepeatNeverBecomesACondemn(unittest.TestCase):
                 self.assertEqual(_replace_lines(o), [], f"{line[:50]} turn {i}: {o}")
 
     def test_recorded_result_releases_the_hold(self):
+        # Root rule (Leader 2026-10-17 1:45 AM): recording the pending results ends the STRUCTURAL hold; the cartridge replace then
+        # still needs the cartridge's OWN decisive result (a coil-unplug observation is not a cartridge result), and passes once it has one.
         answers = ["Front jacks drift on their own when the slides run.", PEND,
-                   "Plumbing check done: no leaks at the manifold. Gray-coil unplug test done: jacks still drift with coils unplugged."]
+                   "Plumbing check done: no leaks at the manifold. Gray-coil unplug test done: jacks still drift with coils unplugged.",
+                   "Front holding-valve cartridges: both bypass fluid on the manual leak-down check with the coils unplugged "
+                   "(jacks drop 2 in. in 5 min)."]
+        replace = "Replace both front holding-valve cartridges as a matched pair. [General trade knowledge]"
         replies = ["Run the slides and watch both front jacks; report which moves. [General trade knowledge]",
-                   SLIPPED[4], "Replace both front holding-valve cartridges as a matched pair. [General trade knowledge]"]
+                   SLIPPED[4], replace, replace]
         outs, _ = _walk(answers, replies)
         self.assertEqual(_replace_lines(outs[1]), [], outs[1])
-        self.assertTrue(re.search(r"Replace both front holding-valve cartridges", outs[2]), outs[2])
-        self.assertNotIn("Hold all part replacement", outs[2])
+        self.assertIn("isolation test is still pending", outs[1])
+        self.assertNotIn("isolation test is still pending", outs[2])
+        self.assertEqual(_replace_lines(outs[2]), [], outs[2])
+        self.assertTrue(re.search(r"Replace both front holding-valve cartridges", outs[3]), outs[3])
+        self.assertNotIn("Hold all part replacement", outs[3])
 
 
 class TestNoRepeatAcceptsOnlyResults(unittest.TestCase):
