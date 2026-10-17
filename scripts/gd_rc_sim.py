@@ -58,6 +58,24 @@ def chat(messages, max_tokens=600, effort="low"):
                                 reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI])
 
 
+# A sim-tech [END] counts only after GD has reached a terminal call: a repair directive (not a held one), No Problem Found, or an
+# OEM authorization submission. Otherwise the [END] is stripped and the tech is told to keep answering. General: no case ids.
+TERMINAL_RE = re.compile(r"no\s+problem\s+found|\bNPF\b|submit\w*\s+(?:them\s+|it\s+|the\s+findings\s+)?to\s+the\s+OEM|OEM\s+(?:for\s+)?authori[sz]ation", re.I)
+EARLY_END_NOTE = ("(Harness: GD has not given a repair, No Problem Found or an OEM authorization call yet, so the job is not over. "
+                  "Do NOT write [END]. Answer GD's last request from the case file.)")
+
+
+def gd_terminal(reply: str) -> bool:
+    lines = [l for l in (reply or "").splitlines() if not re.search(r"before condemning", l, re.I)]
+    text = "\n".join(lines)
+    return bool(TERMINAL_RE.search(text) or go.CONDEMN_RE.search(text))
+
+
+def end_accepted(msg: str, gd_replies: list) -> bool:
+    """True only when the tech wrote [END] AND some GD reply so far was terminal."""
+    return "[END]" in (msg or "") and any(gd_terminal(r) for r in gd_replies or [])
+
+
 def run(case, out, db, max_turns=14):
     case_text = open([os.path.join(RC_DIR, f) for f in os.listdir(RC_DIR) if f.startswith(case + "-") and f.endswith(".md")][0]).read()
     model, category, unity = UNITS[case]
@@ -66,7 +84,7 @@ def run(case, out, db, max_turns=14):
     store, history, lines = {}, [], [f"# {case} sim  ({time.strftime('%Y-%m-%d %H:%M %Z')})", f"Model field: {model} | Category: {category} | Unity selector: {unity}", ""]
     log = os.path.join(out, f"{case}.usage.jsonl"); open(log, "w").close()
     tech_hist = [{"role": "system", "content": TECH_SYS + case_text}, {"role": "user", "content": "GD: Describe the complaint."}]
-    msg = chat(tech_hist).strip()
+    msg = chat(tech_hist).strip().replace("[END]", "").strip()  # nothing can end before GD's first reply
     for t in range(1, max_turns + 1):
         r = go.official_turn(msg, category, model, history, library=lib,
                              chat_fn=lambda m, mt, e: chat(m, mt, e), pin_store=store, usage_fn=gd_llm.last_usage,
@@ -76,11 +94,20 @@ def run(case, out, db, max_turns=14):
         u = r.get("usage") or {}
         lines += [f"## Turn {t}", f"**Tech:** {msg}", "", "**GD:**", r["reply"], "",
                   f"_mode={r['mode']} in={u.get('prompt_tokens')} cached={u.get('cached_tokens')} out={u.get('completion_tokens')} reasoning={u.get('reasoning_tokens')} cost=${r.get('cost_usd')} latency={r['seconds']}s_", ""]
-        if "[END]" in msg:
+        gd_replies = [x["content"] for x in history if x["role"] == "assistant"]
+        if end_accepted(msg, gd_replies[:-1]):
             break
         tech_hist += [{"role": "assistant", "content": msg}, {"role": "user", "content": "GD: " + r["reply"]}]
         msg = chat(tech_hist).strip()
-        if "[END]" in msg and t > 1:
+        tries = 0
+        while "[END]" in msg and not end_accepted(msg, gd_replies) and tries < 2:  # early [END]: not accepted
+            lines += [f"_harness: early [END] ignored (no terminal GD call yet): {msg[:160]}_", ""]
+            tech_hist += [{"role": "assistant", "content": msg}, {"role": "user", "content": "GD: " + r["reply"] + "\n\n" + EARLY_END_NOTE}]
+            msg = chat(tech_hist).strip()
+            tries += 1
+        if "[END]" in msg and not end_accepted(msg, gd_replies):
+            msg = msg.replace("[END]", "").strip()
+        if end_accepted(msg, gd_replies):
             history_end = msg
             history.append({"role": "user", "content": msg.replace("[END]", "").strip()})  # final correction reaches the story
             lines += [f"## Tech final", history_end, ""]
