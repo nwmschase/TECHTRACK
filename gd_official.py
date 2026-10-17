@@ -882,6 +882,13 @@ A safety line may come first.
 NPF_RULE = f"""
 If the verification shows the unit WORKS AS DESIGNED (complaint not reproduced, readings normal), say "No Problem Found - operating as designed",
 give a short customer explanation in plain words (why it seemed wrong), and condemn NO part. Otherwise continue the diagnostic walk.
+NEVER call No Problem Found while the tech reports the complaint is still present. First run the manual's DIFFERENTIATING checks.
+SPLIT RULE: if the complaint reproduces through one path but not another (e.g. a bypass, direct power, or an alternate control works),
+the fault is in the part only the failing path uses: isolate and repair that part.
+"""
+PENDING_RULE = """
+DECISIVE TEST NOT AVAILABLE YET: the tech cannot do the deciding test now. Give the REPAIR DECISION from the manual: for each possible
+result, the repair with its page citation, plus the shop/OEM tech-line escalation. Do not just repeat the test.
 """
 
 UNITY_NOT_SURE_RULE = """
@@ -949,6 +956,7 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
     if pin.get("unity_mode") == "identify":
         sysmsg += UNITY_NOT_SURE_RULE
     if pin.get("unavailable"):
+        sysmsg += PENDING_RULE
         sysmsg += ("\nSTEPS THE TECH COULD NOT DO (never ask them again): \n- " + "\n- ".join(pin["unavailable"][-6:]) +
                    "\nUse an alternate test that isolates the same thing, or move to the next step. If the results already isolate the fault "
                    "(e.g. motor runs on direct 12 V, wiring good, no output from the controller/panel), give the repair now.\n")
@@ -1018,23 +1026,29 @@ ISOLATION_RE = re.compile(
     r"runs?\s+on\s+(?:direct|jumper)|no\s+(?:power|voltage)\s+(?:at|to|out))",
     re.I,
 )
-_PART_STOP = {"the", "a", "an", "it", "this", "part", "new", "complete", "whole", "entire", "same", "one", "assembly", "kit"}
+_PART_STOP = {"the", "a", "an", "it", "this", "part", "new", "complete", "whole", "entire", "same", "one", "assembly", "assemblies", "kit",
+              "both", "matched", "set", "pair"}
 
 
 def _part_heads(part: str) -> set:
     """The part's noun: last word before any location phrase ('15A inline fuse in the front holder' -> fuse)."""
-    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
-                    " " + (part or "").lower())[0]
+    core = re.split(r"(?<=\w)\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
+                    (part or "").lower().strip())[0]
     words = [w for w in re.findall(r"[a-z0-9]+", core) if w not in _PART_STOP and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)]
     return {words[-1].rstrip("s")} if words else set()
 
 
 def _part_words(part: str) -> set:
     """Every identifying word of the part ('inverter pcb' -> {inverter, pcb}); a request/answer naming any of them names the part."""
-    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
-                    " " + (part or "").lower())[0]
+    core = re.split(r"(?<=\w)\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
+                    (part or "").lower().strip())[0]
     return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", core)
-            if w not in _PART_STOP and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)} | _part_heads(part)
+            if w not in _PART_STOP and w not in _PART_GENERIC and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)} | _part_heads(part)
+
+
+# Position/side words never identify a part on their own.
+_PART_GENERIC = {"front", "rear", "left", "right", "top", "bottom", "upper", "lower", "lead", "main", "inside", "outside", "interior",
+                 "exterior", "old", "driver", "passenger", "curb", "road", "side"}
 
 
 def condemned_parts(reply: str) -> list:
@@ -1090,8 +1104,112 @@ def isolation_recorded(part: str, tech_msgs: list, requests: list = None) -> boo
     return False
 
 
-def unproven_condemns(reply: str, tech_msgs: list, requests: list = None) -> list:
-    return [p for p in condemned_parts(reply) if not isolation_recorded(p, tech_msgs, requests)]
+# (c) Observation counts as isolation for a MECHANICAL failure when it is recorded against the part AND the pinned manual gives no
+# electrical test for that part/failure.
+MECH_OBS_RE = re.compile(r"\b(?:bind\w*|flex\w*|deflect\w*|crooked|out\s+of\s+(?:sync|square|level)|racking|seiz\w*|stuck|grind\w*|slip\w*|"
+                         r"skip\w*|drags?|dragging|drifts?|drifting|leaks?\s+down|won.?t\s+(?:turn|rotate|move)|wobbl\w*|cracked|broken|stripped)\b", re.I)
+ELECTRICAL_TEST_RE = re.compile(r"\b(?:volt\w*|vdc|vac|ohm\w*|amp(?:s|erage)?|continuity|meter|resistance)\b", re.I)
+# A bypass/direct-power/alternate-control result in a message that names the part (the split test) is that part's isolation.
+SPLIT_RESULT_RE = re.compile(r"\b(?:bypass\w*|jumper\w*|direct\s+(?:12\s*v\s+)?power|peacemaker|alternate\s+control)\b[^.\n]{0,40}\b(?:cools?|works?|runs?|operates?|heats?|lights?)\b", re.I)
+
+
+def manual_has_electrical_test(part: str, section_text: str) -> bool:
+    words = _part_words(part)
+    for sent in re.split(r"(?<=[.;!?])\s+|\n+", (section_text or "").lower()):
+        if ELECTRICAL_TEST_RE.search(sent) and any(re.search(r"\b" + re.escape(w) + r"s?\b", sent) for w in words):
+            return True
+    return False
+
+
+def mechanical_observation_recorded(part: str, tech_msgs: list, requests: list, section_text: str) -> bool:
+    """The observation must name the part's own noun (valve, motor, gearbox), not the system it sits in."""
+    if manual_has_electrical_test(part, section_text):
+        return False
+    words = _part_heads(part)
+    named = lambda t: any(re.search(r"\b" + re.escape(w) + r"s?\b", (t or "").lower()) for w in words)
+    reqs = list(requests or []) + [""] * max(0, len(tech_msgs or []) - len(requests or []))
+    for msg, req in zip(tech_msgs or [], reqs):
+        for sent in re.split(r"(?<=[.;!?])\s+|\n+", (msg or "").lower()):
+            if MECH_OBS_RE.search(sent) and (named(sent) or (req and named(req))):
+                return True
+    return False
+
+
+def split_result_recorded(part: str, tech_msgs: list) -> bool:
+    words = _part_words(part)
+    return any(SPLIT_RESULT_RE.search(m or "") and any(re.search(r"\b" + re.escape(w) + r"s?\b", (m or "").lower()) for w in words)
+               for m in tech_msgs or [])
+
+
+# Adjust/synchronize before condemn: when the pinned manual has adjustment or synchronization procedures, one must be recorded first.
+ADJUST_RE = re.compile(r"\b(?:synchroniz\w*|re-?sync\w*|cable\s+(?:tension|adjust\w*)|adjust\w*\s+(?:the\s+)?(?:\w+\s+)?cables?|"
+                       r"take\s+(?:the\s+)?slack|re-?learn|erase[- ]learn|zero[- ]point|re-?index|re-?time|timing\s+mark)\b", re.I)
+
+
+def manual_adjust_steps(section_text: str) -> list:
+    return [l.strip() for l in re.split(r"(?<=[.;!?])\s+|\n+", section_text or "") if ADJUST_RE.search(l)][:3]
+
+
+def adjustment_recorded(tech_msgs: list, requests: list) -> bool:
+    reqs = list(requests or []) + [""] * max(0, len(tech_msgs or []) - len(requests or []))
+    for msg, req in zip(tech_msgs or [], reqs):
+        if ADJUST_RE.search(msg or "") or (req and ADJUST_RE.search(req) and (msg or "").strip() and not NOT_CHECKED_RE.search(msg or "")):
+            return True
+    return False
+
+
+def unproven_condemns(reply: str, tech_msgs: list, requests: list = None, section_text: str = "") -> list:
+    out = []
+    for p in condemned_parts(reply):
+        if isolation_recorded(p, tech_msgs, requests) or split_result_recorded(p, tech_msgs):
+            continue
+        if mechanical_observation_recorded(p, tech_msgs, requests, section_text):
+            continue
+        out.append(p)
+    return out
+
+
+def unadjusted_condemns(reply: str, tech_msgs: list, requests: list, section_text: str) -> list:
+    """Parts condemned while the manual's adjustment/synchronization step is still unrecorded."""
+    if not manual_adjust_steps(section_text) or adjustment_recorded(tech_msgs, requests):
+        return []
+    return condemned_parts(reply)
+
+
+def hold_for_adjustment(reply: str, parts: list, section_text: str) -> str:
+    steps = manual_adjust_steps(section_text)
+    out = []
+    for line in (reply or "").splitlines():
+        if any(p in line.lower() for p in parts) and CONDEMN_RE.search(line):
+            out.append(f"Before condemning the {parts[0]}, do the manual's adjustment/synchronization step and report the result: "
+                       f"{steps[0][:220]} [{LABEL_GENERAL}]")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+# NPF guard: never call No Problem Found while the complaint is still reported present.
+NPF_CALL_RE = re.compile(r"\b(?:no\s+problem\s+found|operating\s+as\s+designed|works\s+as\s+designed)\b", re.I)
+STILL_PRESENT_RE = re.compile(r"\b(?:still|continues?\s+to)\b[^.\n]{0,40}\b(?:not|isn.?t|won.?t|doesn.?t|no)\b|\bcomplaint\s+(?:is\s+)?(?:still\s+)?present\b|"
+                              r"\bstill\s+(?:crooked|leaks?|drifts?|dead|warm|hot|cold|noisy|tripping|faults?)\b", re.I)
+
+
+def npf_blocked(reply: str, tech_msgs: list) -> str:
+    """The tech sentence showing the complaint is still present, when the reply calls NPF; else ''."""
+    if not NPF_CALL_RE.search(reply or ""):
+        return ""
+    for msg in reversed(tech_msgs or []):
+        for sent in re.split(r"(?<=[.;!?\]])\s+|\n+", msg or ""):
+            if STILL_PRESENT_RE.search(sent):
+                return sent.strip()
+    return ""
+
+
+def hold_npf(reply: str, evidence: str) -> str:
+    kept = [l for l in (reply or "").splitlines() if not NPF_CALL_RE.search(l)]
+    kept.insert(0, f"Not No Problem Found: the complaint is still present (\"{evidence[:160]}\"). Run the manual's differentiating check "
+                   f"next; if another path (bypass, direct power, alternate control) works, the fault is in the part only the failing path uses. [{LABEL_GENERAL}]")
+    return "\n".join(kept)
 
 
 # ---- NO-REPEAT rule: GD never asks for the same test a third time ----
@@ -1294,7 +1412,7 @@ ASK_PATTERNS = {
 }
 
 
-UNAVAILABLE_RE = re.compile(r"\b(not\s+recorded|can.?t\s+(get|do|measure|reach|access)|unable\s+to|no\s+way\s+to|don.?t\s+have\s+(a|the)|n/?a\b|not\s+available)", re.I)
+UNAVAILABLE_RE = re.compile(r"\b(pending|not\s+(?:done|available)\s+yet|isn.?t\s+done|not\s+recorded|can.?t\s+(get|do|measure|reach|access)|unable\s+to|no\s+way\s+to|don.?t\s+have\s+(a|the)|n/?a\b|not\s+available)", re.I)
 
 
 def _norm_step(text: str) -> str:
@@ -1482,10 +1600,19 @@ def official_turn(
             pass
     pairs = session_tests(history, user_msg)
     tech_msgs, requests = [a for _, a in pairs], [q for q, _ in pairs]
-    held = unproven_condemns(reply, tech_msgs, requests)
+    sec = pin.get("section_text", "")
+    npf_ev = npf_blocked(reply, tech_msgs)
+    if npf_ev:
+        reply = hold_npf(reply, npf_ev)
+        pin.setdefault("npf_held", []).append(npf_ev[:200])
+    held = unproven_condemns(reply, tech_msgs, requests, sec)
     if held:  # deterministic hold, no extra model call (one primary call per turn)
         reply = hold_condemns(reply, held)
         pin.setdefault("condemn_held", []).extend(held)
+    unadj = unadjusted_condemns(reply, tech_msgs, requests, sec)
+    if unadj:
+        reply = hold_for_adjustment(reply, unadj, sec)
+        pin.setdefault("adjust_held", []).extend(unadj)
     reply = drop_reasks(reply, pin)
     reply = cap_repeats(reply, pin, user_msg)
     reply = shop_voice(reply)

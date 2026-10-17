@@ -68,15 +68,26 @@ EARLY_END_NOTE = ("(Harness: GD has not given a repair, No Problem Found or an O
                   "Do NOT write [END]. Answer GD's last request from the case file.)")
 
 
+REPAIR_VERB_RE = re.compile(r"\b(?:replace|repair|install|realign|reorient|re-?seat|tighten|adjust|turn|rotate|clean|reprogram|resync|calibrat\w*)\b", re.I)
+PENDING_RE = re.compile(r"\b(?:pending|not\s+(?:done|available)\s+yet|isn.?t\s+done|not\s+yet\s+done|still\s+to\s+do)\b", re.I)
+
+
 def gd_terminal(reply: str) -> bool:
-    lines = [l for l in (reply or "").splitlines() if not re.search(r"before condemning", l, re.I)]
-    text = "\n".join(lines)
+    """Terminal = an UNCONDITIONAL repair/NPF/OEM call. Held lines and 'If ...' conditional lines don't count; a VERIFY line counts
+    only next to an unconditional repair line."""
+    lines = [l for l in (reply or "").splitlines() if l.strip() and not re.search(r"before condemning|^not no problem found", l.strip(), re.I)]
+    firm = [l for l in lines if not re.match(r"\s*(?:if|when|once|should)\b", l, re.I)]
+    text = "\n".join(firm)
+    if re.search(r"^\s*(?-i:VERIFY:)", text, re.M):
+        return any(REPAIR_VERB_RE.search(l) for l in firm if not re.match(r"\s*(?-i:VERIFY:)", l))
     return bool(TERMINAL_RE.search(text) or go.CONDEMN_RE.search(text))
 
 
 def end_accepted(msg: str, gd_replies: list) -> bool:
     """True only when the tech wrote [END] AND some GD reply so far was terminal."""
-    return "[END]" in (msg or "") and any(gd_terminal(r) for r in gd_replies or [])
+    if "[END]" not in (msg or "") or PENDING_RE.search(msg or ""):  # a pending/not-done report is not an outcome
+        return False
+    return any(gd_terminal(r) for r in gd_replies or [])
 
 
 def run(case, out, db, max_turns=14):

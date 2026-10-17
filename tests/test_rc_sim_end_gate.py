@@ -33,6 +33,13 @@ class TestEarlyEnd(unittest.TestCase):
     def test_end_after_gd_asks_to_confirm_the_fix_is_accepted(self):
         self.assertTrue(sim.end_accepted("No E8. [END]", ["Report that result. If it completes with no E8, the petit-tube orientation fix is verified."]))
 
+    def test_pending_report_is_not_an_outcome(self):
+        gd = ["If jumper holds voltage and it lights, repair the coach 12 V feed.\nVERIFY: run the function again."]
+        self.assertFalse(sim.end_accepted("Battery-jump test isn't done yet, still pending with tech line. [END]", gd))
+
+    def test_conditional_repair_with_verify_is_not_terminal(self):
+        self.assertFalse(sim.gd_terminal("If jumper holds voltage, repair the 12 V feed.\nVERIFY: run the function again."))
+
     def test_no_end_marker_never_ends(self):
         self.assertFalse(sim.end_accepted("Replaced, works.", ["Replace the fuse."]))
 

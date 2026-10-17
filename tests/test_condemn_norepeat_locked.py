@@ -101,3 +101,62 @@ class TestNoRepeatProperty(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMechanicalObservationRule(unittest.TestCase):
+    """Leader 8:23 PM (c): observation counts as isolation for a MECHANICAL failure when recorded against the part's own noun AND
+    the pinned manual gives no electrical test for it."""
+    SEC = "Inspect both motor/sprocket areas for flex. Check standoffs and cables vs the pre-punched holes."
+
+    def test_observation_on_the_part_counts_without_an_electrical_test(self):
+        self.assertEqual(go.unproven_condemns("Replace both motor assemblies.", ["Both motor/sprocket areas flex under load."],
+                                              ["Inspect both motor areas."], self.SEC), [])
+
+    def test_observation_does_not_count_when_the_manual_has_an_electrical_test(self):
+        self.assertEqual(go.unproven_condemns("Replace both motor assemblies.", ["Both motor areas flex under load."], ["Inspect."],
+                                              self.SEC + " Measure motor volts at the plug."), ["both motor assemblies"])
+
+    def test_observation_on_the_system_is_not_the_part(self):
+        self.assertEqual(go.unproven_condemns("Replace the front lead-jack cartridge valve.", ["The front jacks drift on their own."],
+                                              [""], ""), ["front lead-jack cartridge valve"])
+
+
+class TestAdjustBeforeCondemn(unittest.TestCase):
+    """When the pinned manual has adjustment/synchronization steps, one is recorded before any condemn (RC28 class)."""
+    SEC = "Cable adjustment: with the room all the way in, take slack out of both bottom cables, then both top cables."
+
+    def test_condemn_held_until_the_adjustment_is_recorded(self):
+        self.assertEqual(go.unadjusted_condemns("Replace both motor assemblies.", ["Motors flex."], ["Inspect motors."], self.SEC),
+                         ["both motor assemblies"])
+        out = go.hold_for_adjustment("Replace both motor assemblies.", ["both motor assemblies"], self.SEC)
+        self.assertIn("adjustment/synchronization step", out)
+        self.assertIn("take slack out", out)
+
+    def test_recorded_adjustment_releases_the_condemn(self):
+        self.assertEqual(go.unadjusted_condemns("Replace both motor assemblies.", ["Bottom and top cables went snug evenly; still crooked."],
+                                                ["Take slack out of both bottom cables, then top."], self.SEC), [])
+
+    def test_no_adjustment_in_the_manual_no_hold(self):
+        self.assertEqual(go.unadjusted_condemns("Replace the fuse.", ["fuse reads open"], [""], "Check the 15A fuse."), [])
+
+
+class TestNpfAndSplit(unittest.TestCase):
+    """NPF never while the complaint is still present; a bypass/alternate-path result is the split isolation (RC14 class)."""
+
+    def test_npf_held_while_complaint_present(self):
+        ev = go.npf_blocked("No Problem Found - operating as designed.", ["Amps normal; with the ceiling controls it still isn't blowing cold."])
+        self.assertTrue(ev)
+        self.assertIn("Not No Problem Found", go.hold_npf("No Problem Found - operating as designed.", ev))
+
+    def test_npf_allowed_when_not_reproduced(self):
+        self.assertEqual(go.npf_blocked("No Problem Found - operating as designed.", ["Ran 30 min, cools to 58F supply, complaint not reproduced."]), "")
+
+    def test_split_result_isolates_the_failing_path_part(self):
+        msgs = ["With ceiling controls on high cool the air is not cold. Control bypass cools."]
+        self.assertEqual(go.unproven_condemns("Replace the ceiling thermostat/selector.", msgs, [""], ""), [])
+
+
+class TestPendingDecisiveTest(unittest.TestCase):
+    def test_pending_is_unavailable(self):
+        self.assertTrue(go.UNAVAILABLE_RE.search("Battery-jump test is still pending with tech line."))
+        self.assertIn("REPAIR DECISION", go.PENDING_RULE)

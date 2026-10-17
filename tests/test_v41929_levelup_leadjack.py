@@ -114,27 +114,39 @@ class TestLeadJackReplay(unittest.TestCase):
         history, store, out = [], {}, []
         for t in turns:
             out.append(self._turn(t, history, store))
+        self._last_turns = list(turns)
         return out, store
 
-    def _assert_reaches_cartridge_fix(self, replies):
+    HELD_RE = r"before condemning the front lead-jack cartridge valve, record its isolation reading"
+
+    def _assert_reaches_cartridge_fix(self, replies, turns=None):
+        """Leader 2026-10-16 8:23 PM: the cartridge call (177094 with its owner's-manual page) is required once the isolation step
+        (the coil test) is on record, and only AFTER it; before that step the call must be HELD and 177094 must not print."""
         self.assertIn("Safety first", replies[0])
         joined = "\n".join(replies)
-        # Leader 2026-10-16 5:21 PM GD guard: never condemn a part before its isolation reading is recorded.
-        # These walks never record a cartridge isolation reading, so the cartridge call must be HELD for that reading;
-        # 177094 may print only with its owner's-manual page.
         self.assertIn("cartridge", joined.lower())
-        self.assertRegex(joined.lower(), r"177094|before condemning the front lead-jack cartridge valve, record its isolation reading")
         _assert_177094_is_cited(self, joined)
+        turns = turns or []
+        iso = next((i for i, t in enumerate(turns) if re.search(r"coil.*tests good", t, re.I)), None)
+        if iso is None:
+            self.assertNotIn("177094", joined)
+            self.assertRegex(joined.lower(), self.HELD_RE)
+        else:
+            self.assertIn("177094", joined)
+            first = next(i for i, r in enumerate(replies) if "177094" in r)
+            self.assertGreaterEqual(first, iso, "177094 printed before the isolation step")
+            for r in replies[:iso]:
+                self.assertNotIn("177094", r)
 
     def test_s20_asks_coil_and_plumbing_before_the_cartridge(self):
         replies, _ = self._walk([CONCERN, "The lead-jack valve coil on the gray wire tests good.",
                                  "The manual override screw is backed out. What is the repair?"])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
         self.assertIn("VERIFY THE CUSTOMER COMPLAINT", SENT[-3][0]["content"])
 
     def test_plumbing_yes_advances_to_the_override_screw(self):
         replies, store = self._walk([CONCERN, "The lead-jack valve coil on the gray wire tests good.", "Yes. The swap plumbing looks good."])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
         self.assertIn("swap plumbing looks good", SENT[-1][0]["content"])
 
     def test_s20_does_not_call_the_model(self):
@@ -149,12 +161,12 @@ class TestLeadJackReplay(unittest.TestCase):
             self.ns["ai_chat"] = original
         self.assertEqual(calls["legacy"], 0)
         self.assertEqual(len(SENT) - before, 1)
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
 
     def test_plumbing_is_not_asked_again_after_the_cartridge_fact(self):
         replies, store = self._walk([CONCERN, "The lead-jack valve coil on the gray wire tests good.",
                                      "Not checked yet", "The manual override screw is backed out."])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
         self.assertIn("HELD STEP", SENT[-2][0]["content"])
 
     def test_answered_plumbing_is_not_asked_again(self):
@@ -162,7 +174,7 @@ class TestLeadJackReplay(unittest.TestCase):
                                      "Manifold hose is in the notched port. Follow-leg hose is in the non-notched port. "
                                      "Unused ports are plugged. Orange extend and black retract hoses are not reversed.",
                                      "What next?"])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
         self.assertIn("TECH HAS REPORTED", SENT[-1][0]["content"])
         self.assertIn("notched port", SENT[-1][0]["content"])
 
@@ -171,7 +183,7 @@ class TestLeadJackReplay(unittest.TestCase):
 
         _assert_177094_is_cited(self, LEADJACK_CARTRIDGE_LINE)
         replies, _ = self._walk([CONCERN, "The manual override screw is backed out."])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
 
     def test_s20_does_not_borrow_a_furnace_chat(self):
         furnace = [{"role": "user", "content": "Furnace fan runs, no heat."},
@@ -185,5 +197,5 @@ class TestLeadJackReplay(unittest.TestCase):
                                  "Plumbing checked: manifold hose in notched port, follow-leg in non-notched, "
                                  "orange/black correct, no needed port plugged.",
                                  "Override screw is backed out."])
-        self._assert_reaches_cartridge_fix(replies)
+        self._assert_reaches_cartridge_fix(replies, self._last_turns)
         self.assertIn("Plumbing checked", SENT[-1][0]["content"])
