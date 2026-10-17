@@ -56,7 +56,7 @@ class TestProfileDocs(unittest.TestCase):
         self.assertIn("Before you start", pdf)
         self.assertIn("Thetford-42070", pdf)
         self.assertIn("Version 1.2", guided)
-        self.assertIn("Version 1.4", pdf)
+        self.assertIn("Version 1.5", pdf)  # 1.5: Chase LOCKED via Leader 2026-10-16
         self.assertIn("PDF-PAST-FAILS.md", pdf)
         self.assertIn("## Performance scorecard (grade every reviewed session, PASS/FAIL per line)", guided)
         self.assertIn("Any FAIL on 1, 8, or 10 is an automatic overall FAIL.", guided)
@@ -66,6 +66,7 @@ class TestProfileDocs(unittest.TestCase):
         self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)
         self.assertIn("| 2026-10-11 10:50 AM | PDF | 1.3 |", log)
         self.assertIn("| 2026-10-11 12:11 PM | PDF | 1.4 |", log)
+        self.assertIn("| 2026-10-16 9:40 PM | PDF | 1.5 |", log)
 
 
 class TestPdfProfile(unittest.TestCase):

@@ -4,8 +4,10 @@ Source checks do not import rv_techtrack. The AppTest below runs the script
 the way Streamlit does (set_page_config and all) and signs in as the seeded
 manager.
 """
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from streamlit.testing.v1 import AppTest
 
@@ -45,8 +47,19 @@ class TestGdNavAndSend(unittest.TestCase):
         )
 
 
+# These walks test navigation and session state with GD in its offline mode ("AI is offline"). Model and storage
+# credentials in the process environment (a dev box, CI with secrets) must not turn them into live, slow, nondeterministic calls.
+OFFLINE_ENV_KEYS = ("XAI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+
+
 class TestGdNavSurvivesSend(unittest.TestCase):
     """The failure on main: st.tabs plus st.rerun() jumped back to My Dashboard."""
+
+    def setUp(self):
+        env = {k: v for k, v in os.environ.items() if k not in OFFLINE_ENV_KEYS}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_two_sends_keep_section_category_and_model(self):
         at = AppTest.from_file(str(APP), default_timeout=60)
@@ -167,3 +180,15 @@ class TestGdNavSurvivesSend(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNavWalksAreOffline(unittest.TestCase):
+    def test_setup_removes_model_and_storage_keys_for_every_walk(self):
+        with mock.patch.dict(os.environ, {k: "x" for k in OFFLINE_ENV_KEYS}):
+            t = TestGdNavSurvivesSend("test_two_sends_keep_section_category_and_model")
+            t.setUp()
+            try:
+                self.assertFalse([k for k in OFFLINE_ENV_KEYS if k in os.environ])
+            finally:
+                t.doCleanups()
+            self.assertTrue(all(os.environ.get(k) == "x" for k in OFFLINE_ENV_KEYS))

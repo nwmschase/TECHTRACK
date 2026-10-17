@@ -12,3 +12,4 @@ Each gate review checks the output against the profiles.
 
 ## Change log
 - 2026-10-16 3:31 PM - Dev rule (GD + PDF): every fix starts with a written ROOT CAUSE analysis and fixes the root, never a one-case patch; every fix report and debrief opens with a ROOT CAUSE section. Chase-approved 2026-10-16 via Leader. (Row added to PROFILE-CHANGE-LOG.md.)
+- 2026-10-16 3:59 PM - BINDING standard (GD + PDF): /workspace/crew/standards/ROOT-CAUSE-ANALYSIS-STANDARD.md. Every fix report opens with its 9-field RCA template and passes the section-4 reviewer checklist (any FAIL = reject). Patches allowed only labeled CONTAINMENT, with a root-fix follow-up item. Supersedes the 3:31 PM ROOT CAUSE line format. (Row added to PROFILE-CHANGE-LOG.md.)
