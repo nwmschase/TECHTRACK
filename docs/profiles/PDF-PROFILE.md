@@ -1,5 +1,6 @@
 # PDF Builder (Bay Procedure): Established Profile
-Version 1.5. Established by Chase on 2026-10-11; rules locked by Chase via Leader 2026-10-16. Owner: Leader.
+Version 1.5. Established by Chase on 2026-10-11. Owner: Leader.
+Rules (1)-(4) of version 1.5 locked by Chase via Leader on 2026-10-16.
 
 ## What it is
 A strict, complete repair document in the ALLDATA / factory-manual style. Someone with no experience and limited reading must be able to follow it.
