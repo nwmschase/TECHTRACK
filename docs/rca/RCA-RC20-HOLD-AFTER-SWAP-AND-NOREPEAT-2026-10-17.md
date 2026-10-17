@@ -38,3 +38,22 @@ Commit: 4aff2a6 (follow-up exemption) + this commit (answer_has_result in cap_re
      - capped-question routing.
    - The locked RC29 NO-REPEAT tests still pass unchanged ("normal/OK" stays accepted). 159 GD-side tests pass.
    - The final sweep is in the pack.
+
+## Addendum: 642b658 final sweep (the hold line itself was capped; orphan install steps)
+- **Problem.** On 642b658, RC20 had 2 swaps: "front pair" at turn 11 and front valve cartridges at turn 13. Every replace line was correctly stripped, but:
+  - at turns 9-12 the "Hold all part replacement" line was missing;
+  - "After install: bleed the front circuit, then Zero Point" stayed, next to a diagnosis ("treat this as hydraulic leak-by on the front pair").
+  - The sim tech read that as an install instruction. Transcript: gd-official-sim-2026-10-16/642b658/RC20.md turns 9-13.
+- **Classification.** GD guard defect (GD side). Without a hold line, and with an install step present, GD's reply implied the replacement.
+- **Root.**
+  1. cap_repeats treated the guard-authored hold line ("… Do that test, or call the shop/OEM tech line …") as a test REQUEST and capped it on its third appearance. Reproduced: `cap_repeats` × 4 with the hold line drops it at repeat 3.
+  2. A held replace left its after-install step behind (the earlier condemn guard or pending hold removed the replace line, not the install step).
+- **Fix (general).**
+  - GUARD_LINE_RE: guard lines ("Hold all part replacement", "Before condemning", "No part is replaced", "That test has been asked twice", "Accepted as reported", "Hold the unit") are never counted or capped by NO-REPEAT.
+  - drop_orphan_install_steps() runs after the guards: when the reply carries a hold/barrier line and no live replace remains, "After install/replacing/the new … is in/the … repair" steps are dropped. VERIFY and Reconnect lines stay. Conditional replaces count as live unless the pending hold fired.
+- **Tests (tests/test_pending_hold_pipeline.py +3; test_pending_blocks_condemn property updated):**
+  - property: guard lines survive 6 repeats;
+  - orphan after-install dropped only when held (4 wordings; left alone when nothing is held or a live replace exists);
+  - end to end: 10 turns with a stubborn model emitting replace + "After install" + VERIFY. On every turn: no replace line, no "After install", and a hold present.
+  - 169 GD-side tests pass.
+- **Replay.** drop_orphan_install_steps changes 6 of 1,594 stored replies. Each drops an install step whose replace a guard had already held: RC18 edc11db, RC20 0c4a291, RC07 215fce8, RC22 215fce8 ×2, RC15 4aff2a6.

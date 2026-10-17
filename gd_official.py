@@ -1207,6 +1207,24 @@ def _follow_up_line(line: str) -> bool:
     return len(rest) < 2 or not unnegated_condemn(rest[1])
 
 
+AFTER_INSTALL_RE = re.compile(r"\s*(?:[-*\u2022]\s*)?after\s+(?:install\w*|replac\w*|swap\w*|(?:the|both|a)\s+(?:new|replacement|swap|install\w*)|"
+                              r"(?:the\s+)?(?:[\w()/-]+\s+){0,4}(?:is|are)\s+in\b|the\s+(?:[\w()/-]+\s+){0,4}(?:repair|swap|replacement)\b)", re.I)
+
+
+def drop_orphan_install_steps(reply: str) -> str:
+    """When a guard has held the replacement in this reply (a hold/barrier line) and no unconditional replace line remains, an
+    after-install step ('After install: bleed ...') presumes the install and is dropped. VERIFY/Reconnect lines stay."""
+    lines = (reply or "").splitlines()
+    barrier = any(re.match(r"\s*(?:Hold all part replacement|Before condemning|No part is replaced)\b", ln, re.I) for ln in lines)
+    pending_hold = any(ln.lstrip().startswith("Hold all part replacement") for ln in lines)  # conditionals are held too then
+    live = any(unnegated_condemn(ln) and not _follow_up_line(ln) and (not pending_hold or not CONDITIONAL_LINE_RE.match(ln))
+               and not re.match(r"\s*(?:Hold all part replacement|Before condemning)\b", ln, re.I) for ln in lines)
+    if not barrier or live:
+        return reply
+    kept = [ln for ln in lines if not AFTER_INSTALL_RE.match(ln)]
+    return reply if len(kept) == len(lines) else "\n".join(kept)
+
+
 def hold_while_pending(reply: str, pending: list) -> str:
     """While an isolation test is pending, NO condemn/replace line survives: unconditional, conditional ('If <x>, replace ...'),
     counterfactual, tech-proposed or OEM replacement request alike, and no line that presumes the replacement went ahead.
@@ -1415,13 +1433,19 @@ def answer_has_result(answer: str) -> bool:
                for x in _sents(answer) if not x.rstrip().endswith("?"))
 
 
+# Lines a guard writes (holds, barriers, routing) are not test requests: NO-REPEAT never counts or caps them, or a hold would vanish
+# on its third turn while the barrier still applies (RC20 642b658 turns 9-12).
+GUARD_LINE_RE = re.compile(r"\s*(?:Hold all part replacement|Before condemning|No part is replaced|That test has been asked twice|"
+                           r"Accepted as reported|Hold the unit)\b", re.I)
+
+
 def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     """Drop any ask line already asked REPEAT_MAX_ASKS times; when that leaves no ask, accept the answer and route on.
     A request group keeps every wording it was asked in, so a re-worded third ask still matches (similarity is not transitive)."""
     asks = ask_counts(pin)
     kept, capped, bumped = [], [], set()
     for line in (reply or "").splitlines():
-        repair_line = bool(CONDEMN_RE.search(line) or REPAIR_FOLLOW_RE.search(line))
+        repair_line = bool(CONDEMN_RE.search(line) or REPAIR_FOLLOW_RE.search(line) or GUARD_LINE_RE.match(line))
         sig = _ask_sig(line) if ASK_LINE_RE.search(line) and not repair_line else frozenset()
         if not sig:
             kept.append(line); continue
@@ -1840,6 +1864,7 @@ def official_turn(
         if hp != reply:
             pin.setdefault("pending_held", []).append(pend[0][:200])
             reply = hp
+    reply = drop_orphan_install_steps(reply)
     seq = sequence_condemns(reply)
     if seq != reply:
         pin.setdefault("sequence_held", []).append(first_fix_line(reply)[:200])

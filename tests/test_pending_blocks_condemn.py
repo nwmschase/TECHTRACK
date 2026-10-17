@@ -193,7 +193,10 @@ class TestVerifyWordDoesNotExemptAReplace(unittest.TestCase):
         import itertools
         for a, b in itertools.product(self.SLIPPED, self.FOLLOW):
             for reply in (a + "\n" + b, b + "\n" + a):
-                out = go.hold_while_pending(reply, self.PEND)
+                out = go.drop_orphan_install_steps(go.hold_while_pending(reply, self.PEND))
                 self.assertNotIn(a, out, reply)
-                self.assertIn(b, out, reply)
+                if go.AFTER_INSTALL_RE.match(b):  # 642b658 RC20: an after-install step whose replace is held presumes the install
+                    self.assertNotIn(b, out, reply)
+                else:
+                    self.assertIn(b, out, reply)
                 self.assertEqual(out.count("Hold all part replacement"), 1, reply)

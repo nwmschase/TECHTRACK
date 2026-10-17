@@ -97,3 +97,42 @@ class TestNoRepeatAcceptsOnlyResults(unittest.TestCase):
         self.assertNotIn("Accepted as reported", out)
         self.assertIn("shop/OEM tech line", out)
         self.assertNotIn(ask, out)
+
+
+class TestHoldLineNeverCappedAndNoOrphanInstallSteps(unittest.TestCase):
+    """642b658 RC20 turns 9-12: NO-REPEAT capped the hold line on its third turn, and 'After install: bleed ...' survived its held
+    replace; the tech replaced twice."""
+    HOLD = ('Hold all part replacement: an isolation test is still pending ("Plumbing check is still pending."). No part is replaced '
+            'or submitted for replacement until that result is recorded. Do that test, or call the shop/OEM tech line with the findings '
+            'so far. [General trade knowledge]')
+
+    def test_property_guard_lines_survive_any_number_of_repeats(self):
+        for g in (self.HOLD, "Before condemning the cartridges, record its isolation reading and send it. [General trade knowledge]",
+                  "That test has been asked twice and will not be asked again. No result is recorded for it yet. [General trade knowledge]"):
+            pin = {}
+            for i in range(6):
+                out = go.cap_repeats("Bleed the front circuit. [General trade knowledge]\n" + g, pin, ASK_AGAIN)
+                self.assertIn(g, out, f"repeat {i}")
+
+    def test_orphan_after_install_dropped_only_when_a_replace_was_held(self):
+        pend = [PEND]
+        for after in ("After install: bleed the front circuit, then Zero Point.", "After replacing both cartridges, bleed and resync.",
+                      "After the new power unit is in: bleed, resync both front jacks.", "After the cartridge (or jack) repair: run slides again."):
+            out = go.drop_orphan_install_steps(go.hold_while_pending("Replace both front cartridges as a matched pair.\n" + after +
+                                                                     "\nVERIFY: run slides 2-3 times.", pend))
+            self.assertNotIn(after, out)
+            self.assertIn("VERIFY: run slides 2-3 times.", out)
+            self.assertEqual(go.drop_orphan_install_steps(go.hold_while_pending(after, pend)), after)  # nothing held: left alone
+            live = "Replace both front cartridges as a matched pair.\n" + after
+            self.assertEqual(go.drop_orphan_install_steps(live), live)  # no hold, live replace: its install step stays
+
+    def test_end_to_end_hold_present_on_every_replace_turn(self):
+        answers = ["Front jacks drift on their own when the slides run.", PEND] + [ASK_AGAIN, PEND] * 4
+        replies = ["Run the slides and watch both front jacks; report which moves. [General trade knowledge]"] + \
+                  ["Coils not commanded, so this is leak-by on the front pair. Replace both front cartridges as a matched pair.\n"
+                   "After install: bleed the front circuit, then Zero Point.\nVERIFY: run slides 2-3 full cycles."] * 9
+        outs, _ = _walk(answers, replies)
+        for i, o in enumerate(outs[1:], 2):
+            self.assertEqual(_replace_lines(o), [], f"turn {i}: {o}")
+            self.assertNotIn("After install", o, f"turn {i}")
+            self.assertTrue(any(h in o for h in ("Hold all part replacement", "Before condemning")), f"turn {i}: {o}")
