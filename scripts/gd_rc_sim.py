@@ -43,6 +43,7 @@ Answer GD's latest instructions briefly (1-3 sentences) like a tech would, using
 - When GD asks you to verify/operate the unit, report what the case file says you observed.
 - If GD tells you to do the repair in the case file's Fix, do it and report the result as in the case file.
 - A part GD names differently (by function, board name or part number) that is the same component as one in the case file's Fix IS the Fix part: do it.
+- A repair GD gives under a condition ("If X, replace Y") is done ONLY when the case file shows X was met; otherwise answer X's test from the case file (or say it is pending / not in the notes) and do not do Y.
 - If GD tells you to replace a part NOT in the case file's Fix, say: 'Before I replace that - anything else to check?' (once per part; if GD then repeats the same replacement with no new check, do it and report the complaint is still present, since that part is not the Fix).
 - When the repair is done and verified, or GD has called No Problem Found, end your message with [END].
 CASE FILE:
@@ -68,7 +69,7 @@ EARLY_END_NOTE = ("(Harness: GD has not given a repair, No Problem Found or an O
                   "Do NOT write [END]. Answer GD's last request from the case file.)")
 
 
-REPAIR_VERB_RE = re.compile(r"\b(?:replace|repair|install|realign|reorient|re-?seat|tighten|adjust|turn|rotate|clean|reprogram|resync|calibrat\w*)\b", re.I)
+REPAIR_VERB_RE = re.compile(r"\b(?:replace|repair|install|realign|reorient|re-?position|bend|re-?aim|re-?seat|tighten|adjust|turn|rotate|clean|reprogram|resync|calibrat\w*)\b", re.I)
 PENDING_RE = re.compile(r"\b(?:pending|not\s+(?:done|available)\s+yet|isn.?t\s+done|not\s+yet\s+done|still\s+to\s+do)\b", re.I)
 
 
@@ -83,11 +84,21 @@ def gd_terminal(reply: str) -> bool:
     return bool(TERMINAL_RE.search(text) or go.CONDEMN_RE.search(text))
 
 
+# Close-out: GD's "if it passes, the complaint is resolved / close the job" line after the tech already reported a repair done.
+CLOSE_OUT_RE = re.compile(r"\bcomplaint\s+(?:is\s+)?resolved\b|\bclose\s+(?:out\s+)?(?:the|this)\s+(?:job|ticket|ro|repair\s+order)\b|\bno\s+further\s+action\b", re.I)
+RESOLVED_RE = re.compile(r"\b(?:resolved|complaint\s+(?:is\s+)?gone|fixed|stays?\s+lit|works?\s+(?:now|normally)|cooling|verified)\b", re.I)
+STILL_RE = re.compile(r"\bstill\s+(?:present|there|happens|does|doesn.?t|won.?t|not|no|drifts?|leaks?|dead|warm|crooked|shuts?\s+off|faults?)\b|\bcomplaint\s+(?:is\s+)?(?:still\s+)?present\b", re.I)
+
+
 def end_accepted(msg: str, gd_replies: list) -> bool:
-    """True only when the tech wrote [END] AND some GD reply so far was terminal."""
+    """True only when the tech wrote [END] AND (some GD reply so far was terminal, OR GD gave a close-out line and the tech's
+    message reports the complaint resolved). A pending, not-done or still-present report never ends the run."""
     if "[END]" not in (msg or "") or PENDING_RE.search(msg or ""):  # a pending/not-done report is not an outcome
         return False
-    return any(gd_terminal(r) for r in gd_replies or [])
+    if any(gd_terminal(r) for r in gd_replies or []):
+        return True
+    return (any(CLOSE_OUT_RE.search(r or "") for r in gd_replies or []) and bool(RESOLVED_RE.search(msg or ""))
+            and not STILL_RE.search(msg or ""))
 
 
 def run(case, out, db, max_turns=14):
