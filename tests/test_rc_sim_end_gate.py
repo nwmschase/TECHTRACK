@@ -30,6 +30,9 @@ class TestEarlyEnd(unittest.TestCase):
         self.assertTrue(sim.end_accepted("Fixed. [END]", ["Loosen the nut, reorient the petit tube away from the wheel, snug it, then retest for E8."]))
         self.assertTrue(sim.end_accepted("Fixed. [END]", ["Reseat the plug.\nVERIFY: run 3 cycles and confirm."]))
 
+    def test_end_after_gd_asks_to_confirm_the_fix_is_accepted(self):
+        self.assertTrue(sim.end_accepted("No E8. [END]", ["Report that result. If it completes with no E8, the petit-tube orientation fix is verified."]))
+
     def test_no_end_marker_never_ends(self):
         self.assertFalse(sim.end_accepted("Replaced, works.", ["Replace the fuse."]))
 

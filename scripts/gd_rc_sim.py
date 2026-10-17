@@ -62,6 +62,7 @@ def chat(messages, max_tokens=600, effort="low"):
 # A sim-tech [END] counts only after GD has reached a terminal call: a repair directive (not a held one), No Problem Found, or an
 # OEM authorization submission. Otherwise the [END] is stripped and the tech is told to keep answering. General: no case ids.
 TERMINAL_RE = re.compile(r"^\s*(?-i:VERIFY:)|\b(?:realign|reorient|re-?seat|tighten|re-?adjust|reprogram|resync|re-?calibrat)\w*\b[^\n]{0,80}\b(?:then|and)\s+(?:re-?test|verify|confirm)"
+                         r"|\b(?:fix|repair)\b[^\n]{0,40}\b(?:is\s+)?verified\b|\bverif(?:y|ies|ied)\b[^\n]{0,40}\b(?:the\s+)?(?:fix|repair)\b"
                          r"|no\s+problem\s+found|\bNPF\b|submit\w*\s+(?:them\s+|it\s+|the\s+findings\s+)?to\s+the\s+OEM|OEM\s+(?:for\s+)?authori[sz]ation", re.I | re.M)
 EARLY_END_NOTE = ("(Harness: GD has not given a repair, No Problem Found or an OEM authorization call yet, so the job is not over. "
                   "Do NOT write [END]. Answer GD's last request from the case file.)")
