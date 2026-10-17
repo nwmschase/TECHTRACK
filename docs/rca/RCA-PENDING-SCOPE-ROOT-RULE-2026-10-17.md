@@ -147,3 +147,64 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
   through official_turn (the DSI module board line is blocked, structural). Both fail on ea06f7e and pass now. GD-side 181 pass.
 - **Replay:** 1,126 stored turns (8 sweeps). The new detector changes only ea06f7e RC22 (structural from T6). Every other mode
   change is identical on ea06f7e code.
+
+## Addendum 3: 854ef47 sweep, RC22 board condemn, a GD FAILURE of rule condition (1) (Leader 3:30 AM 2026-10-17)
+- **Problem.** 854ef47 RC22, T8-T9 (gd-official-sim-2026-10-16/854ef47/RC22.md lines 79-97): after T4-T8 tech answers of the
+  form "<test> isn't in the notes; looks normal/OK", GD said "Replace the DSI module board" (T8, cited p.31, the parts list) and
+  "Nothing else on this unit ... spark/valve/orifice/electrode/connectors already OK — replace the DSI module board" (T9, cited
+  p.17). The tech swapped the board and the complaint stayed (1 swap). No pending scope covered the path at T8. Leader ruling:
+  this is a GD failure of condition (1), not case design. Condition (1) must hold whether or not a pending scope exists. Options
+  (a) (b) (c) rejected.
+- **IS / IS-NOT.** IS: a condemn reached by eliminating other parts on normal/OK answers (valve coil 32 ohm, brown/WC/spark/
+  orifice/connectors "OK"), plus a reading taken AT the board ("yellow at the board is 0 V / -1.2 V"). IS NOT: RC04 (drop
+  recorded ACROSS the breaker), RC30 (fuse continuity OPEN), RC13 (thermostat bypassed, furnace runs), RC07 (fan motor shaft
+  locked). Each of those has a failing result that belongs to the condemned part. Also IS NOT: RC12 (manual flowchart p.27 ends
+  on "Replace the inverter PCB and fan"), RC08 (BAL 5.1 p.1 "the user panel will need to be replaced" after 12 V and harness
+  are confirmed), RC29 (OEM authorization block).
+- **Root (general).** Condition (1) was implemented as `decisive_result()` / `isolation_recorded()`. Both accept ANY tech sentence
+  that names the part and holds a reading or a test outcome. Normal/OK outcomes and readings taken at the part (location) were
+  included. So "a recorded result" stood in for "B's own failing result". The gate was also only reached when a pending test
+  existed (`scope_gate`). With no pending tests, only the older `unproven_condemns` ran, and it has the same acceptance.
+- **Fix (structural, no wording detector on the reply).** New `condemn_gate()` runs on every non-structural reply, with or
+  without pending tests. For each replace/repair target B (its head noun: `target_heads`, e.g. "first-jack motor" -> motor),
+  the line survives only with one of:
+  (i) `own_failing_result`: a tech result sentence that BELONGS to B and FAILS. Ownership is the component at the head of the
+  sentence, cut at the first location preposition, or the object of a test verb ("drop across X", "ohmed X"). A clause with no
+  owner inherits the owner of the clause before it in the same sentence ("15A fuse is in the holder; continuity is OPEN"). A split
+  result counts for the part that was bypassed ("thermostat bypassed ... furnace operates"). Direct power TO a part is that part's
+  pass. A normal/OK result is a pass: it rules its owner out and never condemns another part. The complaint message is not a test.
+  (ii) `manual_elimination_cite`: a page the reply cites holds a manual sentence that replaces B at the end of a decision path,
+  and at least one normal/OK result is recorded. "Replace B if found to be defective" asks for B's OWN test, so it does not count.
+  (iii) OEM path: the line sits in, or routes to, the OEM authorization request.
+  A conditional "If X, replace B" survives only when X is B's own failing outcome. X must name no other part, and it must be a
+  failing condition, a split test of B, or a result naming B. "If 30-50 ohm, replace the board" and "if valve and supply are
+  good, replace the board" are held. A held line becomes "Hold all part replacement for the B: no failing result of its own is
+  recorded. A normal/OK result on another part rules that part out; it never condemns the B." It also carries the manual's own
+  test for B when the section has one ("test module board with field tester") and the OEM path. The test is asked at most twice.
+  The RC29 lock is kept: `isolation_recorded()` still counts normal/OK as A's recorded result for the hold and NO-REPEAT logic.
+- **Tests (+18, tests/test_condemn_basis_rule.py):** locked RC22 854ef47 T1-T9 verbatim (no pending scope at T8; the T8 and T9
+  board condemns are held; the hold asks the field-tester test; the board has no own failing result; p.17 is not an elimination
+  path; a recorded board failure releases the line). Basis paths: RC29 lock, OEM block, RC12 p.27 elimination, RC04/RC30/RC13/RC07
+  own failing results, direct power is a pass, and conditionals. Property tests: 600 random sessions (no condemn of B survives
+  without an own failing result; normal/OK on any part, B included, and readings AT B never condemn B; held >150, kept >100); 200
+  sessions where the OEM and elimination paths survive. The locked RC22 tests fail on 854ef47 and pass now.
+- **Replay (6 stored sweeps, 854ef47 back to 4aff2a6):** held on every SHA: the RC22 board condemns (854ef47 T8/T9, ea06f7e T6/T7,
+  215fce8 conditionals); RC22 coach-feed conditionals with no own result ("If it lights, repair the coach feed"); RC20 matched-
+  pair repairs; RC18 direct motor line (the OEM "Requested authorization" line next to it is kept); RC13 cable-after-thermostat
+  conditional; Unity board direct lines on older SHAs (854ef47 used the OEM block). Kept with their basis: RC04 breaker (own:
+  drop across), RC07 PCB + fan motor (own), RC08 panel (elimination p.1), RC12 PCB + fan (elimination p.27), RC13 thermostat (own
+  split), RC23 bracket (own), RC28 jamb/column assemblies (own: motor/sprocket flex, assembly), RC29 (OEM), RC30 fuse (own).
+
+## Addendum 3b: RC20 terminal (Leader 3:30 AM item 2)
+- **Problem.** 854ef47 RC20 T10-T14: the same structural hold was sent five times, even after the tech reported the shop/OEM call
+  ("Already called Lippert/Brinkley ... still pending"). It named the pending test and said "call the shop/OEM tech line", but it
+  looped. It did not end. Leader: accepted ONLY if the final reply names the pending tests blocking progress AND gives the
+  shop/OEM escalation step; if it stops or loops, add a general rule.
+- **Root.** `structural_reply` had no terminal state. After the ask cap it repeated "asked twice ... call the tech line" every turn.
+- **Fix (general).** When every covering pending test has been asked twice, or the tech reports the shop/OEM call is made, the
+  structural reply is the ESCALATION SUMMARY. It holds: session parked; a hold line; each blocking pending test with its scope;
+  the results recorded so far; the shop/OEM step with the tech-line contact (from the reply, the pin, or the manual). The sim
+  harness ends a run on the ESCALATION SUMMARY ("session parked"). This is general and keyed on no case.
+- **Tests (+3):** RC20 854ef47 walked verbatim through all 14 tech turns ends on the summary, which names the plumbing/gray-coil
+  test and the shop/OEM tech line; the summary comes as soon as the tech reports the call; property over 100 random pending
+  sessions (no summary on the first ask, summary at the cap naming the test and the tech line).

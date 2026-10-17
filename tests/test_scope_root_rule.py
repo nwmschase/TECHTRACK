@@ -109,7 +109,7 @@ class TestLockedRealSessions(unittest.TestCase):
             outs.append(out)
             hist += [{"role": "user", "content": RC20_TECH}, {"role": "assistant", "content": out}]
         self.assertIn("Unplug the gray coil", outs[0])
-        self.assertIn("asked twice", outs[3])
+        self.assertIn("asked twice", outs[3]); self.assertIn(go.ESCALATION_HEAD, outs[3])
         self.assertTrue(all(replace_lines(o) == [] for o in outs), outs)
 
 
