@@ -1585,6 +1585,31 @@ def _drop_across_parts(sentence: str) -> set:
     return out
 
 
+OUTPUT_FAIL_RE = re.compile(r"\b(?:no\s+(?:voltage|output|power|polarity\s+flip)|open/floating|floating|dead|0(?:\.0+)?\s*v(?:dc|ac)?)\b", re.I)
+SUPPLY_WORD_RE = re.compile(r"\b(?:inputs?|power\s+in(?:puts?)?|feed|supply)\b", re.I)
+SUPPLY_BAD_RE = re.compile(r"\bcollaps\w*|\bdrops?\b|\bdropped\b|\bsags?\b|\blow\b", re.I)
+
+
+def output_failure(part_words: set, tech_msgs: list) -> str:
+    """B's own failure read at B's OUTPUT: B's output fails while B's input/feed is recorded good, and no input/feed reading on the
+    session fails ('~14.4 VDC at the X270D power inputs' + 'at the X270D outputs no voltage, open/floating'). With a failing feed
+    ('supply collapses to 5-10 V with the board in circuit') an output reading is not B's own failure."""
+    named = lambda t: any(re.search(r"\b" + re.escape(w) + r"s?\b", t.lower()) for w in part_words)
+    outs, ins_ok, ins_bad = "", False, False
+    for m in (tech_msgs or [])[1:]:
+        for sent in re.split(r"(?<=[.!?])\s+|\n+", m or ""):
+            if NOT_DONE_RE.search(sent) or "?" in sent:
+                continue
+            for c in _result_sents(sent):
+                if SUPPLY_WORD_RE.search(c) and (SUPPLY_BAD_RE.search(c) or (FAIL_RE.search(c) and not PASS_RE.search(c))):
+                    ins_bad = True
+                elif SUPPLY_WORD_RE.search(c) and named(c) and ISOLATION_RE.search(c):
+                    ins_ok = True
+            if re.search(r"\boutputs?\b", sent, re.I) and named(sent) and OUTPUT_FAIL_RE.search(sent) and not PASS_RE.search(sent):
+                outs = outs or sent.strip()
+    return outs if (outs and ins_ok and not ins_bad) else ""
+
+
 def own_failing_result(part_comps: set, tech_msgs: list) -> str:
     """(i) The tech sentence that is B's own decisive FAILING result, or ''. A split/bypass result (bypassing B restores the function)
     counts when the sentence names B; any other failing result must belong to B (result_owners)."""
@@ -1719,7 +1744,8 @@ def condemn_basis(line: str, target: str, tech_msgs: list, section_text: str, oe
         comps = comps | {m for g in _SOLD_AS_ASSEMBLY if comps & g for m in g}
     if oem_reply and OEM_PATH_RE.search(line or ""):
         return "oem", ""
-    own = own_failing_result(comps, tech_msgs)
+    own = own_failing_result(comps, tech_msgs) or output_failure((_part_words(target) | comps) - {"unit", "board", "pcb", "module", "panel"}
+                                                                  or comps, tech_msgs)
     if own:
         return "own", own
     elim = manual_elimination_cite(line, comps, section_text, reply) if _ruled_out_any(tech_msgs) else ""
@@ -1747,6 +1773,9 @@ def _state_clause(line: str, target: str) -> bool:
                 and re.search(r"\b(?:until|wait|when|once|after|whether)\b[^.;]*" + re.escape((target or "")[:20]), line or "", re.I))
 
 
+NEW_PART_RE = re.compile(r"\bnew\s+(?P<p>(?:[\w'/-]+\s+){0,3}?[\w'/-]+)", re.I)
+
+
 def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = None) -> tuple:
     """Every replace/repair line, in every mode, keeps only targets with a basis of their own (i/ii/iii). Lines without one are
     replaced by a hold that names the part, the missing basis, the manual's own test for it, and the OEM path. Returns
@@ -1754,6 +1783,21 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
     pin = pin if pin is not None else {}
     lines = (reply or "").splitlines()
     oem_reply = any(OEM_PATH_RE.search(l) for l in lines)
+    # An install procedure is a condemn even with no replace verb ('Engage the new motor's drive coupler', RC18 a4aef6c run 3):
+    # every component a line calls "new" is a replace target of that line; lifting/removing it off is that procedure's step.
+    proc = {}
+    for ln in lines:
+        if GUARD_LINE_RE.match(ln) or re.match(r"\s*(?-i:VERIFY:)", ln):
+            continue
+        if NEGATED_CONDEMN_RE.search(ln):  # 'do not replace the new jack yet' names an installed part
+            continue
+        for m in NEW_PART_RE.finditer(ln):
+            for c in target_heads(m.group("p")):
+                proc.setdefault(c, ln)
+    proc_held = set()
+    for c, ln in proc.items():
+        if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply)[0] and not _replace_targets(ln):
+            proc_held.add(c)
     in_oem_block = False
     out, held = [], []
     for line in lines:
@@ -1761,6 +1805,18 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
             in_oem_block = True
         elif in_oem_block and not line.strip():
             in_oem_block = False
+        pcomps = {c for c in proc_held if (re.search(r"\bnew\s+(?:[\w'/-]+\s+){0,3}?" + re.escape(c), line, re.I)
+                                           or re.search(r"\b(?:remove|lift|pull|take)\b[^.\n]*\b" + re.escape(c) + r"\w*\b[^.\n]*\b(?:off|out)\b", line, re.I))}
+        if pcomps and not GUARD_LINE_RE.match(line) and not in_oem_block:
+            for c in sorted(pcomps):
+                msg = (f"Hold all part replacement for the {c}: no failing result of its own is recorded, so the install procedure for a new "
+                       f"{c} is withheld. A normal/OK result on another part rules that part out; it never condemns the {c}. Record a test of "
+                       f"the {c} itself, cite the manual's elimination step, or document the findings and submit them to the OEM / shop tech "
+                       f"line for authorization. [{LABEL_GENERAL}]")
+                if msg not in out:
+                    out.append(msg)
+                    held.append((c, "install procedure for a new part with no own failing result, elimination cite or OEM path"))
+            continue
         targets = [t for t in _replace_targets(line) if t != line]  # a line with no parsable object is not gated (VERIFY, 'replaced' as adjective)
         named = [t for t in targets if target_components(t)]
         targets = named

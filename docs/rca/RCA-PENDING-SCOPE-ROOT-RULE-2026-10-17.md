@@ -182,7 +182,7 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
   recorded. A normal/OK result on another part rules that part out; it never condemns the B." It also carries the manual's own
   test for B when the section has one ("test module board with field tester") and the OEM path. The test is asked at most twice.
   The RC29 lock is kept: `isolation_recorded()` still counts normal/OK as A's recorded result for the hold and NO-REPEAT logic.
-- **Tests (+18, tests/test_condemn_basis_rule.py):** locked RC22 854ef47 T1-T9 verbatim (no pending scope at T8; the T8 and T9
+- **Tests (tests/test_condemn_basis_rule.py; 22 in addendum 3 + 3 in 3b):** install-procedure-is-a-condemn (RC18 a4aef6c run 3 T5 verbatim: "Engage the new motor..." with no replace verb, held) and output-failure-with-good-input (RC02 a4aef6c own; RC22 feed collapsing, not own) added after the a4aef6c partial sweep; locked RC22 854ef47 T1-T9 verbatim (no pending scope at T8; the T8 and T9
   board condemns are held; the hold asks the field-tester test; the board has no own failing result; p.17 is not an elimination
   path; a recorded board failure releases the line). Basis paths: RC29 lock, OEM block, RC12 p.27 elimination, RC04/RC30/RC13/RC07
   own failing results, direct power is a pass, and conditionals. Property tests: 600 random sessions (no condemn of B survives
@@ -208,3 +208,16 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
 - **Tests (+3):** RC20 854ef47 walked verbatim through all 14 tech turns ends on the summary, which names the plumbing/gray-coil
   test and the shop/OEM tech line; the summary comes as soon as the tech reports the call; property over 100 random pending
   sessions (no summary on the first ask, summary at the cap naming the test and the tech line).
+
+## Addendum 3c: a4aef6c partial sweep (stopped and re-based)
+- **RC18 run 3 (a4aef6c), T5:** GD gave a full install procedure for a "new motor" ("lift the motor off", "engage the new motor's
+  drive coupler") with no replace verb. The tech swapped the motor and the complaint stayed (1 swap). Root: condition (1) was
+  keyed on replace/repair verbs, and an install procedure is a condemn without one. Fix: every component a directive line calls
+  "new" is a replace target of that line, and "lift/remove the X off/out" is a step of that procedure. Both are held when X has no
+  basis. Negated mentions ("do not replace the new jack yet") are not targets.
+- **Own failure at the output (structural refinement of (i)).** A part's output read failing (no voltage, open/floating) while its
+  input/feed is recorded good, and no feed reading fails, is that part's own failing result. This is the manual's standard "good
+  in, bad out" test (RC02 a4aef6c X270D). With a failing feed (RC22: supply collapses with the board in circuit) an output
+  reading is never the part's own failure.
+- **RC04 (a4aef6c, 5 turns):** the complaint did not reproduce, and GD closed "no-trouble-found" after calibration. No hold fired.
+  This is the intermittent-NPF gap, issue #94 (Leader item 5). It is not caused by condition (1).

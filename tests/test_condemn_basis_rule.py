@@ -28,6 +28,9 @@ FURRION_P27 = 'Rev: 03.30.26 Page 27 CCD-0008122\nError Code - Fan Fault Diagnos
 RC20_854_TECH = ['Customer says front jacks drift/move on their own when other circuits pressurize, including slides; started after the front-left jack was replaced (old one clanked, internal failure).', 'Front jacks still drift on their own when other circuits (incl. slides) pressurize, same as the complaint. LCD, Firefly Jacks/Warnings, and the power/LCD/pump connectors look normal/OK.', 'Battery posts at rest, controller power connector (Red–Green and Yellow–Green), and Manual Mode on the LCD all look normal/OK.', 'Front jacks still drift when another circuit pressurizes (same as on arrival; still after the loose front-left cartridge was snugged, bled, and resynced). Plumbing check at the front-left jack hoses is pending. VERIFY: complaint is still present.', 'Marked rams and ran another circuit: front jacks still drift on their own after the pump stops, same as on arrival (still after snug/bleed/resync). Plumbing check at the front-left hoses is pending.', 'Front jacks still drift on their own when another circuit pressurizes (same as on arrival after snug/bleed/resync). Case notes don’t record left vs right, direction, or distance. Plumbing check at the front-left hoses is still pending; no parts replaced.', 'Can’t give left vs right, direction, or distance — notes only say both front jacks still drift after snug/bleed/resync. Plumbing check at the front-left hoses is still pending, so I’m calling the shop/OEM tech line with that.', 'Called Lippert/Brinkley with findings: front jacks still drift when other circuits pressurize after FL cartridge snug/bleed/resync; coil good. Plumbing check at the front-left hoses (and gray-coil unplug) still pending; no parts replaced.', 'Already called the tech line with the same findings. Plumbing check at the front-left hoses is still pending; no parts replaced.', 'Plumbing check at the front-left hoses is still pending; I already called the shop/OEM line with the drift after snug/bleed/resync. No parts replaced.', 'Already called Lippert/Brinkley with those findings. Plumbing check at the front-left hoses is still pending; no parts replaced.', 'Plumbing check at the front-left hoses is still pending. Already called the shop/OEM line with the drift after snug/bleed/resync; no parts replaced.', 'Plumbing check at the front-left hoses is still pending. Already called the shop/OEM line with both fronts still drifting after FL cartridge snug/bleed/resync; no parts replaced.', 'Plumbing check at the front-left hoses is still pending. Already called Lippert/Brinkley with both fronts still drifting after FL cartridge snug/bleed/resync; no parts replaced.']
 RC20_854_GD_T9 = 'Hold all part replacement: an isolation test is still pending ("Plumbing check at the front-left jack hoses is pending.") and it covers the complaint path (cartridge, coil, cylinder, fitting, hose, hpu, jack, manifold). No part on that path is replaced or repaired until its result is recorded. [General trade knowledge]\nThat test has been asked twice and will not be asked again. No result is recorded for it yet: do it once and send the reading, or call the shop/OEM tech line with the findings so far. [General trade knowledge]\nIf you cannot do that test, call the shop/OEM tech line with the findings so far. [General trade knowledge]\n'
 
+RC18_A4_TECH = ['Customer says the front stabilizer jack will not operate when cranking manually with the tool; it works on the power switch.', 'Works under power on the FRONT switch. Manual crank with the customer’s tool does not operate the jack (override input shaft roll pin broken and seized). LCD looks normal/OK, no fault recorded.', 'Controller ID looks normal/OK. Connectors look seated/OK. Override input shaft roll pin is broken and seized (cannot extract); which override port the tool was in isn’t in the notes.', 'Which override port, rubber plugs, and unused-port crank aren’t in the notes; those look normal/OK. Override input shaft roll pin is still broken and seized, cannot extract.', 'Before I replace that - anything else to check?']
+RC18_A4_T5_GD = 'Before condemning the jack motor, record its isolation reading (the meter value or jumper/bypass result at the jack motor itself) and send it. [General trade knowledge]\nSupport the 5th Wheel at front and rear with jack stands; keep clear of pinch points. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/ground%20control/ccd-0001745.pdf p.9]\nDisconnect that front jack motor’s cables from the system harness. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/ground%20control/ccd-0001745.pdf p.22]\nWith a 1/2" socket or wrench, remove the two motor retention bolts (Fig. 31A) and lift the motor off (Fig. 32). [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/ground%20control/ccd-0001745.pdf p.22]\nEngage the new motor’s drive coupler on the jack-leg drive shaft, reinstall/tighten the two bolts, reconnect the harness, zip-tie it tight to the motor. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/ground%20control/ccd-0001745.pdf p.22]\nReport when the new motor is bolted on and plugged in (or if the coupler will not engage).\n'
+
 SUBURBAN_DOC = {"id": 124, "title": "Suburban Water Heater Master Service and Training Manual", "brand": "Suburban", "models": "SW6DE",
                 "category": "Water Heaters", "doc_number": "S1"}
 
@@ -92,6 +95,37 @@ class TestLockedRC22(unittest.TestCase):
         self.assertFalse(held)
 
 
+class TestLockedInstallProcedureIsACondemn(unittest.TestCase):
+    """a4aef6c RC18 run 3, T5: no replace verb, but a full install procedure for a 'new motor' (lift the motor off, engage the new
+    motor's coupler) with only a normal/OK isolation and a broken roll pin (no component of its own) recorded. The tech swapped the
+    motor (complaint stayed). An install procedure is a condemn of the part it calls new."""
+
+    def test_rc18_new_motor_procedure_is_held(self):
+        out, held = go.condemn_gate(RC18_A4_T5_GD, RC18_A4_TECH, "")
+        self.assertNotRegex(out, r"(?i)engage the new motor|lift the motor off|new motor is bolted")
+        self.assertIn("Hold all part replacement for the motor", out)
+        self.assertTrue(held)
+
+    def test_new_part_with_own_failing_result_keeps_its_procedure(self):
+        reply = "Pull the old fuse out of the holder.\nPush the new 15A ATC fuse fully into the holder. [General trade knowledge]"
+        out, held = go.condemn_gate(reply, ["No power.", "15A fuse is in the holder; continuity is OPEN (blown)."], "")
+        self.assertIn("Push the new 15A ATC fuse", out)
+        self.assertFalse(held)
+
+
+RC02_A4_TECH = ['Customer reports both slide-outs won’t extend or retract. [no findings yet]', 'Wheels chocked, area clear, 12V on with ignition off. Slide icons on the OneControl home screen look normal/OK. No movement on either slide, no panel message of note, and relays click audibly at the Unity board on extend and retract for both.', 'Connectors re-seated, pins look normal/OK. Board is Unity X270D, IDS Part# 30606H3162401279. ~14.4 VDC at the X270D power inputs, resting.', 'X270 30A and 15A fuses in the 12V panel are good. Stamp ratings and dedicated-feed details look normal/OK.', 'Resting on the slide REV pairs looks normal/OK. At the X270D slide output terminals, no voltage during EXTEND or RETRACT—outputs stay open/floating and collapse under command instead of switching polarity; both slide circuits identical.']
+
+
+class TestOutputFailureWithGoodInput(unittest.TestCase):
+    def test_rc02_output_fails_with_good_input_is_own(self):
+        """a4aef6c RC02: inputs ~14.4 VDC (good), outputs no voltage/open-floating on command: the board's own failure."""
+        self.assertTrue(go.output_failure({"x270d", "unity"}, RC02_A4_TECH))
+
+    def test_rc22_output_with_collapsing_feed_is_not_own(self):
+        tech = [t for t, _ in RC22_854_HIST] + [RC22_854_T8_TECH, "Board output to the valve is 0 V during the try."]
+        self.assertEqual(go.output_failure({"dsi", "board"}, tech), "")
+
+
 class TestBasisPathsStillWork(unittest.TestCase):
     def test_rc29_normal_ok_lock_is_kept(self):
         """Normal/OK still counts as A's recorded result (RC29 lock) - it rules A out; it never becomes B's failing result."""
@@ -140,6 +174,7 @@ PASS_TEMPL = ["{p} looks normal/OK.", "{p} checked good.", "{p} reading is in sp
 AT_TEMPL = ["Yellow at the {p} is 0 V idle.", "Signal at the {p} drops to 5 V during the try.", "Got 0 V at the {p} output channel."]
 FAIL_TEMPL = ["The {p} reads open.", "{p} is shorted to ground.", "The {p} looks blown, continuity OPEN.", "{p} is seized and will not turn."]
 REPLY_TEMPL = ["Replace the {p}. [General trade knowledge]",
+               "Lift the old {p} off its mount.\nEngage the new {p} and tighten the two bolts. [Library: Service Manual p.3]",
                "Nothing else to check: {o} already OK, replace the {p}. [Library: Service Manual p.3]",
                "Condemn the {p} and order a new one. [General trade knowledge]",
                "Install a new {p}. [Library: Service Manual p.3]"]
@@ -177,8 +212,8 @@ class TestPropertyNoCondemnWithoutBasis(unittest.TestCase):
             reply = rnd.choice(REPLY_TEMPL).format(p=b, o=o) + "\nVERIFY: run it 2-3 cycles. [General trade knowledge]"
             sec = OWN_STATE_PAGE.format(p=b) if rnd.random() < 0.5 else ""
             out, held = go.condemn_gate(reply, msgs, sec)
-            survived = [ln for ln in out.splitlines() if go._replace_targets(ln) and not go.GUARD_LINE_RE.match(ln)
-                        and re.search(r"\b" + b + r"\b", ln)]
+            survived = [ln for ln in out.splitlines() if (go._replace_targets(ln) or re.search(r"\bnew\s+" + b, ln))
+                        and not go.GUARD_LINE_RE.match(ln) and re.search(r"\b" + b + r"\b", ln)]
             has_own = bool(go.own_failing_result(go.target_heads(b), msgs))
             if own_fail:
                 self.assertTrue(has_own, msgs)
