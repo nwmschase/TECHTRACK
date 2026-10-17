@@ -63,3 +63,17 @@ Commit: e82df6b (gd_official.py NOT_DONE_RE, pending_isolation_tests, hold_while
   - 3 new tests (TestMixedLine); 150 GD-side tests pass.
   - The replay now holds 5 e82df6b RC20 replies (28 of 1,255 total, no new false positives).
   - Reruns: RC20/RC22 on 750b5cf plus the final full sweep (see the pack).
+
+## Addendum 2: 215fce8 (750b5cf rerun: one swap still slipped)
+- **Problem.** On 750b5cf, RC20 went from 3 swaps (e82df6b) to 1: both front cartridges at turn 8. Two GD lines let it through while plumbing and gray-coil were pending:
+  - Turn 5: "Shop path without those tests: replace both … cartridges as a pair (… do not replace the cylinders for this alone)". The parenthetical negation negated the whole sentence.
+  - Turn 7: "If they would still drift with coils unplugged (matches the voltages you already have), replace both … cartridges". A counterfactual condition that GD itself declares met, so it is effectively unconditional. The sim tech acted on it.
+- **Root.** Negation was judged per sentence, not per verb, and a conditional's form was trusted even when its condition was counterfactual or asserted.
+- **Fix.**
+  - _verb_negated checks the 30 characters before EACH condemn/replace verb. That check is used by unnegated_condemn and condemned_parts.
+  - COUNTERFACTUAL_RE (would / matches / already have…) in the condition makes a conditional replace count as unconditional while a test is pending.
+  - TECH_SYS: a condition about a pending test is never met.
+- **Proof.**
+  - 4 new tests (TestDisguisedConditionals); 154 GD-side tests pass.
+  - Replay: 30 of 1,312 replies held, including the 2 from 750b5cf RC20; the real repair decision ("If they still drift with both coils unplugged, replace …") is kept.
+  - Final sweep on 215fce8: see the pack.
