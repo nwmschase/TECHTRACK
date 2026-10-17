@@ -1886,6 +1886,27 @@ def manual_own_test(part_comps: set, section_text: str) -> str:
     return ""
 
 
+def manual_own_test_cite(part_comps: set, section_text: str) -> tuple:
+    """(sentence, page) of the pinned manual's own test for B, read page by page so it can be cited (Leader 0650 O3: doc+page), or
+    ('', None) when no page of the section gives one."""
+    for chunk_page, chunk in _pages(section_text):
+        t = manual_own_test(part_comps, chunk)
+        if t and chunk_page is not None:
+            return t, chunk_page
+    return "", None
+
+
+def _pages(section_text: str) -> list:
+    out, cur = [], None
+    for chunk in re.split(r"(\[PAGE \d+(?: \|[^\]]*)?\])", section_text or ""):
+        m = re.match(r"\[PAGE (\d+)", chunk)
+        if m:
+            cur = int(m.group(1))
+        elif chunk.strip():
+            out.append((cur, chunk))
+    return out
+
+
 def _state_clause(line: str, target: str) -> bool:
     """'Wait until the inverter is dead' names a state, not a condemn."""
     return bool(re.search(r"\bis\s+(?:dead|bad|faulty|failed|defective|shorted|the\s+fault)\b", target or "", re.I)
@@ -2048,8 +2069,9 @@ def oem_upstream_gate(reply: str, tech_msgs: list, section_text: str, pin: dict)
             req |= components(l)
     todo = untested_upstream(tech_msgs, req)
     if (section_text or "").strip() and not section_text.lstrip().upper().startswith("NO "):
-        # With a pinned manual, only components the manual itself gives a test for are the "cheaper decisive upstream tests".
-        todo = [c for c in todo if manual_own_test({c}, section_text)]
+        # With a pinned manual, only components the manual itself gives a test for, ON A CITABLE PAGE, are the "cheaper decisive
+        # upstream tests" (Leader 0650 O3: the ask cites doc + page; no cite, no gate).
+        todo = [c for c in todo if manual_own_test_cite({c}, section_text)[1] is not None]
     if not todo:
         return reply, []
     asks = pin.setdefault("upstream_asks", {})
@@ -2070,11 +2092,15 @@ def oem_upstream_gate(reply: str, tech_msgs: list, section_text: str, pin: dict)
         out.append(l)
     for c in open_[:2]:
         asks[c] = asks.get(c, 0) + 1
-        test = manual_own_test({c}, section_text)
+        test, page = manual_own_test_cite({c}, section_text)
+        src = (pin.get("source_label") or "").strip()
+        if not src or src == LABEL_GENERAL:
+            src = f"{LABEL_LIBRARY}: {pin.get('doc_title') or 'pinned manual'}"
         out.append(f"Before any OEM or whole-unit request: no result is recorded for the {c}. "
-                   + (f"Do the manual's test for it and send the result: {test.rstrip('.')}." if test else
-                      f"Test the {c} itself (a direct bypass/jumper or a reading) and send the result.")
-                   + f" If it cannot be done, say so and why. [{LABEL_GENERAL}]")
+                   + (f"Do the manual's test for it and send the result: {test.rstrip('.')}. If it cannot be done, say so and why. "
+                      f"[{src} p.{page}]" if test else
+                      f"Test the {c} itself (a direct bypass/jumper or a reading) and send the result. If it cannot be done, say so "
+                      f"and why. [{LABEL_GENERAL}]"))
     return "\n".join(out), open_[:2]
 
 
@@ -2095,21 +2121,75 @@ def escalated(msg: str, pin: dict = None) -> bool:
                                           r"[^.\n]{0,60}\b" + re.escape(brand) + r"\b", msg or "", re.I))
 
 
+_CONTACT_GENERIC = {"shop", "oem", "tech", "tech-line", "techline", "line", "support", "call", "contact", "phone", "customer", "service",
+                    "the", "at", "on", "with", "to", "or", "and", "for", "if", "is", "number", "hotline", "help", "desk", "toll", "free",
+                    "technical", "dept", "department", "warranty", "claims", "manufacturer", "factory", "us", "them", "care", "team",
+                    "is", "a", "an", "of", "per", "via", "by", "tel", "ph", "hydraulics", "electrical"}
+
+
+def _companies_named(segment: str) -> list:
+    """Company names attached to the number that ends this segment: walking back from the number over generic contact words and
+    punctuation, runs of capitalized words ('Firefly Tech Support:' -> Firefly; 'Call Firefly or Lippert at' -> two names, ambiguous),
+    stopping at the first ordinary lowercase word ('Document findings and call' -> none). Grammar only; no brand list."""
+    seg = re.sub(r"\[[^\]]*\]|\S+@\S+|https?://\S+", " ", segment or "")
+    toks = re.findall(r"[A-Za-z][\w&'.-]*|[/;,:()|-]", seg)
+    names, cur = [], []
+    for tok in reversed(toks):
+        w = tok.strip(".").lower()
+        if re.fullmatch(r"[/;,:()|-]", tok) or w in _CONTACT_GENERIC:
+            if cur:
+                names.append(" ".join(reversed(cur)))
+                cur = []
+            continue
+        if tok[0].isupper():
+            cur.append(tok.strip("."))
+            continue
+        break
+    if cur:
+        names.append(" ".join(reversed(cur)))
+    return list(reversed(names))
+
+
+def _cited_doc_page(line: str, pin: dict) -> str:
+    """'<doc> p.<n>' for the line: its own [Library|Manufacturer site: ... p.N] tag, else the page of the pinned section that carries
+    the line, with the pinned document's title."""
+    m = re.search(r"\[(?:Library|Manufacturer site):\s*([^\]]*?)\s+p\.?\s*(\d+)[^\]]*\]", line or "", re.I)
+    if m:
+        return f"{m.group(1).strip()} p.{m.group(2)}"
+    doc = ((pin or {}).get("doc_title") or "").strip() or "the pinned manual"
+    sec, key = (pin or {}).get("section_text", "") or "", (line or "").strip()[:60]
+    page = None
+    if key:
+        for chunk in re.split(r"(\[PAGE \d+(?: \|[^\]]*)?\])", sec):
+            pm = re.match(r"\[PAGE (\d+)", chunk)
+            if pm:
+                page = pm.group(1)
+            elif key in chunk:
+                return f"{doc} p.{page}" if page else doc
+    return doc
+
+
 def contact_name_number(line: str, pin: dict = None) -> str:
-    """O5/O6: a contact is a name and a number only. The number (with any extension) comes from the line; the name is the pinned
-    document's brand from its metadata when known, else the words in front of the number on that line."""
+    """Leader 0650 N2 (O5/O6 broadened): a contact is a name and a number only, and a name is never put on a number it does not own.
+    The name is the company the SOURCE LINE names right before that number ('Firefly Tech Support: 574-825-4600' -> Firefly); if the
+    line names none, the pinned manual's brand (doc metadata); if that is ambiguous (the line names several companies for one
+    number, or no brand is known), no company: 'tech line per <doc> p.<n>'."""
     m = PHONE_RE.search(line or "")
     if not m:
         return ""
     ext = re.match(r"\s*(?:,?\s*(?:ext\.?|extension|x)\s*(\d{1,6}))", (line or "")[m.end():], re.I)
     number = m.group(0) + (f" ext. {ext.group(1)}" if ext else "")
+    before = (line or "")[:m.start()]
+    seg = re.split(r"[;|]|\d{3}[-.\s]\d{3}[-.\s]\d{4}\S*|\s/\s|\u2014|\n", before)[-1]  # this number's own segment
+    named = _companies_named(seg)
+    if len(named) == 1:
+        return f"{named[0]} tech line: {number}"
     brand = ((pin or {}).get("doc_brand") or "").strip()
-    if brand:
+    if not named and brand:
         return f"{brand.title()} tech line: {number}"
-    before = re.sub(r"\[[^\]]*\]", " ", (line or "")[:m.start()])
-    words = re.findall(r"[A-Za-z][\w&'./-]*", before)[-4:]
-    name = " ".join(w for w in words if w.lower() not in {"call", "the", "at", "on", "with", "to", "or", "and", "contact", "phone"})
-    return f"{name.strip(' :-')}: {number}" if name.strip(" :-") else number
+    return f"tech line per {_cited_doc_page(line, pin)}: {number}"
+
+
 ESCALATION_HEAD = "ESCALATION SUMMARY"
 
 
@@ -2147,6 +2227,56 @@ def recorded_repair(tech_msgs: list, section_text: str = "", pin: dict = None):
             if ok and found is None:  # the FIRST basis-backed repair; later 'already replaced' restatements keep its index
                 found = (i, heads, sent.strip().rstrip(".")[:160])
     return found
+
+
+CLOSE_HEAD = "CLOSE"
+VERIFY_PASS_RE = re.compile(r"\b(?:complaint\s+(?:is\s+)?(?:gone|resolved|cleared)|no\s+longer\b|(?:complete[sd]?|completed)\b|"
+                            r"works\b|working\b|fixed\b|resolved\b|verified\b|operat\w+\s+(?:normally|correctly|as\s+designed)|"
+                            r"runs?\s+(?:square|normally|correctly|both\s+ways)|(?:cools|heats|levels|ignites|stays\s+lit)\b)", re.I)
+
+
+def verified_close(tech_msgs: list, section_text: str = "", pin: dict = None):
+    """Leader 0650 N1: (repair sentence, verify sentence) when a basis-backed recorded repair (O1 `recorded_repair`) is followed - in
+    the repair message or a later one - by the tech's own verify PASS (function completes / complaint gone), with no later 'still ...'
+    report. A not-done or not-recorded verify ('Post-repair verify isn't in the notes') is not a pass. Otherwise None."""
+    rr = recorded_repair(tech_msgs, section_text, pin)
+    if not rr:
+        return None
+    for m in (tech_msgs or [])[rr[0]:]:
+        for sent in _sents(m):
+            if "?" in sent or NOT_DONE_RE.search(sent) or NOT_RECORDED_RE.search(sent) or STILL_BAD_RE.search(sent) \
+                    or re.search(r"\bnot\s+(?:done|run|checked|verified)\b|\bpending\b|\b(?:can.?t|cannot|unable|whether|"
+                                 r"don.?t\s+know|not\s+sure|unknown|if|bypass\w*|jumper\w*|submitted|sent\s+to|stopping)\b", sent, re.I):
+                continue
+            if VERIFY_PASS_RE.search(_drop_negated_failures(sent)) and not (_REPAIR_VERB_RE.search(sent) and not re.search(
+                    r"[;,]|\band\b|\bthen\b|\bafter\b", sent)):
+                return (None if _complaint_back_after(tech_msgs, sent) else (rr[2], sent.strip().rstrip(".")[:200]))
+    return None
+
+
+def _complaint_back_after(tech_msgs: list, verify_sent: str) -> bool:
+    """A later tech report that the complaint is back / still there ('still dead', 'still crooked', 'still present') voids a verify."""
+    seen = False
+    for m in tech_msgs or []:
+        for sent in _sents(m):
+            if seen and (STILL_BAD_RE.search(sent) or (re.search(r"\b(?:still|again|came\s+back|returned)\b", sent, re.I)
+                                                       and (_is_failing(sent) or re.search(r"\bdead\b|crooked|drift|no\s+(?:heat|cool|power)",
+                                                                                         sent, re.I)))):
+                return True
+            if sent.strip().rstrip(".")[:200] == verify_sent.strip().rstrip(".")[:200]:
+                seen = True
+    return False
+
+
+def close_reply(close: tuple, pin: dict) -> str:
+    """The structured CLOSE GD sends after a verified, recorded repair. One line per field; nothing else of the model's reply."""
+    rep, ver = close
+    out = [f"{CLOSE_HEAD}: repair recorded and verified. No further tests or parts. [{LABEL_GENERAL}]",
+           f"Repair: {rep}. [{LABEL_GENERAL}]", f"Verify: {ver}. [{LABEL_GENERAL}]"]
+    post = (pin or {}).get("post_repair_checks") or []
+    if post:
+        out.append("Not done (release note, not a blocker): " + "; ".join(p.rstrip(".") for p in post[:3]) + f". [{LABEL_GENERAL}]")
+    return "\n".join(out)
 
 
 def drop_post_repair_checks(ptests: list, tech_msgs: list, section_text: str, pin: dict) -> list:
@@ -2857,6 +2987,11 @@ def official_turn(
             reply, gheld = scope_gate(reply, ptests, tech_msgs)
             if gheld:
                 pin.setdefault("scope_held", []).extend(f"{p[:80]}: {r[:80]}" for p, r in gheld)
+    close = verified_close(tech_msgs, sec, pin)
+    if close:  # Leader 0650 N1: a verified, recorded repair ends the job with the structured CLOSE (no VERIFY appender, no more asks)
+        reply = close_reply(close, pin)
+        pin["closed"] = {"repair": close[0], "verify": close[1]}
+        structural = True
     if not structural:  # ROOT RULE condition (1): every condemn needs its own failing result / manual elimination cite / OEM path
         reply, cheld = condemn_gate(reply, tech_msgs, sec, pin)
         if cheld:

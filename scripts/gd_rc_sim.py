@@ -122,6 +122,9 @@ def run(case, out, db, max_turns=14):
         gd_replies = [x["content"] for x in history if x["role"] == "assistant"]
         if end_accepted(msg, gd_replies[:-1]):
             break
+        if any(ln.startswith(go.CLOSE_HEAD + ":") for ln in r["reply"].splitlines()):  # GD's structured CLOSE (verified, recorded repair)
+            lines += ["_harness: GD issued CLOSE (repair recorded and verified): run ends here._", ""]
+            break
         if go.ESCALATION_HEAD in r["reply"]:  # GD's general terminal for pending tests + no fix: the session is parked, not looped
             lines += ["_harness: GD issued the ESCALATION SUMMARY (its header states whether a repair is recorded): session parked; run ends here._", ""]
             break

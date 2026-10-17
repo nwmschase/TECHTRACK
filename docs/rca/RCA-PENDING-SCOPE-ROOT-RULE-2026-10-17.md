@@ -374,3 +374,63 @@ property tests) and tests/test_v41929_levelup_leadjack.py (O2 rewrite). Fixtures
 | Check that would have caught it originally | PASS (property tests: latest-result, post-repair, upstream-before-OEM) |
 | Full suite and sweep, zero new regressions | see the pack (final SHA) |
 | Containment labeled | N/A (root fixes) |
+
+## Addendum 5: Leader 06:50 PT rulings N1 (CLOSE) and N2 (contact label), plus the O3 cite confirmation
+Base: db2e601. Locked tests: tests/test_leader_0650_n1_n2.py (14, including 2 property tests). Fixtures are verbatim
+(tests/fixtures_leader_0550.py: RC20/RC08 db2e601 turns, RC20 writeup p.3 contacts). No case keys in the added lines.
+
+### 5.N1 GD did not close a verified, recorded repair; the run went to the turn cap
+1. **Problem.** db2e601 RC08 and RC18 sweeps reached the fix at T8/T6 with 0 swaps. GD then wrote "Case closed … No further tests", but `ensure_verify` still appended "VERIFY: run the function again". The harness ends only on the ESCALATION SUMMARY or an accepted [END], so both ran to 14 turns. Expected: once a basis-backed repair is recorded AND the tech reports a verify pass, GD emits a structured CLOSE and the run ends.
+2. **IS / IS-NOT.** IS: a recorded repair (O1) followed by the tech's verify pass. IS NOT:
+   - no recorded repair (RC20);
+   - a repair without its own basis;
+   - a verify not done / not recorded / "can't report whether" (RC08 db2e601);
+   - a bypass result;
+   - a later "still dead / still present".
+3. **Timeline.** O1 (db2e601) made a recorded repair session state, but nothing turned "repair recorded + verified" into a terminal reply.
+4. **Evidence.** db2e601/RC08.md T8-T14 and RC18.md T6-T14 (GD "Case closed"/"Complaint closed", each with an appended VERIFY line); scripts/gd_rc_sim.py terminal checks at db2e601.
+5. **Causal chain.** The close was free model text. AND the VERIFY appender treated it as a repair reply. AND the harness had no product terminal for a finished job. So the session looped. Systemic root: **the product had no structured terminal for a completed job**, only for a parked one.
+6. **Why not caught.** No test covered the session after the fix; the sweeps counted swaps, not post-fix turns.
+7. **Class.** "Terminal state expressed as free text instead of structured state" (same class as the 854ef47 RC20 loop fixed by the ESCALATION SUMMARY, addendum 3b).
+8. **Prior.** RC20 854ef47 T10-T14 (loop before 3b); RC08 642b658/ea06f7e post-repair pending turns; RC04 ec42b22/6753d23 post-repair holds (O1).
+9. **Fix + proof.**
+   - `verified_close()`: the O1 `recorded_repair` plus the tech's verify-pass sentence in or after the repair message. A not-done/not-recorded/uncertain/bypass sentence is never a pass, and a later "still …/again/returned" report voids it.
+   - `close_reply()`: `CLOSE: repair recorded and verified. No further tests or parts.` plus Repair / Verify lines and any post-repair checks as a release note. No VERIFY appender, no other model line.
+   - The harness ends on a line starting `CLOSE:`. This is the product emitting a close, not the sim changed to pass.
+   - Tests: RC04 6753d23 verbatim closes at T6 (not T5); RC20 db2e601 never closes; RC08 db2e601 (repair, no verify pass) never closes; 6 negative shapes; the harness check; property (300): CLOSE iff basis ∧ repair ∧ verify ∧ ¬still.
+   - Replay (9 sweeps): CLOSE only on RC04 (6753d23 T6, db2e601 T5, ec42b22 T9), RC12 (db2e601, hold set, 7336d47), RC13 cd71229 T9, RC14 854ef47 T10, RC23 854ef47 T5. Each is a based repair plus a verify pass. The first draft also closed RC08 db2e601 ("I can't report whether …"), RC23 0c4a291 ("Stopping field work") and RC08 a4aef6c ("Submitted … lights OK"); all three were fixed before commit.
+
+### 5.N2 A brand was put on a number it does not own
+1. **Problem.** db2e601 RC20 (sweep and hold set): "Contact: Lippert tech line: 574-825-4600". The number is the Firefly line on p.3 of the pinned writeup ("- Firefly Tech Support: 574-825-4600 / support@fireflyint.com").
+2. **IS / IS-NOT.** IS: a source line that names a company other than the doc brand. IS NOT: a line naming no company (RC22 "Shop/OEM tech-line 423-775-2131 ext. 7102" → the doc brand is correct).
+3. **Timeline.** O5/O6 (db2e601) introduced `contact_name_number` with "doc brand first".
+4. **Evidence.** db2e601/RC20.md l.52; library doc 218 p.3 contacts block.
+5. **Causal chain.** The label preferred the doc brand over the line's own words. AND the escalation took the first phone line from the section. So the wrong company was named.
+6. **Why not caught.** The O5 test had only a line with no company named.
+7. **Class.** "Attribute attached from context instead of from its own source" (same family as result ownership, addendum 3).
+8. **Prior.** O5 RC22 (raw condition text carried into the contact); 854ef47 RC20 contact text.
+9. **Fix + proof.**
+   - `_companies_named()` walks back from the number over generic contact words and stops at an ordinary lowercase word (grammar, no brand list).
+   - One company named → it. None → the doc brand. Several, or no brand → `tech line per <doc> p.<n>` (the line's own cite tag, else the page of the pinned section carrying it).
+   - Tests: RC20 shows "Firefly tech line: 574-825-4600" (summary built from the verbatim p.3 block); Firefly/Brinkley keep their numbers; no-company → doc brand; ambiguous → doc + page; property (300): never a foreign brand on a number.
+
+### 5.O3 cite (Leader confirmation)
+- The upstream ask with a manual pinned is the manual's own test from a citable page (`manual_own_test_cite`), tagged `[<source> p.<n>]`. With no citable page there is no gate.
+- NO MANUAL mode keeps the general bypass/reading ask (RC13).
+- Tests: the ask carries `[Library: Shop Writeup p.4]`; manual text with no page → no gate.
+- Replay: no gate change on 9 sweeps (every UP seen so far had a citable page or was NO MANUAL).
+
+### Section-4 checklist (N1, N2)
+| Item | Result |
+|---|---|
+| Full template, 9 fields | PASS |
+| IS / IS-NOT with working cases | PASS (RC20/RC08 no-close; RC22 doc-brand contact unchanged) |
+| Every causal link cites evidence | PASS (transcript lines, library p.3, harness code at db2e601) |
+| Chain reaches a general logic defect | PASS (no structured terminal for a finished job; label from context, not source) |
+| Class named, prior incidents listed | PASS |
+| No new case keyed on brand/file/page/model/test ID | PASS (grep of added lines; company names come from the source line by grammar) |
+| Sweep or property test on the whole class | PASS (2 properties, 600 sessions; replay 9 sweeps) |
+| Regression test for each prior incident | PASS (RC04 close, RC20 no-close + Firefly, RC08 no-close, RC22 contact) |
+| Check that would have caught it originally | PASS (property: CLOSE iff basis ∧ repair ∧ verify ∧ ¬still; never a foreign brand) |
+| Full suite and sweep, zero new regressions | see the pack (final SHA) |
+| Containment labeled | N/A (root fixes) |
