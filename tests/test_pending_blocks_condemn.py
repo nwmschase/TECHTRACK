@@ -88,3 +88,23 @@ class TestPendingProperty(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMixedLine(unittest.TestCase):
+    """e82df6b RC20: 'Replace X. Do not replace Y.' on one line hid the condemn of X from every guard."""
+
+    LINE = ("Replace both front jack solenoid cartridges as a matched pair at the manifold. Do not replace the LCD or control board. "
+            "[General trade knowledge]")
+
+    def test_condemn_seen_despite_a_negated_sentence(self):
+        self.assertEqual(go.condemned_parts(self.LINE), ["both front jack solenoid cartridges"])
+
+    def test_pending_hold_fires_on_mixed_line(self):
+        out = go.hold_while_pending(self.LINE, ["Plumbing check and coil unplug test are still pending."])
+        self.assertTrue(out.startswith("Hold all part replacement"))
+        self.assertNotIn("Replace both front jack", out)
+
+    def test_negated_only_line_untouched(self):
+        line = "Coil is in spec; do not replace the valve. [Library: M p.22]"
+        self.assertEqual(go.condemned_parts(line), [])
+        self.assertEqual(go.hold_while_pending(line, ["Jump test still pending."]), line)

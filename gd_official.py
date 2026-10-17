@@ -1065,11 +1065,24 @@ _PART_GENERIC = {"front", "rear", "left", "right", "top", "bottom", "upper", "lo
                  "exterior", "old", "driver", "passenger", "curb", "road", "side"}
 
 
+def _clauses(line: str) -> list:
+    """Sentences of one reply line ('Replace X. Do not replace Y.' -> two)."""
+    return [x for x in re.split(r"(?<=[.;!?])\s+(?=[A-Z(])", line or "") if x.strip()]
+
+
+def _negated(sentence: str) -> bool:
+    return bool(NEGATED_CONDEMN_RE.search(sentence) or NO_REPLACE_RE.search(sentence)
+                or re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", sentence, re.I))
+
+
+def unnegated_condemn(line: str) -> bool:
+    """True when some sentence of the line condemns/replaces a part without negating it."""
+    return any((CONDEMN_RE.search(x) or REPLACE_ANY_RE.search(x)) and not _negated(x) for x in _clauses(line))
+
+
 def condemned_parts(reply: str) -> list:
     out = []
-    for line in (reply or "").splitlines():
-        if NEGATED_CONDEMN_RE.search(line) or re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", line, re.I):
-            reply = reply.replace(line, "")
+    reply = "\n".join(" ".join(x for x in _clauses(line) if not _negated(x)) for line in (reply or "").splitlines())
     for m in CONDEMN_RE.finditer(reply or ""):
         part = (m.group("part") or m.group("part2") or "").strip()
         if part and _part_heads(part) and part.lower() not in out:
@@ -1119,7 +1132,7 @@ def _sents(msg: str) -> list:
 
 
 _PENDING_GENERIC = {"anything", "nothing", "yet", "haven", "didn", "checked", "check", "run", "ran", "tested", "test", "done", "still",
-                    "notes", "any", "all", "everything", "pending", "get", "got", "separate"}
+                    "notes", "any", "all", "everything", "pending", "get", "got", "separate", "are", "was", "were", "is"}
 
 
 def pending_isolation_tests(tech_msgs: list) -> list:
@@ -1153,8 +1166,7 @@ def hold_while_pending(reply: str, pending: list) -> str:
         return reply
     out, held = [], False
     for line in (reply or "").splitlines():
-        if ((CONDEMN_RE.search(line) or REPLACE_ANY_RE.search(line)) and not CONDITIONAL_LINE_RE.match(line)
-                and not NEGATED_CONDEMN_RE.search(line) and not NO_REPLACE_RE.search(line) and not REPAIR_FOLLOW_RE.search(line)
+        if (unnegated_condemn(line) and not CONDITIONAL_LINE_RE.match(line) and not REPAIR_FOLLOW_RE.search(line)
                 and not re.match(r"\s*before\s+condemning\b", line, re.I)):
             if not held:
                 out.append(f"Hold all part replacement: an isolation test is still pending (\"{pending[0][:140]}\"). No part is replaced or "
@@ -1401,7 +1413,7 @@ def sequence_condemns(reply: str) -> str:
     step = re.sub(r"\s*\[[^\]]*\]\s*$", "", first)[:160].rstrip(" .")
     out = []
     for line in (reply or "").splitlines():
-        if (CONDEMN_RE.search(line) and not CONDITIONAL_LINE_RE.match(line) and not NEGATED_CONDEMN_RE.search(line)
+        if (CONDEMN_RE.search(line) and unnegated_condemn(line) and not CONDITIONAL_LINE_RE.match(line)
                 and line.strip() != first and not REPAIR_FOLLOW_RE.search(line)):
             body = line.strip()
             out.append(f"Only if the complaint remains after that first correction ({step}): {body[0].lower() + body[1:]}")
