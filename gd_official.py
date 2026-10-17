@@ -1023,9 +1023,18 @@ _PART_STOP = {"the", "a", "an", "it", "this", "part", "new", "complete", "whole"
 
 def _part_heads(part: str) -> set:
     """The part's noun: last word before any location phrase ('15A inline fuse in the front holder' -> fuse)."""
-    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for)\s", (part or "").lower())[0]
+    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
+                    " " + (part or "").lower())[0]
     words = [w for w in re.findall(r"[a-z0-9]+", core) if w not in _PART_STOP and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)]
     return {words[-1].rstrip("s")} if words else set()
+
+
+def _part_words(part: str) -> set:
+    """Every identifying word of the part ('inverter pcb' -> {inverter, pcb}); a request/answer naming any of them names the part."""
+    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
+                    " " + (part or "").lower())[0]
+    return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", core)
+            if w not in _PART_STOP and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)} | _part_heads(part)
 
 
 def condemned_parts(reply: str) -> list:
@@ -1040,7 +1049,7 @@ def condemned_parts(reply: str) -> list:
 # A tech's test RESULT without a number: names a test and gives its outcome ("Winding and ground checks look normal/OK").
 # A visual "plugs look seated/OK" is not a test result. A meter value is preferred, not required.
 TEST_RESULT_RE = re.compile(
-    r"\b(?:check(?:s|ed)?|test(?:s|ed)?|reading|reads?|measur\w*|ohm(?:s|ed)?|meter(?:ed)?|winding|ground)\b.{0,60}?"
+    r"\b(?:check(?:s|ed)?|test(?:s|ed)?|reading|reads?|measur\w*|ohm(?:s|ed)?|meter(?:ed)?|winding|ground|isolation|continuity|volt(?:s|age)?)\b.{0,60}?"
     r"\b(?:normal|ok|okay|good|fine|pass(?:ed|es)?|in\s+spec|within\s+spec|correct)\b"
     r"|\b(?:normal|ok|okay|good|fine|pass(?:ed|es)?|in\s+spec)\b.{0,30}?\b(?:check(?:s|ed)?|test(?:s|ed)?|reading)\b",
     re.I,
@@ -1067,11 +1076,11 @@ def isolation_recorded(part: str, tech_msgs: list, requests: list = None) -> boo
     """True when the session holds a recorded test of the part: a tech sentence with a reading OR a test result (normal/OK) that
     either names the part itself or answers a GD request that named the part. A whole-unit call (unit/appliance/rooftop) is an
     elimination conclusion: it needs at least one recorded test result in the session."""
-    heads = _part_heads(part)
+    heads = _part_words(part)
     reqs = list(requests) if requests is not None else [""] * len(tech_msgs or [])
     reqs += [""] * (len(tech_msgs or []) - len(reqs))
     named = lambda text: any(re.search(r"\b" + re.escape(h) + r"s?\b", (text or "").lower()) for h in heads)
-    whole = bool(heads & WHOLE_UNIT_HEADS)
+    whole = bool(_part_heads(part) & WHOLE_UNIT_HEADS)
     for msg, req in zip(tech_msgs or [], reqs):
         for low in re.split(r"(?<=[.;!?])\s+|\n+", (msg or "").lower()):
             if not _is_result(low):
@@ -1101,6 +1110,10 @@ def _same_ask(a: frozenset, b: frozenset) -> bool:
     return bool(a) and bool(b) and len(a & b) / max(1, len(a | b)) >= 0.6
 
 
+# The repair itself and its post-repair verify are directions, not test requests: never capped.
+REPAIR_FOLLOW_RE = re.compile(r"\bverify\b|\breconnect\b|after (?:the |both )?(?:repair|swap|replac\w*|new|parts?)|\b(?:swapped|installed)\b", re.I)
+
+
 def ask_counts(pin: dict) -> list:
     return pin.setdefault("asks", [])  # [[sig words, ...], count]: one group per test request; every wording is kept
 
@@ -1111,7 +1124,8 @@ def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     asks = ask_counts(pin)
     kept, capped, bumped = [], [], set()
     for line in (reply or "").splitlines():
-        sig = _ask_sig(line) if ASK_LINE_RE.search(line) else frozenset()
+        repair_line = bool(CONDEMN_RE.search(line) or REPAIR_FOLLOW_RE.search(line))
+        sig = _ask_sig(line) if ASK_LINE_RE.search(line) and not repair_line else frozenset()
         if not sig:
             kept.append(line); continue
         gi = next((i for i, a in enumerate(asks) if any(_same_ask(sig, frozenset(w)) for w in a[0])), None)
@@ -1128,7 +1142,7 @@ def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     if not capped:
         return reply
     pin.setdefault("repeat_capped", []).extend(capped)
-    if not any(ASK_LINE_RE.search(l) for l in kept):
+    if not any(ASK_LINE_RE.search(l) or CONDEMN_RE.search(l) for l in kept):
         ans = (last_answer or "").strip()
         kept.append(("Accepted as reported: \"" + ans[:160] + "\". " if ans else "Accepted as reported. ") +
                     "That test has been asked twice and will not be asked again. If the recorded results isolate a part that is not "

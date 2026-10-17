@@ -65,6 +65,19 @@ class TestRewordedThirdAsk(unittest.TestCase):
         self.assertIn("Accepted as reported", outs[2])
 
 
+class TestRepairLinesAreNotRequests(unittest.TestCase):
+    """RC12 shape: the tech keeps asking 'anything else?'; the repair and its VERIFY are restated, never capped."""
+
+    def test_repair_and_verify_survive_repeats(self):
+        r = ("Replace inverter PCB (Part AL) and cooling fan (Part AB) together. [General trade knowledge]\n"
+             "Reconnect 12 V, knob at 4-5. Report whether compressor/fan run and whether E2 returns.\n"
+             "VERIFY: run 2 hours and confirm E2 stays off. [General trade knowledge]")
+        pin = {}
+        for _ in range(5):
+            out = go.cap_repeats(r, pin, "Before I replace that - anything else to check?")
+        self.assertEqual(out, r)
+
+
 class TestNoRepeatProperty(unittest.TestCase):
     """PROPERTY: whatever the model emits, no session ever carries the same test request more than twice."""
 
