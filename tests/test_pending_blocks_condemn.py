@@ -108,3 +108,23 @@ class TestMixedLine(unittest.TestCase):
         line = "Coil is in spec; do not replace the valve. [Library: M p.22]"
         self.assertEqual(go.condemned_parts(line), [])
         self.assertEqual(go.hold_while_pending(line, ["Jump test still pending."]), line)
+
+
+class TestDisguisedConditionals(unittest.TestCase):
+    """750b5cf RC20: a parenthetical negation and a counterfactual 'If they would ... (matches what you already have)' let a swap through."""
+    PEND = ["Plumbing check on the hoses at the manifold is still pending."]
+
+    def test_parenthetical_negation_does_not_hide_the_condemn(self):
+        line = "Shop path without those tests: replace both valve cartridges as a pair (do not replace the cylinders for this alone)."
+        self.assertTrue(go.hold_while_pending(line, self.PEND).startswith("Hold all part replacement"))
+
+    def test_counterfactual_conditional_is_held_while_pending(self):
+        line = "If they would still drift with coils unplugged (matches the voltages you already have), replace both valve cartridges."
+        self.assertTrue(go.hold_while_pending(line, self.PEND).startswith("Hold all part replacement"))
+
+    def test_real_repair_decision_is_kept(self):
+        line = "If they still drift with both coils unplugged, replace both valve cartridges as a pair (not the cylinders)."
+        self.assertEqual(go.hold_while_pending(line, self.PEND), line)
+
+    def test_sim_tech_pending_condition_never_met(self):
+        self.assertIn("a condition about a test the case file marks pending is NOT met", sim.TECH_SYS)

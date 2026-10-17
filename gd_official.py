@@ -1075,15 +1075,39 @@ def _negated(sentence: str) -> bool:
                 or re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", sentence, re.I))
 
 
+_NEG_BEFORE_RE = re.compile(r"(?:\bdo\s+not|\bdon.?t|\bnever|\bno\s+need\s+to|\bnot\s+yet|\bnot|\bno|\bwithout)\s+(?:\w+\s+){0,2}$", re.I)
+
+
+def _verb_negated(text: str, start: int) -> bool:
+    return bool(_NEG_BEFORE_RE.search(text[max(0, start - 30):start]))
+
+
 def unnegated_condemn(line: str) -> bool:
-    """True when some sentence of the line condemns/replaces a part without negating it."""
-    return any((CONDEMN_RE.search(x) or REPLACE_ANY_RE.search(x)) and not _negated(x) for x in _clauses(line))
+    """True when some condemn/replace verb in the line is not itself negated ('Replace X (do not replace Y)' -> True)."""
+    for rx in (CONDEMN_RE, REPLACE_ANY_RE):
+        for m in rx.finditer(line or ""):
+            if not _verb_negated(line, m.start()) and not re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", m.group(0), re.I):
+                return True
+    return False
+
+
+# A conditional whose condition is counterfactual or declared already met ('If they would still drift (matches what you already
+# have), replace ...') is not a repair decision awaiting a result: while a test is pending it is treated as unconditional.
+COUNTERFACTUAL_RE = re.compile(r"\bwould\b|\bmatches\b|\balready\s+(?:have|has|had|show\w*|recorded|seen)\b|\bas\s+expected\b", re.I)
+
+
+def _counterfactual_conditional(line: str) -> bool:
+    if not CONDITIONAL_LINE_RE.match(line or ""):
+        return False
+    m = REPLACE_ANY_RE.search(line) or CONDEMN_RE.search(line)
+    return bool(m and COUNTERFACTUAL_RE.search(line[:m.start()]))
 
 
 def condemned_parts(reply: str) -> list:
     out = []
-    reply = "\n".join(" ".join(x for x in _clauses(line) if not _negated(x)) for line in (reply or "").splitlines())
     for m in CONDEMN_RE.finditer(reply or ""):
+        if _verb_negated(reply, m.start()) or re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", m.group(0), re.I):
+            continue
         part = (m.group("part") or m.group("part2") or "").strip()
         if part and _part_heads(part) and part.lower() not in out:
             out.append(part.lower())
@@ -1166,8 +1190,8 @@ def hold_while_pending(reply: str, pending: list) -> str:
         return reply
     out, held = [], False
     for line in (reply or "").splitlines():
-        if (unnegated_condemn(line) and not CONDITIONAL_LINE_RE.match(line) and not REPAIR_FOLLOW_RE.search(line)
-                and not re.match(r"\s*before\s+condemning\b", line, re.I)):
+        if (unnegated_condemn(line) and (not CONDITIONAL_LINE_RE.match(line) or _counterfactual_conditional(line))
+                and not REPAIR_FOLLOW_RE.search(line) and not re.match(r"\s*before\s+condemning\b", line, re.I)):
             if not held:
                 out.append(f"Hold all part replacement: an isolation test is still pending (\"{pending[0][:140]}\"). No part is replaced or "
                            f"submitted for replacement until that result is recorded. Do that test, or call the shop/OEM tech line with the "
