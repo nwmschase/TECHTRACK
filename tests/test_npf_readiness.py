@@ -20,7 +20,7 @@ def test_npf_after_inspection_is_allowed():
 
 
 def test_pending_inspection_does_not_count():
-    assert go.npf_unready(NPF, [RUN_ONLY, "Airflow cover check still pending; no blockage seen from the front."])
+    assert go.npf_unready(NPF, [RUN_ONLY, "Haven't pulled the airflow cover yet; that check is still pending."])
 
 
 def test_as_designed_after_a_repair_is_a_close_out():
