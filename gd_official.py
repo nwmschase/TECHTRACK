@@ -1627,6 +1627,10 @@ def output_failure(part_words: set, tech_msgs: list) -> str:
                     ins_bad = True
                 elif SUPPLY_WORD_RE.search(c) and named(c) and ISOLATION_RE.search(c):
                     ins_ok = True
+                elif any(re.search(r"\b" + re.escape(w) + r"s?\s+(?:power|input|supply|feed|12\s*v)\b", c, re.I) for w in part_words) \
+                        and PASS_RE.search(c) and not FAIL_RE.search(c):
+                    ins_ok = True  # 'Panel power and ground look normal/OK': B's own power in, recorded good
+                    good_at.add("B")
                 elif re.search(r"\b(?:battery|12(?:\.\d+)?\s*v(?:dc)?)\b", c, re.I) and at_part(c) and PASS_RE.search(c) \
                         and not FAIL_RE.search(c):
                     ins_ok = True  # a supply reading taken AT B and recorded good ('battery voltage is good at the board') is B's input
@@ -1779,8 +1783,11 @@ def condemn_basis(line: str, target: str, tech_msgs: list, section_text: str, oe
         comps = comps | {m for g in _SOLD_AS_ASSEMBLY if comps & g for m in g}
     if oem_reply and OEM_PATH_RE.search(line or ""):
         return "oem", ""
-    own = own_failing_result(comps, tech_msgs) or output_failure((_part_words(target) | comps) - {"unit", "board", "pcb", "module", "panel"}
-                                                                  or comps, tech_msgs)
+    specific = (_part_words(target) | comps) - {"unit", "board", "pcb", "module", "panel"}
+    told = " ".join((tech_msgs or [])[1:]).lower()
+    if specific and not any(re.search(r"\b" + re.escape(w) + r"s?\b", told) for w in specific):
+        specific = set()  # the tech never uses the modifier ('control panel' -> 'panel'): read the head itself
+    own = own_failing_result(comps, tech_msgs) or output_failure(specific or comps, tech_msgs)
     if own:
         return "own", own
     elim = manual_elimination_cite(line, comps, section_text, reply) if _ruled_out_any(tech_msgs) else ""

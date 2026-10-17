@@ -261,3 +261,19 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
   - These tests require the cartridge call (177094) right after "The lead-jack valve coil on the gray wire tests good" (Leader 2026-10-16 8:23 PM).
   - Under condition (1) (Leader 2026-10-17 3:30 AM), a normal coil result rules the coil OUT and never condemns the cartridge. The cartridge was already HELD on cd71229. Those tests passed there only because the part number printed inside the hold text and in a leaked "Remove the cartridge" line.
   - The tests are not edited. The two rulings conflict.
+
+## Addendum 3f: 7336d47 sweep, RC08 false hold (fixed)
+- **Problem.** At 7336d47 RC08 T8 the tech recorded "Panel power and ground look normal/OK (lights on). 0 V on the panel tongue channel outputs while holding extend and retract." GD's panel replace was held, the tech replaced the panel anyway, and the session ran to the 14-turn cap with no fix.
+- **Root.**
+  - The output-failure check removes generic heads (panel, board, module) from the part words. For "control panel" that left only "control", a word the tech never used.
+  - "<B> power ... normal/OK" was not read as B's input.
+- **Fix (general).**
+  - When the tech never uses the target's modifier words, the head itself is read.
+  - "<B> power/input/supply/feed" recorded good is B's input.
+- **Tests (+2).**
+  - The RC08 7336d47 lock: the replace is kept.
+  - The same session without the panel-power reading: the replace is held.
+- **Replay (13 sweeps).** RC08 7336d47 T11 is the only change.
+- **Not caused by the gate (no hold fired):**
+  - RC13 7336d47 reached the 14-turn cap with every sim answer "normal/OK" and no manual (NO MANUAL mode).
+  - Hold-set RC12 7336d47 had 2 swaps, each with a basis: the p.27 elimination "replace the inverter PCB and fan" (the model chose the compressor cooling fan, not the freezer evaporator fan), then the OEM block plus the p.34 elimination for the complete unit. Model part choice.

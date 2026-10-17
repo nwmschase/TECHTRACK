@@ -125,6 +125,8 @@ RC04_EC4_T8_GD = "Replace the 30A breaker (and clean/retorque its input and outp
 RC18_EC4_R3_TECH = ["Customer says the front stabilizer jack will not operate when cranking manually with the tool; it works on the power switch.", "Power: battery connected, EXTEND and RETRACT both work — front jack moves under the switch. Manual: override input shaft roll pin is broken and seized (cannot extract); cranking the override does not drive the jack.", "No Unity/OneControl on this unit. Switch and motor plugs look seated and OK. Second motor override access looks normal.", "Second motor: 5/16\" on the override, nut turns by hand and that leg drives with no bind or slip; roll pin/shaft looks intact.", "Isolation at that motor looks normal/OK. Before I replace that motor — anything else to check?"]
 RC18_EC4_R3_T5_GD = "Before condemning the that failed front motor only, do the manual's adjustment/synchronization step and report the result: If the stabilizer legs are not synchronized and are extending unevenly, press and hold RETRACT (Fig. [General trade knowledge]\nInstall the replacement motor, reconnect its plug fully, reconnect the battery. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.4]\nVERIFY: press and hold EXTEND then RETRACT on the front switch until both legs complete travel. Report whether both legs run. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.6]\nVERIFY: 5/16\" on the new motor override (no impact); turn clockwise then counterclockwise. Report whether the nut drives that leg with no slip. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.7]"
 
+RC08_733_TECH = ["Customer says the electric tongue jack is dead only; other stabilizers and panel lights work.", "Tongue selected: no extend/retract and no motor sound. All other functions work and panel lights stay on.", "Connectors at the panel, module, and motor look seated and OK—no loose, burned, or unseated pins. Tongue jack still has no sound or movement after reseating.", "No panel-driven voltage reading at the motor connector in the notes. Tongue motor runs when I put 12 V direct on it.", "0 V at the panel tongue channel on extend and retract (bay reading at the module not in the notes).", "Module power and ground look normal/OK. Incoming tongue commands: 0 V at the panel tongue channel on extend and retract.", "Harness continuity looks normal/OK—no open or short in the notes.", "Panel power and ground look normal/OK (lights on). 0 V on the panel tongue channel outputs while holding extend and retract."]
+
 
 class TestOutputFailureWithGoodInput(unittest.TestCase):
     def test_rc03_cd71229_unowned_output_with_battery_good_at_board_is_own(self):
@@ -365,3 +367,17 @@ class TestLockedReplacementPartInstall(unittest.TestCase):
         self.assertNotIn("Install the replacement motor", out)
         self.assertTrue(any(h[0] == "motor" for h in held), held)
         self.assertIn("hold all part replacement for the motor", out.lower())
+
+
+class TestLockedPanelGoodInBadOut(unittest.TestCase):
+    def test_rc08_7336d47_panel_power_good_and_panel_outputs_0v_is_own(self):
+        """7336d47 RC08 T8 (verbatim tech): 'Panel power and ground look normal/OK (lights on). 0 V on the panel tongue channel
+        outputs while holding extend and retract.' Good in, bad out at the panel = the panel's own failing result; the replace is
+        kept. The tech never says 'control', so the head 'panel' is read."""
+        out, held = go.condemn_gate("Replace the control panel. [General trade knowledge]", RC08_733_TECH, "", {})
+        self.assertEqual(held, [], out)
+
+    def test_panel_outputs_0v_without_a_good_input_is_held(self):
+        tech = [t for t in RC08_733_TECH if not t.startswith("Panel power")] + ["0 V on the panel tongue channel outputs while holding extend."]
+        out, held = go.condemn_gate("Replace the control panel. [General trade knowledge]", tech, "", {})
+        self.assertTrue(held, out)
