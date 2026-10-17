@@ -26,6 +26,10 @@ class TestEarlyEnd(unittest.TestCase):
                   "Document the findings and submit them to the OEM for authorization."]:
             self.assertTrue(sim.end_accepted("Replaced, works. [END]", ["Report volts.", g]), g)
 
+    def test_end_after_an_adjustment_repair_with_verify_is_accepted(self):
+        self.assertTrue(sim.end_accepted("Fixed. [END]", ["Loosen the nut, reorient the petit tube away from the wheel, snug it, then retest for E8."]))
+        self.assertTrue(sim.end_accepted("Fixed. [END]", ["Reseat the plug.\nVERIFY: run 3 cycles and confirm."]))
+
     def test_no_end_marker_never_ends(self):
         self.assertFalse(sim.end_accepted("Replaced, works.", ["Replace the fuse."]))
 
