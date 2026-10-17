@@ -54,3 +54,12 @@ Commit: e82df6b (gd_official.py NOT_DONE_RE, pending_isolation_tests, hold_while
    - Tests: tests/test_pending_blocks_condemn.py has 10 tests: the RC20 shape, pending-plus-OK is not a result, a result clears pending, no pending means no hold, long phrases, the not-in-notes convention, generic not-checked, negated R&R, the sim rule, plus a property test of 5 pending answers × 30 condemn pairs with no unconditional replace surviving. All pass. The 140 GD-side tests pass.
    - Reruns: RC20 plus the hold set (RC12, RC22, RC28, RC29, RC30) on e82df6b, and the final full sweep. See PR92-HOLD-PACK-2026-10-16.md.
    - Not CONTAINMENT.
+
+## Addendum: 750b5cf (the e82df6b rerun still swapped parts)
+- **Problem.** On e82df6b, RC20 still had the tech replace both front cartridges, then both jacks, then the HPU (turns 7-12) while "Plumbing check and gray-coil unplug test are still pending". The hold fired only at turns 6 and 13.
+- **Cause (code evidence).** Every swap line also carried a negated sentence: "Replace both front jack solenoid cartridges as a matched pair at the manifold. Do not replace the LCD or 807662 board." hold_while_pending, sequence_condemns and (since 3e948c2) condemned_parts skipped any LINE containing a negation, so one "do not replace" hid the real condemn. Root: **negation was judged per line instead of per sentence.**
+- **Fix.** _clauses, _negated and unnegated_condemn judge each sentence. A line is a condemn when any unnegated sentence condemns. condemned_parts drops only the negated sentences.
+- **Proof.**
+  - 3 new tests (TestMixedLine); 150 GD-side tests pass.
+  - The replay now holds 5 e82df6b RC20 replies (28 of 1,255 total, no new false positives).
+  - Reruns: RC20/RC22 on 750b5cf plus the final full sweep (see the pack).
