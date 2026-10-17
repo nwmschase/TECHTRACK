@@ -1183,15 +1183,24 @@ REPLACE_ANY_RE = re.compile(r"\b(?:replace[sd]?|replacing|replacement|condemn(?:
 NO_REPLACE_RE = re.compile(r"\bno\s+(?:\w+\s+){0,2}(?:r\s*&\s*r|replacement|swap)\b", re.I)
 
 
+# A line that presumes a replacement goes ahead ('commit to the repair', 'Did both cartridges go in?', 'Which repair did you
+# complete?') is a replace directive in other words.
+PRESUMED_REPLACE_RE = re.compile(r"\bcommit\s+to\s+the\s+(?:repair|replacement|swap|part)|\bproceed\s+with\s+the\s+(?:repair|replacement|swap)\b|"
+                                 r"\bgo\s+ahead\s+(?:and\s+)?(?:replace|install|swap|order)\b|\bdid\s+(?:the\s+|both\s+)?(?:new\s+)?(?:\w+\s+){0,3}go\s+in\b|"
+                                 r"\bwhich\s+(?:repair|part|replacement)s?\s+did\s+you\b", re.I)
+
+
 def hold_while_pending(reply: str, pending: list) -> str:
-    """While an isolation test is pending, no unconditional condemn/replace line survives (a tech-proposed swap or an OEM
-    replacement request included). Conditional repair decisions ('If <result>, replace ...') stay."""
+    """While an isolation test is pending, NO condemn/replace line survives: unconditional, conditional ('If <x>, replace ...'),
+    counterfactual, tech-proposed or OEM replacement request alike, and no line that presumes the replacement went ahead.
+    A conditional's condition can already be met by recorded results (RC20 215fce8 turn 6), so a conditional is not a safe
+    exemption; the repair plan returns once the pending result is recorded. Verify/after-repair follow-ups stay."""
     if not pending:
         return reply
     out, held = [], False
     for line in (reply or "").splitlines():
-        if (unnegated_condemn(line) and (not CONDITIONAL_LINE_RE.match(line) or _counterfactual_conditional(line))
-                and not REPAIR_FOLLOW_RE.search(line) and not re.match(r"\s*before\s+condemning\b", line, re.I)):
+        if (((unnegated_condemn(line) and not REPAIR_FOLLOW_RE.search(line)) or PRESUMED_REPLACE_RE.search(line))
+                and not re.match(r"\s*before\s+condemning\b", line, re.I)):
             if not held:
                 out.append(f"Hold all part replacement: an isolation test is still pending (\"{pending[0][:140]}\"). No part is replaced or "
                            f"submitted for replacement until that result is recorded. Do that test, or call the shop/OEM tech line with the "

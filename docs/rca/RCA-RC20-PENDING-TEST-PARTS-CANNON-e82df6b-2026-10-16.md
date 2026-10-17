@@ -77,3 +77,19 @@ Commit: e82df6b (gd_official.py NOT_DONE_RE, pending_isolation_tests, hold_while
   - 4 new tests (TestDisguisedConditionals); 154 GD-side tests pass.
   - Replay: 30 of 1,312 replies held, including the 2 from 750b5cf RC20; the real repair decision ("If they still drift with both coils unplugged, replace …") is kept.
   - Final sweep on 215fce8: see the pack.
+
+## Addendum 3: final-sweep regression on 215fce8 (conditional exemption removed)
+- **Problem.** The FINAL sweep on 215fce8 had RC20 swapping parts again: both front isolation cartridges (turn 8), both front jacks (turn 10), then an OEM power-unit request. Plumbing and gray-coil tests had been pending since turn 4/5. Transcript: gd-official-sim-2026-10-16/215fce8/RC20.md.
+  - Turn 6: GD said "If the front jacks still move with no voltage on FL/FR coils: replace both front isolation cartridges as a matched pair". The condition had ALREADY been met by a recorded result (coil volts normal at turn 6), and the wording was not counterfactual, so the conditional exemption let it through.
+  - Turn 7: the hold line WAS appended, but "Nothing else to check … commit to the repair" and "Did both cartridges go in …?" stayed in the same reply. The tech replaced.
+- **Classification.** GD guard defect (GD side), not a sim artifact. The sim tech acted on GD's own directive.
+- **Root.** hold_while_pending exempted every conditional line ("If <x>, replace …"). A condition can be met by results already recorded, so the line's grammar is not proof that a decision is pending. Lines that presume the replacement went ahead were not recognized as replace directives at all.
+- **Fix (general, no case keys).** Per Leader 10:21 PM ("a pending isolation test blocks EVERY condemn/replace"), while any isolation test is pending:
+  - Every condemn/replace line is held: unconditional, conditional, counterfactual, tech-proposed, and OEM replacement requests alike.
+  - New PRESUMED_REPLACE_RE also holds "commit to the repair/replacement", "proceed with the replacement", "go ahead and replace/install", "did … go in", and "which repair/part did you …".
+  - Verify/after-repair follow-ups and "Before condemning … record" lines stay.
+  - The repair plan returns once the pending result is recorded (the result clears the pending entry).
+- **Tests.**
+  - New TestEveryReplaceHeldWhilePending (3 tests): a unit test reproducing the RC20 turn-6 line; a property test over 5 conditional wordings and 4 presumed-replace wordings × 4 positions, checking that no such line survives, exactly one hold line appears, and the neighboring test and verify lines are kept; and a no-pending control.
+  - Two earlier assertions that kept conditional replace lines were inverted: superseded by Leader 10:21 PM.
+- **Proof.** 85 GD-side guard/sim tests pass. RC20 plus the hold set (RC12, RC22, RC28, RC29, RC30) were rerun on this commit; results are in PR92-HOLD-PACK-2026-10-16.md.

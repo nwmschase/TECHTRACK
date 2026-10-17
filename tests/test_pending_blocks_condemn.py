@@ -37,7 +37,7 @@ class TestPendingBlocksCondemn(unittest.TestCase):
         self.assertIn("Hold all part replacement", out)
         self.assertNotIn("Replace both front valves", out)
         self.assertNotIn("Requested authorization: replace", out)
-        self.assertIn("If the coil unplug stops the drift, replace the coil.", out)  # repair decision kept
+        self.assertNotIn("replace the coil", out)  # Leader 10:21 PM: a pending test blocks EVERY replace, conditional too
         self.assertIn("VERIFY:", out)
 
     def test_pending_plus_normal_ok_is_not_a_result(self):
@@ -122,9 +122,48 @@ class TestDisguisedConditionals(unittest.TestCase):
         line = "If they would still drift with coils unplugged (matches the voltages you already have), replace both valve cartridges."
         self.assertTrue(go.hold_while_pending(line, self.PEND).startswith("Hold all part replacement"))
 
-    def test_real_repair_decision_is_kept(self):
+    def test_conditional_repair_is_held_while_pending(self):
         line = "If they still drift with both coils unplugged, replace both valve cartridges as a pair (not the cylinders)."
-        self.assertEqual(go.hold_while_pending(line, self.PEND), line)
+        self.assertTrue(go.hold_while_pending(line, self.PEND).startswith("Hold all part replacement"))
 
     def test_sim_tech_pending_condition_never_met(self):
         self.assertIn("a condition about a test the case file marks pending is NOT met", sim.TECH_SYS)
+
+
+class TestEveryReplaceHeldWhilePending(unittest.TestCase):
+    """215fce8 RC20 turn 6/7: a conditional whose condition was already met ('If ... with no voltage on FL/FR coils: replace both
+    front isolation cartridges') and 'commit to the repair' / 'Did both cartridges go in?' got through while two tests were pending."""
+    PEND = ["Plumbing check at the manifold is still pending — not done yet.", "Gray-coil unplug test is also still pending."]
+    CONDS = ["If the front jacks still move with no voltage on FL/FR coils: replace both front isolation cartridges as a matched pair.",
+             "If they still drift after both cartridges: replace both front jacks as a matched set.",
+             "When the reading is low, condemn the inverter board.",
+             "Once the leak is confirmed, order a new power unit.",
+             "Should it still fail, R&R the pump motor."]
+    PRESUMED = ["Nothing else to check, so commit to the repair. [General trade knowledge]",
+                "Did both cartridges go in, and did the front jacks stay still on verify?",
+                "Which repair did you complete, and did the front jacks stay still on verify?",
+                "Go ahead and install the new valve."]
+
+    def test_unit_rc20_turn6_conditional_held(self):
+        pend = go.pending_isolation_tests(self.PEND)
+        self.assertTrue(pend)
+        out = go.hold_while_pending(self.CONDS[0] + "\nVERIFY: run slides 2-3 full cycles.", pend)
+        self.assertNotIn("replace both front isolation", out)
+        self.assertIn("Hold all part replacement", out)
+        self.assertIn("VERIFY:", out)
+
+    def test_property_no_replace_or_presumed_line_survives(self):
+        pend = go.pending_isolation_tests(self.PEND)
+        lead, tail = "Back-probe both coils and report volts. [General trade knowledge]", "VERIFY: run it 2-3 times. [General trade knowledge]"
+        for x in self.CONDS + self.PRESUMED:
+            for reply in (x, lead + "\n" + x, x + "\n" + tail, lead + "\n" + x + "\n" + tail):
+                out = go.hold_while_pending(reply, pend)
+                self.assertNotIn(x, out, reply)
+                self.assertEqual(out.count("Hold all part replacement"), 1, reply)
+                for keep in (lead, tail):
+                    if keep in reply:
+                        self.assertIn(keep, out)
+
+    def test_no_pending_conditionals_untouched(self):
+        for x in self.CONDS + self.PRESUMED:
+            self.assertEqual(go.hold_while_pending(x, []), x)
