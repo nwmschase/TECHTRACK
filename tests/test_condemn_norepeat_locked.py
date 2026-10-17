@@ -52,6 +52,19 @@ class TestRC29Shape(unittest.TestCase):
         self.assertNotIn("before condemning", outs[5].lower())
 
 
+class TestRewordedThirdAsk(unittest.TestCase):
+    """RC22 shape: the same test re-worded each time; similarity is not transitive, so a group must keep every wording."""
+
+    def test_reworded_third_ask_is_capped(self):
+        asks = ["If harness-to-ground is open, plug the valve back in. Meter DC volts, 20 V range, on the brown wire at the valve vs chassis ground. Gas switch ON during a try. Report volts during TFI.",
+                "Plug the gas-valve brown connector back in. Meter DC volts, 20 V range. Probe brown wire at the valve vs heater chassis ground. Gas switch ON during a try. Report volts during TFI.",
+                "Plug the brown connector fully onto the gas valve. Meter DC volts, 20 V range. Probe the brown wire at the valve (valve side of the plug) vs heater chassis ground. Gas switch ON during a try. Report volts during TFI."]
+        pin = {}
+        outs = [go.cap_repeats(a, pin, "Brown at the valve looks normal/OK.") for a in asks]
+        self.assertEqual(outs[:2], asks[:2])
+        self.assertIn("Accepted as reported", outs[2])
+
+
 class TestNoRepeatProperty(unittest.TestCase):
     """PROPERTY: whatever the model emits, no session ever carries the same test request more than twice."""
 

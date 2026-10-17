@@ -952,7 +952,7 @@ def build_messages(pin: dict, history: list, user_msg: str, hints: str = "") -> 
         sysmsg += ("\nSTEPS THE TECH COULD NOT DO (never ask them again): \n- " + "\n- ".join(pin["unavailable"][-6:]) +
                    "\nUse an alternate test that isolates the same thing, or move to the next step. If the results already isolate the fault "
                    "(e.g. motor runs on direct 12 V, wiring good, no output from the controller/panel), give the repair now.\n")
-    twice = [" ".join(a[0]) for a in (pin.get("asks") or []) if a[1] >= REPEAT_MAX_ASKS]
+    twice = [" ".join(a[0][-1]) for a in (pin.get("asks") or []) if a[1] >= REPEAT_MAX_ASKS]
     if twice:
         sysmsg += ("\nNO-REPEAT RULE: these tests were already asked twice. NEVER ask them again. Accept the tech's answer (a normal/OK "
                    "result counts as recorded), and either give the next different step or route to shop/OEM authorization:\n- "
@@ -1102,24 +1102,28 @@ def _same_ask(a: frozenset, b: frozenset) -> bool:
 
 
 def ask_counts(pin: dict) -> list:
-    return pin.setdefault("asks", [])  # [[sorted words], count, last_answer]
+    return pin.setdefault("asks", [])  # [[sig words, ...], count]: one group per test request; every wording is kept
 
 
 def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
-    """Drop any ask line already asked REPEAT_MAX_ASKS times; when that leaves no ask, accept the answer and route on."""
+    """Drop any ask line already asked REPEAT_MAX_ASKS times; when that leaves no ask, accept the answer and route on.
+    A request group keeps every wording it was asked in, so a re-worded third ask still matches (similarity is not transitive)."""
     asks = ask_counts(pin)
-    kept, capped = [], []
+    kept, capped, bumped = [], [], set()
     for line in (reply or "").splitlines():
         sig = _ask_sig(line) if ASK_LINE_RE.search(line) else frozenset()
         if not sig:
             kept.append(line); continue
-        hit = next((a for a in asks if _same_ask(sig, frozenset(a[0]))), None)
-        if hit and hit[1] >= REPEAT_MAX_ASKS:
+        gi = next((i for i, a in enumerate(asks) if any(_same_ask(sig, frozenset(w)) for w in a[0])), None)
+        if gi is not None and asks[gi][1] >= REPEAT_MAX_ASKS and gi not in bumped:
             capped.append(line.strip()); continue
-        if hit:
-            hit[1] += 1
+        if gi is None:
+            asks.append([[sorted(sig)], 1]); bumped.add(len(asks) - 1)
         else:
-            asks.append([sorted(sig), 1])
+            if sorted(sig) not in asks[gi][0]:
+                asks[gi][0].append(sorted(sig))
+            if gi not in bumped:  # several lines of one reply asking the same test count once
+                asks[gi][1] += 1; bumped.add(gi)
         kept.append(line)
     if not capped:
         return reply
