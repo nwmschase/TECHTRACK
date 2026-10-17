@@ -1016,7 +1016,7 @@ def enforce_labels(reply: str, pin: dict) -> str:
 # ---------------- GD guard: never condemn a part before its isolation reading is recorded (Leader 5:21 PM) ----------------
 CONDEMN_RE = re.compile(
     r"\b(?:replace|replacing|condemn(?:ed)?|install\s+(?:a\s+)?new|order\s+(?:a\s+)?(?:new|replacement))\s+(?:the\s+|a\s+|an\s+|this\s+)?"
-    r"(?P<part>[a-z0-9][a-z0-9\-/ ]{2,40}?)(?=\s*(?:[.,;:()\[\n]|$|\s(?:and|with|then|if|because|per|now|assembly)\b))"
+    r"(?P<part>[a-z0-9][a-z0-9\-/ ]{2,60}?)(?=\s*(?:[.,;:()\[\n]|$|\s(?:and|with|then|if|because|per|now|assembly|as)\b))"
     r"|\b(?:the\s+)?(?P<part2>[a-z0-9][a-z0-9\-/]{2,30}(?:\s[a-z0-9\-/]{2,30})?)\s+is\s+(?:bad|faulty|failed|defective|dead|shorted|the\s+fault)\b",
     re.I,
 )
@@ -1082,8 +1082,72 @@ def session_tests(history: list, user_msg: str = "") -> list:
     return pairs
 
 
+# A test the tech reports as not done (pending, not in the notes, skipped, not checked) is NOT a result, even when the same
+# sentence adds "looks normal/OK": nothing was measured.
+NOT_DONE_RE = re.compile(r"\b(?:pending|not\s+(?:yet\s+)?(?:done|completed|checked|tested)|"
+                         r"isn.?t\s+done|aren.?t\s+done|"
+                         r"haven.?t\s+(?:done|checked|tested|run)|didn.?t\s+(?:do|check|test|run|get)|skipped|no\s+result\s+(?:yet|recorded))\b", re.I)
+PENDING_TEST_WORD_RE = re.compile(r"\b(?:test\w*|check\w*|unplug\w*|isolat\w*|reading|jump\w*|jumper\w*|bypass\w*|measur\w*|volt\w*|ohm\w*|"
+                                  r"continuity|pressure|plumbing|leak[- ]?down|swap\s+test|tech[- ]line)\b", re.I)
+
+
 def _is_result(sentence: str) -> bool:
+    if NOT_DONE_RE.search(sentence or ""):
+        return False
     return bool(ISOLATION_RE.search(sentence) or TEST_RESULT_RE.search(sentence))
+
+
+def _sents(msg: str) -> list:
+    return [x.strip() for x in re.split(r"(?<=[.;!?])\s+|\n+|\s+[\u2014-]\s+", msg or "") if x.strip()]
+
+
+_PENDING_GENERIC = {"anything", "nothing", "yet", "haven", "didn", "checked", "check", "run", "ran", "tested", "test", "done", "still",
+                    "notes", "any", "all", "everything", "pending", "get", "got", "separate"}
+
+
+def pending_isolation_tests(tech_msgs: list) -> list:
+    """Isolation tests the tech reported as not done and has not reported a result for since. Each entry: the tech's sentence."""
+    pend = []  # [(sig, sentence)]
+    for msg in tech_msgs or []:
+        for sent in _sents(msg):
+            sig = frozenset(w for w in _ask_sig(NOT_DONE_RE.sub(" ", sent)) if w not in _PENDING_GENERIC)
+            if NOT_DONE_RE.search(sent) and PENDING_TEST_WORD_RE.search(sent):
+                if sig and not any(_overlap(sig, p[0]) for p in pend):
+                    pend.append((sig, sent))
+            elif _is_result(sent.lower()) and sig:
+                pend = [p for p in pend if not _overlap(sig, p[0])]
+    return [p[1] for p in pend]
+
+
+def _overlap(a: frozenset, b: frozenset) -> bool:
+    return bool(a) and bool(b) and len(a & b) / max(1, min(len(a), len(b))) >= 0.5
+
+
+REPLACE_ANY_RE = re.compile(r"\b(?:replace[sd]?|replacing|replacement|condemn(?:s|ed)?|install\s+(?:a\s+)?new|order\s+(?:a\s+)?(?:new|replacement)|swap\s+(?:in|out|the)|r\s*&\s*r)\b", re.I)
+
+
+NO_REPLACE_RE = re.compile(r"\bno\s+(?:\w+\s+){0,2}(?:r\s*&\s*r|replacement|swap)\b", re.I)
+
+
+def hold_while_pending(reply: str, pending: list) -> str:
+    """While an isolation test is pending, no unconditional condemn/replace line survives (a tech-proposed swap or an OEM
+    replacement request included). Conditional repair decisions ('If <result>, replace ...') stay."""
+    if not pending:
+        return reply
+    out, held = [], False
+    for line in (reply or "").splitlines():
+        if ((CONDEMN_RE.search(line) or REPLACE_ANY_RE.search(line)) and not CONDITIONAL_LINE_RE.match(line)
+                and not NEGATED_CONDEMN_RE.search(line) and not NO_REPLACE_RE.search(line) and not REPAIR_FOLLOW_RE.search(line)
+                and not re.match(r"\s*before\s+condemning\b", line, re.I)):
+            if not held:
+                out.append(f"Hold all part replacement: an isolation test is still pending (\"{pending[0][:140]}\"). No part is replaced or "
+                           f"submitted for replacement until that result is recorded. Do that test, or call the shop/OEM tech line with the "
+                           f"findings so far. [{LABEL_GENERAL}]")
+                held = True
+            continue
+        out.append(line)
+    return "\n".join(out)
+
 
 
 def isolation_recorded(part: str, tech_msgs: list, requests: list = None) -> bool:
@@ -1645,6 +1709,12 @@ def official_turn(
     if unadj:
         reply = hold_for_adjustment(reply, unadj, sec)
         pin.setdefault("adjust_held", []).extend(unadj)
+    pend = pending_isolation_tests(tech_msgs)
+    if pend:
+        hp = hold_while_pending(reply, pend)
+        if hp != reply:
+            pin.setdefault("pending_held", []).append(pend[0][:200])
+            reply = hp
     seq = sequence_condemns(reply)
     if seq != reply:
         pin.setdefault("sequence_held", []).append(first_fix_line(reply)[:200])
