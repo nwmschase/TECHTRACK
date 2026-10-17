@@ -93,3 +93,23 @@ Commit: e82df6b (gd_official.py NOT_DONE_RE, pending_isolation_tests, hold_while
   - New TestEveryReplaceHeldWhilePending (3 tests): a unit test reproducing the RC20 turn-6 line; a property test over 5 conditional wordings and 4 presumed-replace wordings × 4 positions, checking that no such line survives, exactly one hold line appears, and the neighboring test and verify lines are kept; and a no-pending control.
   - Two earlier assertions that kept conditional replace lines were inverted: superseded by Leader 10:21 PM.
 - **Proof.** 85 GD-side guard/sim tests pass. RC20 plus the hold set (RC12, RC22, RC28, RC29, RC30) were rerun on this commit; results are in PR92-HOLD-PACK-2026-10-16.md.
+
+## Addendum 4: e77941b hold-set rerun (the "verify" exemption)
+- **Problem.** On e77941b RC20 still replaced 4 times: cartridges at turn 7, power unit at turn 9, both jacks at turn 11, hoses at turn 13. The pending list was populated on every turn (replayed: "Plumbing check and gray-coil unplug are still pending."), and the hold line even fired at turns 5 and 6. Transcript: gd-official-sim-2026-10-16/e77941b-holdset/RC20.md.
+- **Classification.** GD guard defect (GD side). The sim tech followed GD's directives.
+- **Root.** hold_while_pending exempted any line that REPAIR_FOLLOW_RE matched, and that pattern matches the word "verify" anywhere in the line. Every slipped line contained it:
+  - "Did both front cartridges get replaced … on the verify cycles?"
+  - "Requested authorization: replace complete hydraulic power unit … then … cycle-verify."
+  - "… already failed verify. Replace both front jack assemblies as a matched set."
+  - "(… already failed verify): replace the remaining front-jack hoses …"
+- **Fix (general).** New _follow_up_line(): a line is a follow-up only when it STARTS with VERIFY/After/Reconnect and has no unnegated replace directive after its leading clause. hold_while_pending uses it in place of REPAIR_FOLLOW_RE.
+- **Tests.** TestVerifyWordDoesNotExemptAReplace:
+  - a unit test on the 4 slipped lines plus one "After that, replace …" line;
+  - a property test: 5 slipped lines × 4 genuine follow-ups × 2 orders. The replace is always held, the follow-up always kept, and exactly one hold line appears.
+  - 87 GD-side tests pass.
+- **Replay.** 0 replace lines survive while pending across the stored RC20 transcripts on 215fce8 and e77941b. Overall, 105 of 1,481 stored replies change. Outside RC20/RC22, 4 changes; each holds a replace while the tech had reported a named isolation test as not done:
+  - RC14 0c4a291 turn 6: ohm/ice-water on the thermostat pending. The bypass had already isolated the part, so this costs one turn.
+  - RC13 a1bbd35 turn 7.
+  - RC13 edc11db turn 10.
+  - RC08 edc11db turn 5.
+  - This is the Leader's strict "blocks EVERY" rule working as ordered; it is not a false positive.

@@ -1190,6 +1190,19 @@ PRESUMED_REPLACE_RE = re.compile(r"\bcommit\s+to\s+the\s+(?:repair|replacement|s
                                  r"\bwhich\s+(?:repair|part|replacement)s?\s+did\s+you\b", re.I)
 
 
+_FOLLOW_START_RE = re.compile(r"^\s*(?:[-*\u2022]\s*)?(?:verify\b|reconnect\b|after\b)", re.I)
+
+
+def _follow_up_line(line: str) -> bool:
+    """A verify/after-repair follow-up: the line STARTS with VERIFY/After/Reconnect and, past its leading clause, gives no replace
+    directive. 'verify' elsewhere in a line ('... already failed verify. Replace X', 'replace X, then cycle-verify', 'Did X get
+    replaced ... on the verify cycles?') does not make it a follow-up."""
+    if not _FOLLOW_START_RE.match(line or ""):
+        return False
+    rest = re.split(r"[:,]", line, maxsplit=1)
+    return len(rest) < 2 or not unnegated_condemn(rest[1])
+
+
 def hold_while_pending(reply: str, pending: list) -> str:
     """While an isolation test is pending, NO condemn/replace line survives: unconditional, conditional ('If <x>, replace ...'),
     counterfactual, tech-proposed or OEM replacement request alike, and no line that presumes the replacement went ahead.
@@ -1199,7 +1212,7 @@ def hold_while_pending(reply: str, pending: list) -> str:
         return reply
     out, held = [], False
     for line in (reply or "").splitlines():
-        if (((unnegated_condemn(line) and not REPAIR_FOLLOW_RE.search(line)) or PRESUMED_REPLACE_RE.search(line))
+        if (((unnegated_condemn(line) and not _follow_up_line(line)) or PRESUMED_REPLACE_RE.search(line))
                 and not re.match(r"\s*before\s+condemning\b", line, re.I)):
             if not held:
                 out.append(f"Hold all part replacement: an isolation test is still pending (\"{pending[0][:140]}\"). No part is replaced or "

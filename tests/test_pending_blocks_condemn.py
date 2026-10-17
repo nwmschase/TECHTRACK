@@ -167,3 +167,33 @@ class TestEveryReplaceHeldWhilePending(unittest.TestCase):
     def test_no_pending_conditionals_untouched(self):
         for x in self.CONDS + self.PRESUMED:
             self.assertEqual(go.hold_while_pending(x, []), x)
+
+
+class TestVerifyWordDoesNotExemptAReplace(unittest.TestCase):
+    """e77941b RC20: every replace line that slipped the pending hold carried the word 'verify' somewhere, and the follow-up
+    exemption matched 'verify' anywhere in the line."""
+    PEND = ["Plumbing check and gray-coil unplug are still pending."]
+    SLIPPED = ["Did both front cartridges get replaced, and did the fronts stay put on the verify cycles?",
+               "Requested authorization: replace complete hydraulic power unit / manifold assembly, then bleed, resync, and cycle-verify.",
+               "Nothing else to check: cartridges already failed verify. Replace both front jack assemblies as a matched set.",
+               "Recorded path (cartridges already failed verify): replace the remaining front-jack hoses as a matched pair, then bleed and resync.",
+               "After that, replace the pump motor and verify."]
+    FOLLOW = ["VERIFY: run slides and other circuits 2-3 full cycles and confirm both front jacks stay put.",
+              "After install: bleed the front circuit, then resync the front jacks.",
+              "After the cartridge (or jack) repair: run slides again, 2-3 full cycles, and confirm the jacks stay put.",
+              "Reconnect the brown wire and verify one full try."]
+
+    def test_unit_slipped_lines_are_held(self):
+        for x in self.SLIPPED:
+            out = go.hold_while_pending(x, self.PEND)
+            self.assertNotIn(x, out)
+            self.assertTrue(out.startswith("Hold all part replacement"), x)
+
+    def test_property_follow_ups_kept_replaces_held_in_any_mix(self):
+        import itertools
+        for a, b in itertools.product(self.SLIPPED, self.FOLLOW):
+            for reply in (a + "\n" + b, b + "\n" + a):
+                out = go.hold_while_pending(reply, self.PEND)
+                self.assertNotIn(a, out, reply)
+                self.assertIn(b, out, reply)
+                self.assertEqual(out.count("Hold all part replacement"), 1, reply)
