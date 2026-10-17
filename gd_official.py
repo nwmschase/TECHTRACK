@@ -883,6 +883,8 @@ NPF_RULE = f"""
 If the verification shows the unit WORKS AS DESIGNED (complaint not reproduced, readings normal), say "No Problem Found - operating as designed",
 give a short customer explanation in plain words (why it seemed wrong), and condemn NO part. Otherwise continue the diagnostic walk.
 NEVER call No Problem Found while the tech reports the complaint is still present. First run the manual's DIFFERENTIATING checks.
+NPF READINESS: before No Problem Found, the tech must also have INSPECTED the path the complaint depends on (open the access/cover on that path
+and check for ice, debris, blockage, leaks or loose parts) and reported it. Operating the unit alone is not enough.
 SPLIT RULE: if the complaint reproduces through one path but not another (e.g. a bypass, direct power, or an alternate control works),
 the fault is in the part only the failing path uses: isolate and repair that part.
 """
@@ -1026,7 +1028,7 @@ ISOLATION_RE = re.compile(
     r"runs?\s+on\s+(?:direct|jumper)|no\s+(?:power|voltage)\s+(?:at|to|out))",
     re.I,
 )
-_PART_STOP = {"the", "a", "an", "it", "this", "part", "new", "complete", "whole", "entire", "same", "one", "assembly", "assemblies", "kit",
+_PART_STOP = {"the", "a", "an", "it", "this", "part", "parts", "no", "new", "complete", "whole", "entire", "same", "one", "assembly", "assemblies", "kit",
               "both", "matched", "set", "pair"}
 
 
@@ -1053,6 +1055,9 @@ _PART_GENERIC = {"front", "rear", "left", "right", "top", "bottom", "upper", "lo
 
 def condemned_parts(reply: str) -> list:
     out = []
+    for line in (reply or "").splitlines():
+        if NEGATED_CONDEMN_RE.search(line) or re.search(r"\bcondemn\w*\s+(?:no|none|nothing)\b", line, re.I):
+            reply = reply.replace(line, "")
     for m in CONDEMN_RE.finditer(reply or ""):
         part = (m.group("part") or m.group("part2") or "").strip()
         if part and _part_heads(part) and part.lower() not in out:
@@ -1267,6 +1272,34 @@ def npf_blocked(reply: str, tech_msgs: list) -> str:
             if STILL_PRESENT_RE.search(sent):
                 return sent.strip()
     return ""
+
+
+INSPECTION_RESULT_RE = re.compile(r"\b(?:no\s+(?:ice|frost\s+build-?up|debris|blockage|obstruction|leaks?|damage|corrosion|restriction)|"
+                                  r"(?:clear|unobstructed|unrestricted|clean)\b[^.\n]{0,30}\b(?:passage|path|duct|vent|line|coil|filter)|"
+                                  r"(?:removed|pulled|opened)\s+(?:the\s+)?[\w\s-]{0,25}?(?:cover|panel|access)\b[^.\n]{0,80}\b(?:no|clear|ok|normal|good))", re.I)
+
+
+REPAIR_DONE_RE = re.compile(r"\b(?:after\s+(?:the\s+)?(?:re-?seat\w*|repair|replacement|adjustment|re-?calibration|realign\w*|reposition\w*)|replaced|re-?seat\w*\s+(?:already\s+)?done|re-?seated|seated\s+it|fix\s+(?:is\s+)?complete|already\s+(?:aimed|bent|seated|adjusted)|"
+                            r"zero\s*point\s+calibration[^.\n]{0,60}\bset\b|installed|adjusted|re-?calibrated|calibrated|zero[- ]point\s+(?:set|done)|"
+                            r"re-?positioned|repositioned|realigned|reoriented|re-?aimed|tightened|snugged|re-?synced|reprogrammed|flashed|"
+                            r"cleaned|repaired|bent)\b", re.I)
+
+
+def npf_unready(reply: str, tech_msgs: list) -> bool:
+    """True when the reply calls NPF but no tech sentence records an inspection of the complaint's path."""
+    if not NPF_CALL_RE.search(reply or ""):
+        return False
+    if any(REPAIR_DONE_RE.search(m or "") for m in tech_msgs or []):  # "as designed" after a repair is a close-out, not an NPF
+        return False
+    return not any(INSPECTION_RESULT_RE.search(x) and not NOT_DONE_RE.search(x) for m in tech_msgs or [] for x in _sents(m))
+
+
+def hold_npf_inspection(reply: str) -> str:
+    kept = [l for l in (reply or "").splitlines() if not NPF_CALL_RE.search(l) and not re.match(r"\s*customer\s+explanation\b", l, re.I)]
+    kept.insert(0, "Not No Problem Found yet: the complaint did not reproduce, but the path it depends on has not been inspected. Open the "
+                   "access/cover on that path and check for ice, debris, blockage, leaks or loose parts, then report what you found (for a "
+                   f"compartment that is not cold: the interior airflow cover and the passage behind it). [{LABEL_GENERAL}]")
+    return "\n".join(kept)
 
 
 def hold_npf(reply: str, evidence: str) -> str:
@@ -1701,6 +1734,9 @@ def official_turn(
     if npf_ev:
         reply = hold_npf(reply, npf_ev)
         pin.setdefault("npf_held", []).append(npf_ev[:200])
+    elif npf_unready(reply, tech_msgs):
+        reply = hold_npf_inspection(reply)
+        pin.setdefault("npf_held", []).append("no inspection recorded")
     held = unproven_condemns(reply, tech_msgs, requests, sec)
     if held:  # deterministic hold, no extra model call (one primary call per turn)
         reply = hold_condemns(reply, held)
