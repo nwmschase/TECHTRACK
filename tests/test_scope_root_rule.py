@@ -192,5 +192,56 @@ class TestPropertyRandomSessions(unittest.TestCase):
             self.assertTrue(any(x in h[0] for h in held), (i, reply, held))
 
 
+# ---- target extraction (c249638 RC04 last turn: the gate held GD's own statement of the proven breaker fix) ---------------------
+RC04B_HIST = [("Customer reports leveling operates intermittently, the touchpad is occasionally unresponsive during operation, and auto-level doesn't consistently complete.", 'Safety first: chock the wheels, keep everyone clear of jacks/slides, and disconnect power before touching wiring.\nChock the wheels and keep the trailer unhitched on firm, stable ground before running the jacks. [General trade knowledge]\nPower the BAL touchscreen on and operate Auto Level exactly as the customer would; let the full cycle try to finish. [General trade knowledge]\nWatch the screen the entire time and report: whether Auto Level completes, whether the touchpad goes unresponsive, and the exact error text if shown (AUTO LEVEL FAILED, LOW VOLTAGE, HIGH VOLTAGE, EXCESS ANGLE DETECTED, MANUAL ADJUST ANGLE LIMIT, OUT OF STROKE, FEATURE DISABLED, JACK TIMEOUT, or other). [General trade knowledge]\nWhat did you observe?'), ('BAL powered up and communicated with no comm faults. System worked during diagnosis; Auto Level ran without the touchpad going unresponsive and no error text was shown. Battery voltage dropped heavily under load.', 'Map the 12V charging path from converter/charger to the house battery: converter/charger, fuses and breakers, battery isolator/disconnect, busbars, lithium BMS if present, and cable runs. List what is actually installed. [General trade knowledge]\nWith power off, reseat the BAL controller, touchscreen/panel, and jack motor connectors for this circuit; confirm each is fully seated and locked. [General trade knowledge]\nReport the map and whether any connector was loose or unseated. [General trade knowledge]'), ('Charge path: converter output is good, then isolator/disconnect, a 30A breaker between isolator and the lithium batteries, and the batteries. No connectors were loose or unseated.', 'Put the converter on shore power so it is charging, or apply a known DC load so current is flowing through the charge path. [General trade knowledge]\nSet the meter to DC volts. [General trade knowledge]\nPlace one lead on the converter output terminal and the other on the isolator/disconnect input (same conductor, across that run only). Report the voltage drop. [General trade knowledge]\nWhat drop did you read?'), ('I measured voltage drop on the charge path under load; the drop was across the 30A breaker between the isolator and the batteries (not on the converter-to-isolator run).', 'Put the converter on shore power so it is charging. [General trade knowledge]\nSet the meter to DC volts; measure battery voltage at the battery posts under charge and report the reading. [General trade knowledge]\nIf Auto Level completes, flag a battery capacity / BMS state-of-health (Ah load) test before release if that has not been done. [General trade knowledge]\nWhat did you measure and did Auto Level complete?')]
+RC04B_TECH = 'Under charge the lithiums never reach full charge because of the drop across that 30A breaker. Auto Level completed during diagnosis with no screen errors. Battery amp-draw/Ah (capacity) test is still pending.'
+
+
+class TestTargetExtraction(unittest.TestCase):
+    def _comps(self, line):
+        t = go._replace_targets(line)
+        return sorted(set().union(*[go.target_components(x) for x in t])) if t else None
+
+    def test_location_phrase_is_not_a_target(self):
+        self.assertEqual(self._comps("Replace the 30A breaker in the isolator-to-battery lead."), ["breaker"])
+        self.assertEqual(self._comps("Replace the 30A breaker between the isolator/disconnect and the lithium batteries."), ["breaker"])
+
+    def test_conjunction_targets_all_count(self):
+        self.assertEqual(self._comps("Replace module board 520814 and the gas valve 161109."),
+                         ["board", "gas", "module", "pcb", "valve"])
+
+    def test_phrasal_and_noun_uses(self):
+        self.assertEqual(self._comps("Swap in a new module board and verify."), ["board", "module", "pcb"])
+        self.assertIsNone(self._comps("Repair already isolated: the 30A breaker in the isolator-to-battery lead is the fix."))
+        self.assertIsNone(self._comps("Panel 20300427 is already the isolated repair: 0 V on the tongue channel."))
+
+    def test_rc04_c249638_last_turn_breaker_not_held_by_battery_test(self):
+        pairs = go.session_tests([m for t, g in RC04B_HIST for m in ({"role": "user", "content": t},
+                                  {"role": "assistant", "content": g})], RC04B_TECH)
+        pt = go.pending_tests(pairs, "")
+        self.assertTrue(pt and all("breaker" not in p.scope for p in pt), pt)
+        reply = ("Replace the 30A breaker in the isolator-to-battery lead (and clean/repair its lugs if burned or loose). "
+                 "[General trade knowledge]")
+        out, held = go.scope_gate(reply, pt, [p[1] for p in pairs])
+        self.assertEqual(held, [], out)
+
+
+class TestPropertyLocationAndConjunction(unittest.TestCase):
+    def test_unrelated_with_in_scope_location_kept_conjunction_with_in_scope_held(self):
+        rng = random.Random(99)
+        for i in range(400):
+            complaint, req, pend, inscope, u, decisive = _session(rng, False)
+            pt = go.pending_tests([("", complaint), (req, pend)], "")
+            x = rng.choice(inscope)
+            techs = [complaint, pend, decisive]
+            loc = rng.choice(["in the {x} lead", "at the {x}", "between the {x} and the frame", "near the {x}"])
+            keep = f"Replace the {u} {loc.format(x=x)}. [General trade knowledge]"
+            out, held = go.scope_gate(keep, pt, techs)
+            self.assertEqual(held, [], (i, keep, held))
+            both = rng.choice(["Replace the {u} and the {x}.", "Replace the {x}, {u}.", "Replace the {u} plus the {x}."]).format(u=u, x=x)
+            out, held = go.scope_gate(both, pt, techs)
+            self.assertTrue(held, (i, both, out))
+
+
 if __name__ == "__main__":
     unittest.main()

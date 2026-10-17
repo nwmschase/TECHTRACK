@@ -1413,7 +1413,8 @@ def decisive_result(part: str, tech_msgs: list) -> bool:
 REPAIR_ANY_RE = re.compile(r"\b(?:repair|rebuild|reseal|re-?seal)\b", re.I)
 _REPAIR_NOUN_BEFORE = {"the", "a", "an", "this", "that", "shop", "post", "isolated", "proven", "any", "for", "its", "your", "of",
                        "matching", "recorded", "same", "interim", "final", "after"}
-_REPAIR_NOUN_AFTER = {"is", "was", "are", "were", "path", "job", "order", "stands", "remains", "stays", "line", "cost", "time"}
+_REPAIR_NOUN_AFTER = {"is", "was", "are", "were", "path", "job", "order", "stands", "remains", "stays", "line", "cost", "time",
+                      "already", "done", "complete", "completed", "isolated", "proven", "confirmed"}
 
 
 def _repair_verbs(line: str) -> list:
@@ -1442,7 +1443,26 @@ def _replace_targets(line: str) -> list:
     if not hit:
         return []
     parts = condemned_parts(line)
-    return parts or [line]
+    objs = [re.split(r"[.;(\n]|\bthen\b", line[m.end():], maxsplit=1)[0] for m in _repair_verbs(line)]
+    objs += [re.split(r"[.;(\n]|\bthen\b", line[m.start():], maxsplit=1)[0] for m in CONDEMN_RE.finditer(line)
+             if not _verb_negated(line, m.start())]
+    return parts + [o for o in objs if o.strip()] or [line]
+
+
+_LOCATION_CUT_RE = re.compile(r"\b(?:in|at|on|between|from|to|into|inside|behind|near|under|of|off|for|with|along|as|via|per|"
+                              r"after|before|if|when|until|so)\b", re.I)
+
+
+def target_components(target: str) -> set:
+    """The component(s) a replace/repair target names: its head noun phrase, cut at the first location/manner preposition, so
+    '30A breaker in the isolator-to-battery lead' is {breaker}, not {breaker, battery}. Falls back to the first component named."""
+    target = re.sub(r"^\W*(?:\w+\s+)?(?:swap|put|switch|change|bring)\s+(?:in|out|on|up)\b", " ", target or "", flags=re.I)
+    head = _LOCATION_CUT_RE.split(target, maxsplit=1)[0]
+    comps = set().union(*(components(c) for c in re.split(r"\band\b|,|\bplus\b|&|/", head))) if head.strip() else set()
+    if comps:
+        return comps
+    found = [(m.start(), c) for c in components(target) for m in re.finditer(r"\b" + re.escape(c), (target or "").lower())]
+    return {min(found)[1]} if found else set()
 
 
 def scope_gate(reply: str, ptests: list, tech_msgs: list) -> tuple:
@@ -1451,9 +1471,12 @@ def scope_gate(reply: str, ptests: list, tech_msgs: list) -> tuple:
     out, held = [], []
     for line in (reply or "").splitlines():
         targets = _replace_targets(line)
+        named = [t for t in targets if target_components(t)]
+        if named:  # an object with no component of its own ('repair its lugs') belongs to the line's named part
+            targets = named
         reasons = []
         for t in targets:
-            comps = components(t)
+            comps = target_components(t)
             whole = bool(_part_heads(t) & WHOLE_UNIT_HEADS) or not comps
             covering = [p for p in ptests if whole or (comps & p.scope)]
             if covering:

@@ -105,3 +105,25 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
 | Check that would have caught it originally | PASS (property: any phrasing of an in-scope repair is dropped in structural mode) |
 | Full suite and sweep show zero new regressions | see the pack root-rule section (final SHA results) |
 | Containment labeled | N/A (root fix; no containment) |
+
+## Addendum 1: c249638 sweep, the gate read a location phrase as a target (RC04) and a noun "repair" as a directive
+- **Problem.** c249638 RC04, last turn: GD wrote "Repair already isolated: the 30A breaker in the isolator-to-battery lead …".
+  The gate held it as "inside the scope of the pending test ('Battery amp-draw/Ah (capacity) test is still pending')". Transcript:
+  gd-official-sim-2026-10-16/c249638/RC04.md line 162. (On that run GD never directed the breaker R&R in turns 4-9; the sim tech
+  swapped it at turn 8. That part is model variance, not the gate. No root-rule hold fired before turn 14.)
+- **IS / IS-NOT.** IS: a target line whose head part is out of scope but which names an in-scope component in a location phrase
+  ("in the isolator-to-battery lead"). IS NOT: the locked RC04 line "Replace the 30A breaker between …", because `condemned_parts`
+  returned just the breaker there.
+- **Root (general).** (1) When `condemned_parts` found nothing, the gate fell back to *every* component on the line. (2)
+  "Repair already isolated" was classed as a verb. (3) A conjunction ("module board … and the gas valve") yielded only the first
+  part, an under-hold that the new property test exposed.
+- **Fix.** `target_components()`: the target is the verb's object phrase (repair verbs and each unnegated replace verb), with a
+  leading phrasal particle stripped ("swap in"). It is cut at the first location/manner preposition (in/at/between/as/…), then
+  split on and/,/plus/& with every conjunct counted. A sub-object with no component of its own ("repair its lugs") belongs to the
+  line's named part. "already/done/isolated/proven/confirmed" after "repair" mark the noun.
+- **Tests (+5):** location phrase not a target; conjunctions all count; phrasal/noun uses; the c249638 RC04 shape (the battery
+  test's scope excludes the breaker; the breaker line is not held); property over 400 random sessions (an unrelated part with an
+  in-scope location phrase is kept; a conjunction including an in-scope part is held). All 5 fail on c249638 and pass now. GD-side
+  179 pass.
+- **Replay:** 857 stored turns (adds the c249638 sweep). Only RC20/RC22 (every SHA), RC23/RC01 642b658 and RC08 c249638 t5
+  (harness-at-motor reading pending, on the complaint path; GD still reached the panel fix at t7 on that run) change.
