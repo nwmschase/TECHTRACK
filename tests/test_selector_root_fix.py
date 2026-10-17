@@ -163,6 +163,10 @@ class TestCondemnGuard(unittest.TestCase):
         self.assertEqual(go.unproven_condemns("Replace the control board.", ["Board has 12.6 V in and 0 V out at the board relay."]), [])
         self.assertEqual(go.unproven_condemns("Replace the 15A fuse in the front holder.", ["fuse reads open"]), [])
 
+    def test_reading_must_name_the_part_in_the_same_sentence(self):
+        msgs = ["Ran it on 12 V, freezer 15F. Inverter PCB plugs look seated, no heat marks."]  # RC12 shape
+        self.assertEqual(go.unproven_condemns("Replace inverter PCB (AL 2021149633).", msgs), ["inverter pcb"])
+
     def test_official_turn_never_condemns_before_the_reading(self):
         replies = iter(["Replace the control board. [Library: Zeta ZX-900 Service Manual p.3]",
                         "Replace the control board now. [Library: Zeta ZX-900 Service Manual p.3]"])

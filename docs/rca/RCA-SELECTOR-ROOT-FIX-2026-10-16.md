@@ -1,5 +1,5 @@
 ### RCA: Manual selector accepts weak or tied evidence as a confident pick (v4.19.65 root fix)
-Format: docs/standards/ROOT-CAUSE-ANALYSIS-STANDARD.md. Branch cursor/selector-root-fix. Leader GO 2026-10-16 4:02 PM PDT; B13 added 4:04 PM.
+Format: docs/standards/ROOT-CAUSE-ANALYSIS-STANDARD.md. Branch cursor/selector-root-fix. Leader GO 2026-10-16 4:02 PM PDT; B13 added 4:04 PM; equal-evidence SET + condemn guard per Leader 5:21 PM.
 
 1. **Problem statement.** The selector picked or missed manuals on weak evidence. Examples:
    - RC30 "Furrion FCR08DCGTA 12V DC refrigerator" pinned a 12V vent fan (fixed in v4.19.64).
@@ -69,7 +69,9 @@ Format: docs/standards/ROOT-CAUSE-ANALYSIS-STANDARD.md. Branch cursor/selector-r
    - **F2:**
      - Specificity ladder: exact model in doc fields (5) > exact model in keywords/page text (4) > series in fields (3) > series in keywords/text or product-line phrase (2) > brand only (1, never picks).
      - Within a tier: longer key, then model named in the title, then troubleshooting/service manual > plain manual > form, then fewer models listed.
-     - A remaining tie between DIFFERENT manuals (identity = file hash, doc number or title) gives `how='ambiguous'`: no pick, and the official web lookup runs. Duplicate uploads of one manual are one manual.
+     - **Equal evidence for the SAME exact model, type and brand (Leader 5:21 PM):** `select_manual` returns the ranked SET (`how='exact_set'`/`'series_set'`, `docs=[...]`). Order: doc kind (service/troubleshooting > installation > owner > bulletin > form), then newest revision, then page count, then content key/id — never read order. GD reads up to 3 docs of the set and every page is labelled with its source doc ("[PAGE n | title]", cite "title p.N").
+     - Only a tie across DIFFERENT models or types (`how='ambiguous'`), or no eligible doc, goes to the official web lookup. Duplicate uploads of one manual are one manual (identity = file hash, doc number or normalized title).
+     - Property test: 300 random sets x 6 shuffles each give one identical, correctly-ordered output.
      - A2: series = leading letters+digits with any digit count (sw6de -> sw6). It matches only a doc token equal to it or continuing with a LETTER (SW6DE yes, SW60 no).
      - B: keywords and page text are read (one indexed query per key over the candidate docs).
    - **F3:**
@@ -86,23 +88,25 @@ Format: docs/standards/ROOT-CAUSE-ANALYSIS-STANDARD.md. Branch cursor/selector-r
        - `is_thetford_flush_leak_context` fires only when the tech names Thetford (an OEM-authored repair path applies only to that OEM's unit).
        - `maxxfan -> maxxair` alias (a product-line name maps to its maker; a data table, like schwintek -> lippert).
      - **Flagged (out of Leader's F4 list):** the other context rankers in `rank_bay_chunks` (ground control, dometic no-cool, fcr dial-off, ice/moisture, BAL tongue, stabilizer pin, cooktop) remain (follow-up FU-1).
+   - **GD condemn guard (Leader 5:21 PM, general):** a reply line that condemns/replaces a part is rewritten into "record its isolation reading first" unless a tech message has, in the same sentence, the part's noun and an isolation reading (meter value, continuity/open, jumper/bypass result). Conditional lines ("If ... replace X") pass. Deterministic, no extra model call; held parts are logged in pin["condemn_held"].
    - **R1:** `library_category_audit.py` + a Manager Tools panel (dry run, per-row untick, confirm, R2 backup, apply, rollback).
      - Rule: a doc is misfiled when both its title type and its page-text dominant type fall outside its category's types. Component-only titles (controller, power, chassis, axle) are consistent when the category's product appears in their text. Kind categories (forms, bulletins, reference) aren't audited.
      - Library copy: 17 moves, including 309 -> Range & Cooktops, 631 -> Leveling and 629 -> Leveling, with no doc ids in code.
      - **565 is NOT misfiled** by the rule: its page text is a room slide-out procedure and it sits in slide-outs. Its title/product_line (an OCR'd first line, "Leveling") is what's wrong, so it goes on the metadata-review list.
      - Snapshot test: the audited library snapshot plans 0 moves and 0 unmapped categories.
    - **R2:** single upload and R2 link require a confirm checkbox when the category disagrees with the title. Unattended bulk import writes "CATEGORY CHECK:" into the index note, and the audit picks the doc up.
-   - **Sweep (live library copy, 89 docs with model numbers + 890 cross-category queries):**
+   - **Sweep (live library copy, 89 docs with model numbers + 890 cross-category queries; read order = 3 shuffled library orders + natural):**
 
      | | v4.19.64 raw lib | v4.19.64 audited lib | v4.19.65 raw lib | v4.19.65 audited lib |
      |---|---|---|---|---|
+     | own manual in pick/set | 65 | 67 | 82 | **89/89** |
      | wrong-type picks (self) | 0 | 0 | 0 | **0** |
      | wrong-type picks (cross, 890) | 9 | 9 | 0 | **0** |
-     | ambiguous-tie picks | 15 | 16 | 0 | **0** |
-     | pinned the same model | 87 | 89 | 73 | 78 |
-     | no pick -> web lookup | 2 | 0 | 16 (10 ambiguous, 6 confirm type) | 11 (all ambiguous) |
+     | read-order-dependent results | 1 | 1 | 0 | **0** |
+     | equal-evidence partner left out (tie pick) | 15 | 16 | 0 | **0** |
+     | how | exact 87, none 2 | exact 89 | exact 55, exact_set 28, confirm-type 6 | exact 58, exact_set 31 |
 
-     The 11 audited-library no-picks are docs whose model sits in several different manuals with equal evidence: Power Gear 140-1224 (5 manuals), 140-1146 (2), 140-1161 (2), Lippert PSX2 (3). v4.19.64 "found" those by read order; they now go to the web lookup.
-   - **Regression tests:** tests/test_selector_root_fix.py (27) + tests/test_gd_manual_selection_locked.py (9). One per incident: Girard, Thetford, MaxxFan p9, unknown brand, RC30, 309/631/629/565, B13; Coleman is covered by the existing Coleman suite with the generic ranker. Plus the F1 property test, F2 ties/threshold/web lookup, F3 confirmation, and availability.
+     Raw library: the 6 confirm-type results are misfiled docs (309/631/629 class) that R1 fixes; after the audit every doc's own manual is in its set.
+   - **Regression tests:** tests/test_selector_root_fix.py (35) + tests/test_gd_manual_selection_locked.py (9). One per incident: Girard, Thetford, MaxxFan p9, unknown brand, RC30, 309/631/629/565, B13; Coleman is covered by the existing Coleman suite with the generic ranker. Plus the F1 property test, F2 set/threshold/web lookup, the set-order shuffle property test, the condemn guard (incl. RC12 shape), F3 confirmation, and availability.
 
 Follow-ups (not containment of this fix; separate scope): FU-1 retire the remaining context rankers in rank_bay_chunks the same way; FU-2 rule 11 branch: call select_manual(available=pdf_reachable) and drop its own skip loop; FU-3 metadata review for 565 / 489 titles; R4 (Leader: later) category -> type map into category metadata.

@@ -1037,7 +1037,7 @@ def isolation_recorded(part: str, tech_msgs: list) -> bool:
     or a jumper/bypass result)."""
     heads = _part_heads(part)
     for msg in tech_msgs or []:
-        low = (msg or "").lower()
+      for low in re.split(r"(?<=[.;!?])\s+|\n+", (msg or "").lower()):  # the reading and the part must share a sentence
         if ISOLATION_RE.search(low) and any(re.search(r"\b" + re.escape(h) + r"s?\b", low) for h in heads):
             return True
     return False
@@ -1378,19 +1378,8 @@ def official_turn(
             pass
     tech_msgs = [m.get("content", "") for m in (history or []) if m.get("role") == "user"] + [user_msg or ""]
     held = unproven_condemns(reply, tech_msgs)
-    if held:
-        try:
-            again = chat_fn(msgs + [{"role": "assistant", "content": reply},
-                                    {"role": "user", "content": "Do NOT condemn or replace " + ", ".join(held) + " yet: no isolation reading for it "
-                                     "is recorded. Give the isolation test for that part (where, meter setting, good vs bad) and ask for the reading."}],
-                            REPLY_MAX_TOKENS, LATER_REASONING)
-            if again and again.strip():
-                reply = again.strip()
-        except Exception:
-            pass
-        still = unproven_condemns(reply, tech_msgs)
-        if still:
-            reply = hold_condemns(reply, still)
+    if held:  # deterministic hold, no extra model call (one primary call per turn)
+        reply = hold_condemns(reply, held)
         pin.setdefault("condemn_held", []).extend(held)
     reply = drop_reasks(reply, pin)
     reply = shop_voice(reply)
