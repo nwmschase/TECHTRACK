@@ -238,3 +238,26 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
 - **Replay (8 stored sweeps, full gate).** The only decision change is RC03 (c249638, ea06f7e, 174d094, same mechanism) and
   RC02 ea06f7e (the board install step, now covered by its own output result). No RC20/RC22 line changes. In 854ef47 RC18 the
   motor stays held.
+
+## Addendum 3e: ec42b22 sweep, three findings (two fixed, one Leader item)
+- **RC18 run 3 (ec42b22): 2 swaps.**
+  - T5 "Install the replacement motor" came right after "Isolation at that motor looks normal/OK" (a normal result, which rules the motor OUT).
+  - Root 1: an install procedure was only recognized for "new X". A "replacement X" install is the same condemn.
+  - Root 2: the procedure check treated an unparsable line as having a replace target (`_replace_targets` returns the line itself), so the procedure was never held.
+  - Root 3: "no bind or slip" was read as a FAILING result (FAIL_RE hit "bind"), which gave the motor a false own basis.
+  - Fixes (general):
+    - "replacement X" install lines are condemns.
+    - The procedure check ignores the whole-line fallback.
+    - A failure word under no/without/never ("no bind or slip", "no burned or shorted section") is removed before FAIL_RE is read. "No continuity" and "no rotation" stay failures.
+  - Run 3's second motor swap (T7) came through an OEM AUTHORIZATION FINDINGS block in the same reply. That is a valid basis (iii); granularity is issue #95.
+- **RC04 sweep (ec42b22).**
+  - Sequence: the breaker was replaced on its own result (high drop across it). The tech verified the fix. GD's own "before release" Ah test stayed pending, and the ESCALATION SUMMARY then said "no fix reached". That is a false terminal.
+  - Fix: a repair GD directed WITH a basis (recorded in the pin by condemn_gate), which the tech then reports done with no "still ..." failure in that message, is named in the summary header ("a pending test blocks release; repair recorded, not closed") and on a "Repair recorded by the tech:" line. It is keyed on the directed part, not on wording alone. A failed swap ("replaced ... still will not") is not a repair. The harness note is neutral.
+- **Replay (14 stored sweeps, full gate):**
+  - RC22 ea06f7e T9-T14 gas-valve conditionals are now HELD. Their old "own" basis was the negation misread ("no burned or shorted section"). Their conditions are on another part's reading (brown at the valve, a known-good source).
+  - RC18 854ef47 T9 and ec42b22 run 3 T4/T5 motor install steps are now held.
+  - Nothing else changes.
+- **Leader item (not changed):** test_v41929_levelup_leadjack, 4 tests.
+  - These tests require the cartridge call (177094) right after "The lead-jack valve coil on the gray wire tests good" (Leader 2026-10-16 8:23 PM).
+  - Under condition (1) (Leader 2026-10-17 3:30 AM), a normal coil result rules the coil OUT and never condemns the cartridge. The cartridge was already HELD on cd71229. Those tests passed there only because the part number printed inside the hold text and in a leaked "Remove the cartridge" line.
+  - The tests are not edited. The two rulings conflict.

@@ -119,6 +119,12 @@ RC02_A4_TECH = ['Customer reports both slide-outs won’t extend or retract. [no
 RC03_CD7_TECH = ["Customer reports the awning won't extend or retract.", 'On the OneControl panel I commanded awning EXTEND then RETRACT. Relays click both ways and the panel looks like it is talking to the board, but the awning does not move either direction.', 'Label reads Lippert OneControl Unity X270D, IDS Part# 30606H3162401279. Connectors reseated with no loose/unseated pins or damage found; battery voltage is good at the X270D and fuses and wiring are OK.', 'Resting on the F1 awning REV pair looks normal/OK. Holding EXTEND and RETRACT on the panel, there is no output voltage to the awning motor circuit either way.']
 RC03_CD7_GD = 'Replace the Unity X270D board. [Library: Lippert OneControl M Series Unity Board Troubleshooting and Service Manual p.3]\nInstall the new board and transfer the wiring one plug at a time. [Library: Lippert OneControl M Series Unity Board Troubleshooting and Service Manual p.4]\nVERIFY: command awning EXTEND then RETRACT from the panel. [General trade knowledge]'
 
+RC04_EC4_TECH = ["Customer states the BAL leveling operates intermittently, the touchpad is occasionally unresponsive during operation, and auto-level doesn't consistently complete.", "Wheels chocked, area clear. Coach 12V on, ran Auto-Level the way the customer does — cycle completed, touchpad stayed responsive, no comm faults or error messages; system worked during diag. Battery voltage dropped heavily under load.", "No loose, corroded, or unseated plugs on the BAL controller, touchscreen, or jack-motor connectors. Charge path as installed: converter/charger, then isolator/disconnect, then a 30A breaker, then the lithium batteries (BMS).", "Current flowing with converter on. Drop across the converter itself looks normal/OK; converter output is correct.", "Drop across the isolator/disconnect looks normal/OK.", "Converter still on, current flowing.", "Converter still charging. Ran Auto-Level again — cycle completed and the touchpad stayed responsive (same as during diag). Battery voltage still dropped heavily under load; lithiums not reaching full charge.", "Converter still charging. Voltage drop across the 30A breaker between isolator and batteries is high; Auto-Level still completes in shop but batteries drop hard under load and don’t reach full charge.", "Breaker already replaced; full voltage at the lithium posts, Auto-Level completes with a responsive touchpad and no voltage collapse under load. Battery amp-draw/Ah test is pending (customer pickup).", "Repair already done and verified: Auto-Level completes, touchpad stays responsive, full voltage, no collapse under load. Battery amp-draw/Ah test is pending (customer pickup).", "Breaker already replaced and verified: Auto-Level completes, touchpad stays responsive, full voltage, no collapse under load. Battery amp-draw/Ah test is pending (customer pickup)."]
+RC04_EC4_T8_GD = "Replace the 30A breaker (and clean/retorque its input and output terminals and lugs) — that high drop is the fault in this path. [General trade knowledge]\nAfter the repair, keep the converter charging, set the meter to DC volts, and measure voltage at the lithium battery posts (or BMS charge terminals). Report that reading. [General trade knowledge]\nLet the batteries charge, then run Auto-Level the way the customer does and confirm the cycle completes, the touchpad stays responsive, and battery voltage no longer collapses under load. [General trade knowledge]\nBefore release, run a battery capacity / Ah load test or BMS state-of-health check (not done yet). Report those results. [General trade knowledge]\nVERIFY: run the function again (full cycle, 2-3 times) and confirm it completes and the complaint is gone. [General trade knowledge]"
+
+RC18_EC4_R3_TECH = ["Customer says the front stabilizer jack will not operate when cranking manually with the tool; it works on the power switch.", "Power: battery connected, EXTEND and RETRACT both work — front jack moves under the switch. Manual: override input shaft roll pin is broken and seized (cannot extract); cranking the override does not drive the jack.", "No Unity/OneControl on this unit. Switch and motor plugs look seated and OK. Second motor override access looks normal.", "Second motor: 5/16\" on the override, nut turns by hand and that leg drives with no bind or slip; roll pin/shaft looks intact.", "Isolation at that motor looks normal/OK. Before I replace that motor — anything else to check?"]
+RC18_EC4_R3_T5_GD = "Before condemning the that failed front motor only, do the manual's adjustment/synchronization step and report the result: If the stabilizer legs are not synchronized and are extending unevenly, press and hold RETRACT (Fig. [General trade knowledge]\nInstall the replacement motor, reconnect its plug fully, reconnect the battery. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.4]\nVERIFY: press and hold EXTEND then RETRACT on the front switch until both legs complete travel. Report whether both legs run. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.6]\nVERIFY: 5/16\" on the new motor override (no impact); turn clockwise then counterclockwise. Report whether the nut drives that leg with no slip. [Manufacturer site: https://lci-support-doc.s3.amazonaws.com/manuals/leveling-and-stabilization/stabilization/electric/ccd-0001556.pdf p.7]"
+
 
 class TestOutputFailureWithGoodInput(unittest.TestCase):
     def test_rc03_cd71229_unowned_output_with_battery_good_at_board_is_own(self):
@@ -315,3 +321,47 @@ class TestTerminalEscalationSummary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEscalationNamesARecordedRepair(unittest.TestCase):
+    """ec42b22 RC04 (verbatim): GD directed the 30A breaker on its own 'high drop across' result (T8); the tech replaced and verified
+    it, then a post-repair Ah test stayed pending. The terminal must name the repair, never say 'no fix reached'."""
+    def test_rc04_ec42b22_breaker_replaced_then_pending_ah_test(self):
+        pin = {}
+        out, held = go.condemn_gate(RC04_EC4_T8_GD, RC04_EC4_TECH[:8], "", pin)
+        self.assertEqual(held, [], out)
+        self.assertIn("breaker", pin.get("directed_repairs", []))
+        class _T:
+            text = "Battery amp-draw/Ah test is pending (customer pickup)."
+            scope = {"battery", "converter", "touchpad"}
+        summ = go.escalation_summary([_T()], RC04_EC4_TECH, pin, [], True)
+        self.assertIn("repair recorded", summ)
+        self.assertIn("Breaker already replaced", summ)
+        self.assertNotIn("no fix reached", summ)
+
+    def test_rc20_no_directed_repair_stays_no_fix(self):
+        class _T:
+            text = "Plumbing check at the front-left hoses is still pending."
+            scope = {"hose", "jack"}
+        summ = go.escalation_summary([_T()], RC20_854_TECH, {}, [], True)
+        self.assertIn("no fix reached", summ)
+        self.assertNotIn("Repair recorded", summ)
+
+    def test_failed_swap_is_not_a_recorded_repair(self):
+        class _T:
+            text = "Crank test is pending."
+            scope = {"jack"}
+        tech = ["Customer says the jack will not crank.", "Replaced the override coupler as directed; manual crank still will not operate the jack."]
+        summ = go.escalation_summary([_T()], tech, {"directed_repairs": ["coupler"]}, [], True)
+        self.assertIn("no fix reached", summ)
+
+
+class TestLockedReplacementPartInstall(unittest.TestCase):
+    def test_rc18_ec42b22_run3_t5_install_the_replacement_motor_is_held(self):
+        """ec42b22 RC18 run 3 T5 (verbatim): after 'Isolation at that motor looks normal/OK' (rules the motor OUT), GD wrote
+        'Install the replacement motor' with no replace verb and no OEM block in that reply. A 'replacement X' install is a
+        condemn like a 'new X' install; the motor has no failing result of its own, so it is held."""
+        out, held = go.condemn_gate(RC18_EC4_R3_T5_GD, RC18_EC4_R3_TECH, "", {})
+        self.assertNotIn("Install the replacement motor", out)
+        self.assertTrue(any(h[0] == "motor" for h in held), held)
+        self.assertIn("hold all part replacement for the motor", out.lower())

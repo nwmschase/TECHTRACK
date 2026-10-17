@@ -1554,7 +1554,20 @@ def result_owners(sentence: str) -> set:
     return owners
 
 
+_NEG_LIST_RE = re.compile(r"\b(?:no|without|never)\s+([\w/-]+(?:\s*(?:,|or|and|/)\s*[\w/-]+){0,3})", re.I)
+
+
+def _drop_negated_failures(sentence: str) -> str:
+    """'no bind or slip', 'without leaks': a failure word under 'no/without' is a pass, so it is removed before FAIL_RE is read.
+    'no continuity' / 'no rotation' stay (the failure is the whole phrase, not the word after 'no')."""
+    def sub(m):
+        words = [re.sub(r"\s+(?:found|noted|seen|present)$", "", w) for w in re.split(r"\s*(?:,|\bor\b|\band\b|/)\s*", m.group(1)) if w]
+        return " " if words and all(FAIL_RE.search(w) for w in words) else m.group(0)
+    return _NEG_LIST_RE.sub(sub, sentence or "")
+
+
 def _is_failing(sentence: str) -> bool:
+    sentence = _drop_negated_failures(sentence)
     if "?" in sentence or NOT_DONE_RE.search(sentence) or SWAP_REPORT_RE.search(sentence):
         return False
     if OWN_SPLIT_RE.search(sentence):
@@ -1795,7 +1808,7 @@ def _state_clause(line: str, target: str) -> bool:
                 and re.search(r"\b(?:until|wait|when|once|after|whether)\b[^.;]*" + re.escape((target or "")[:20]), line or "", re.I))
 
 
-NEW_PART_RE = re.compile(r"\bnew\s+(?P<p>(?:[\w'/-]+\s+){0,3}?[\w'/-]+)", re.I)
+NEW_PART_RE = re.compile(r"\b(?:new|replacement)\s+(?P<p>(?:[\w'/-]+\s+){0,3}?[\w'/-]+)", re.I)
 
 
 def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = None) -> tuple:
@@ -1833,7 +1846,7 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
     for c, ln in proc.items():
         if c in covered:
             continue
-        if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply)[0] and not _replace_targets(ln):
+        if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply)[0] and not [t for t in _replace_targets(ln) if t != ln]:
             proc_held.add(c)
     in_oem_block = False
     out, held, emitted = [], [], set()  # one hold per part per reply, however many lines or wordings name it
@@ -1842,7 +1855,7 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
             in_oem_block = True
         elif in_oem_block and not line.strip():
             in_oem_block = False
-        pcomps = {c for c in proc_held if (re.search(r"\bnew\s+(?:[\w'/-]+\s+){0,3}?" + re.escape(c), line, re.I)
+        pcomps = {c for c in proc_held if (re.search(r"\b(?:new|replacement)\s+(?:[\w'/-]+\s+){0,3}?" + re.escape(c), line, re.I)
                                            or re.search(r"\b(?:remove|lift|pull|take)\b[^.\n]*\b" + re.escape(c) + r"\w*\b[^.\n]*\b(?:off|out)\b", line, re.I))}
         if pcomps and not GUARD_LINE_RE.match(line) and not in_oem_block:
             for c in sorted(pcomps):
@@ -1866,6 +1879,10 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
             continue
         targets = [t for t in targets if not _state_clause(line, t)]
         missing = [t for t in targets if not condemn_basis(line, t, tech_msgs, section_text, oem_reply, reply)[0]]
+        for t in targets:
+            if t not in missing:  # a repair GD directed with a basis: the escalation summary can name it once the tech records it done
+                dr = pin.setdefault("directed_repairs", [])
+                dr.extend(h for h in sorted(target_heads(t)) if h not in dr)
         if not missing:
             out.append(line)
             continue
@@ -1919,7 +1936,25 @@ def escalation_summary(covering: list, tech_msgs: list, pin: dict, contacts: lis
         sec_hits = [x.strip() for x in re.split(r"(?<=[.;!?])\s+|\n+", pin.get("section_text", "") or "") if PHONE_RE.search(x)]
         contact = sec_hits[0][:200] if sec_hits else ""
     asked_twice = " Each has been asked twice and will not be asked again." if exhausted else ""
-    out = [f"{ESCALATION_HEAD} (session parked: pending tests block progress, no fix reached) [{LABEL_GENERAL}]",
+    # A repair GD directed with a basis (condemn_gate) that the tech then records as done, with no 'still ...' failure in that
+    # sentence, is named; the session is never summarized as 'no fix reached' (ec42b22 RC04: breaker replaced and verified, then a
+    # post-repair Ah test pending). Keyed on the directed part, not on wording alone.
+    repair, directed = "", (pin or {}).get("directed_repairs", [])
+    still_bad = re.compile(r"\bstill\b[^.\n]*\b(?:not|no|won.?t|will\s+not|fail\w*|drift\w*|present|same)\b", re.I)
+    for m in (tech_msgs or [])[1:]:
+        if still_bad.search(m or ""):  # the complaint is reported still present: whatever was replaced before is not a fix
+            repair = ""
+            continue
+        for s in _sents(m):
+            low = s.lower()
+            if not any(re.search(r"\b" + re.escape(h) + r"s?\b", low) for h in directed):
+                continue
+            if re.search(r"\b(?:replaced|repaired|installed)\b", s, re.I) and not re.search(r"\b(?:no|not|nothing|never)\b[^.\n]{0,20}\b(?:replaced|repaired|installed)\b", s, re.I) \
+                    and not NOT_DONE_RE.search(s) and "?" not in s:
+                repair = s.strip().rstrip(".")[:160]
+    state = "a pending test blocks release; repair recorded, not closed" if repair else "pending tests block progress, no fix reached"
+    out = [f"{ESCALATION_HEAD} (session parked: {state}) [{LABEL_GENERAL}]"] + \
+          ([f"Repair recorded by the tech: {repair}. [{LABEL_GENERAL}]"] if repair else []) + [
            f"Hold all part replacement: no part on that path is replaced or repaired until a pending result or the OEM's written "
            f"direction is recorded. [{LABEL_GENERAL}]",
            f"Blocking pending test(s): {tests}.{asked_twice} [{LABEL_GENERAL}]",

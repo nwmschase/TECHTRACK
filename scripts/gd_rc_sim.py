@@ -123,7 +123,7 @@ def run(case, out, db, max_turns=14):
         if end_accepted(msg, gd_replies[:-1]):
             break
         if go.ESCALATION_HEAD in r["reply"]:  # GD's general terminal for pending tests + no fix: the session is parked, not looped
-            lines += ["_harness: GD issued the ESCALATION SUMMARY (pending tests block progress, no fix): session parked; run ends here._", ""]
+            lines += ["_harness: GD issued the ESCALATION SUMMARY (its header states whether a repair is recorded): session parked; run ends here._", ""]
             break
         tech_hist += [{"role": "assistant", "content": msg}, {"role": "user", "content": "GD: " + r["reply"]}]
         msg = chat(tech_hist).strip()
