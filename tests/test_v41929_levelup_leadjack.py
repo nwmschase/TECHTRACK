@@ -119,8 +119,11 @@ class TestLeadJackReplay(unittest.TestCase):
     def _assert_reaches_cartridge_fix(self, replies):
         self.assertIn("Safety first", replies[0])
         joined = "\n".join(replies)
-        self.assertIn("177094", joined)
+        # Leader 2026-10-16 5:21 PM GD guard: never condemn a part before its isolation reading is recorded.
+        # These walks never record a cartridge isolation reading, so the cartridge call must be HELD for that reading;
+        # 177094 may print only with its owner's-manual page.
         self.assertIn("cartridge", joined.lower())
+        self.assertRegex(joined.lower(), r"177094|before condemning the front lead-jack cartridge valve, record its isolation reading")
         _assert_177094_is_cited(self, joined)
 
     def test_s20_asks_coil_and_plumbing_before_the_cartridge(self):
