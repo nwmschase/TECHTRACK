@@ -1040,8 +1040,20 @@ def _part_heads(part: str) -> set:
     return {words[-1].rstrip("s")} if words else set()
 
 
+# Words that name the same component class: a request naming one names the others.
+_PART_SYNONYMS = [{"pcb", "board"}]
+
+
 def _part_words(part: str) -> set:
-    """Every identifying word of the part ('inverter pcb' -> {inverter, pcb}); a request/answer naming any of them names the part."""
+    """Every identifying word of the part ('inverter pcb' -> {inverter, pcb, board}); a request/answer naming any of them names the part."""
+    words = _part_words_raw(part)
+    for group in _PART_SYNONYMS:
+        if words & group:
+            words |= group
+    return words
+
+
+def _part_words_raw(part: str) -> set:
     core = re.split(r"(?<=\w)\s(?:in|on|at|of|from|inside|behind|under|near|for|part|p/n|fully|together|now|instead|first|as|both)\b",
                     (part or "").lower().strip())[0]
     return {w.rstrip("s") for w in re.findall(r"[a-z0-9]+", core)

@@ -160,3 +160,10 @@ class TestPendingDecisiveTest(unittest.TestCase):
     def test_pending_is_unavailable(self):
         self.assertTrue(go.UNAVAILABLE_RE.search("Battery-jump test is still pending with tech line."))
         self.assertIn("REPAIR DECISION", go.PENDING_RULE)
+
+
+def test_board_and_pcb_name_the_same_part():
+    """A reading at 'the inverter PCB' is the board's isolation (e82df6b RC12: stray hold on 'the board' after an F+/F- reading)."""
+    import gd_official as go
+    assert go.isolation_recorded("the board", ["Fan voltage at F+/F- was 14.28-10.37 V on a ~40 s cycle."],
+                                 ["Probe F+ and F- on the inverter PCB and report the voltage."])
