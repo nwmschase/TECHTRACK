@@ -277,3 +277,100 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
 - **Not caused by the gate (no hold fired):**
   - RC13 7336d47 reached the 14-turn cap with every sim answer "normal/OK" and no manual (NO MANUAL mode).
   - Hold-set RC12 7336d47 had 2 swaps, each with a basis: the p.27 elimination "replace the inverter PCB and fan" (the model chose the compressor cooling fan, not the freezer evaporator fan), then the OEM block plus the p.34 elimination for the complete unit. Model part choice.
+
+## Addendum 4: Leader 05:50 PT rulings O1-O6 (freeze lifted for these items only)
+Base: 6753d23. Replay tool: /tmp/replay_full.py (condemn_gate + oem_upstream_gate + recorded_repair on every stored GD turn).
+Scope: 24 stored sweep dirs, 1385 GD turns, old (6753d23) vs new. Locked tests: tests/test_leader_0550_o1_o6.py (30, including 3
+property tests) and tests/test_v41929_levelup_leadjack.py (O2 rewrite). Fixtures are verbatim transcript text
+(tests/fixtures_leader_0550.py). No case keys: the added logic has no RC id, model, doc id, part number or brand word (grep below).
+
+### 4.O1 Recorded repair with its own basis is the fix (RC04)
+1. **Problem.** 6753d23 RC04: at T5 the tech recorded "the drop across the 30A breaker" and at T6 "Replaced the 30A breaker; … Auto Level completed … Battery amp-draw/Ah test not done (customer pickup)." GD held at T6/T7 on the post-repair Ah test and parked at T8 with "no fix reached". Expected: the repair is the fix; release checks never hold.
+2. **IS / IS-NOT.** IS: a pending test first reported in or after the repair message. IS NOT: a test pending before the repair (still holds); a repair with no basis (RC20 'no parts replaced'); a repair followed by "still …" (failed swap).
+3. **Timeline.** 7336d47 named the directed repair in the summary (addendum 3e), but only for GD-directed repairs. RC04 6753d23 went down the own-result path (the GD never said "replace"), so it still parked.
+4. **Evidence.** 6753d23/RC04.md T6-T8. Locked tests fail on 6753d23: test_rc04_post_repair_ah_test_never_holds, test_rc04_summary_names_the_repair.
+5. **Causal chain.** The pending test is anchored at the repair message. AND the hold had no idea a repair was recorded. So a release check blocked a finished job. Systemic: a recorded repair was not session state.
+6. **Why not caught.** The 3e test covered only GD-directed repairs.
+7. **Class.** "Completed work not modelled as state, so post-work checks are treated as diagnosis."
+8. **Prior.** RC04 c249638, 4aff2a6, 642b658, 174d094, ec42b22 (all the breaker path).
+9. **Fix + proof.**
+   - `recorded_repair()` returns the FIRST tech repair sentence whose part has a condition-(1) basis BEFORE the repair (own failing result or cited elimination, or a directed repair), and is reset by a later "still …".
+   - `drop_post_repair_checks()` removes pending tests anchored at/after it, keeping them in pin `post_repair_checks`.
+   - The summary takes its "repair recorded" line from the same function.
+   - Tests: RC04 verbatim T6/T7/T8; no-basis repair; still-bad cancel; pre-repair test still holds; property (200).
+   - Replay: RR appears only on sessions with a based repair (RC04, RC08, RC12, RC13, RC14, RC18, RC23, RC30). No hold was added or removed by O1.
+
+### 4.O2 Condition (1) wins over the S20 card
+1. **Problem.** 4 v41929 tests asserted part text '177094' appears after "coil tests good". Condition (1) holds the cartridge: a pass on the coil rules the coil out and never condemns the cartridge.
+2. **IS / IS-NOT.** IS: a cartridge condemn whose only support is the coil pass. IS NOT: a condemn line carrying a cited doc+page elimination path.
+3-4. **Evidence.** suite-6753d23.txt: v41929 4 failed. The replies HOLD and give the OEM / shop tech-line step.
+5. **Chain.** The tests encoded the old card ("cartridge after coil"), not the rule.
+6. **Why not caught.** The tests checked leaked text, not the basis.
+7. **Class.** "Test asserts output text instead of the decision basis."
+8. **Prior.** 8:23 PM 10-16 rewrite of the same tests (isolation step order).
+9. **Fix + proof.**
+   - `_assert_reaches_cartridge_fix` now asserts: every cartridge condemn line carries a [Library|Manufacturer site … p.N] tag, comes at/after the isolation step, and 177094 prints only on such a line; with no cited path the cartridge is HELD and the reply escalates.
+   - Plus 2 unit tests (coil-good alone holds; cited elimination allows). 8/8 pass. No GD code change for O2.
+
+### 4.O3 OEM request is not authorization; upstream tests before OEM/whole-unit requests
+1. **Problem.**
+   - (a) Any line in an OEM reply that mentioned the OEM path licensed a replace.
+   - (b) 6753d23 RC13 T8: the OEM block went out with the thermostat named (wall tstat) and never tested.
+   - (c) ec42b22 RC14 T13: the whole rooftop unit was requested with the compressor untested; the unit swap then did not fix it.
+2. **IS / IS-NOT.** IS: a replace order with no recorded go-ahead; an OEM/whole-unit request while a named upstream part has no result and no "not possible". IS NOT: the request line itself ("submit … for authorization to replace", "Requested authorization:", "After authorization, replace …"); parts only handled as work steps (disconnected, reseated, connected, back on); identity notes (model/part number); the complaint's own part; connection words; with a manual pinned, parts the manual gives no test for.
+3. **Timeline.** OEM path added at 854ef47 (condition 1, path iii); no go-ahead or upstream notion until now.
+4. **Evidence.** 6753d23/RC13.md T8; ec42b22/RC14.md T13-T14 (unit replaced, complaint still present).
+5. **Chain.** The OEM block was treated as a basis by itself. AND no check asked whether the cheaper decisive tests were done. So the OEM request skipped the thermostat bypass and the compressor test.
+6. **Why not caught.** No test had an OEM reply with an untested upstream part.
+7. **Class.** "Escalation path treated as evidence."
+8. **Prior.** RC14 ec42b22 T13; RC13 6753d23 T8; RC20 0c4a291 T5/T7 (board/CAN isolation "not in the notes" while the OEM block went out).
+9. **Fix + proof.**
+   - `oem_goahead()`: a tech sentence with approve/authorized/authorization received from the OEM / tech line / warranty, or the pinned doc's brand. Requests and waits do not count.
+   - `condemn_basis`: the request line is `oem_request`; a replace order needs the go-ahead.
+   - `untested_upstream()` / `oem_upstream_gate()`: the OEM block and whole-unit lines are withheld and the test is asked (the manual's own test when it has one). After 2 asks the request goes out with the test listed as not done.
+   - Tests: request vs order, go-ahead, doc-brand go-ahead, RC13 verbatim (thermostat asked, then released after 2 asks), "not possible" releases, manual-only gating, property (200).
+   - Replay (UP): 6753d23 RC13 T8 thermostat; ec42b22 RC14 T13 compressor; 0c4a291 RC20 T5/T7 controller (its power connector was read, the manual's CAN/board isolation was not). No other turn.
+
+### 4.O4 Latest result per part wins; no invented readings (RC12)
+1. **Problem.** 6753d23 RC12 T5: GD gave the thermostat install procedure. The case file (real-cases/RC12) has no thermostat or C-T reading. The tech's "Thermostat … isn't recorded as open/short or failed …; that check looks normal/OK" was read as the thermostat's FAILING result (the negation was not seen), and p.44 "Replace the old thermostat with the new one" was accepted as an elimination path.
+2. **IS / IS-NOT.** IS: a fail followed by B's own normal/OK; a negated failure list; an install-procedure step used as a cited path. IS NOT: a later "B plugs/wiring/holder/location looks OK", "B was seated", "isn't in the notes and looks OK", a pass inherited by a noun clause ("cap OK"). Those never cancel B's failing result.
+3. **Timeline.** own_failing_result returned the FIRST failing sentence since 854ef47.
+4. **Evidence.** 6753d23/RC12.md T4-T5; the RC12 case file readings (fan A/V, supply V, temps; no thermostat reading).
+5. **Chain.** First-fail wins. AND "isn't … failed" was read as failed. AND the procedure page counted as an elimination. So an invented failure condemned the thermostat.
+6. **Why not caught.** The property test had no pass-after-fail sequence.
+7. **Class.** "Order-blind evidence reading."
+8. **Prior.** 7336d47 negation fix ("no bind or slip"), addendum 3e.
+9. **Fix + proof.**
+   - `latest_result()` walks every result.
+   - `_own_pass()`: B named in the clause (or a pronoun subject following a B-only clause); no other part or sub-part/placement word; a test-outcome pass word; not a not-recorded clause.
+   - `_drop_negated_failures()`: failure words under no / without / never / isn't / is not, up to the clause end, are dropped ("does not rotate" stays a failure; "is not seated and is blown" keeps blown).
+   - `manual_elimination_cite` skips install-procedure steps.
+   - Tests: RC12 verbatim T5 held; negation; pass-after-fail; fail-after-pass; connector/seating passes do not cancel; not-recorded; property (300).
+   - Replay: RC12 6753d23 T5 is the only new hold; RC13 854ef47 T8 cable (latest "cable looks normal/OK", the furnace-side bypass does not split cable vs thermostat).
+
+### 4.O5 Contact line is name + number only (RC22)
+- **Problem / evidence.** 6753d23 hold set RC22 T9: "Contact: Shop/OEM tech-line 423-775-2131 ext. 7102 if brown still not 10.5–13.5 VDC after board swap." It carried a board-swap condition into the escalation.
+- **Root.** The summary copied the raw line. **Class:** raw model text reused as structured data.
+- **Fix.** `contact_name_number()` takes the number plus extension from the line. The name is the pinned doc brand from metadata ("Suburban tech line"), else up to 4 words before the number. Used by `escalation_summary` and `structural_reply`.
+- **Tests.** Doc-brand form; no-brand form has no condition words; summary line. Replay: no gate change (text only).
+
+### 4.O6 No brand words in logic
+- **Problem.** ESCALATED_RE contained two brand names (the 6753d23 pack's grep claim of 0 logic hits was wrong: 1 hit).
+- **Fix.** ESCALATED_RE is generic. `escalated(msg, pin)` adds only the pinned document's brand. pin `doc_brand` = `_doc_brand(doc)` (the document's brand field, else its title).
+- **Tests.** No KNOWN_BRANDS word in any gate regex. "Already called <brand>/…" is detected only through doc_brand. Pin brand comes from the document.
+- **Grep.** Re-run on the final diff (pack section 0a).
+
+### Section-4 checklist (O1-O6)
+| Item | Result |
+|---|---|
+| Full template, 9 fields | PASS (O1-O4 full; O5/O6 compact, all fields covered) |
+| IS / IS-NOT with working cases | PASS (each item lists the cases that must NOT change; replay confirms) |
+| Every causal link cites evidence | PASS (transcript turns, case file, suite file, failing locked tests at 6753d23) |
+| Chain reaches a general logic defect | PASS (repair not state; OEM path as evidence; first-fail order; raw text reuse; brand list) |
+| Class named, prior incidents listed | PASS |
+| No new case keyed on brand/file/page/model/test ID | PASS (grep of the added lines; see pack 0a) |
+| Sweep or property test on the whole class | PASS (3 property tests, 700 sessions; replay 1385 turns over 24 dirs) |
+| Regression test for each prior incident | PASS (RC04, RC12, RC13, RC22, RC20 brand, v41929 x4) |
+| Check that would have caught it originally | PASS (property tests: latest-result, post-repair, upstream-before-OEM) |
+| Full suite and sweep, zero new regressions | see the pack (final SHA) |
+| Containment labeled | N/A (root fixes) |

@@ -4,6 +4,10 @@ UPDATED 2026-10-16 for the GD official method. Edit authorized by Leader (1:51 P
 cursor/gd-official-method). The lead-jack card no longer answers by itself; it rides into the
 official walk as a shop hint. These replays still assert that the job reaches the correct fix
 (cartridge valve 177094 with its owner's-manual page) and that the safety line comes first.
+
+REWRITTEN 2026-10-17 per Leader 05:50 PT ruling O2: condition (1) wins over the S20 card. The cartridge call is asserted through a
+cited manual elimination path (doc + page on the condemning line), not through leaked part-number text. Without such a path the
+replay must HOLD the cartridge and escalate.
 """
 import re
 import unittest
@@ -118,25 +122,41 @@ class TestLeadJackReplay(unittest.TestCase):
         return out, store
 
     HELD_RE = r"before condemning the front lead-jack cartridge valve, record its isolation reading"
+    HOLD_RE = r"hold all part replacement for the front lead-jack cartridge valve"
+    ESCALATE_RE = r"submit them to the oem / shop tech line for authori[sz]ation"
+    # A cited manual path: a [Library: <doc> p.N] or [Manufacturer site: <url> p.N] tag on the cartridge line itself.
+    CITED_PATH_RE = re.compile(r"\[(?:Library|Manufacturer site):[^\]]*?\bp\.?\s*\d+[^\]]*\]", re.I)
 
     def _assert_reaches_cartridge_fix(self, replies, turns=None):
-        """Leader 2026-10-16 8:23 PM: the cartridge call (177094 with its owner's-manual page) is required once the isolation step
-        (the coil test) is on record, and only AFTER it; before that step the call must be HELD and 177094 must not print."""
+        """Leader 2026-10-17 05:50 PT, O2: condition (1) WINS. 'Coil tests good' rules the COIL out; it never condemns the cartridge.
+        The cartridge call is allowed only through a CITED manual elimination path: the line that condemns the cartridge carries a
+        document + page tag ([Library|Manufacturer site: ... p.N]), and it comes at/after the isolation step. With no such path the
+        cartridge call is HELD and the reply escalates (document the findings, OEM / shop tech line). Part text (177094) is not the
+        test: it may print only on a cited line."""
         self.assertIn("Safety first", replies[0])
         joined = "\n".join(replies)
         self.assertIn("cartridge", joined.lower())
-        _assert_177094_is_cited(self, joined)
         turns = turns or []
         iso = next((i for i, t in enumerate(turns) if re.search(r"coil.*tests good", t, re.I)), None)
-        if iso is None:
-            self.assertNotIn("177094", joined)
-            self.assertRegex(joined.lower(), self.HELD_RE)
-        else:
-            self.assertIn("177094", joined)
-            first = next(i for i, r in enumerate(replies) if "177094" in r)
-            self.assertGreaterEqual(first, iso, "177094 printed before the isolation step")
+        condemn_lines = [ln for ln in joined.splitlines()
+                         if re.search(r"\breplace\b[^.]{0,80}\bcartridge", ln, re.I) and not re.search(r"^\s*(?:hold|before condemning)", ln, re.I)]
+        cited = [ln for ln in condemn_lines if self.CITED_PATH_RE.search(ln)]
+        for ln in condemn_lines:  # every cartridge condemn is on a cited doc+page line
+            self.assertRegex(ln, self.CITED_PATH_RE, "cartridge condemned without a cited manual elimination path")
+        for ln in joined.splitlines():  # 177094 only ever prints on a cited line
+            if "177094" in ln:
+                self.assertRegex(ln, self.CITED_PATH_RE)
+        if cited:
+            self.assertIsNotNone(iso, "cartridge condemned before the isolation step is on record")
+            first = next(i for i, r in enumerate(replies) if any(ln in r for ln in cited))
+            self.assertGreaterEqual(first, iso)
+        else:  # no cited elimination path: HOLD, then escalate
+            self.assertRegex(joined.lower(), self.HOLD_RE if iso is not None else f"(?:{self.HELD_RE}|{self.HOLD_RE})")
+            if iso is not None:
+                self.assertRegex(joined.lower(), self.ESCALATE_RE)
+        if iso is not None:
             for r in replies[:iso]:
-                self.assertNotIn("177094", r)
+                self.assertFalse([ln for ln in r.splitlines() if ln in condemn_lines], "cartridge condemned before the isolation step")
 
     def test_s20_asks_coil_and_plumbing_before_the_cartridge(self):
         replies, _ = self._walk([CONCERN, "The lead-jack valve coil on the gray wire tests good.",

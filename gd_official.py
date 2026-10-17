@@ -1515,6 +1515,7 @@ OWN_OBJECT_RE = re.compile(r"\b(?:drop\s+(?:was\s+)?across|across|through|ohm(?:
                            r"(?P<obj>[^,.;:\n]{1,60})", re.I)
 OEM_PATH_RE = re.compile(r"\bOEM\s+AUTHORIZATION\s+FINDINGS\b|\bRequested\s+authorization\b|\bsubmit\s+(?:them|it|the\s+findings)\s+to\s+the\s+OEM\b|"
                          r"\bfor\s+(?:OEM\s+)?authori[sz]ation\b", re.I)
+OEM_REQUEST_LINE_RE = re.compile(r"^\s*(?:after|once|when)\s+(?:the\s+)?(?:OEM\s+|written\s+|\w+\s+)?(?:authori[sz]ation|approval|go-?ahead)\b|\bauthori[sz]ation\s+(?:request\s+)?(?:to|for)\s+(?:\w+\s+){0,2}?replac|^\s*Requested\s+authori[sz]ation\b", re.I)
 CITE_PAGE_RE = re.compile(r"\[(?:Library|Manufacturer site):[^\]]*?(?:\bp\.?\s*(\d+)(?:\s*[-\u2013]\s*(\d+))?[^\]]*\]|\]\s*p\.?\s*(\d+))", re.I)
 OWN_STATE_COND_RE = re.compile(r"\bif\s+(?:it\s+is\s+|they\s+are\s+)?(?:found\s+)?(?:to\s+be\s+)?(?:defective|bad|faulty|failed|damaged|"
                                r"inoperative|open|shorted|worn)\b", re.I)
@@ -1554,16 +1555,27 @@ def result_owners(sentence: str) -> set:
     return owners
 
 
-_NEG_LIST_RE = re.compile(r"\b(?:no|without|never)\s+([\w/-]+(?:\s*(?:,|or|and|/)\s*[\w/-]+){0,3})", re.I)
+_NEG_TRIGGER_RE = re.compile(r"\b(?:no|without|never|(?:is|was|are|were)n.?t|(?:is|was|are|were)\s+not)\b", re.I)
+_NEG_STOP_RE = re.compile(r"[;,.:\u2014]|\b(?:and|but)\s+(?:is|was|are|were|it|the|a|reads?|has|had|shows?)\b", re.I)
 
 
 def _drop_negated_failures(sentence: str) -> str:
-    """'no bind or slip', 'without leaks': a failure word under 'no/without' is a pass, so it is removed before FAIL_RE is read.
-    'no continuity' / 'no rotation' stay (the failure is the whole phrase, not the word after 'no')."""
-    def sub(m):
-        words = [re.sub(r"\s+(?:found|noted|seen|present)$", "", w) for w in re.split(r"\s*(?:,|\bor\b|\band\b|/)\s*", m.group(1)) if w]
-        return " " if words and all(FAIL_RE.search(w) for w in words) else m.group(0)
-    return _NEG_LIST_RE.sub(sub, sentence or "")
+    """'no bind or slip', 'isn't recorded as open/short or failed', 'without leaks': failure words under a negation, up to the end of
+    that clause, are a pass and are removed before FAIL_RE is read. 'no continuity' / 'no rotation' stay (the failure is the whole
+    phrase, not a word inside the window), and 'is not seated and is blown' keeps 'blown' (a new clause ends the window)."""
+    text, out, pos = sentence or "", [], 0
+    for m in _NEG_TRIGGER_RE.finditer(text):
+        if m.start() < pos:
+            continue
+        stop = _NEG_STOP_RE.search(text, m.end())
+        end = stop.start() if stop else len(text)
+        window = text[m.end():end]
+        if any(FAIL_RE.search(w) for w in re.split(r"[\s/]+", window) if w):
+            out.append(text[pos:m.start()])
+            out.append(" ")
+            pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _is_failing(sentence: str) -> bool:
@@ -1650,10 +1662,40 @@ def output_failure(part_words: set, tech_msgs: list) -> str:
 
 
 def own_failing_result(part_comps: set, tech_msgs: list) -> str:
-    """(i) The tech sentence that is B's own decisive FAILING result, or ''. A split/bypass result (bypassing B restores the function)
-    counts when the sentence names B; any other failing result must belong to B (result_owners)."""
+    r = latest_result(part_comps, tech_msgs)
+    return r[1] if r[0] == "fail" else ""
+
+
+STRONG_PASS_RE = re.compile(r"\b(?:normal|ok(?:ay)?|good|fine|in\s+spec|within\s+(?:spec|range)|correct|pass(?:ed|es)?|"
+                            r"no\s+change|no\s+difference|made\s+no\s+(?:change|difference))\b", re.I)
+
+
+_INHERIT_SUBJECT_RE = re.compile(r"\s*(?:(?:and|so|but)\s+)?(?:it|that|this|which|they|that\s+(?:check|test|reading|result)|"
+                                 r"the\s+(?:check|test|reading|result))\b", re.I)  # only a pronoun subject takes the previous clause's part
+_BARE_OUTCOME_RE = re.compile(r"^\W*(?:which\s+is\s+|that.?s\s+)?(?:normal|ok(?:ay)?|good|fine|in\s+spec)\W*$", re.I)  # 'reads 12.6 V, normal.'
+NOT_RECORDED_RE = re.compile(r"\b(?:is|are|was|were)(?:n.?t|\s+not)\s+(?:\w+\s+){0,1}?(?:in|on|recorded|noted|documented|written|listed)\b", re.I)
+_SUBPART_RE = re.compile(r"\b(?:wir(?:e|es|ing)|plugs?|pins?|connectors?|harness(?:es)?|terminals?|leads?|holders?|hardware|fit|"
+                         r"sides?|mounts?|covers?|flags?|lugs?|grounds?|location|position|placement|routing|display|lights?|access|override|nut|cap|labels?|tags?)\b", re.I)
+
+
+def _own_pass(clause: str, part_comps: set, inherited: bool = False) -> bool:
+    """A normal/OK result that is B's OWN: the clause names B itself (no inherited owner), names no other component (not 'B plugs',
+    'B wiring', 'holder fit'), and the pass word is a test outcome (normal/OK/good/in spec/no change), not 'seated' or 'clean'."""
+    comps = components(clause)
+    b = part_comps | components(" ".join(sorted(part_comps)))  # 'board' also reads as 'pcb'
+    named = {c for c in comps if c in b or any(c in g and b & g for g in _OWNER_SYNONYMS)}
+    if (not named and not inherited) or comps - named or _SUBPART_RE.search(clause) or NOT_DONE_RE.search(clause) or NOT_RECORDED_RE.search(clause):
+        return False
+    return bool(STRONG_PASS_RE.search(clause)) and not FAIL_RE.search(_drop_negated_failures(clause))
+
+
+def latest_result(part_comps: set, tech_msgs: list) -> tuple:
+    """('fail'|'pass'|'', sentence): B's LATEST own result. (i) The tech sentence that is B's own decisive FAILING result, or ''. A split/bypass result (bypassing B restores the function)
+    counts when the sentence names B; any other failing result must belong to B (result_owners). The LATEST result on B wins
+    (Leader 0550 O4): a later normal/OK result owned by B cancels an earlier failing one."""
     if not part_comps:
-        return ""
+        return ("", "")
+    last = ("", "")
     for i, msg in enumerate(tech_msgs or []):
         if i == 0 and len(tech_msgs) > 1:  # the opening complaint is the symptom, not a test of any part
             continue
@@ -1664,18 +1706,28 @@ def own_failing_result(part_comps: set, tech_msgs: list) -> str:
                 continue
             if OWN_SPLIT_RE.search(sent):  # split test: judged on the whole sentence
                 if _bypassed_parts(sent) & part_comps:
-                    return sent
+                    last = ("fail", sent)
                 continue
             if _drop_across_parts(sent) & part_comps:
-                return sent
+                last = ("fail", sent)
+                continue
             prev = set()
+            prev_only_b = False
             for s in _result_sents(sent):
                 owners = result_owners(s) or prev  # 'Fuse is in the holder; continuity is OPEN' -> the open belongs to the fuse
                 prev = owners
                 owners = owners | {o2 for g in _OWNER_SYNONYMS if owners & g for o2 in g}
-                if _is_failing(s) and owners & part_comps:
-                    return s
-    return ""
+                here = components(s)
+                b_only_here = bool(here) and not NOT_RECORDED_RE.search(s) and here <= (part_comps | {o2 for g in _OWNER_SYNONYMS if part_comps & g for o2 in g})
+                if not owners & part_comps:
+                    prev_only_b = b_only_here
+                    continue
+                if _is_failing(s):
+                    last = ("fail", s)
+                elif _own_pass(s, part_comps, inherited=not components(s) and prev_only_b and bool(_INHERIT_SUBJECT_RE.match(s) or _BARE_OUTCOME_RE.match(s))):
+                    last = ("pass", s)
+                prev_only_b = b_only_here or (prev_only_b and not here)
+    return last
 
 
 def _page_text(section_text: str, page: int) -> str:
@@ -1707,6 +1759,8 @@ def manual_elimination_cite(line: str, part_comps: set, section_text: str, reply
         for sent in re.split(r"(?<=[.;!?])\s+|\s+(?:Yes|No)\s+", text):
             if re.search(r"\b(?:to\s+replace|replacement\s+parts|how\s+to)\b", sent, re.I):
                 continue
+            if re.search(r"\breplace\s+(?:the\s+)?old\b|\bwith\s+(?:the\s+|a\s+)?new\b", sent, re.I):
+                continue  # an install-procedure step ('Replace the old thermostat with the new one') is not the end of a decision path
             hits = [(m.end(), m.group("obj")) for m in re.finditer(r"\breplace\s+(?:the\s+)?(?P<obj>[^.;]{2,80})", sent, re.I)]
             # passive: '<if ...> the user panel will need to be replaced', 'the issue must be in the user panel'
             hits += [(m.end(), m.group("subj")) for m in re.finditer(
@@ -1775,14 +1829,35 @@ def _ruled_out_any(tech_msgs: list) -> bool:
                for m in (tech_msgs or [])[1:] for s in _result_sents(m))
 
 
-def condemn_basis(line: str, target: str, tech_msgs: list, section_text: str, oem_reply: bool, reply: str = "") -> tuple:
+GOAHEAD_RE = re.compile(r"\b(?:approved|authori[sz]ed|gave\s+(?:us\s+|the\s+)?(?:the\s+)?(?:go-?ahead|approval|authori[sz]ation)|"
+                        r"authori[sz]ation\s+(?:was\s+)?(?:received|granted|issued|number|#)|go-?ahead\s+(?:was\s+)?(?:received|given|granted)|"
+                        r"ok'?d|signed\s+off)\b", re.I)
+GOAHEAD_SOURCE_RE = re.compile(r"\b(?:oem|manufacturer|factory|tech[- ]?line|tech\s+support|warranty|claim|they|rep)\b", re.I)
+GOAHEAD_NOT_RE = re.compile(r"\b(?:waiting|awaiting|pending|not\s+yet|no\s+(?:reply|response|answer|word)|requested|submitted|if\s+)", re.I)
+
+
+def oem_goahead(tech_msgs: list, brand: str = "") -> str:
+    """O3 (Leader 0550): the tech sentence recording the OEM's go-ahead (who: the OEM/tech line/warranty or the pinned document's
+    brand from metadata; what: approved/authorized/authorization received), or ''. A request, a submission or a wait is not one."""
+    src = GOAHEAD_SOURCE_RE.pattern[:-3] + (("|" + re.escape(brand)) if brand else "") + r")\b"
+    for m in (tech_msgs or [])[1:]:
+        for sent in _sents(m):
+            if GOAHEAD_RE.search(sent) and re.search(src, sent, re.I) and not GOAHEAD_NOT_RE.search(sent) and "?" not in sent:
+                return sent.strip()
+    return ""
+
+
+def condemn_basis(line: str, target: str, tech_msgs: list, section_text: str, oem_reply: bool, reply: str = "", brand: str = "") -> tuple:
     """(basis, evidence) for condemning the target on this line: ('own', sent) | ('elimination', manual sent) | ('oem', '') |
     ('conditional', '') | ('', '') when there is none."""
     comps = target_heads(target) or (_part_words(target) - {"unit"})
     if re.search(r"\bassembl(?:y|ies)\b|\bwith\s+motors?\b", target or "", re.I):  # an assembly owns its members' results
         comps = comps | {m for g in _SOLD_AS_ASSEMBLY if comps & g for m in g}
-    if oem_reply and OEM_PATH_RE.search(line or ""):
-        return "oem", ""
+    if oem_reply and OEM_REQUEST_LINE_RE.search(line or ""):
+        return "oem_request", ""  # O3: the line ASKS the OEM for authorization to replace; asking is not a replace order
+    ga = oem_goahead(tech_msgs, brand)
+    if ga and ((oem_reply and OEM_PATH_RE.search(line or "")) or comps & components(ga)):
+        return "oem", ""  # O3: only a RECORDED OEM go-ahead licenses the replace; the request alone does not
     specific = (_part_words(target) | comps) - {"unit", "board", "pcb", "module", "panel"}
     told = " ".join((tech_msgs or [])[1:]).lower()
     if specific and not any(re.search(r"\b" + re.escape(w) + r"s?\b", told) for w in specific):
@@ -1790,11 +1865,13 @@ def condemn_basis(line: str, target: str, tech_msgs: list, section_text: str, oe
     own = own_failing_result(comps, tech_msgs) or output_failure(specific or comps, tech_msgs)
     if own:
         return "own", own
+    if _conditional_on_own(line, comps):  # 'if <B's own test> fails, replace B' waits on a result still to come
+        return "conditional", ""
+    if latest_result(comps, tech_msgs)[0] == "pass":  # O4: B's latest own result is normal/OK; nothing condemns B over it
+        return "", ""
     elim = manual_elimination_cite(line, comps, section_text, reply) if _ruled_out_any(tech_msgs) else ""
     if elim:
         return "elimination", elim
-    if _conditional_on_own(line, comps):
-        return "conditional", ""
     return "", ""
 
 
@@ -1847,13 +1924,13 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
         if blk or GUARD_LINE_RE.match(ln):
             continue
         for t in [t for t in _replace_targets(ln) if t != ln and target_components(t)]:
-            if condemn_basis(ln, t, tech_msgs, section_text, oem_reply, reply)[0] in ("own", "elimination"):
+            if condemn_basis(ln, t, tech_msgs, section_text, oem_reply, reply, pin.get('doc_brand', ''))[0] in ("own", "elimination"):
                 covered |= target_heads(t)
     proc_held = set()
     for c, ln in proc.items():
         if c in covered:
             continue
-        if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply)[0] and not [t for t in _replace_targets(ln) if t != ln]:
+        if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply, pin.get('doc_brand', ''))[0] and not [t for t in _replace_targets(ln) if t != ln]:
             proc_held.add(c)
     in_oem_block = False
     out, held, emitted = [], [], set()  # one hold per part per reply, however many lines or wordings name it
@@ -1885,7 +1962,7 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
             out.append(line)
             continue
         targets = [t for t in targets if not _state_clause(line, t)]
-        missing = [t for t in targets if not condemn_basis(line, t, tech_msgs, section_text, oem_reply, reply)[0]]
+        missing = [t for t in targets if not condemn_basis(line, t, tech_msgs, section_text, oem_reply, reply, pin.get('doc_brand', ''))[0]]
         for t in targets:
             if t not in missing:  # a repair GD directed with a basis: the escalation summary can name it once the tech records it done
                 dr = pin.setdefault("directed_repairs", [])
@@ -1920,12 +1997,169 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
     return "\n".join(out), held
 
 
+WHOLE_UNIT_REQ_RE = re.compile(r"\b(?:replace|replacing|swap|install|condemn)\b[^.\n]{0,40}?\b(?:complete|whole|entire|new)\s+(?:[\w/-]+\s+){0,3}?"
+                               r"(?:unit|refrigerator|fridge|furnace|heater|rooftop|a/?c|air\s+conditioner|appliance)\b", re.I)
+NOT_POSSIBLE_RE = re.compile(r"\b(?:can.?t|cannot|could\s*n.?t|not\s+possible|unable|no\s+access|not\s+accessible|no\s+way\s+to)\b", re.I)
+_UNIT_WORDS = {"unit", "appliance", "rooftop", "refrigerator", "fridge", "furnace", "heater", "ac"}
+
+
+def untested_upstream(tech_msgs: list, request_comps: set) -> list:
+    """Components the tech has named in this session that have NO recorded result (no reading, pass/fail, split, drop) and are not
+    recorded as impossible to test, other than the requested unit. Liberal on purpose: any result sentence naming the part clears it."""
+    named, cleared = [], set()
+    for m in (tech_msgs or []):
+        for sent in _sents(m):
+            comps = components(sent)
+            for c in sorted(comps):
+                # a part only handled as a work step ('Battery disconnected', 'motor lead reconnected') is not a named suspect
+                if c not in named and not _HANDLED_ONLY_RE.search(sent) and not _IDENTITY_RE.search(sent) and m is not tech_msgs[0]:
+                    named.append(c)
+            if sent is not None and (PASS_RE.search(sent) or FAIL_RE.search(sent) or ISOLATION_RE.search(sent) or TEST_RESULT_RE.search(sent)
+                                     or OWN_SPLIT_RE.search(sent) or DECISIVE_RE.search(sent) or NOT_POSSIBLE_RE.search(sent)
+                                     or NOT_DONE_RE.search(sent)) and (m is not tech_msgs[0]):
+                # the result clears the part that OWNS it ('with the tstat calling, the blower shuts off' clears the blower only)
+                for clause in _result_sents(sent):
+                    cleared |= (result_owners(clause) or components(clause)) if not NOT_POSSIBLE_RE.search(clause) else components(clause)
+    cleared |= {o2 for g in _OWNER_SYNONYMS + [{"fan", "blower", "motor"}] if cleared & g for o2 in g}
+    complaint = components((tech_msgs or [""])[0])  # the part the complaint is about is the symptom, not an upstream component
+    return [c for c in named if c not in cleared and c not in request_comps and c not in _UNIT_WORDS and c not in _CONNECTION_WORDS
+            and c not in complaint]
+
+
+_IDENTITY_RE = re.compile(r"\b(?:model|part\s+(?:number|no\.?|#)|p/?n|serial)\b", re.I)
+_HANDLED_ONLY_RE = re.compile(r"\bback\s+on\b|\b(?:turned|switched|shut)\s+(?:on|off)\b|\b(?:dis|re)?connected\b|\b(?:re)?seated\b|\bunplugged\b|\bremoved\b|\bre-?installed\b", re.I)
+_CONNECTION_WORDS = {"connector", "plug", "pin", "harness", "wiring", "wire", "terminal", "lead", "cable", "ground", "fuse holder",
+                     "holder", "bracket", "hardware"}
+
+
+def oem_upstream_gate(reply: str, tech_msgs: list, section_text: str, pin: dict) -> tuple:
+    """O3 (Leader 0550): before any OEM or whole-unit request, the manual's cheaper decisive tests on upstream components must be done
+    or recorded as not possible. A component the tech named with no result recorded blocks the request: the OEM block and whole-unit
+    lines are withheld and the test is asked (the manual's own test when it has one). Asked twice with no answer, the request goes
+    out with that test listed as not done. Returns (reply, held components)."""
+    lines = (reply or "").splitlines()
+    has_oem = any(re.search(r"OEM\s+AUTHORIZATION\s+FINDINGS", l, re.I) for l in lines)
+    whole = [l for l in lines if WHOLE_UNIT_REQ_RE.search(l) and not GUARD_LINE_RE.match(l)]
+    if not (has_oem or whole):
+        return reply, []
+    req = set()
+    for l in lines:
+        if re.search(r"requested\s+authori[sz]ation", l, re.I) or l in whole:
+            req |= components(l)
+    todo = untested_upstream(tech_msgs, req)
+    if (section_text or "").strip() and not section_text.lstrip().upper().startswith("NO "):
+        # With a pinned manual, only components the manual itself gives a test for are the "cheaper decisive upstream tests".
+        todo = [c for c in todo if manual_own_test({c}, section_text)]
+    if not todo:
+        return reply, []
+    asks = pin.setdefault("upstream_asks", {})
+    open_ = [c for c in todo if asks.get(c, 0) < REPEAT_MAX_ASKS]
+    if not open_:
+        return reply + "\n" + (f"Not recorded after two asks (listed as not done in the findings): test of the {', '.join(todo[:3])}. "
+                                f"[{LABEL_GENERAL}]"), []
+    out, blk = [], False
+    for l in lines:
+        if re.search(r"OEM\s+AUTHORIZATION\s+FINDINGS", l, re.I):
+            blk = True
+            continue
+        if blk and not l.strip():
+            blk = False
+            continue
+        if blk or l in whole or OEM_PATH_RE.search(l):
+            continue
+        out.append(l)
+    for c in open_[:2]:
+        asks[c] = asks.get(c, 0) + 1
+        test = manual_own_test({c}, section_text)
+        out.append(f"Before any OEM or whole-unit request: no result is recorded for the {c}. "
+                   + (f"Do the manual's test for it and send the result: {test.rstrip('.')}." if test else
+                      f"Test the {c} itself (a direct bypass/jumper or a reading) and send the result.")
+                   + f" If it cannot be done, say so and why. [{LABEL_GENERAL}]")
+    return "\n".join(out), open_[:2]
+
+
 PHONE_RE = re.compile(r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b")
 
 
 ESCALATED_RE = re.compile(r"\b(?:already\s+)?(?:called|phoned|contacted|escalated\s+to|opened\s+a\s+(?:ticket|case)\s+with)\b[^.\n]{0,60}"
-                          r"\b(?:shop|oem|tech[- ]?line|tech\s+support|factory|lippert|brinkley|manufacturer|support)\b", re.I)
+                          r"\b(?:shop|oem|tech[- ]?line|tech\s+support|factory|manufacturer|support)\b", re.I)
+
+
+def escalated(msg: str, pin: dict = None) -> bool:
+    """The tech reports the shop/OEM call is made. Generic words, plus the pinned document's own brand from its metadata (never a
+    brand list in code)."""
+    if ESCALATED_RE.search(msg or ""):
+        return True
+    brand = ((pin or {}).get("doc_brand") or "").strip()
+    return bool(brand) and bool(re.search(r"\b(?:already\s+)?(?:called|phoned|contacted|escalated\s+to|opened\s+a\s+(?:ticket|case)\s+with)\b"
+                                          r"[^.\n]{0,60}\b" + re.escape(brand) + r"\b", msg or "", re.I))
+
+
+def contact_name_number(line: str, pin: dict = None) -> str:
+    """O5/O6: a contact is a name and a number only. The number (with any extension) comes from the line; the name is the pinned
+    document's brand from its metadata when known, else the words in front of the number on that line."""
+    m = PHONE_RE.search(line or "")
+    if not m:
+        return ""
+    ext = re.match(r"\s*(?:,?\s*(?:ext\.?|extension|x)\s*(\d{1,6}))", (line or "")[m.end():], re.I)
+    number = m.group(0) + (f" ext. {ext.group(1)}" if ext else "")
+    brand = ((pin or {}).get("doc_brand") or "").strip()
+    if brand:
+        return f"{brand.title()} tech line: {number}"
+    before = re.sub(r"\[[^\]]*\]", " ", (line or "")[:m.start()])
+    words = re.findall(r"[A-Za-z][\w&'./-]*", before)[-4:]
+    name = " ".join(w for w in words if w.lower() not in {"call", "the", "at", "on", "with", "to", "or", "and", "contact", "phone"})
+    return f"{name.strip(' :-')}: {number}" if name.strip(" :-") else number
 ESCALATION_HEAD = "ESCALATION SUMMARY"
+
+
+STILL_BAD_RE = re.compile(r"\bstill\b[^.\n]*\b(?:not|no|won.?t|will\s+not|fail\w*|drift\w*|present|same)\b", re.I)
+_REPAIR_VERB_RE = re.compile(r"\b(?:replaced|repaired|installed|swapped)\b", re.I)
+
+
+def recorded_repair(tech_msgs: list, section_text: str = "", pin: dict = None):
+    """O1 (Leader 0550): the tech's recorded repair that counts as the fix, or None. (index of the tech message, part heads,
+    sentence). A repair counts when the repaired part had a condition-(1) basis of its own BEFORE the repair (own failing result or
+    cited elimination; or GD directed it with a basis), and neither that message nor a later one reports the complaint still present.
+    Keyed on the part's recorded basis, not on wording alone."""
+    directed = set((pin or {}).get("directed_repairs", []))
+    found = None
+    for i, m in enumerate(tech_msgs or []):
+        if i == 0:
+            continue
+        if STILL_BAD_RE.search(m or ""):  # complaint still present: an earlier repair is not the fix
+            found = None
+            continue
+        for sent in _sents(m):
+            vm = _REPAIR_VERB_RE.search(sent)
+            if not vm or NOT_DONE_RE.search(sent) or "?" in sent:
+                continue
+            if re.search(r"\b(?:no|not|nothing|never|haven.?t|hasn.?t|didn.?t)\b[^.\n]{0,20}" + re.escape(vm.group(0)), sent, re.I):
+                continue
+            heads = target_components(sent)
+            if not heads:
+                continue
+            ok = bool(heads & directed)
+            for h in sorted(heads):
+                if ok:
+                    break
+                ok = condemn_basis(f"Replace the {h}.", h, tech_msgs[:i], section_text, False, "")[0] in ("own", "elimination")
+            if ok and found is None:  # the FIRST basis-backed repair; later 'already replaced' restatements keep its index
+                found = (i, heads, sent.strip().rstrip(".")[:160])
+    return found
+
+
+def drop_post_repair_checks(ptests: list, tech_msgs: list, section_text: str, pin: dict) -> list:
+    """O1 (Leader 0550): a pending test first reported in or after a basis-backed recorded repair is a release/verify check; it never
+    triggers the hold. Those tests are kept in pin['post_repair_checks'] for the record and removed from the pending list."""
+    rr = recorded_repair(tech_msgs, section_text, pin)
+    if not (rr and ptests):
+        return ptests
+    post = [p for p in ptests if p.anchor is not None and p.anchor >= rr[0]]
+    for p in post:
+        if p.text[:120] not in pin.setdefault("post_repair_checks", []):
+            pin["post_repair_checks"].append(p.text[:120])
+    return [p for p in ptests if p not in post]
 
 
 def escalation_summary(covering: list, tech_msgs: list, pin: dict, contacts: list, exhausted: bool = True) -> str:
@@ -1946,19 +2180,8 @@ def escalation_summary(covering: list, tech_msgs: list, pin: dict, contacts: lis
     # A repair GD directed with a basis (condemn_gate) that the tech then records as done, with no 'still ...' failure in that
     # sentence, is named; the session is never summarized as 'no fix reached' (ec42b22 RC04: breaker replaced and verified, then a
     # post-repair Ah test pending). Keyed on the directed part, not on wording alone.
-    repair, directed = "", (pin or {}).get("directed_repairs", [])
-    still_bad = re.compile(r"\bstill\b[^.\n]*\b(?:not|no|won.?t|will\s+not|fail\w*|drift\w*|present|same)\b", re.I)
-    for m in (tech_msgs or [])[1:]:
-        if still_bad.search(m or ""):  # the complaint is reported still present: whatever was replaced before is not a fix
-            repair = ""
-            continue
-        for s in _sents(m):
-            low = s.lower()
-            if not any(re.search(r"\b" + re.escape(h) + r"s?\b", low) for h in directed):
-                continue
-            if re.search(r"\b(?:replaced|repaired|installed)\b", s, re.I) and not re.search(r"\b(?:no|not|nothing|never)\b[^.\n]{0,20}\b(?:replaced|repaired|installed)\b", s, re.I) \
-                    and not NOT_DONE_RE.search(s) and "?" not in s:
-                repair = s.strip().rstrip(".")[:160]
+    rr = recorded_repair(tech_msgs, (pin or {}).get("section_text", ""), pin)
+    repair = rr[2] if rr else ""
     state = "a pending test blocks release; repair recorded, not closed" if repair else "pending tests block progress, no fix reached"
     out = [f"{ESCALATION_HEAD} (session parked: {state}) [{LABEL_GENERAL}]"] + \
           ([f"Repair recorded by the tech: {repair}. [{LABEL_GENERAL}]"] if repair else []) + [
@@ -1967,7 +2190,7 @@ def escalation_summary(covering: list, tech_msgs: list, pin: dict, contacts: lis
            f"Blocking pending test(s): {tests}.{asked_twice} [{LABEL_GENERAL}]",
            "Recorded so far: " + ("; ".join(recorded[-5:]) if recorded else "no test results recorded") + f". [{LABEL_GENERAL}]",
            "Next step: call the shop/OEM tech line with this summary and the pending test(s) above; resume here with the pending "
-           "result or the OEM's written direction." + (f" Contact: {re.sub(r'^[^A-Za-z0-9]*', '', contact)[:220]}" if contact else "")
+           "result or the OEM's written direction." + (f" Contact: {contact_name_number(contact, pin)}" if contact_name_number(contact, pin) else "")
            + f" [{LABEL_GENERAL}]"]
     return "\n".join(out)
 
@@ -1984,7 +2207,7 @@ def structural_reply(reply: str, covering: list, pin: dict, tech_msgs: list = No
     asked = pin.setdefault("structural_asks", {})
     last = (tech_msgs or [""])[-1] if tech_msgs else ""
     exhausted = all(asked.get(t.text[:80], 0) >= REPEAT_MAX_ASKS for t in covering)
-    if covering and (exhausted or ESCALATED_RE.search(last or "")):
+    if covering and (exhausted or escalated(last or "", pin)):
         for t in covering:
             asked[t.text[:80]] = asked.get(t.text[:80], 0) + 1
         pin["escalated"] = pin.get("escalated", 0) + 1
@@ -2003,7 +2226,8 @@ def structural_reply(reply: str, covering: list, pin: dict, tech_msgs: list = No
         asked[key] = asked.get(key, 0) + 1
     contacts = [ln for ln in lines if PHONE_RE.search(ln) and ln not in out]
     out.append(f"If you cannot do that test, call the shop/OEM tech line with the findings so far. [{LABEL_GENERAL}]")
-    out.extend(contacts[:1])
+    if contacts and contact_name_number(contacts[0], pin):
+        out.append(f"Contact: {contact_name_number(contacts[0], pin)} [{LABEL_GENERAL}]")
     return "\n".join(out)
 
 
@@ -2551,6 +2775,7 @@ def official_turn(
         web_src = bool(doc.get("url"))
         pin.update({
             "doc_id": doc.get("id"), "doc_title": doc.get("title", ""), "url": doc.get("url", ""),
+            "doc_brand": (_doc_brand(doc) or "").strip(),  # O6: from the document's own metadata (brand field, else its title), never a list in GD logic
             "revision": doc.get("revision_date", ""),
             "source_label": (f"{LABEL_WEB}: {doc['url']}" if web_src else
                              (LABEL_GENERAL if doc.get("title") == "NO MANUAL" else
@@ -2620,6 +2845,7 @@ def official_turn(
         pin.setdefault("adjust_held", []).extend(unadj)
     structural = False
     ptests = pending_tests(pairs, sec)
+    ptests = drop_post_repair_checks(ptests, tech_msgs, sec, pin)
     if ptests:
         path = complaint_path(tech_msgs, pin.get("doc_title", ""))
         covering = [p for p in ptests if p.scope & path]
@@ -2635,6 +2861,9 @@ def official_turn(
         reply, cheld = condemn_gate(reply, tech_msgs, sec, pin)
         if cheld:
             pin.setdefault("condemn_basis_held", []).extend(f"{p[:80]}: {r[:80]}" for p, r in cheld)
+        reply, uheld = oem_upstream_gate(reply, tech_msgs, sec, pin)
+        if uheld:
+            pin.setdefault("upstream_held", []).extend(uheld)
     reply = drop_orphan_install_steps(reply)
     seq = sequence_condemns(reply)
     if seq != reply:

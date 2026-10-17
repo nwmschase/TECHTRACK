@@ -226,8 +226,13 @@ class TestPropertyNoCondemnWithoutBasis(unittest.TestCase):
                 msgs.append(rnd.choice(AT_TEMPL).format(p=b))
             else:
                 msgs.append(rnd.choice(FAIL_TEMPL).format(p=rnd.choice(others)).capitalize())
+        self.expect_own = False
         if own_fail:
-            msgs.insert(rnd.randint(1, len(msgs)), rnd.choice(FAIL_TEMPL).format(p=b).capitalize())
+            at = rnd.randint(1, len(msgs))
+            msgs.insert(at, rnd.choice(FAIL_TEMPL).format(p=b).capitalize())
+            # Leader 0550 O4: the latest result on B wins; a later normal/OK on B cancels the failure.
+            later_pass = any(m.lower() == t.format(p=b).lower() for m in msgs[at + 1:] for t in PASS_TEMPL if not t.startswith("Voltage at"))
+            self.expect_own = not later_pass
         return msgs
 
     def test_property(self):
@@ -244,8 +249,10 @@ class TestPropertyNoCondemnWithoutBasis(unittest.TestCase):
             survived = [ln for ln in out.splitlines() if (go._replace_targets(ln) or re.search(r"\bnew\s+" + b, ln))
                         and not go.GUARD_LINE_RE.match(ln) and re.search(r"\b" + b + r"\b", ln)]
             has_own = bool(go.own_failing_result(go.target_heads(b), msgs))
-            if own_fail:
+            if own_fail and self.expect_own:
                 self.assertTrue(has_own, msgs)
+            if own_fail and not self.expect_own:
+                self.assertFalse(has_own, msgs)
             if has_own:
                 self.assertTrue(survived, (msgs, reply, out))
                 n_kept += 1
