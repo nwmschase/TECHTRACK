@@ -74,9 +74,16 @@ A_DUP = dict(A, id=12)
 
 
 class TestF2Specificity(unittest.TestCase):
-    def test_tie_between_different_manuals_is_no_pick_in_any_order(self):
+    def test_equal_evidence_same_model_returns_the_ranked_set_in_any_order(self):
         for rows in ([A, B], [B, A]):
             r = sel(rows, "Acme 2000X", "Water Heaters")
+            self.assertEqual(r["how"], "exact_set")
+            self.assertEqual([d["id"] for d in r["docs"]], [10, 11])  # "Manual" vs "Guide": same kind, same rev -> content key
+
+    def test_tie_across_different_models_is_no_pick(self):
+        C = {"id": 13, "title": "Acme 3000Y Water Heater Troubleshooting Manual", "brand": "Acme", "models": "3000Y", "doc_number": "AC-3"}
+        for rows in ([A, C], [C, A]):
+            r = sel(rows, "Acme 2000X / 3000Y", "Water Heaters")
             self.assertIsNone(r["doc"])
             self.assertEqual(r["how"], "ambiguous")
             self.assertIn("not guessing", r["miss_line"])
@@ -103,9 +110,69 @@ class TestF2Specificity(unittest.TestCase):
             calls.append(unit)
             return {}
 
-        go.official_turn("No hot water.", "Water Heaters", "Acme 2000X", [], library=Lib([A, B]),
+        C = {"id": 13, "title": "Acme 3000Y Water Heater Troubleshooting Manual", "brand": "Acme", "models": "3000Y", "doc_number": "AC-3"}
+        go.official_turn("No hot water.", "Water Heaters", "Acme 2000X / 3000Y", [], library=Lib([A, C]),
                          chat_fn=lambda m, t, e: "Verify the complaint first.", pin_store={}, web_fetch_fn=web)
         self.assertEqual(len(calls), 1)
+
+
+class TestSetOrderProperty(unittest.TestCase):
+    """PROPERTY: for any set of equal-evidence same-model docs, the output order is deterministic and independent of read order."""
+
+    def test_shuffled_input_gives_the_same_ranked_set(self):
+        import random
+
+        kinds = ["Troubleshooting and Service Manual", "Installation Guide", "Owner's Manual", "Service Bulletin", "Tip Sheet", "Warranty Form"]
+        revs = ["", "2021-04", "2023-11-02", "05/2024", "2024-05-01"]
+        rng = random.Random(1016)
+        for trial in range(300):
+            n = rng.randint(2, 7)
+            rows = []
+            for i in range(n):
+                rows.append({"id": rng.randint(1, 10_000) * 10 + i, "title": f"Zeta ZX-900 Leveling {rng.choice(kinds)} {rng.randint(1, 99)}",
+                             "brand": "Zeta", "models": "ZX-900", "doc_number": f"Z-{trial}-{i}", "revision_date": rng.choice(revs),
+                             "pages": rng.randint(1, 80)})
+            outs = set()
+            for _ in range(6):
+                rng.shuffle(rows)
+                r = sel(rows, "Zeta ZX-900", "Leveling")
+                outs.add(tuple(d["id"] for d in r["docs"]))
+            self.assertEqual(len(outs), 1, (trial, outs))
+            ranked = list(outs)[0]
+            byid = {d["id"]: d for d in rows}
+            keys = [(-go.set_kind_rank(byid[i]), go._neg(go._rev_key(byid[i])), -int(byid[i]["pages"])) for i in ranked]
+            self.assertEqual(keys, sorted(keys), trial)
+
+    def test_kind_then_revision_then_pages(self):
+        own = {"id": 1, "title": "Zeta ZX-900 Leveling Owner's Manual", "brand": "Zeta", "models": "ZX-900", "doc_number": "O", "revision_date": "2025-01", "pages": 90}
+        svc_old = {"id": 2, "title": "Zeta ZX-900 Leveling Service Manual", "brand": "Zeta", "models": "ZX-900", "doc_number": "S1", "revision_date": "2019-01", "pages": 10}
+        svc_new = {"id": 3, "title": "Zeta ZX-900 Leveling Service Manual Rev B", "brand": "Zeta", "models": "ZX-900", "doc_number": "S2", "revision_date": "2024-06", "pages": 5}
+        inst = {"id": 4, "title": "Zeta ZX-900 Leveling Installation Instructions", "brand": "Zeta", "models": "ZX-900", "doc_number": "I", "revision_date": "2026-01", "pages": 4}
+        bull = {"id": 5, "title": "Zeta ZX-900 Leveling Service Bulletin", "brand": "Zeta", "models": "ZX-900", "doc_number": "B", "revision_date": "2026-02", "pages": 2}
+        r = sel([bull, own, inst, svc_old, svc_new], "Zeta ZX-900", "Leveling")
+        # "Service Bulletin" carries the word service -> service rank; then newest revision decides it ahead of the manuals.
+        self.assertEqual([d["id"] for d in r["docs"]][:3], [5, 3, 2])
+        self.assertEqual([d["id"] for d in r["docs"]][3:], [4, 1])
+
+
+class TestCondemnGuard(unittest.TestCase):
+    """GD guard: never condemn a part before its isolation reading is recorded."""
+
+    def test_unproven_part_is_held(self):
+        self.assertEqual(go.unproven_condemns("Replace the control board.", ["The fridge is dead, no light."]), ["control board"])
+        self.assertEqual(go.unproven_condemns("Replace the control board.", ["Board has 12.6 V in and 0 V out at the board relay."]), [])
+        self.assertEqual(go.unproven_condemns("Replace the 15A fuse in the front holder.", ["fuse reads open"]), [])
+
+    def test_official_turn_never_condemns_before_the_reading(self):
+        replies = iter(["Replace the control board. [Library: Zeta ZX-900 Service Manual p.3]",
+                        "Replace the control board now. [Library: Zeta ZX-900 Service Manual p.3]"])
+        lib = Lib([{"id": 1, "title": "Zeta ZX-900 Leveling Service Manual", "brand": "Zeta", "models": "ZX-900", "doc_number": "Z"}],
+                  text={1: "Troubleshooting. Symptom: no power. Check the control board input voltage."})
+        out = go.official_turn("Verified: jacks won't move, panel dark.", "Leveling", "Zeta ZX-900", [], library=lib,
+                               chat_fn=lambda m, t, e: next(replies), pin_store={})
+        low = out["reply"].lower()
+        self.assertNotIn("replace the control board", low)
+        self.assertIn("before condemning the control board", low)
 
 
 # ---------------- F3: every category maps; unknown type -> needs confirmation ----------------

@@ -205,6 +205,9 @@ class SqliteLibrary:
                 "category", "content_sha256", "file_path")
         return [dict(zip(keys, r)) for r in cur.fetchall()]
 
+    def page_count(self, doc_id):
+        return self.c.execute("select count(distinct page) from doc_chunks where document_id=?", (doc_id,)).fetchone()[0]
+
     def docs_with_text(self, key, doc_ids):
         """{doc_id: text of chunks mentioning key} for candidate docs (case-insensitive, hyphens ignored)."""
         ids = set(doc_ids)
@@ -245,6 +248,10 @@ class OrmLibrary:
             return self._cats.get(getattr(d, "category_id", None), "")
         except Exception:
             return ""
+
+    def page_count(self, doc_id):
+        from sqlalchemy import func
+        return self.s.query(func.count(func.distinct(self.C.page))).filter(self.C.document_id == doc_id).scalar() or 0
 
     def docs_with_text(self, key, doc_ids):
         from sqlalchemy import func
@@ -498,6 +505,82 @@ def _distinct_manuals(docs: list) -> int:
     return len(groups)
 
 
+def _matched_key(unit: dict, doc: dict, page_text: str = "") -> str:
+    """The most specific model/series key this doc carries (used to tell 'same model' from 'different models')."""
+    meta = _field_tokens(" ".join(str(doc.get(k, "") or "") for k in ("title", "models", "doc_number", "clean_title", "product_line")))
+    soft = _field_tokens(str(doc.get("keywords", "") or "") + " " + (page_text or ""))
+    for key, kind in model_key_tiers(unit):
+        if _key_in(key, meta, kind) or _key_in(key, soft, kind):
+            return key
+    return ""
+
+
+def _one_per_manual(docs: list) -> list:
+    """Collapse duplicate uploads of one manual (shared hash / doc number / title) to one representative (lowest id)."""
+    groups = []
+    for d in sorted(docs, key=lambda x: x["id"]):
+        k = _identity_keys(d)
+        for g in groups:
+            if g["keys"] & k:
+                g["keys"] |= k
+                break
+        else:
+            groups.append({"keys": set(k), "doc": d})
+    return [g["doc"] for g in groups]
+
+
+def set_kind_rank(doc: dict) -> int:
+    """Order inside an equal-evidence set (Leader 5:21 PM): service/troubleshooting > installation > owner > other > bulletin > form."""
+    tl = " ".join(str(doc.get(k, "") or "") for k in ("title", "clean_title")).lower()
+    if re.search(r"write-?up|warranty|\bform\b|\bclaim\b|flat\s*rate", tl):
+        return 0
+    if re.search(r"trouble\s*shoot|diagnos|service|repair\s+manual", tl):
+        return 5
+    if re.search(r"install", tl):
+        return 4
+    if re.search(r"owner|operat|user'?s?\s+(manual|guide)", tl):
+        return 3
+    if re.search(r"bulletin|recall|\btsb\b|notice", tl):
+        return 1
+    return 2
+
+
+def _page_count(library, doc: dict) -> int:
+    fn = getattr(library, "page_count", None)
+    if fn:
+        try:
+            return int(fn(doc["id"]) or 0)
+        except Exception:
+            return 0
+    if doc.get("pages") is not None:
+        return int(doc.get("pages") or 0)
+    return 0
+
+
+def _rev_key(doc: dict) -> str:
+    """Newest revision first; digits only so '2026-03-17' and '03/2026' sort as dates where possible."""
+    r = str(doc.get("revision_date") or "")
+    m = re.search(r"(\d{4})[-/.](\d{1,2})(?:[-/.](\d{1,2}))?", r) or None
+    if m:
+        return f"{m.group(1)}{int(m.group(2)):02d}{int(m.group(3) or 0):02d}"
+    m = re.search(r"(\d{1,2})[-/.](\d{4})", r)
+    return f"{m.group(2)}{int(m.group(1)):02d}00" if m else ""
+
+
+def rank_manual_set(library, docs: list) -> list:
+    """Deterministic order for an equal-evidence same-model set, independent of read order:
+    doc kind, newest revision, more pages, then a content key (doc number / normalized title), then id."""
+    def key(d):
+        content = (str(d.get("doc_number") or "").lower(), re.sub(r"[^a-z0-9]", "", str(d.get("title", "")).lower()))
+        return (-set_kind_rank(d), _neg(_rev_key(d)), -_page_count(library, d), content, d["id"])
+    return sorted(docs, key=key)
+
+
+def _neg(s: str) -> str:
+    """Sort helper: newest (largest) date string first, empty last."""
+    return "".join(chr(0x7f - ord(c)) for c in s) if s else "\x7f" * 9
+
+
 def _model_count(doc: dict) -> int:
     return len([m for m in re.split(r"[;,]", str(doc.get("models") or "")) if m.strip()])
 
@@ -561,9 +644,7 @@ def select_manual(library, unit: dict, exclude_ids=(), available=None) -> dict:
                 wrong_type_exact.append(d)
             continue
         # Specificity order: evidence tier, key length, doc kind, then a doc written for fewer models (more specific to this unit).
-        # A doc that names the model in its TITLE is about that model (more specific than one listing it among others).
-        in_title = int(tier >= TIER_SERIES and any(_key_in(k, _field_tokens(d.get("title", "")), kd) for k, kd in model_key_tiers(unit)))
-        scored.append(((tier, klen, in_title, _doc_kind(d), -_model_count(d) if _model_count(d) else -999), d))
+        scored.append(((tier, klen), d))
     scored.sort(key=lambda x: x[0], reverse=True)
     i = 0
     while i < len(scored):
@@ -578,12 +659,19 @@ def select_manual(library, unit: dict, exclude_ids=(), available=None) -> dict:
             ok.append(d)
         if not ok:
             continue
-        if _distinct_manuals(ok) > 1:
-            ids = ", ".join(str(d["id"]) for d in ok[:5])
-            return {"doc": None, "how": "ambiguous", "tier": top[0], "miss_line": no_manual_line(unit, "ambiguous", f"docs {ids}"),
-                    "rejected": rejected, "tied": [d["id"] for d in ok]}
-        pick = min(ok, key=lambda d: d["id"])  # duplicates of ONE manual: which copy is immaterial
-        return {"doc": pick, "how": "exact" if top[0] >= TIER_MODEL_TEXT else "series", "tier": top[0], "miss_line": "", "rejected": rejected}
+        manuals = _one_per_manual(ok)
+        keys = {_matched_key(unit, d, page.get(d["id"], "")) for d in manuals}
+        types = [doc_product_types(d) & unit_product_types(unit) for d in manuals]
+        if len(manuals) > 1 and (len(keys) > 1 or not set.intersection(*types)):
+            # Equal evidence but DIFFERENT models or product types: not the same unit's documentation -> web lookup.
+            ids = ", ".join(str(d["id"]) for d in manuals[:5])
+            return {"doc": None, "docs": [], "how": "ambiguous", "tier": top[0], "miss_line": no_manual_line(unit, "ambiguous", f"docs {ids}"),
+                    "rejected": rejected, "tied": [d["id"] for d in manuals]}
+        ranked = rank_manual_set(library, manuals)
+        how = "exact" if top[0] >= TIER_MODEL_TEXT else "series"
+        if len(ranked) > 1:
+            how += "_set"
+        return {"doc": ranked[0], "docs": ranked, "how": how, "tier": top[0], "miss_line": "", "rejected": rejected}
     if wrong_type_exact:
         kinds = sorted({TYPE_NAMES.get(t, t) for d in wrong_type_exact for t in doc_product_types(d)})
         unit_c = dict(unit, stated_types=())
@@ -625,6 +713,32 @@ def load_section(chunks: list, symptom: str = "") -> dict:
         mode = "whole_manual"
     text = "\n\n".join(f"[PAGE {p}]\n{page_text[p]}" for p in sel)
     return {"pages": sel, "text": text, "mode": mode, "thin": len(text) < THIN_SECTION_CHARS}
+
+
+SET_READ_MAX = 3
+
+
+def load_section_set(library, docs: list, symptom: str = "") -> dict:
+    """Read the troubleshooting section across an equal-evidence same-model set (ranked by rank_manual_set).
+    Every page marker names its source doc, so each cited page can be attributed: [PAGE n | <doc title>]."""
+    docs = [d for d in (docs or []) if d][:SET_READ_MAX]
+    if len(docs) <= 1:
+        sect = load_section(library.chunks(docs[0]["id"]), symptom) if docs else {"pages": [], "text": "", "mode": "empty", "thin": True}
+        sect["titles"] = [docs[0].get("title", "")] if docs else []
+        return sect
+    parts, pages, modes, titles = [], [], [], []
+    for d in docs:
+        sec = load_section(library.chunks(d["id"]), symptom)
+        if not sec.get("text"):
+            continue
+        title = d.get("title", "")
+        titles.append(title)
+        parts.append(re.sub(r"\[PAGE (\d+)\]", lambda m: f"[PAGE {m.group(1)} | {title}]", sec["text"]))
+        pages += [f"{title} p.{p}" for p in sec["pages"]]
+        modes.append(sec["mode"])
+    text = "\n\n".join(parts)
+    return {"pages": pages, "text": text, "mode": "section" if "section" in modes else (modes[0] if modes else "empty"),
+            "thin": len(text) < THIN_SECTION_CHARS, "titles": titles}
 
 
 # ---------------- web fallback (official domains only) ----------------
@@ -868,7 +982,11 @@ _TAG_RE = re.compile(r"\[(Library|Manufacturer site|General trade knowledge)[^\]
 
 def enforce_labels(reply: str, pin: dict) -> str:
     """Untagged step lines get the General tag; library page cites outside the read pages are relabeled."""
-    pages = set(pin.get("pages") or [])
+    pages = set()
+    for p in pin.get("pages") or []:  # ints (one manual) or "<title> p.N" (a manual set)
+        m = re.search(r"(\d+)$", str(p))
+        if m:
+            pages.add(int(m.group(1)))
     out = []
     for line in (reply or "").splitlines():
         s = line.strip()
@@ -879,6 +997,66 @@ def enforce_labels(reply: str, pin: dict) -> str:
             if pages and int(m.group(2)) not in pages:
                 line = line.replace(m.group(0), f"[{LABEL_GENERAL}]")
         out.append(line)
+    return "\n".join(out)
+
+
+# ---------------- GD guard: never condemn a part before its isolation reading is recorded (Leader 5:21 PM) ----------------
+CONDEMN_RE = re.compile(
+    r"\b(?:replace|replacing|condemn(?:ed)?|install\s+(?:a\s+)?new|order\s+(?:a\s+)?(?:new|replacement))\s+(?:the\s+|a\s+|an\s+|this\s+)?"
+    r"(?P<part>[a-z0-9][a-z0-9\-/ ]{2,40}?)(?=\s*(?:[.,;:()\[\n]|$|\s(?:and|with|then|if|because|per|now|assembly)\b))"
+    r"|\b(?:the\s+)?(?P<part2>[a-z0-9][a-z0-9\-/]{2,30}(?:\s[a-z0-9\-/]{2,30})?)\s+is\s+(?:bad|faulty|failed|defective|dead|shorted|the\s+fault)\b",
+    re.I,
+)
+ISOLATION_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:v|vac|vdc|volts?|ohms?|Ω|k\s*ohms?|a|amps?|ma|psi|°\s*[fc]?|deg)\b|\b(?:continuity|no\s+continuity|open\s+circuit|"
+    r"reads?\s+(?:open|ol|0|zero)|\bol\b|shorted|short\s+to\s+ground|blown|open\b|jumper(?:ed)?|bypass(?:ed)?|direct\s+(?:12v\s+)?power|"
+    r"runs?\s+on\s+(?:direct|jumper)|no\s+(?:power|voltage)\s+(?:at|to|out))",
+    re.I,
+)
+_PART_STOP = {"the", "a", "an", "it", "this", "part", "new", "complete", "whole", "entire", "same", "one", "assembly", "kit"}
+
+
+def _part_heads(part: str) -> set:
+    """The part's noun: last word before any location phrase ('15A inline fuse in the front holder' -> fuse)."""
+    core = re.split(r"\s(?:in|on|at|of|from|inside|behind|under|near|for)\s", (part or "").lower())[0]
+    words = [w for w in re.findall(r"[a-z0-9]+", core) if w not in _PART_STOP and len(w) >= 3 and not re.fullmatch(r"\d+[a-z]?", w)]
+    return {words[-1].rstrip("s")} if words else set()
+
+
+def condemned_parts(reply: str) -> list:
+    out = []
+    for m in CONDEMN_RE.finditer(reply or ""):
+        part = (m.group("part") or m.group("part2") or "").strip()
+        if part and _part_heads(part) and part.lower() not in out:
+            out.append(part.lower())
+    return out
+
+
+def isolation_recorded(part: str, tech_msgs: list) -> bool:
+    """True when a tech message names the part (any head word) AND carries an isolation reading (a measurement, continuity/open,
+    or a jumper/bypass result)."""
+    heads = _part_heads(part)
+    for msg in tech_msgs or []:
+        low = (msg or "").lower()
+        if ISOLATION_RE.search(low) and any(re.search(r"\b" + re.escape(h) + r"s?\b", low) for h in heads):
+            return True
+    return False
+
+
+def unproven_condemns(reply: str, tech_msgs: list) -> list:
+    return [p for p in condemned_parts(reply) if not isolation_recorded(p, tech_msgs)]
+
+
+def hold_condemns(reply: str, parts: list) -> str:
+    """Rewrite each line that condemns an unproven part into the isolation-reading ask."""
+    out = []
+    for line in (reply or "").splitlines():
+        hit = [p for p in parts if p in line.lower() and CONDEMN_RE.search(line)]
+        if hit:
+            out.append(f"Before condemning the {hit[0]}, record its isolation reading (the meter value or jumper/bypass result at the "
+                       f"{hit[0]} itself) and send it. [{LABEL_GENERAL}]")
+        else:
+            out.append(line)
     return "\n".join(out)
 
 
@@ -972,7 +1150,7 @@ def apply_unity_path(pin: dict, library, unity_gate: str, blob: str, exclude_ids
             refs.append(LIPPERT_UNITY_REF_URL)
     pin["unity_refs"] = refs
     pin["unity_text"] = "\n\n".join(parts)
-    pin["pages"] = sorted(pages)
+    pin["pages"] = sorted(pages, key=str)
 
 
 def official_pdf_text(url: str, brand: str = "lippert", http=None) -> str:
@@ -1129,7 +1307,7 @@ def official_turn(
         pin = {"unit": unit, "checked": {}, "fault_code_asked": False, "web": {}, "selection": {"how": sel["how"], "tier": sel.get("tier", 0)}}
         pin.update(carry)
         doc = sel["doc"]
-        sect = load_section(library.chunks(doc["id"]), user_msg + " " + model_text) if doc else {"thin": True}
+        sect = load_section_set(library, sel.get("docs") or ([doc] if doc else []), user_msg + " " + model_text) if doc else {"thin": True}
         want_web = (doc is None) or sect.get("thin") or bool(WEB_ASK_RE.search(user_msg or ""))
         if want_web and web_fetch_fn:
             web = web_fetch_fn(unit) or {}
@@ -1151,7 +1329,9 @@ def official_turn(
             "doc_id": doc.get("id"), "doc_title": doc.get("title", ""), "url": doc.get("url", ""),
             "revision": doc.get("revision_date", ""),
             "source_label": (f"{LABEL_WEB}: {doc['url']}" if web_src else
-                             (LABEL_GENERAL if doc.get("title") == "NO MANUAL" else f"{LABEL_LIBRARY}: {doc.get('title','')}")),
+                             (LABEL_GENERAL if doc.get("title") == "NO MANUAL" else
+                              f"{LABEL_LIBRARY}: " + " + ".join(sect.get("titles") or [doc.get("title", "")]))),
+            "set_docs": [{"id": d.get("id"), "title": d.get("title", "")} for d in (sel.get("docs") or [])] if not web_src else [],
             "pages": sect["pages"], "section_text": sect["text"], "mode": sect["mode"],
             "needs_fault_code": bool(FAULT_CODE_HINT_RE.search(sect["text"])),
             "turns": 0,
@@ -1196,6 +1376,22 @@ def official_turn(
                 reply = again.strip()
         except Exception:
             pass
+    tech_msgs = [m.get("content", "") for m in (history or []) if m.get("role") == "user"] + [user_msg or ""]
+    held = unproven_condemns(reply, tech_msgs)
+    if held:
+        try:
+            again = chat_fn(msgs + [{"role": "assistant", "content": reply},
+                                    {"role": "user", "content": "Do NOT condemn or replace " + ", ".join(held) + " yet: no isolation reading for it "
+                                     "is recorded. Give the isolation test for that part (where, meter setting, good vs bad) and ask for the reading."}],
+                            REPLY_MAX_TOKENS, LATER_REASONING)
+            if again and again.strip():
+                reply = again.strip()
+        except Exception:
+            pass
+        still = unproven_condemns(reply, tech_msgs)
+        if still:
+            reply = hold_condemns(reply, still)
+        pin.setdefault("condemn_held", []).extend(held)
     reply = drop_reasks(reply, pin)
     reply = shop_voice(reply)
     reply = enforce_labels(reply, pin)
@@ -1209,7 +1405,11 @@ def official_turn(
             head = (f"No {what} manual found in the library or on an official OEM site - using the unit label if you have it, "
                     "otherwise steps below are general trade knowledge.")
         else:
-            head = f"Using: {pin['doc_title']}" + (f" ({pin['url']})" if pin.get("url") else "") + f" - read {pin['mode'].replace('_',' ')}, pages {pin['pages'][0]}-{pin['pages'][-1]}."
+            if len(pin.get("set_docs") or []) > 1:
+                head = (f"Using {len(pin['set_docs'])} manuals for this model (each step cites its page's manual): "
+                        + "; ".join(d["title"] for d in pin["set_docs"][:SET_READ_MAX]) + ".")
+            else:
+                head = f"Using: {pin['doc_title']}" + (f" ({pin['url']})" if pin.get("url") else "") + f" - read {pin['mode'].replace('_',' ')}, pages {pin['pages'][0]}-{pin['pages'][-1]}."
         reply = SAFETY_LINE + "\n" + head + "\n" + reply
     if pin.get("needs_fault_code") and re.search(r"fault|error|code", reply, re.I):
         pin["fault_code_asked"] = True

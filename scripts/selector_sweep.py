@@ -51,6 +51,8 @@ def kind(d):
         return 0
     return 2 if re.search(r"trouble\s*shoot|diagnos|service\s+(manual|and\s+training|&\s+training)|repair\s+manual", t) else 1
 
+IK = lambda d: (go._identity_keys(d) if hasattr(go, "_identity_keys") else {ident(d)})
+
 def ident(d):
     return (d.get("doc_number") or "").lower() or re.sub(r"\W", "", d["title"].lower())
 
@@ -67,6 +69,8 @@ def ambiguous(pick, brand, m, want):
     for o in docs.values():
         if o["id"] == pick["id"] or ident(o) == ident(pick) or o["id"] in REJ:
             continue
+        if any(IK(o) & IK(docs[i]) for i in ids_of(LAST.get("s") or {}) if i in docs):
+            continue
         if (o.get("brand") or "").lower() != (brand or "").lower():
             continue
         if evidence(o, m) == e and kind(o) == kind(pick) and nmodels(o) == nmodels(pick) and (not want or dtypes(o) & want):
@@ -74,11 +78,44 @@ def ambiguous(pick, brand, m, want):
     return False
 
 REJ = set()
+LAST = {}
+import random as _rnd
+
+
+class Shuffled:
+    """Same library, list results returned in a shuffled order (simulates a different DB read order)."""
+
+    def __init__(self, inner, seed):
+        self.inner, self.rng = inner, _rnd.Random(seed)
+
+    def __getattr__(self, name):
+        a = getattr(self.inner, name)
+        if not callable(a):
+            return a
+
+        def f(*x, **k):
+            r = a(*x, **k)
+            if isinstance(r, list):
+                r = list(r); self.rng.shuffle(r)
+            return r
+        return f
+
+
+def ids_of(s):
+    docs = s.get("docs") or ([s["doc"]] if s.get("doc") else [])
+    return tuple(d["id"] for d in docs)
+
+
+def read_order_dependent(unit):
+    outs = {ids_of(go.select_manual(Shuffled(lib, seed), unit)) for seed in (1, 2, 3)}
+    outs.add(ids_of(go.select_manual(lib, unit)))
+    return len(outs) > 1
 
 def run(unit):
     """(doc, how); REJ = ids the selector's hard filters (brand/type) refused - those cannot be tie partners."""
     REJ.clear()
     s = go.select_manual(lib, unit)
+    LAST["s"] = s
     REJ.update(i for i, why in s.get("rejected", []) if why != "file unreachable")
     return s.get("doc"), s.get("how", "")
 
@@ -89,7 +126,7 @@ for did, d in docs.items():
     if models:
         queries.append((did, (d.get("brand") or "").strip(), models[0]))
 
-res = {"self": {"n": 0, "pinned_same_model": 0, "pinned_self": 0, "no_pick": 0, "wrong_model": 0, "wrong_type": 0, "ambiguous_tie_picks": 0,
+res = {"self": {"n": 0, "pinned_same_model": 0, "pinned_self": 0, "no_pick": 0, "wrong_model": 0, "wrong_type": 0, "ambiguous_tie_picks": 0, "own_in_set": 0, "read_order_picks": 0,
                 "how": {}, "misses": [], "wrong": [], "ties": []},
        "cross": {"n": 0, "picks": 0, "wrong_type": 0, "wrong": []}}
 S = res["self"]
@@ -99,6 +136,12 @@ for did, brand, m in queries:
     got, how = run(unit)
     S["n"] += 1; S["how"][how] = S["how"].get(how, 0) + 1
     want = CAT_RX.get(cat.lower(), set()) or types(docs[did]["title"])
+    setids = ids_of(LAST["s"])
+    mine = IK(docs[did])
+    if did in setids or any(IK(docs[i]) & mine for i in setids if i in docs):
+        S["own_in_set"] += 1
+    if read_order_dependent(unit):
+        S["read_order_picks"] += 1; S["ties"].append({"doc": did, "q": m, "read_order": True})
     if not got:
         S["no_pick"] += 1; S["misses"].append({"doc": did, "q": f"{brand} {m}", "cat": cat, "how": how}); continue
     gt = types(got["title"])
