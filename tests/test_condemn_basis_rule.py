@@ -62,7 +62,7 @@ class TestLockedRC22(unittest.TestCase):
     def test_t8_board_condemn_is_held(self):
         out, pin = _walk_rc22(RC22_854_T8_TECH, RC22_854_T8_GD)
         self.assertEqual(_board_lines(out), [], out)
-        self.assertIn("Hold all part replacement for the DSI module board", out)
+        self.assertIn("hold all part replacement for the dsi module board", out.lower())
         self.assertIn("never condemns", out)
         self.assertTrue(pin.get("condemn_basis_held"), pin)
 
@@ -116,7 +116,28 @@ class TestLockedInstallProcedureIsACondemn(unittest.TestCase):
 RC02_A4_TECH = ['Customer reports both slide-outs won’t extend or retract. [no findings yet]', 'Wheels chocked, area clear, 12V on with ignition off. Slide icons on the OneControl home screen look normal/OK. No movement on either slide, no panel message of note, and relays click audibly at the Unity board on extend and retract for both.', 'Connectors re-seated, pins look normal/OK. Board is Unity X270D, IDS Part# 30606H3162401279. ~14.4 VDC at the X270D power inputs, resting.', 'X270 30A and 15A fuses in the 12V panel are good. Stamp ratings and dedicated-feed details look normal/OK.', 'Resting on the slide REV pairs looks normal/OK. At the X270D slide output terminals, no voltage during EXTEND or RETRACT—outputs stay open/floating and collapse under command instead of switching polarity; both slide circuits identical.']
 
 
+RC03_CD7_TECH = ["Customer reports the awning won't extend or retract.", 'On the OneControl panel I commanded awning EXTEND then RETRACT. Relays click both ways and the panel looks like it is talking to the board, but the awning does not move either direction.', 'Label reads Lippert OneControl Unity X270D, IDS Part# 30606H3162401279. Connectors reseated with no loose/unseated pins or damage found; battery voltage is good at the X270D and fuses and wiring are OK.', 'Resting on the F1 awning REV pair looks normal/OK. Holding EXTEND and RETRACT on the panel, there is no output voltage to the awning motor circuit either way.']
+RC03_CD7_GD = 'Replace the Unity X270D board. [Library: Lippert OneControl M Series Unity Board Troubleshooting and Service Manual p.3]\nInstall the new board and transfer the wiring one plug at a time. [Library: Lippert OneControl M Series Unity Board Troubleshooting and Service Manual p.4]\nVERIFY: command awning EXTEND then RETRACT from the panel. [General trade knowledge]'
+
+
 class TestOutputFailureWithGoodInput(unittest.TestCase):
+    def test_rc03_cd71229_unowned_output_with_battery_good_at_board_is_own(self):
+        """cd71229 RC03 T4 (verbatim tech): battery voltage good AT the X270D, then 'no output voltage to the awning motor circuit'
+        on command. The output names no owner (the motor is the load it feeds); the one part with a good input owns it."""
+        self.assertTrue(go.output_failure({"x270d", "unity"}, RC03_CD7_TECH))
+        out, held = go.condemn_gate(RC03_CD7_GD, RC03_CD7_TECH, "", {})
+        self.assertEqual(held, [], out)
+        self.assertIn("Replace the Unity X270D board", out)
+
+    def test_unowned_output_is_ambiguous_when_two_parts_have_good_input(self):
+        tech = RC03_CD7_TECH[:3] + ["Battery voltage at the relay looks normal/OK.", RC03_CD7_TECH[3]]
+        self.assertEqual(go.output_failure({"x270d", "unity"}, tech), "")
+
+    def test_one_hold_per_part_per_reply(self):
+        tech = RC03_CD7_TECH[:3]
+        out, held = go.condemn_gate(RC03_CD7_GD, tech, "", {})
+        self.assertEqual(out.lower().count("hold all part replacement for the"), 1, out)
+
     def test_rc02_output_fails_with_good_input_is_own(self):
         """a4aef6c RC02: inputs ~14.4 VDC (good), outputs no voltage/open-floating on command: the board's own failure."""
         self.assertTrue(go.output_failure({"x270d", "unity"}, RC02_A4_TECH))

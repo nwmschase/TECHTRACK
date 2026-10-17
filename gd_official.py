@@ -1595,7 +1595,16 @@ def output_failure(part_words: set, tech_msgs: list) -> str:
     session fails ('~14.4 VDC at the X270D power inputs' + 'at the X270D outputs no voltage, open/floating'). With a failing feed
     ('supply collapses to 5-10 V with the board in circuit') an output reading is not B's own failure."""
     named = lambda t: any(re.search(r"\b" + re.escape(w) + r"s?\b", t.lower()) for w in part_words)
-    outs, ins_ok, ins_bad = "", False, False
+    outs, ins_ok, ins_bad, unowned, good_at = "", False, False, "", set()
+
+    def at_part(t):
+        m = re.search(r"\b(?:at|on|into)\s+(?:the\s+)?([^,.;]{1,40})", t, re.I)
+        if m and named(m.group(1)):
+            good_at.add("B")
+            return True
+        if m and components(m.group(1)) and PASS_RE.search(t) and re.search(r"\b(?:voltage|power|battery|input|feed|supply)", t, re.I):
+            good_at.add(m.group(1).lower().strip())  # another part's input is also recorded good: an unowned output is ambiguous
+        return False
     for m in (tech_msgs or [])[1:]:
         for sent in re.split(r"(?<=[.!?])\s+|\n+", m or ""):
             if NOT_DONE_RE.search(sent) or "?" in sent:
@@ -1605,8 +1614,21 @@ def output_failure(part_words: set, tech_msgs: list) -> str:
                     ins_bad = True
                 elif SUPPLY_WORD_RE.search(c) and named(c) and ISOLATION_RE.search(c):
                     ins_ok = True
-            if re.search(r"\boutputs?\b", sent, re.I) and named(sent) and OUTPUT_FAIL_RE.search(sent) and not PASS_RE.search(sent):
+                elif re.search(r"\b(?:battery|12(?:\.\d+)?\s*v(?:dc)?)\b", c, re.I) and at_part(c) and PASS_RE.search(c) \
+                        and not FAIL_RE.search(c):
+                    ins_ok = True  # a supply reading taken AT B and recorded good ('battery voltage is good at the board') is B's input
+            if not (re.search(r"\boutputs?\b", sent, re.I) and OUTPUT_FAIL_RE.search(sent) and not PASS_RE.search(sent)):
+                continue
+            if named(sent):
                 outs = outs or sent.strip()
+                continue
+            # An output reading with no owner ('there is no output voltage to the awning motor circuit'): the words before
+            # 'output' in its clause name no component; what follows 'to/at' is the load it feeds, not the owner.
+            clause = [c for c in re.split(r"[,;]\s*", sent) if re.search(r"\boutputs?\b", c, re.I)][0]
+            if not components(re.split(r"\boutputs?\b", clause, flags=re.I)[0]):
+                unowned = unowned or sent.strip()
+    if ins_ok and not ins_bad and not outs and unowned and len(good_at) == 1:
+        outs = unowned  # the output failure belongs to the one part whose input is recorded good
     return outs if (outs and ins_ok and not ins_bad) else ""
 
 
@@ -1794,12 +1816,27 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
         for m in NEW_PART_RE.finditer(ln):
             for c in target_heads(m.group("p")):
                 proc.setdefault(c, ln)
+    # A 'new X' whose X is the head of a replace target that has its own basis in this reply is that replacement's install step.
+    # Only an own result or a cited elimination covers it: an OEM request or a conditional does not license installing now.
+    covered, blk = set(), False
+    for ln in lines:
+        if re.search(r"OEM\s+AUTHORIZATION\s+FINDINGS", ln, re.I):
+            blk = True
+        elif blk and not ln.strip():
+            blk = False
+        if blk or GUARD_LINE_RE.match(ln):
+            continue
+        for t in [t for t in _replace_targets(ln) if t != ln and target_components(t)]:
+            if condemn_basis(ln, t, tech_msgs, section_text, oem_reply, reply)[0] in ("own", "elimination"):
+                covered |= target_heads(t)
     proc_held = set()
     for c, ln in proc.items():
+        if c in covered:
+            continue
         if not condemn_basis(ln, c, tech_msgs, section_text, oem_reply, reply)[0] and not _replace_targets(ln):
             proc_held.add(c)
     in_oem_block = False
-    out, held = [], []
+    out, held, emitted = [], [], set()  # one hold per part per reply, however many lines or wordings name it
     for line in lines:
         if re.search(r"OEM\s+AUTHORIZATION\s+FINDINGS", line, re.I):
             in_oem_block = True
@@ -1809,6 +1846,10 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
                                            or re.search(r"\b(?:remove|lift|pull|take)\b[^.\n]*\b" + re.escape(c) + r"\w*\b[^.\n]*\b(?:off|out)\b", line, re.I))}
         if pcomps and not GUARD_LINE_RE.match(line) and not in_oem_block:
             for c in sorted(pcomps):
+                if c in emitted:  # already held in this reply: drop the procedure line, keep one hold message
+                    held.append((c, "install procedure for a new part with no own failing result, elimination cite or OEM path"))
+                    continue
+                emitted.add(c)
                 msg = (f"Hold all part replacement for the {c}: no failing result of its own is recorded, so the install procedure for a new "
                        f"{c} is withheld. A normal/OK result on another part rules that part out; it never condemns the {c}. Record a test of "
                        f"the {c} itself, cite the manual's elimination step, or document the findings and submit them to the OEM / shop tech "
@@ -1835,6 +1876,10 @@ def condemn_gate(reply: str, tech_msgs: list, section_text: str, pin: dict = Non
                           "", name, flags=re.I)
             test = manual_own_test(comps, section_text)
             key = ",".join(sorted(comps)) or name.lower()
+            if (comps and comps <= emitted) or key in emitted:
+                held.append((t, "no own failing result, no cited manual elimination path, no OEM authorization path"))
+                continue
+            emitted |= comps or {key}
             asks = pin.setdefault("condemn_basis_asks", {})
             asks[key] = asks.get(key, 0) + 1
             msg = (f"Hold all part replacement for the {name}: no failing result of its own is recorded. A normal/OK result on another "

@@ -221,3 +221,20 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
   reading is never the part's own failure.
 - **RC04 (a4aef6c, 5 turns):** the complaint did not reproduce, and GD closed "no-trouble-found" after calibration. No hold fired.
   This is the intermittent-NPF gap, issue #94 (Leader item 5). It is not caused by condition (1).
+
+## Addendum 3d: cd71229 sweep, RC03 false hold (fixed)
+- **Problem.** cd71229 RC03 T4: the tech recorded "battery voltage is good at the X270D" and "there is no output voltage to the
+  awning motor circuit either way" on command. GD's board replace was held three times in one reply (two wordings of the
+  board plus the install line). The tech replaced the board anyway, and the fix was right. The hold was false.
+- **Root.** (a) The output-failure refinement (3c) took a good input only from "input/feed/supply" wording at B. A battery/12 V
+  reading taken AT B is the same input. (b) An output reading with no owner in front of "output" (the motor named after "to" is
+  the load it feeds) was never assigned. (c) The gate wrote one hold per wording, not one per part.
+- **Fix (general).** (a) A battery/12 V reading taken at B and recorded good is B's input. (b) An unowned output failure belongs to
+  the one part whose input is recorded good. If two parts have a good input it stays unassigned, so the replace is held. (c) One
+  hold per part per reply. A "new X" install line is covered when X is the head of a replace target in the same reply that has an
+  own or elimination basis. An OEM request or a conditional does not cover an install now.
+- **Tests (+3).** RC03 cd71229 verbatim is kept; two parts with a good input stay ambiguous and held; one hold per part per reply.
+  The RC22 and RC18 locks still hold.
+- **Replay (8 stored sweeps, full gate).** The only decision change is RC03 (c249638, ea06f7e, 174d094, same mechanism) and
+  RC02 ea06f7e (the board install step, now covered by its own output result). No RC20/RC22 line changes. In 854ef47 RC18 the
+  motor stays held.
