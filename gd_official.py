@@ -1159,6 +1159,10 @@ _PENDING_GENERIC = {"anything", "nothing", "yet", "haven", "didn", "checked", "c
                     "notes", "any", "all", "everything", "pending", "get", "got", "separate", "are", "was", "were", "is"}
 
 
+# "Plumbing check done: no leaks", "unplug test completed, jacks still drift": a test reported done with its outcome is a result.
+DONE_REPORT_RE = re.compile(r"\b(?:done|completed|finished|performed)\b\s*[:,;-]?\s*\S", re.I)
+
+
 def pending_isolation_tests(tech_msgs: list) -> list:
     """Isolation tests the tech reported as not done and has not reported a result for since. Each entry: the tech's sentence."""
     pend = []  # [(sig, sentence)]
@@ -1168,7 +1172,7 @@ def pending_isolation_tests(tech_msgs: list) -> list:
             if NOT_DONE_RE.search(sent) and PENDING_TEST_WORD_RE.search(sent):
                 if sig and not any(_overlap(sig, p[0]) for p in pend):
                     pend.append((sig, sent))
-            elif _is_result(sent.lower()) and sig:
+            elif sig and (_is_result(sent.lower()) or (DONE_REPORT_RE.search(sent) and PENDING_TEST_WORD_RE.search(sent))):
                 pend = [p for p in pend if not _overlap(sig, p[0])]
     return [p[1] for p in pend]
 
@@ -1403,6 +1407,14 @@ def ask_counts(pin: dict) -> list:
     return pin.setdefault("asks", [])  # [[sig words, ...], count]: one group per test request; every wording is kept
 
 
+def answer_has_result(answer: str) -> bool:
+    """True when the tech's message records at least one test result (a reading, or a test named with its outcome). A question or
+    a pending/not-done report alone does not."""
+    return any(_is_result(x.lower()) or (re.search(r"\b(?:normal|ok|okay|good|fine|in\s+spec|pass(?:ed|es)?)\b", x, re.I)
+                                         and not NOT_DONE_RE.search(x)) or re.search(r"\d+(?:\.\d+)?\s*(?:v|vdc|vac|ohms?|\u03a9|amps?|a|psi|f|\u00b0)\b", x, re.I)
+               for x in _sents(answer) if not x.rstrip().endswith("?"))
+
+
 def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     """Drop any ask line already asked REPEAT_MAX_ASKS times; when that leaves no ask, accept the answer and route on.
     A request group keeps every wording it was asked in, so a re-worded third ask still matches (similarity is not transitive)."""
@@ -1429,6 +1441,13 @@ def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     pin.setdefault("repeat_capped", []).extend(capped)
     if not any(ASK_LINE_RE.search(l) or CONDEMN_RE.search(l) for l in kept):
         ans = (last_answer or "").strip()
+        if ans and not answer_has_result(ans):
+            # A question ("anything else to check?") or a pending/not-done report is not a test answer: never "accepted", never a
+            # step toward the next replace. No-repeat routes to: record the result once, or the shop/OEM tech line.
+            kept.append("That test has been asked twice and will not be asked again. No result is recorded for it yet: do it once and "
+                        "send the reading, or call the shop/OEM tech line with the findings so far. No part is replaced on an "
+                        f"unrecorded test. [{LABEL_GENERAL}]")
+            return "\n".join(kept)
         kept.append(("Accepted as reported: \"" + ans[:160] + "\". " if ans else "Accepted as reported. ") +
                     "That test has been asked twice and will not be asked again. If the recorded results isolate a part that is not "
                     "field-serviceable, document the findings and submit them to the OEM for authorization; otherwise go to the next "
