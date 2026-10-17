@@ -1489,9 +1489,10 @@ def _import_one(
     try:  # R2 for unattended imports: a manifest category that disagrees with the title is flagged for the category audit.
         import library_category_audit as _cataudit
 
-        _w = _cataudit.upload_category_warning(title, item.get("category_name") or DEFAULT_CATEGORY)
-        if _w:
-            note = f"CATEGORY CHECK: {_w} | {note}"
+        _cat = item.get("category_name") or DEFAULT_CATEGORY
+        _w = _cataudit.upload_category_warning(title, _cat) if _cataudit.go.CATEGORY_TYPES.get(_cat.strip().lower()) else ""
+        if _w:  # real mismatch only (an unmapped manifest category is reported by the audit panel instead)
+            note = f"{note} | CATEGORY CHECK: {_w}"
     except Exception:
         pass
     doc_id = _insert(

@@ -65,7 +65,8 @@ class TestUnitGate(unittest.TestCase):
 
 class TestPin(unittest.TestCase):
     def test_wrong_brand_never_pinned(self):
-        u = go.identify_unit([], "", "", GC)
+        # v4.19.65 F3: the job category supplies the product type (an empty category is no longer a type-less pass).
+        u = go.identify_unit([], "", "Leveling", GC)
         self.assertEqual(go.pin_document(LIB, u)["id"], 1)
         self.assertTrue(go.brand_conflict(u, LIB.documents()[1]))
 
