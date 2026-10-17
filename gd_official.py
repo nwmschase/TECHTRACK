@@ -1269,6 +1269,38 @@ def cap_repeats(reply: str, pin: dict, last_answer: str = "") -> str:
     return "\n".join(kept)
 
 
+# Upstream-first sequence: when a reply directs an unconditional correction "first" (supply, feed, ground, connection, setting),
+# a part condemned in the same reply waits for that correction's result; the manual's "correct X first, then replace Y if it remains".
+FIRST_FIX_RE = re.compile(r"\b(?:correct|repair|fix|restore|bring|re-?establish)\b[^\n]{0,90}\bfirst\b|^\s*first[,:]?\s+(?:correct|repair|fix|restore)\b",
+                          re.I)
+CONDITIONAL_LINE_RE = re.compile(r"^\s*(?:if|when|once|should|after)\b", re.I)
+NEGATED_CONDEMN_RE = re.compile(r"\b(?:do\s+not|don.?t|never|no\s+need\s+to|not\s+yet)\s+(?:\w+\s+){0,2}(?:replace|condemn|order)\b", re.I)
+
+
+def first_fix_line(reply: str) -> str:
+    for line in (reply or "").splitlines():
+        if FIRST_FIX_RE.search(line) and not CONDITIONAL_LINE_RE.match(line) and not CONDEMN_RE.search(line):
+            return line.strip()
+    return ""
+
+
+def sequence_condemns(reply: str) -> str:
+    """Make each unconditional condemn line conditional on the upstream 'first' correction given in the same reply."""
+    first = first_fix_line(reply)
+    if not first:
+        return reply
+    step = re.sub(r"\s*\[[^\]]*\]\s*$", "", first)[:160].rstrip(" .")
+    out = []
+    for line in (reply or "").splitlines():
+        if (CONDEMN_RE.search(line) and not CONDITIONAL_LINE_RE.match(line) and not NEGATED_CONDEMN_RE.search(line)
+                and line.strip() != first and not REPAIR_FOLLOW_RE.search(line)):
+            body = line.strip()
+            out.append(f"Only if the complaint remains after that first correction ({step}): {body[0].lower() + body[1:]}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def hold_condemns(reply: str, parts: list) -> str:
     """Rewrite each line that condemns an unproven part into the isolation-reading ask."""
     out = []
@@ -1613,6 +1645,10 @@ def official_turn(
     if unadj:
         reply = hold_for_adjustment(reply, unadj, sec)
         pin.setdefault("adjust_held", []).extend(unadj)
+    seq = sequence_condemns(reply)
+    if seq != reply:
+        pin.setdefault("sequence_held", []).append(first_fix_line(reply)[:200])
+        reply = seq
     reply = drop_reasks(reply, pin)
     reply = cap_repeats(reply, pin, user_msg)
     reply = shop_voice(reply)
