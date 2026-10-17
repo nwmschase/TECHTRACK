@@ -1140,9 +1140,11 @@ def session_tests(history: list, user_msg: str = "") -> list:
 # sentence adds "looks normal/OK": nothing was measured.
 NOT_DONE_RE = re.compile(r"\b(?:pending|not\s+(?:yet\s+)?(?:done|completed|checked|tested)|"
                          r"isn.?t\s+done|aren.?t\s+done|"
-                         r"haven.?t\s+(?:done|checked|tested|run)|didn.?t\s+(?:do|check|test|run|get)|skipped|no\s+result\s+(?:yet|recorded))\b", re.I)
+                         r"haven.?t\s+(?:done|checked|tested|run)|didn.?t\s+(?:do|check|test|run|get)|skipped|no\s+result\s+(?:yet|recorded)|"
+                         # "I don't have a separate brown-at-coil number": a missing measurement is a not-done test
+                         r"(?:don.?t|do\s+not|didn.?t|haven.?t)\s+(?:have|got)\b(?=[^.;\n]{0,40}?\b(?:reading|(?<!part\s)(?<!model\s)(?<!serial\s)number|value|measurement|result|voltage|ohms?)s?\b))\b", re.I)
 PENDING_TEST_WORD_RE = re.compile(r"\b(?:test\w*|check\w*|unplug\w*|isolat\w*|reading|jump\w*|jumper\w*|bypass\w*|measur\w*|volt\w*|ohm\w*|"
-                                  r"continuity|pressure|plumbing|leak[- ]?down|swap\s+test|tech[- ]line)\b", re.I)
+                                  r"continuity|pressure|plumbing|leak[- ]?down|swap\s+test|tech[- ]line|(?<!part\s)(?<!model\s)(?<!serial\s)number|value|measurement)\b", re.I)
 
 
 def _is_result(sentence: str) -> bool:

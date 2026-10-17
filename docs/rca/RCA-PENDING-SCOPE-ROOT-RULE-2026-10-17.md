@@ -127,3 +127,23 @@ Commit: see PR #92 head (this commit adds `PendingTest`, `pending_tests`, `compo
   179 pass.
 - **Replay:** 857 stored turns (adds the c249638 sweep). Only RC20/RC22 (every SHA), RC23/RC01 642b658 and RC08 c249638 t5
   (harness-at-motor reading pending, on the complaint path; GD still reached the panel fix at t7 on that run) change.
+
+## Addendum 2: ea06f7e sweep, RC22 swap (a missing measurement was not recognized as a pending test)
+- **Problem.** ea06f7e RC22, T6-T7: the tech wrote "I don't have a separate brown-at-coil number" (the decisive brown-wire test,
+  manual p.17). GD directed "Replace the DSI module board", repeated it after the tech's pushback, and the tech swapped the module
+  (1 swap; the complaint stayed present). Transcript: gd-official-sim-2026-10-16/ea06f7e/RC22.md lines 65-87. Must-hold "RC22
+  blocked" failed on that run.
+- **IS / IS-NOT.** IS: not-done reports phrased as a missing value ("don't have … number/reading"). IS NOT: "didn't get a
+  separate … voltage" (RC04) or "… still pending" (RC20/RC22 other runs), which were recognized. On those runs RC22 went
+  structural.
+- **Root (general).** The pending-test detector (`NOT_DONE_RE` + `PENDING_TEST_WORD_RE`) had no "do/did not have <measurement>"
+  form, so no `PendingTest` existed. With no pending scope, the gate's condition (2) held vacuously, and the board's own reading
+  ("yellow at the board ~-1.2 V") satisfied condition (1). The scope rule itself worked as written. Its input, the pending-test
+  list, was incomplete. The same input gap affected the 174d094 hold (replay: identical outcome on 174d094 code).
+- **Fix.** `NOT_DONE_RE`: "don't/do not/didn't/haven't have|got" when a measurement noun (reading, number, value, measurement,
+  result, voltage, ohm) follows within the clause. The noun is matched by lookahead, so the test words stay in the signature.
+  Part/model/serial numbers are excluded. `PENDING_TEST_WORD_RE` adds number/value/measurement under the same exclusion.
+- **Tests (+2):** not-done shapes (3 positive, 3 negative, incl. "part number", "model number"); locked RC22 ea06f7e T6 session
+  through official_turn (the DSI module board line is blocked, structural). Both fail on ea06f7e and pass now. GD-side 181 pass.
+- **Replay:** 1,126 stored turns (8 sweeps). The new detector changes only ea06f7e RC22 (structural from T6). Every other mode
+  change is identical on ea06f7e code.
