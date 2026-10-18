@@ -78,3 +78,22 @@ class TestSimHarness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_dollar_cap_counts_all_calls_and_stops_early():
+    import gd_sim_fresh as s
+    spent = {"usd": 0.0}
+
+    def paid(reply):
+        def f(messages, *a, **k):
+            spent["usd"] += 0.30
+            return reply
+        return f
+    finder = __import__("gd_pages").StubPageFinder()
+    v, hist, store = s.run_case("Complaint: no heat\nFix: replace board", "Furnaces", "X1", finder=finder,
+                                gd_chat=paid('Check the fuse. [Doc p.1]\n<state>{"summary":"s"}</state>'),
+                                tech_chat=paid("not measured"), referee_chat=paid("{}"), judge_chat=paid("{}"),
+                                max_usd=1.0, spent_fn=lambda: spent["usd"])
+    assert v["harness_ending"] == "budget" and v["pass_eligible"] is False
+    assert v["usd"] <= 1.0 + 0.30 * 3  # stopped within one round of calls of the cap
+    assert s.cost({"prompt_tokens": 1_000_000, "completion_tokens": 0, "reasoning_tokens": 1_000_000}) == 8.0

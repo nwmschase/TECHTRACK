@@ -83,7 +83,9 @@ def cost(usage):
     u = usage or {}
     cached = u.get("cached_tokens", 0) or 0
     return ((u.get("prompt_tokens", 0) - cached) * PRICE_PER_M["input"] + cached * PRICE_PER_M["cached"]
-            + u.get("completion_tokens", 0) * PRICE_PER_M["output"]) / 1e6
+            + (u.get("completion_tokens", 0) + (u.get("reasoning_tokens", 0) or 0)) * PRICE_PER_M["output"]) / 1e6
+    # reasoning tokens added on top on purpose: if the provider already counts them in completion_tokens this
+    # over-estimates, which is the safe side for a dollar cap.
 
 
 def _json(text):
@@ -95,8 +97,9 @@ def _json(text):
 
 
 def run_case(case_text, category, model, *, finder, gd_chat, tech_chat, referee_chat, judge_chat,
-             max_turns=14, max_usd=1.0, usage_fn=None):
-    """One simulated session. All four chat functions are injected (fakes in tests)."""
+             max_turns=14, max_usd=1.0, usage_fn=None, spent_fn=None):
+    """One simulated session. All four chat functions are injected (fakes in tests).
+    spent_fn() -> dollars spent so far on ALL calls (GD + tech + referee + judge); without it only GD cost is counted."""
     notes, key = split_case(case_text)
     store, history, spent, gd_replies, shown = {}, [], 0.0, [], []
     tech_hist = [{"role": "system", "content": TECH_SYS + notes}, {"role": "user", "content": "GD: Describe the complaint."}]
@@ -104,14 +107,14 @@ def run_case(case_text, category, model, *, finder, gd_chat, tech_chat, referee_
     ending = "capped"
     for _ in range(max_turns):
         r = gd_turn.run_turn(msg, category, model, history, finder=finder, chat_fn=gd_chat, store=store, usage_fn=usage_fn)
-        spent += cost(r.get("usage"))
+        spent = spent_fn() if spent_fn else spent + cost(r.get("usage"))
         history += [{"role": "user", "content": msg}, {"role": "assistant", "content": r["reply"]}]
         gd_replies.append(r["reply"])
         shown.append(json.dumps(store["gd_case"].get("picked") or {}) + json.dumps(store["gd_case"].get("part_pages") or {}))
         if r["mode"] == "closed":
             ending = "closed"
             break
-        if spent >= max_usd:
+        if spent >= max_usd * 0.8:  # stop early: tech + referee + judge calls still to come
             ending = "budget"
             break
         ref = _json(referee_chat([{"role": "system", "content": REFEREE_SYS},
@@ -125,6 +128,8 @@ def run_case(case_text, category, model, *, finder, gd_chat, tech_chat, referee_
     transcript = "\n\n".join(f"{m['role'].upper()}: {m['content']}" for m in history)
     verdict = _json(judge_chat([{"role": "system", "content": JUDGE_SYS},
                                 {"role": "user", "content": f"ANSWER KEY:\n{key}\n\nTRANSCRIPT:\n{transcript}"}])) or {"judge_error": True}
+    if spent_fn:
+        spent = spent_fn()
     verdict.update({"harness_ending": ending, "gd_turns": len(gd_replies), "usd": round(spent, 4),
                     "invented_numbers": invented_numbers(gd_replies, "\n".join(shown)),
                     "pass_eligible": ending == "closed"})
@@ -143,14 +148,18 @@ def main():
     import gd_llm
     import gd_pages
 
+    total = {"usd": 0.0}
+
     def chat(messages, max_tokens=600, effort="low"):
-        return gd_llm.complete_chat(messages, temperature=0.3, max_tokens=max_tokens, secret_fn=os.environ.get,
-                                    reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI])
+        out = gd_llm.complete_chat(messages, temperature=0.3, max_tokens=max_tokens, secret_fn=os.environ.get,
+                                   reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI])
+        total["usd"] += cost(gd_llm.last_usage())
+        return out
     case_text = open([os.path.join(RC_DIR, f) for f in os.listdir(RC_DIR) if f.startswith(a.case + "-") and f.endswith(".md")][0]).read()
     category, model = UNITS[a.case]
     verdict, history, store = run_case(case_text, category, model, finder=gd_pages.LibraryPageFinder(),
                                        gd_chat=chat, tech_chat=chat, referee_chat=chat, judge_chat=chat,
-                                       max_usd=a.max_usd, usage_fn=gd_llm.last_usage)
+                                       max_usd=a.max_usd, usage_fn=gd_llm.last_usage, spent_fn=lambda: total["usd"])
     os.makedirs(a.out, exist_ok=True)
     json.dump({"verdict": verdict, "history": history, "state": store["gd_case"]["state"]},
               open(os.path.join(a.out, f"{a.case}.json"), "w"), indent=1, default=str)
