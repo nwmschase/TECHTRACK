@@ -133,7 +133,6 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         at.radio[0].set_value(gd).run()
         at.selectbox(key="ask_cat").set_value("Air Conditioning")
         at.text_input(key="ask_model").set_value("Coleman-Mach 2111-0001")
-        at.selectbox(key="ask_unity_gate").set_value("Yes")
         at.text_area(key="ask_input").set_value(
             "Coleman-Mach 2111-0001 fan high is dead. Peacemaker bypass."
         )
@@ -151,8 +150,6 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         self.assertEqual(at.session_state["gd_model_memory"], "")
         self.assertEqual(at.selectbox(key="ask_cat").value, "(any)")
         self.assertEqual(at.session_state["gd_category_memory"], "(any)")
-        self.assertEqual(at.selectbox(key="ask_unity_gate").value, "Not sure")
-        self.assertEqual(at.session_state["gd_unity_memory"], "Not sure")
         self.assertFalse(at.session_state.get("ask_flow"))
         self.assertFalse(at.session_state.get("ask_pending_answer"))
         self.assertEqual(at.text_area(key="ask_input").value, "")

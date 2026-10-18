@@ -4265,7 +4265,7 @@ def rank_pages_for_concern(pages, model_text: str = "", concern: str = "", limit
     Score = 3 x the unit's model/part numbers on the page + complaint words on the page + 2 for a troubleshooting-table page.
     A page that names a brand the tech did not name drops to the bottom. Ties keep manual page order.
     """
-    import gd_official as _go
+    import legacy_selector as _go  # until FIX-PLAN phase 6 moves Bay onto the page-finder
 
     unit = _go.identify_unit([], concern or "", "", model_text or "")
     keys = _go.model_keys(unit)

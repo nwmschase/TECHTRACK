@@ -3747,8 +3747,6 @@ def reset_guided_diagnostics_session():
     st.session_state["gd_model_memory"] = ""
     st.session_state["ask_cat"] = "(any)"
     st.session_state["gd_category_memory"] = "(any)"
-    st.session_state["ask_unity_gate"] = "Not sure"
-    st.session_state["gd_unity_memory"] = "Not sure"
     st.session_state.pop("ask_plate_cam", None)
     st.session_state.pop("ask_plate_upload", None)
     st.session_state.pop("ask_plate_read_btn", None)
@@ -5061,33 +5059,29 @@ _gd_official_chat = None
 _gd_official_web = None
 
 
-def _gd_legacy_hint(history, user_msg, category_name, model_text) -> str:
-    """Hard-coded job branches yield to the step walk; their key line is a hint only."""
-    try:
-        key = _gdc._job_key(history, user_msg, category_name, model_text) or ""
-    except Exception:
-        key = ""
-    if key == "dometic":
-        return getattr(_gdc, "DOMETIC_NOCOOL_CONFIRM_FAN", "")
-    if key == "leadjack":
-        try:
-            step = _gdc.ensure_level_up_lead_jack_reply("", history, user_msg, category_name, model_text)
-            # Whole shop path: coil -> plumbing -> override screw -> cartridge (with its manual page).
-            return (step + "\n" + getattr(_gdc, "LEADJACK_CARTRIDGE_LINE", "")).strip()
-        except Exception:
-            return ""
-    return f"legacy job branch: {key}" if key else ""
+_gd_finder = None  # test hook: a gd_pages finder (e.g. StubPageFinder). None = the fresh library's page-finder.
+GD_UNAVAILABLE_LINE = "Guided Diagnostics could not reach the AI right now. Nothing was guessed. Send the same message again in a minute."
+GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothing was guessed."
 
 
-def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate="", pin_store=None):
-    import gd_official as _go
+def _gd_page_finder():
+    global _gd_finder
+    if _gd_finder is None:
+        import gd_pages
+
+        _gd_finder = gd_pages.LibraryPageFinder()
+    return _gd_finder
+
+
+def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None):
+    """One GD turn on the fresh core (gd_turn). The brain decides; this wrapper only wires the app to it."""
+    import gd_turn
 
     if pin_store is None:
         try:
             pin_store = st.session_state.setdefault("gd_pin_store", {})
         except Exception:
             pin_store = {}
-    library = _go.OrmLibrary(session, Document, DocChunk)
 
     def chat_fn(messages, max_tokens, effort):
         if _gd_official_chat is not None:
@@ -5097,37 +5091,21 @@ def _gd_official_reply(user_msg, category_name, model_text, history, unity_gate=
             reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI],
         )
 
-    def web_fn(unit):
-        if _gd_official_web is not None:
-            return _gd_official_web(unit)
-        key = _secret("XAI_API_KEY") or ""
-        return _go.fetch_official_manual(unit, key) if key else {}
-
     try:
-        result = _go.official_turn(
+        result = gd_turn.run_turn(
             user_msg, category_name, model_text, history,
-            library=library, chat_fn=chat_fn, pin_store=pin_store,
-            usage_fn=gd_llm.last_usage, web_fetch_fn=web_fn,
-            hints=_gd_legacy_hint(history, user_msg, category_name, model_text),
-            log_path=GD_USAGE_LOG,
-            unity_gate=unity_gate,
-            web_get=(lambda url: "") if _gd_official_web is not None else _go.official_pdf_text,
+            finder=_gd_page_finder(), chat_fn=chat_fn, store=pin_store,
+            usage_fn=gd_llm.last_usage, web_fn=_gd_official_web, log_path=GD_USAGE_LOG,
         )
     except Exception:
-        # Primary model failed: legacy coach on the fallback, labeled reduced mode.
+        # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
+        return GD_UNAVAILABLE_LINE
+    for c in result.get("cited") or []:
         try:
-            reply = ask_techtrack_reply(user_msg, category_name, model_text, history,
-                                        unity_gate=unity_gate, extra_system_rule=OPEN_LIBRARY_COACH_RULE)
-        except Exception as exc:
-            return f"The AI could not answer ({exc}). Send the same message again."
-        return REDUCED_MODE_LINE + "\n" + rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-    pin = result.get("pin") or {}
-    if pin.get("doc_id"):
-        try:
-            record_cited_pages(f"📖 Source: {pin.get('doc_title')} - page {pin['pages'][0]}")
+            record_cited_pages(f"📖 Source: {c.get('doc_id')} - page {c.get('page')}")
         except Exception:
             pass
-    return rewrite_shop_channel_words(result["reply"])
+    return result["reply"]
 
 
 def guided_diagnostics_reply(
@@ -5141,104 +5119,24 @@ def guided_diagnostics_reply(
     photo_review: dict | None = None,
     pin_store: dict | None = None,
 ):
+    """Guided Diagnostics on the fresh core. Returns (reply_text, None).
+
+    unity_gate and ask_flow are accepted for old callers and ignored (the Unity selector and hard trees are gone).
+    A step photo is read by the vision model and its reading is added to the tech's message, marked as such.
     """
-    Official method (gd_official) is the product path when GD_OFFICIAL_METHOD is on.
-    Open library coach is the reduced-mode fallback.
-    Hard trees do not drive GD chat. Never 'path complete'. Never re-ask stated facts.
-    Returns (reply_text, None).
-    """
-    extra = OPEN_LIBRARY_COACH_RULE
-    if GD_OFFICIAL_METHOD and ai_available():
-        official_msg = user_msg
-        if photo_review is None and photo and photo[0]:
-            # Label / circuit-diagram photos feed the official walk (RC30): the photo read becomes part of what the tech reported.
-            try:
-                import gd_step_photo as _photos
-                photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", "", user_msg)
-            except Exception:
-                photo_review = None
-        sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
-        if sees:
-            official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
-        official = _gd_official_reply(official_msg, category_name, model_text, history, unity_gate, pin_store)
-        if official is not None:
-            return official, None
+    if not ai_available():
+        return GD_OFFLINE_LINE, None
+    official_msg = user_msg
     if photo_review is None and photo and photo[0]:
-        import gd_step_photo as _photos
-
-        asked = ""
-        for message in reversed(history or []):
-            if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
-                asked = message.get("content") or ""
-                break
-        photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", asked, user_msg)
-    facts = facts_from_chat(history, user_msg)
-    extra += "\n\n" + format_stated_facts_rule(facts)
-    # The lead-jack card is already the shop line. Waiting on the model only
-    # burns the turn and can re-ask plumbing the tech already answered.
-    if _gdc._job_key(history, user_msg, category_name, model_text) == "leadjack":
-        reply = _gdc.ensure_level_up_lead_jack_reply(
-            "", history, user_msg, category_name, model_text
-        )
-        reply = _gdc.without_reading_filler(
-            reply, history, user_msg, category_name, model_text
-        )
-        reply = _gdc.guard_blank_shop_reply(
-            reply, history, user_msg, category_name, model_text
-        )
-        reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-        reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
-        if photo_review:
+        try:
             import gd_step_photo as _photos
-
-            reply = _photos.present_photo_review(reply, photo_review)
-        return reply, None
-    if HARD_TREE_EXCLUSIVE_CHAT:
-        result = engine_turn(ask_flow, user_msg, category_name, model_text, history)
-        if result.get("used_engine") and not result.get("yielded_to_coach"):
-            reply = result.get("reply") or ""
-            node = result.get("node") or {}
-            title = node.get("source_title")
-            page = node.get("source_page")
-            if title and page is not None:
-                try:
-                    record_cited_pages(f"📖 Source: {title} - page {page}")
-                except Exception:
-                    pass
-            return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply)), result.get("ask_flow")
-    reply = ask_techtrack_reply(
-        user_msg,
-        category_name,
-        model_text,
-        history,
-        unity_gate=unity_gate,
-        extra_system_rule=extra,
-    )
-    # Last step on the Send path. Retrieval chunks and the model reply cannot
-    # skip this: the raw complaint is the trigger, not the boosted search string.
-    if _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, user_msg):
-        reply = _gdc.ensure_dometic_ceiling_thermostat(
-            reply, _gdc.dometic_bypass_facts(history, user_msg), history
-        )
-    reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text, photo_review=photo_review
-    )
-    reply = _gdc.without_reading_filler(
-        reply, history, user_msg, category_name, model_text
-    )
-    reply = _gdc.guard_blank_shop_reply(
-        reply, history, user_msg, category_name, model_text
-    )
-    reply = rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
-    reply = _gdc.ensure_facr_early_pressure_ask(
-        reply, history, user_msg, category_name, model_text
-    )
-    reply = _append_stored_figure_offer(reply, user_msg, category_name, model_text)
-    if photo_review:
-        import gd_step_photo as _photos
-
-        reply = _photos.present_photo_review(reply, photo_review)
-    return reply, None
+            photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", "", user_msg)
+        except Exception:
+            photo_review = None
+    sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
+    if sees:
+        official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
+    return _gd_official_reply(official_msg, category_name, model_text, history, pin_store), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -5303,7 +5201,7 @@ def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, 
     """Every library search (GD reduced mode, Bay PDF) obeys the ONE selector, gd_official.select_manual:
     exact model first, product-type and brand hard filters, never another product's manual. Returns (chunks, miss_line)."""
     try:
-        import gd_official as _go
+        import legacy_selector as _go  # Bay PDF + Ask coach only, until FIX-PLAN phase 5/6
 
         unit = _go.identify_unit([], symptom or "", category_name or "", model_text or "")
         if not unit.get("brand") and not _go.model_keys(unit):
@@ -5884,10 +5782,10 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
     # Rule 10: on the official GD path the story comes from the session's recorded facts only.
     if GD_OFFICIAL_METHOD:
         try:
-            import gd_official as _go
-            _pin = (st.session_state.get("gd_pin_store") or {}).get("gd_pin")
-            if _pin:
-                return _go.warranty_story(_pin, history, model_text)
+            import gd_story
+            _case = (st.session_state.get("gd_pin_store") or {}).get("gd_case")
+            if _case:
+                return gd_story.warranty_story(_case, history, model_text)
         except Exception:
             pass
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
@@ -6491,7 +6389,6 @@ with tab_ask:
         st.session_state["gd_model_memory"] = ""
         st.session_state.pop("gd_pin_store", None)
     _restore_widget("ask_model", "gd_model_memory")
-    _restore_widget("ask_unity_gate", "gd_unity_memory", ["Not sure", "Yes", "No"])
     c1, c2 = st.columns(2)
     with c1:
         ask_cat = st.selectbox("Category (optional)", cat_names, key="ask_cat")
@@ -6513,15 +6410,9 @@ with tab_ask:
         if plate_img is not None:
             st.image(plate_img, caption="Plate photo", width=280)
             apply_plate_read_to_model_key("ask_model", plate_img, "ask_plate_read_btn")
-    unity_gate = st.selectbox(
-        "Lippert OneControl / Unity board on this coach?",
-        ["Not sure", "Yes", "No"],
-        key="ask_unity_gate",
-        help="Not every unit has one. Yes/Not sure = include Unity board tests + Electrical manuals. No = skip Unity path.",
-    )
+    unity_gate = ""  # Unity selector removed (fresh-core): the tech names the controller in chat if it matters
     _remember_widget("ask_cat", "gd_category_memory")
     _remember_widget("ask_model", "gd_model_memory")
-    _remember_widget("ask_unity_gate", "gd_unity_memory")
     category_name = "" if ask_cat == "(any)" else ask_cat
 
     history = st.session_state.get("ask_chat") or []
@@ -6615,7 +6506,6 @@ with tab_ask:
         st.session_state.pop("ask_force_send", None)
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
-        st.session_state["gd_unity_memory"] = "Not sure"
         st.session_state["ask_photo_gen"] = int(st.session_state.get("ask_photo_gen") or 0) + 1
         st.rerun()
 

@@ -1,7 +1,7 @@
 """Library category audit (R1). One general rule, no doc ids:
 
-A document's own words (title / clean title / product line) name its product type (gd_official.product_types).
-Its filing category must map to a type set that includes that type (gd_official.CATEGORY_TYPES). If not, the doc is
+A document's own words (title / clean title / product line) name its product type (legacy_selector.product_types).
+Its filing category must map to a type set that includes that type (legacy_selector.CATEGORY_TYPES). If not, the doc is
 MISFILED and the proposed category is the library category whose type set contains the doc's types, choosing the most
 specific category (fewest mapped types), then the one already holding the most documents. A category with no type map is
 reported as UNMAPPED. Manager Tools: dry run -> confirm -> backup -> apply -> rollback. Idempotent (a clean library plans 0).
@@ -10,7 +10,7 @@ import json
 import re
 from datetime import datetime
 
-import gd_official as go
+import legacy_selector as go  # until FIX-PLAN phase 7 (library intake moves to the fresh library build)
 
 MODULE_REVISION = "v4.19.65"
 MIN_BODY_HITS = 5
