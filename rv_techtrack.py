@@ -247,6 +247,25 @@ _APP_MODULES = (
 )
 
 
+def _app_module_lock():
+    """ONE process-wide lock for loading the sibling modules.
+
+    Streamlit runs every session's script in its own thread. On a reboot two sessions ran this loader at once: one
+    thread had put a half-executed bay_procedure into sys.modules (MODULE_REVISION already set near the top), the other
+    took it as current and failed with "cannot import name 'MAX_FIGURES_PER_SHEET' from 'bay_procedure'" (live
+    2026-10-20). The script itself is re-executed per run, so the lock lives on a stable holder in sys.modules."""
+    import sys
+    import threading
+    import types
+
+    holder = sys.modules.get("_techtrack_module_lock")
+    if holder is None:
+        fresh = types.ModuleType("_techtrack_module_lock")
+        fresh.lock = threading.RLock()
+        holder = sys.modules.setdefault("_techtrack_module_lock", fresh)   # atomic: every thread gets the same lock
+    return holder.lock
+
+
 def _cached_module_is_current(mod, required_revision, required_attrs=()):
     """True only when a cached module's stamp equals this app revision."""
     if mod is None:
@@ -286,17 +305,24 @@ def _reload_app_module(name, required_revision, required_attrs=()):
     root = str(path.parent)
     if root not in sys.path:
         sys.path.insert(0, root)
-    cached = sys.modules.get(name)
-    if _cached_module_is_current(cached, required_revision, required_attrs):
-        return cached
-    sys.modules.pop(name, None)
-    spec = importlib.util.spec_from_file_location(name, str(path))
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {name} from {path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    with _app_module_lock():
+        cached = sys.modules.get(name)
+        if _cached_module_is_current(cached, required_revision, required_attrs):
+            return cached
+        sys.modules.pop(name, None)
+        spec = importlib.util.spec_from_file_location(name, str(path))
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load {name} from {path}")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod   # needed while it runs (dataclasses, its own imports); other threads wait on the lock
+        try:
+            spec.loader.exec_module(mod)
+        except BaseException:
+            # never leave a half-run module behind for the next import to bind
+            if sys.modules.get(name) is mod:
+                sys.modules.pop(name, None)
+            raise
+        return mod
 
 
 def _load_gd_library_coach():
@@ -335,6 +361,13 @@ def _reload_stale_app_modules(required_revision):
     was replaced, so it cannot keep the previous function objects. Each module
     logs the revision that ended up bound.
     """
+    import sys
+
+    with _app_module_lock():
+        return _reload_stale_app_modules_locked(required_revision)
+
+
+def _reload_stale_app_modules_locked(required_revision):
     import sys
 
     dependency_replaced = False
@@ -514,18 +547,19 @@ wants_library_figures = _gdc.wants_library_figures
 wants_library_page_shown = _gdc.wants_library_page_shown
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
-from bay_procedure import (
-    BAY_PROCEDURE_LABEL,
-    MAX_FIGURES_PER_SHEET,
-    apply_chunk_figures,
-    compile_bay_procedure,
-    crop_page_png_to_figure,
-    cited_figure_count,
-    paint_library_step_figures,
-    render_bay_procedure_pdf,
-    rewrite_bay_search_symptom,
-    suggested_pdf_filename,
-)
+with _app_module_lock():   # bind only a fully loaded bay_procedure (see _app_module_lock)
+    from bay_procedure import (
+        BAY_PROCEDURE_LABEL,
+        MAX_FIGURES_PER_SHEET,
+        apply_chunk_figures,
+        compile_bay_procedure,
+        crop_page_png_to_figure,
+        cited_figure_count,
+        paint_library_step_figures,
+        render_bay_procedure_pdf,
+        rewrite_bay_search_symptom,
+        suggested_pdf_filename,
+    )
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"

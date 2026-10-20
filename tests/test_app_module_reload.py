@@ -231,3 +231,86 @@ class TestAppModuleReload(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
+    """Live 2026-10-20 reboot: "cannot import name 'MAX_FIGURES_PER_SHEET' from 'bay_procedure'". Two session threads
+    loaded the sibling modules at once; one bound the other's half-run module. Reproduced here before the lock (3/3
+    rounds failed: MAX_FIGURES_PER_SHEET, manual_figures attrs, KeyError) and clean after it."""
+
+    def setUp(self):
+        self._saved = {name: sys.modules.get(name) for name in APP_NAMES}
+
+    def tearDown(self):
+        for name, mod in self._saved.items():
+            if mod is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = mod
+
+    def test_parallel_first_load_never_binds_a_partial_module(self):
+        import threading
+
+        for _ in range(3):
+            for name in APP_NAMES:
+                sys.modules.pop(name, None)
+            ns = _loader_namespace()
+            bar, errs = threading.Barrier(6), []
+
+            def worker():
+                try:
+                    bar.wait()
+                    ns["_reload_stale_app_modules"]("v4.19.65")
+                    with ns["_app_module_lock"]():
+                        from bay_procedure import MAX_FIGURES_PER_SHEET  # noqa: F401
+                except BaseException as exc:  # noqa: BLE001
+                    errs.append(f"{type(exc).__name__}: {exc}")
+
+            threads = [threading.Thread(target=worker) for _ in range(6)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errs, [])
+
+    def test_failed_load_leaves_no_half_module(self):
+        import tempfile
+
+        ns = _loader_namespace()
+        d = Path(tempfile.mkdtemp())
+        (d / "tt_broken_mod.py").write_text("MODULE_REVISION = 'v4.19.65'\nraise RuntimeError('boom')\n")
+        ns["__file__"] = str(d / "rv_techtrack.py")
+        exec(compile("Path = __import__('pathlib').Path", "x", "exec"), ns)
+        with self.assertRaises(RuntimeError):
+            ns["_reload_app_module"]("tt_broken_mod", "v4.19.65")
+        self.assertNotIn("tt_broken_mod", sys.modules)
+
+    def test_sibling_modules_have_no_import_cycle(self):
+        import ast
+
+        names = set(APP_NAMES) | {"gd_pages", "gd_turn", "gd_state", "gd_prompt", "gd_story", "legacy_selector",
+                                  "library_bulk_import", "oem_domains", "bay_profile_lines"}
+        graph = {}
+        for n in names:
+            f = ROOT / f"{n}.py"
+            if not f.exists():
+                continue
+            deps = set()
+            for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Import):
+                    deps |= {a.name.split(".")[0] for a in node.names}
+                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                    deps.add(node.module.split(".")[0])
+            graph[n] = deps & names - {n}
+
+        def cycle_from(n, path):
+            for m in graph.get(n, ()):
+                if m in path:
+                    return path[path.index(m):] + [m]
+                c = cycle_from(m, path + [m])
+                if c:
+                    return c
+            return None
+
+        for n in graph:
+            self.assertIsNone(cycle_from(n, [n]), f"import cycle among app modules from {n}")
