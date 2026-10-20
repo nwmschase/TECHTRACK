@@ -1,7 +1,8 @@
 """Library category audit (R1). One general rule, no doc ids:
 
 A document's own words (title / clean title / product line) name its product type (legacy_selector.product_types).
-Its filing category must map to a type set that includes that type (legacy_selector.CATEGORY_TYPES). If not, the doc is
+Its filing category must map to a type set that includes that type (legacy_selector.category_types: curated map, else
+learned from the category name and the documents filed in it, so new categories need no code change). If not, the doc is
 MISFILED and the proposed category is the library category whose type set contains the doc's types, choosing the most
 specific category (fewest mapped types), then the one already holding the most documents. A category with no type map is
 reported as UNMAPPED. Manager Tools: dry run -> confirm -> backup -> apply -> rollback. Idempotent (a clean library plans 0).
@@ -22,6 +23,11 @@ COMPONENT_TYPES = {"electronics", "power", "chassis", "axle"}
 
 def _cats(cur):
     return {cid: name for cid, name in cur.execute("SELECT id, name FROM categories").fetchall()}
+
+
+def _doc_rows(cur, cats):
+    rows = cur.execute("SELECT title, COALESCE(clean_title,''), COALESCE(product_line,''), COALESCE(brand,''), category_id FROM documents").fetchall()
+    return [dict(title=t, clean_title=c, product_line=p, brand=b, category=cats.get(cid, "")) for t, c, p, b, cid in rows]
 
 
 def doc_own_types(title, clean_title="", product_line="") -> set:
@@ -53,7 +59,8 @@ def plan(con, body_types=None) -> dict:
     cur = con.cursor()
     cats = _cats(cur)
     counts = dict(cur.execute("SELECT category_id, COUNT(*) FROM documents GROUP BY category_id").fetchall())
-    ctypes = {cid: go.CATEGORY_TYPES.get((name or "").strip().lower()) for cid, name in cats.items()}
+    go.learn_library(_doc_rows(cur, cats))
+    ctypes = {cid: go.category_types(name) for cid, name in cats.items()}
     unmapped = [{"category_id": cid, "category": cats[cid], "docs": counts.get(cid, 0)} for cid, t in ctypes.items() if t is None]
     moves, no_target, checked, review = [], [], 0, []
     rows = cur.execute("SELECT id, title, COALESCE(clean_title,''), COALESCE(product_line,''), category_id FROM documents ORDER BY id").fetchall()
@@ -119,9 +126,11 @@ def rollback(con, undo: dict) -> int:
 def upload_category_warning(title: str, category_name: str) -> str:
     """R2: '' when the chosen category fits the document's own type words, else a warning naming both."""
     own = doc_own_types(title or "")
-    have = go.CATEGORY_TYPES.get((category_name or "").strip().lower())
+    have = go.category_types(category_name)
     if have is None:
         return f"Category '{category_name}' has no product-type map; the selector will ask the tech to confirm the unit type for its docs."
+    if not have:   # a kind category (forms, bulletins, reference): any product doc may live there
+        return ""
     if own and not (own & have):
         names = ", ".join(sorted(go.TYPE_NAMES.get(t, t) for t in own))
         return f"'{title}' reads as {names}, but '{category_name}' is for {', '.join(sorted(go.TYPE_NAMES.get(t, t) for t in have))}."

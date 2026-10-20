@@ -44,6 +44,51 @@ BRAND_ALIASES = {
     "atwood": "atwood", "maxxfan": "maxxair", "maxx air": "maxxair", "power gear": "power gear", "kwikee": "kwikee",
 }
 KNOWN_BRANDS = tuple(sorted(set(OFFICIAL_DOMAINS) | set(BRAND_ALIASES), key=lambda b: (-len(b), b)))  # deterministic ties (A1)
+# Brands and category types LEARNED from the library itself (learn_library). A brand any document carries is a brand
+# (DeWald, Bigfoot, Greystone, Reese, Winnebago ... whatever the library holds), and a category's product types come from
+# its own name and the documents filed in it, so a new category (Vent Fans, TV & Audio, ...) works without a code change.
+_LEARNED_BRANDS = ()
+_LEARNED_CATEGORY_TYPES = {}
+CATEGORY_TYPE_SHARE = 0.3   # a type named by >= 30% of a category's typed docs belongs to that category
+
+
+def learn_library(docs) -> None:
+    """Read brand vocabulary and category -> product-type sets from library rows (dicts with brand, title,
+    clean_title, product_line, category). Called whenever a library is read; idempotent."""
+    global _LEARNED_BRANDS, _LEARNED_CATEGORY_TYPES
+    brands, per_cat = set(), {}
+    for d in docs or ():
+        b = _norm(d.get("brand", ""))
+        if b and len(b) >= 2:
+            brands.add(b)
+        cat = (d.get("category") or "").strip().lower()
+        if cat:
+            own = product_types(" ".join(str(d.get(k, "") or "") for k in ("title", "clean_title", "product_line")))
+            per_cat.setdefault(cat, []).append(own)
+    _LEARNED_BRANDS = tuple(sorted(brands, key=lambda b: (-len(b), b)))
+    learned = {}
+    for cat, owns in per_cat.items():
+        typed = [o for o in owns if o]
+        counts = {}
+        for o in typed:
+            for t in o:
+                counts[t] = counts.get(t, 0) + 1
+        learned[cat] = product_types(cat) | {t for t, n in counts.items() if n >= max(1.0, CATEGORY_TYPE_SHARE * len(typed))}
+    _LEARNED_CATEGORY_TYPES = learned
+
+
+def category_types(category: str):
+    """Product types of a library/job category: the curated map where it has the category, else what the library
+    itself shows (its name + its documents). None when nothing is known (unmapped)."""
+    key = (category or "").strip().lower()
+    if key in CATEGORY_TYPES:
+        return set(CATEGORY_TYPES[key])
+    if key in _LEARNED_CATEGORY_TYPES and _LEARNED_CATEGORY_TYPES[key]:
+        return set(_LEARNED_CATEGORY_TYPES[key])
+    if key and (key in KIND_CATEGORIES or re.search(KIND_WORDS, key)):
+        return set()
+    named = product_types(key)
+    return named or None
 
 NO_TAG_RE = re.compile(r"\b(no\s+(model\s+)?(tag|label|data\s*plate)|model\s+(unknown|not\s+known|not\s+recovered)|can'?t\s+find\s+(the\s+)?(tag|label|model))", re.I)
 
@@ -55,7 +100,7 @@ def _norm(text: str) -> str:
 
 def detect_brand(text: str) -> str:
     t = _norm(text)
-    for b in KNOWN_BRANDS:
+    for b in sorted(set(KNOWN_BRANDS) | set(_LEARNED_BRANDS), key=lambda b: (-len(b), b)):
         if re.search(r"(?<![a-z])" + re.escape(b) + r"(?![a-z])", t):
             return BRAND_ALIASES.get(b, b)
     return ""
@@ -289,6 +334,7 @@ CATEGORY_TYPES = {
 }
 # Categories that file documents by KIND (forms, bulletins, recalls, reference), not by product: any product doc may live there.
 KIND_CATEGORIES = {"warranty forms", "tsb / recall", "recalls-bulletins", "id & reference"}
+KIND_WORDS = r"\bforms?\b|bulletin|recall|\btsb\b|reference"   # a category named by document kind, not product
 TYPE_NAMES = {"fridge": "fridge", "water_heater": "water heater", "furnace": "furnace", "ac": "A/C", "cooktop": "cooktop/range",
               "leveling": "leveling", "awning": "awning", "slide": "slide-out", "vent_fan": "vent fan", "toilet": "toilet",
               "plumbing": "plumbing", "generator": "generator", "power": "converter/inverter/power", "solar": "solar",
@@ -356,13 +402,13 @@ def doc_product_types(doc: dict) -> set:
     own = product_types(" ".join(str(doc.get(k, "") or "") for k in ("title", "clean_title", "product_line")))
     if own:
         return own
-    return set(CATEGORY_TYPES.get((doc.get("category") or "").strip().lower(), set()))
+    return set(category_types(doc.get("category") or "") or set())
 
 
 def unit_product_types(unit: dict) -> set:
     """Allowed doc types for the job: category (authoritative) + type words in the model text. If neither gives a type,
     the type the tech STATES in their own messages counts (that is the answer to the confirmation question)."""
-    cat = set(CATEGORY_TYPES.get((unit.get("category") or "").strip().lower(), set()))
+    cat = set(category_types(unit.get("category") or "") or set())
     t = cat | product_types(unit.get("model", ""))
     return t or set(unit.get("stated_types") or ())
 
@@ -570,9 +616,11 @@ def select_manual(library, unit: dict, exclude_ids=(), available=None) -> dict:
     Returns {"doc", "how": exact|series|ambiguous|needs_confirmation|none, "tier", "miss_line", "rejected": [(id, reason)]}.
     """
     rejected = []
+    all_docs = library.documents()
+    learn_library(all_docs)
     if type_needs_confirmation(unit):
         return {"doc": None, "how": "needs_confirmation", "tier": 0, "miss_line": no_manual_line(unit, "needs_confirmation"), "rejected": rejected}
-    docs = [d for d in library.documents() if d["id"] not in exclude_ids]
+    docs = [d for d in all_docs if d["id"] not in exclude_ids]
     keys = [k for k, _ in model_key_tiers(unit)]
     ub = unit.get("brand") or ""
     text_ids = [d["id"] for d in docs if not ub or _doc_brand(d) in ("", ub)]
