@@ -48,6 +48,9 @@ _BASE_VEC = {}    # vec_dir -> (V, {(doc_id, sheet): [row, ...]})
 
 _MODEL_FAIL = {}  # cache_dir -> (time, error): a failed load (e.g. no network for the first download) is retried after
 MODEL_RETRY_SEC = 600   # this long, not on every click
+# Pages of docs added after the index build are embedded in the app. onnxruntime keeps the peak working memory of the
+# biggest batch: 32 passages held ~+230 MB RSS for good, 4 passages ~+45 MB (measured 10/20) at a small speed cost.
+EMBED_BATCH = 4
 _log = logging.getLogger("techtrack.pagefinder")
 
 
@@ -213,7 +216,7 @@ class Library:
                     for p in self.pages(k):
                         for ps in passages(p['text']): keys.append((k, p['pdf_sheet'])); texts.append(ps)
                 if texts:
-                    E = np.asarray(list(self._embedder().embed(texts, batch_size=32)), dtype=np.float32)
+                    E = np.asarray(list(self._embedder().embed(texts, batch_size=EMBED_BATCH)), dtype=np.float32)
                     E /= np.linalg.norm(E, axis=1, keepdims=True) + 1e-9
                     base = len(V); V = np.concatenate([V, E.astype(V.dtype)])
                     for j, k in enumerate(keys): rows[k] = rows[k] + [base + j]

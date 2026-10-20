@@ -378,6 +378,11 @@ class TestRealLibraryWiring(unittest.TestCase):
             pf._L = saved_l; pf._MODEL_FAIL.clear(); pf._MODEL_FAIL.update(saved_fail)
             pf._MODELS.clear(); pf._MODELS.update(saved_models); pf.meaning = saved_meaning
 
+    def test_added_docs_are_embedded_in_small_batches(self):
+        from pagefinder import search as pf
+        self.assertLessEqual(pf.EMBED_BATCH, 4)
+        self.assertIn("batch_size=EMBED_BATCH", (ROOT / "pagefinder" / "search.py").read_text())
+
     def test_full_turn_on_real_library(self):
         chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])
         r = gd_turn.run_turn("gas clicks but never lights", "Water Heaters", "Suburban SW6DE water heater", [], finder=self.f,
