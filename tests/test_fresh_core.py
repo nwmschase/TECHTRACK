@@ -95,6 +95,20 @@ BANNED = [
 NEW_CORE = ["gd_pages.py", "gd_state.py", "gd_prompt.py", "gd_turn.py", "gd_story.py"]
 
 
+class TestCitedTitles(unittest.TestCase):
+    def test_stub_doc_title(self):
+        f = finder()
+        self.assertEqual(f.doc_title("L1"), "Acme Fridge Service Manual")
+        self.assertEqual(f.doc_title("X9"), "X9")
+
+    def test_app_records_cited_pages_by_title(self):
+        src = (ROOT / "rv_techtrack.py").read_text()
+        a = src.index("def _gd_official_reply(")
+        body = src[a:src.index("\ndef ", a + 10)]
+        self.assertIn("doc_title(c.get('doc_id'))", body)
+        self.assertNotIn(".lib.docs", body, "app must use the finder interface, not LibraryPageFinder internals")
+
+
 class TestNoBannedLeftovers(unittest.TestCase):
     def test_new_core_is_clean(self):
         for f in NEW_CORE:
@@ -321,6 +335,11 @@ class TestRealLibraryWiring(unittest.TestCase):
             self.assertNotIn("L370", ids)
         finally:
             pf._L = saved
+
+    def test_doc_title_for_source_lines(self):
+        # cited doc ids become library titles for the warranty story / source ledger (keyed by title)
+        self.assertEqual(self.f.doc_title("L370"), self.f.lib.docs["L370"]["title"])
+        self.assertEqual(self.f.doc_title("no-such-doc"), "no-such-doc")
 
     def test_full_turn_on_real_library(self):
         chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])

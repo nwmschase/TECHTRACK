@@ -108,6 +108,16 @@ class StubPageFinder:
         self.calls.append(("fetch_part", part))
         return list(self._parts.get(part, []))
 
+    def doc_title(self, doc_id) -> str:
+        """Title of a library doc for source lines; the doc id itself when unknown."""
+        for m in self.manuals:
+            if str(m.get("doc_id")) == str(doc_id) and m.get("title"):
+                return m["title"]
+        for p in self._pages:
+            if str(p.doc_id) == str(doc_id) and p.title:
+                return p.title
+        return str(doc_id)
+
 
 class LibraryPageFinder:
     """Adapter over the in-repo page-finder (pagefinder/search.py) and its index built from the app library.
@@ -165,3 +175,8 @@ class LibraryPageFinder:
             docs = self.lib.docs
             res = [p for p in res if (docs.get(p["doc_id"], {}).get("brand") or "").lower() in brands]
         return [self._page(p, "part") for p in res]
+
+    def doc_title(self, doc_id) -> str:
+        """Title of a library doc for source lines; the doc id itself when unknown."""
+        d = self.lib.docs.get(str(doc_id)) or {}
+        return d.get("title") or str(doc_id)

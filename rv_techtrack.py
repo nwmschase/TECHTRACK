@@ -5204,7 +5204,9 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         return GD_UNAVAILABLE_LINE
     for c in result.get("cited") or []:
         try:
-            record_cited_pages(f"📖 Source: {c.get('doc_id')} - page {c.get('page')}")
+            # The warranty story and source ledger are keyed by manual TITLE (parse_cited_pages_from_text), so the
+            # cited doc id is turned into its library title here; an unknown id stays as the id.
+            record_cited_pages(f"📖 Source: {_gd_page_finder().doc_title(c.get('doc_id'))} - page {c.get('page')}")
         except Exception:
             pass
     return result["reply"]
