@@ -1,0 +1,46 @@
+# RV shop term families for the page-finder's word half (pagefinder/terms.py). Hand-maintained; one row per family.
+# Columns (TAB separated): kind <TAB> members separated by " | " <TAB> evidence (where the library or the cases use these words)
+#   same   = spelling / shop abbreviation of ONE word: every member is rewritten to the FIRST member, in pages and queries.
+#   family = words a tech and a manual use for the same thing. Query side only: when one member is in the query, the other
+#            members' words are added at FAMILY_WEIGHT (0.5), so pages with the tech's exact words still rank first.
+#            A member is a phrase; its words must appear in order in the query (a few words apart is fine).
+#            'not' stands for any negation (not, no, never, won't, doesn't ...): 'not cold' matches "will not blow cold".
+#   keep   = words the GENERATED tables (word_forms.tsv, compounds.tsv, acronyms.tsv) must leave alone, because the
+#            generated base form means something else in the bay (fitting is not fit, housing is not house).
+# Rules for adding a row: every member must be a word the library's manuals or the real case files use (cite one);
+# no brand or model names; no case-specific phrases.
+#
+# --- same: shop abbreviations and spellings ---
+same	temperature | temp	library writes both: L29 s16 "(temp) for using the optional temperature sensor"; RC16 tech phrase "coil temp sensor"
+same	evaporator | evap	L130 s1 Furrion AC warranty form "Evap Blower wheel"; evaporator 268+ uses
+same	thermostat | stat | tstat	L123 s1 "a joint ECO and T-Stat"; RC14 case "ceiling thermostat/selector"
+same	refrigerator | fridge | frig	L121 s29 "diagnosing a fridge that has a complaint of not cooling"; RC27/RC30 complaints say "fridge"
+same	igniter | ignitor	both spellings: igniter 88 pages (L35 s29), ignitor 21 pages (L123 s6 "piezo ignitor")
+#
+# --- family: parts and controls ---
+family	freeze sensor | evaporator sensor | evaporator temperature sensor | coil sensor | coil temperature sensor | evaporator coil sensor	L159 s13 "E2 Evaporator temperature sensor out of order"; L159 s14 wiring label "COIL SENSOR"; L158 s15 "Lock the freeze sensor onto the pipe of the evaporator"; L139 s15 "Warm coil ... with freeze sensor installed"; RC16 fix "Reseat freeze sensor"
+family	touch screen | touch pad | touch panel | user panel | control panel | keypad	L115 "BAL TOUCH SCREEN DIAG"; L1 s3 "bad touch pad harness"; L8 s1 BAL "User Panel ... replace the touch pad"; L35 s15 "OneControl Touch Panel"; RC08 case: the same part is called "soft-touch user panel" and "soft-touch control panel 20300427"
+family	board | pcb | circuit board | control board | module board	RCA-GUARD-PART-SYNONYM (board vs PCB, RC12); L35 s39 "Main PCB"; L120 s2 "Fan Control Module Board"; L21 s1 "circuit board"
+family	controller | control box | control unit	L1 s1 Lippert "Replace the controller last"; L8 s1 BAL "Swap the plugin at the control box"; L114 "Control Box Diagnostic Form"
+family	fan | blower	L120 Suburban furnace manual says "blower"; RC13 tech says "fan turns on then shuts off"; L130 s1 "Evap Blower wheel ... Fan Motor"
+family	volt | voltage | vdc	L115 "Check for Voltage ... You should have at least 12V"; RC04 part "battery supply voltage"
+family	propane | lp | lpg | lp gas	acronyms in the library: LP = liquid propane (L161 s27), LPG = liquified petroleum gas (L826 s15)
+family	relief valve | pressure relief valve | prv	L224 s49 "Pressure Relief Valve (PRV)"; RC22 complaint "water out PRV"
+family	landing gear | landing leg | front jack	L1 s2 "Ground Control 3.0 - landing gear (front)"; L229 "Landing Leg Components, Fifth Wheel"
+family	slide out | slideout | slide room	library uses "slide-out", "slideout" and "slide room" (L19 s86 "slideout relay control module")
+family	manual override | hand crank | crank | manual operation	L7 s6 "Crank manual override and move room"; L1 s4 "Manual operation of those jacks"; RC18 complaint "cranking manually with tool"
+#
+# --- family: symptoms (troubleshooting-table words vs what the customer says) ---
+family	cold | cool	L186 s12 "Not Cooling Diagnostics"; L157 "insufficient cooling"; RC14 "will not blow cold", RC27 "not getting cold"
+family	not cold | not cool | no cool | insufficient cool | poor cool | too warm	L143 s5 "Insufficient cooling on all modes"; L158 s19 "Not cool enough"; L186 s12 "Refrigerator compartments are too warm"; L127 s4 "poor cooling"; RC14/RC27 complaints
+family	no heat | not heat | insufficient heat | not warm | not hot	L152 s31 "INSUFFICIENT HEAT Furnace under fired"; L123 s13 "water heater is not heating"; L121 s45 "no heat"; RC13 "Will not blow warm"
+family	not light | not ignite | no ignition | fail light | fail ignite | lockout	L120 s26 "After three (3) Trial-For-Ignition attempts with no ignition ... "; range/furnace tables "will not light" (18 pages); RC22 "gas clicks, never lights"
+family	shut off | shut down | short cycle | cycle off	L152 s27 "short cycle of the furnace"; L72 s201 "cycle off and on"; RC13 "fan turns on then shuts off"
+family	noise | noisy | rattle | grinding | gurgle | hum | buzz	L186 s12 "Vibrating or rattling"; L2 s3 "Loud grinding noise"; L121 s29 "a gurgle sound"; RC29 "gurgling or grinding noise"
+family	drift | creep | leak down | bleed down | lose pressure | settle	L17 s6 "Room drifts in both the in and out positions"; L647 s1 "This leaking down condition can be caused by a leaking valve"; RC20 "jacks drift and move on their own"
+#
+# --- keep: generated base forms that would merge different bay words ---
+keep	fitting | housing | bearing | casing | lining | backing | landing | meaning | ceiling	gas fitting / fan housing / wheel bearing are parts, not fit / house / bear
+keep	specification | publication | formation | production | transition | exception | information | direction | designation | depression | pression | combination | termination | utilisation | autorisation | alimentation	-ion words whose generated base is a different word (specific, public, format, product ...)
+keep	troubleshooting | troubleshoot | background | feedback | pigtail | sealand | jackknife | crankshaft | hotline	compounds whose halves mean something else in the bay (ground, back, tail) or a brand (Sealand)
+keep	ccc | hw	acronyms with another meaning in RV manuals: CCC = Dometic Comfort Control Center (L157), HW = hot water

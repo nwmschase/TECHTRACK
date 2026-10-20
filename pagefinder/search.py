@@ -15,7 +15,10 @@ next part to check, then asks fetch_by_part() for that part's pages.
 2. Entry page: a code -> the fault-code table page(s) listing it (page flag is_fault_codes); a symptom -> the best
    pages flagged is_troubleshooting in the picked manual(s), ranked by meaning + words.
 3. Ranking everywhere is hybrid: 0.5 x BM25 on whole words (normalised) + 0.5 x meaning similarity (bge-small
-   passage vectors, best passage per page, normalised). No synonym lists, no boost words, no per-case rules.
+   passage vectors, best passage per page, normalised). Words are normalised the same way in pages and queries
+   (cooling = cool, touchscreen = touch screen, temp = temperature) and the query gains the RV shop term families at half
+   weight (freeze sensor | evaporator sensor | coil sensor; not cold | not cooling | too warm), from the data files in
+   pagefinder/terms/ (terms.py). No boost words, no per-case rules.
 4. fetch_by_part(part): searches the picked manual(s) first, then the same brand's other docs, then other makers'
    tech sheets / service manuals for the same unit type (later tiers weighted 0.85 / 0.7).
 CLI: python3 search.py --unit "water heater" --brand Suburban --model SW6DE "gas clicks never lights" [--part "on/off switch"]
@@ -97,19 +100,17 @@ def embedding_model(cache_dir=None, threads=None):
     from fastembed import TextEmbedding
     return TextEmbedding(MODEL_NAME, cache_dir=cache_dir, threads=threads)
 
-STOP = set('''a about above after again against all am an and any are aren't as at be because been before being below between both but by
-can can't cannot could couldn't did didn't do does doesn't doing don't down during each few for from further had hadn't has hasn't have
-haven't having he her here hers herself him himself his how i if in into is isn't it it's its itself just let's me more most mustn't my
-myself no nor not of off on once only or other ought our ours ourselves out over own same shan't she should shouldn't so some such than
-that that's the their theirs them themselves then there there's these they this those through to too under until up very was wasn't we
-were weren't what when where which while who whom why will with won't would wouldn't you your yours yourself yourselves also get gets
-got getting one ones s t d ll m re ve y won wont dont doesnt didnt isnt cant'''.split())
-TOKEN = re.compile(r"[a-z0-9]+")
-def stem(w):
-    if len(w) > 3 and w.endswith('ies'): return w[:-3] + 'y'
-    if len(w) > 3 and w.endswith('s') and not w.endswith(('ss', 'us', 'is')): return w[:-1]
-    return w
-def tokens(text): return [stem(w) for w in TOKEN.findall(text.lower()) if w not in STOP]
+# Words: the same normalisation for pages and queries (plural, word forms, compounds, shop abbreviations), plus RV shop
+# term families on the query side. All of it lives in reviewable data files under pagefinder/terms/ (see terms.py).
+try:
+    from pagefinder import terms as _terms
+except ImportError:   # run as a script from inside pagefinder/
+    import terms as _terms
+STOP, TOKEN, stem = _terms.STOP, _terms.TOKEN, _terms.stem
+def tokens(text): return _terms.vocab().tokens(text)
+def query_terms(text, extra=()):
+    """{token: weight} for BM25: the tech's own words 1.0, RV term-family words terms.FAMILY_WEIGHT"""
+    return _terms.vocab().query_terms(text, extra)
 def nmodel(s): return re.sub(r'[^A-Z0-9]', '', s.upper())
 def ncode(c):
     if not c: return ''
@@ -141,6 +142,12 @@ class Library:
             d['page_models_n'] = set(json.loads(d.get('page_models') or '[]'))
         # vocabularies come from the library data itself (no hardcoded brand or category list)
         self.unit_types = sorted({d['unit_type'] for d in self.docs.values() if d['unit_type']})
+        # docs filed under a document-kind category: which product unit types does the title itself name (see covers_unit)
+        products = [(u, mwords(u)) for u in self.unit_types if not re.search(REFERENCE_KIND, u, re.I)]
+        for d in self.docs.values():
+            if re.search(REFERENCE_KIND, d['unit_type'], re.I):
+                tw = mwords(d['title'])
+                d['title_units'] = {u for u, need in products if need and need <= tw}
         names = {}
         for d in self.docs.values():
             if d['brand']:
@@ -244,20 +251,25 @@ class Library:
         return self._doc_tf
 
 def bm25(query, items, k1=1.2, b=0.75):
-    """items: list of (key, Counter tf, length). Returns {key: score}. IDF from the items themselves."""
+    """query: tokens (weight 1 each) or {token or phrase tuple: weight}. items: list of (key, Counter tf, length).
+    Returns {key: score}.
+    IDF from the items themselves."""
+    qw = dict(query) if isinstance(query, dict) else {q: 1.0 for q in query}
     N = len(items) or 1; avg = sum(l for _, _, l in items) / N or 1
+    # a tuple key is a phrase of a term family: present only when all its words are, with the count of its rarest word
+    freq = lambda tf, q: min(tf.get(t, 0) for t in q) if isinstance(q, tuple) else tf.get(q, 0)
     df = collections.Counter()
     for _, tf, _ in items:
-        for q in set(query):
-            if tf.get(q): df[q] += 1
+        for q in qw:
+            if freq(tf, q): df[q] += 1
     out = {}
     for key, tf, l in items:
         s = 0.0
-        for q in set(query):
-            f = tf.get(q, 0)
+        for q, w in qw.items():
+            f = freq(tf, q)
             if not f: continue
             idf = math.log(1 + (N - df[q] + 0.5) / (df[q] + 0.5))
-            s += idf * f * (k1 + 1) / (f + k1 * (1 - b + b * l / avg))
+            s += w * idf * f * (k1 + 1) / (f + k1 * (1 - b + b * l / avg))
         out[key] = s
     return out
 
@@ -286,10 +298,10 @@ def meaning(lib, query, keys):
     return {k: max((sims[i] for i in r), default=0.0) for k, r in idx}
 
 def hybrid(lib, query_text, pages, extra_tokens=()):
-    """0.5 x normalised BM25 (whole words) + 0.5 x normalised meaning similarity. Returns {key: score in [0, 1]}."""
+    """0.5 x normalised BM25 (whole words + RV term families) + 0.5 x normalised meaning similarity. {key: score in [0, 1]}."""
     key = lambda p: (p['doc_id'], p['pdf_sheet'])
     if not pages: return {}
-    bm = bm25(tokens(query_text) + list(extra_tokens), [(key(p), p['tf'], p['len']) for p in pages])
+    bm = bm25(query_terms(query_text, extra_tokens), [(key(p), p['tf'], p['len']) for p in pages])
     em = meaning(lib, query_text, [key(p) for p in pages])
     bmax = max(bm.values()) or 1.0
     lo, hi = min(em.values()), max(em.values())
@@ -317,8 +329,23 @@ def brand_of(text, lib=None):
     return ''
 
 REFERENCE_KIND = r'reference|general|\bforms?\b|bulletin|recall|\btsb\b'   # categories named by document kind, not product
+def covers_unit(doc, ut):
+    """The doc is for unit type ut: filed under it, or filed under a document-kind category (Warranty Forms, TSB / Recall,
+    ID & Reference) while its own title names ut and no other unit type (e.g. 'BAL Electric Leveling System Touch Screen
+    Diagnostic Form' is filed under Warranty Forms but is a Leveling doc; a parts book titled 'Furnaces Water Heaters
+    Cooking Appliances' is not one unit's doc). A document-kind category says nothing about the unit."""
+    if not ut: return False
+    if doc['unit_type'] == ut: return True
+    return doc.get('title_units') == {ut}
 MW = re.compile(r'[a-z0-9]+(?:\.[0-9]+)?')
-def mwords(text): return {w.replace('.', '') for w in MW.findall((text or '').lower()) if w not in STOP and len(w.replace('.', '')) >= 2}
+def mwords(text):
+    """title / model-text words; plain words get the page-finder's normalisation (touchscreen = touch screen)"""
+    out = set()
+    for w in MW.findall((text or '').lower()):
+        w = w.replace('.', '')
+        if w in STOP or len(w) < 2: continue
+        out.update(t for t in (_terms.vocab().word(w) if w.isalpha() else [w]) if t not in STOP)
+    return out
 def model_score(doc, qtokens, qwords):
     """(tag, title): tag = exact model tag 1000+len, else longest shared prefix (FCR10DCGTA-BG-PWH vs FCR10DCGTA = 10,
     vs FCR10 = 5), else 500+len when the model is printed in the manual's page text (e.g. L124 p.21 names SW6DE); title = how many of the tech's model words appear in the doc title (or a merged duplicate's title)."""
@@ -339,7 +366,7 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     cand = list(lib.docs.values())
     ut = unit_type_of(unit or '', lib)
     if ut:
-        c2 = [d for d in cand if d['unit_type'] == ut]
+        c2 = [d for d in cand if covers_unit(d, ut)]
         if c2: cand = c2; why.append(f'unit type {ut}: {len(c2)} docs')
     b = brand or brand_of(model or '', lib)   # the maker comes from what the tech typed, never from the category name
     coach = []
@@ -374,14 +401,14 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
         cand = [d for d in cand if ms[d['doc_id']][1] == ttop]; why.append(f'model words {sorted(qwords)} in title (best {ttop}, kept >= {floor}): {len(cand)} docs')
     else: why.append(f'model {q_models or "-"}: no model match, ranked by complaint text')
     top_tag = top
-    q = tokens(complaint or '')
+    q = query_terms(complaint or '')
     dtf = lib.doc_tf()
     has_code = lambda d, c: any(c in p['codes'] for p in lib.pages(d['doc_id']))
     cc = ''
     if code:  # "E2 / 2 flashes": use the first form the brand's manuals actually index
         alts = codes_of(code)
         cc = next((c for c in alts if any(has_code(d, c) for d in cand)), '') or next((c for c in alts if any(has_code(d, c) for d in brand_pool)), alts[0] if alts else '')
-        q = q + [cc.lower()]
+        q = dict(q, **{cc.lower(): 1.0})
     ds = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in cand], b=0.3)  # mild length norm: a whole manual should not lose to a 1-page sheet
     code_extra = []
     if cc:
@@ -477,13 +504,17 @@ def fetch_by_part(part, result=None, brand=None, unit=None, k=3, lib=None):
     One hybrid score over all candidate pages, x1.0 / x0.85 / x0.7 by tier; contents and cover pages x0.3."""
     lib = lib or _lib()
     pinned = [m['doc_id'] for m in (result or {}).get('manuals', [])]
-    units = {m['unit_type'] for m in (result or {}).get('manuals', []) if m['unit_type']} or ({unit_type_of(unit, lib)} if unit else set())
+    units = set()
+    for m in (result or {}).get('manuals', []):   # a doc-kind-category doc (e.g. a Leveling warranty form) stands for the unit its title names
+        units |= (lib.docs.get(m['doc_id'], {}).get('title_units') or {m['unit_type']}) if m['unit_type'] else set()
+    units = units or ({unit_type_of(unit, lib)} if unit else set())
     brands = {m['brand'].lower() for m in (result or {}).get('manuals', [])} | ({brand.lower()} if brand else set())
     tier = {d: 1.0 for d in pinned}
     for d in lib.docs.values():
         if d['doc_id'] in tier: continue
-        if d['brand'].lower() in brands and d['unit_type'] in units: tier[d['doc_id']] = 0.85
-        elif d['unit_type'] in units and d['doc_type'] in DIAG_TYPES: tier[d['doc_id']] = 0.7
+        for_unit = any(covers_unit(d, u) for u in units)
+        if d['brand'].lower() in brands and for_unit: tier[d['doc_id']] = 0.85
+        elif for_unit and d['doc_type'] in DIAG_TYPES: tier[d['doc_id']] = 0.7
     pages = [p for d in tier for p in lib.pages(d) if p['len']]
     hs = hybrid(lib, part, pages)
     key = lambda p: (p['doc_id'], p['pdf_sheet'])
