@@ -361,8 +361,10 @@ class TestRealLibraryWiring(unittest.TestCase):
         from unittest import mock
         from pagefinder import search as pf
         saved_l, saved_fail, saved_models, saved_meaning = pf._L, dict(pf._MODEL_FAIL), dict(pf._MODELS), pf.meaning
+        saved_on = pf.MEANING_ON
         calls = []
         try:
+            pf.MEANING_ON = True
             pf._MODELS.clear(); pf._MODEL_FAIL.clear()
             lib = pf.Library(os.path.join(INDEX, "index.sqlite"), INDEX, app_db=APP_DB)
             def boom(*a, **k):
@@ -376,7 +378,25 @@ class TestRealLibraryWiring(unittest.TestCase):
                 self.assertEqual(len(calls), 1, "a failed model load is not retried on every click")
         finally:
             pf._L = saved_l; pf._MODEL_FAIL.clear(); pf._MODEL_FAIL.update(saved_fail)
-            pf._MODELS.clear(); pf._MODELS.update(saved_models); pf.meaning = saved_meaning
+            pf._MODELS.clear(); pf._MODELS.update(saved_models); pf.meaning = saved_meaning; pf.MEANING_ON = saved_on
+
+    def test_meaning_off_never_loads_the_model(self):
+        from unittest import mock
+        from pagefinder import search as pf
+        saved_on = pf.MEANING_ON
+        try:
+            pf.MEANING_ON = False
+            lib = pf.Library(os.path.join(INDEX, "index.sqlite"), INDEX, app_db=APP_DB)
+            with mock.patch.object(pf, "shared_embedding_model", side_effect=AssertionError("model loaded")), \
+                 mock.patch.object(pf, "shared_base_vectors", side_effect=AssertionError("vectors loaded")):
+                self.assertEqual(_REAL_MEANING(lib, "q", [("L370", 1)]), {("L370", 1): 0.0})
+                self.assertTrue(pf.pick_manual(lib, unit="Leveling", model="Power Gear 140-1230", complaint="x")[0])
+        finally:
+            pf.MEANING_ON = saved_on
+
+    def test_app_reads_the_meaning_switch_from_secrets(self):
+        src = (ROOT / "rv_techtrack.py").read_text()
+        self.assertIn('_secret("TT_PAGEFINDER_MEANING")', src)
 
     def test_added_docs_are_embedded_in_small_batches(self):
         from pagefinder import search as pf

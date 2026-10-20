@@ -5205,7 +5205,9 @@ def _gd_page_finder():
     if _gd_finder is None:
         import gd_pages
 
-        _gd_finder = gd_pages.LibraryPageFinder(app_db=os.path.abspath(DB_PATH))
+        flag = str(_secret("TT_PAGEFINDER_MEANING") or "on").strip().lower()
+        _gd_finder = gd_pages.LibraryPageFinder(app_db=os.path.abspath(DB_PATH),
+                                                meaning=flag not in ("0", "off", "false", "no"))
     return _gd_finder
 
 

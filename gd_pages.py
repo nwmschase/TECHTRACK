@@ -126,7 +126,7 @@ class LibraryPageFinder:
     app_db: the app's library DB; its documents table is the single source of truth for titles, brands, categories
             and models (docs deleted in the app leave the finder; docs added after the index build are read from the
             app's own page chunks). Default: TT_APP_DB.
-    meaning=False switches the embedding half off (BM25 on whole words only). Offline-test mode, not a product mode.
+    meaning=False switches the embedding half off for the process (BM25 on whole words only; see search.MEANING_ON).
     R4 (approved): fetch_part only hands over pages of the picked manuals' maker(s)."""
 
     def __init__(self, index_dir=None, meaning=True, app_db=None):
@@ -136,8 +136,7 @@ class LibraryPageFinder:
             d = index_dir or _search.INDEX_DIR
             _search.use_library(os.path.join(d, "index.sqlite"), d, app_db)
         self.meaning = meaning
-        if not meaning:
-            self.search.meaning = lambda lib, query, keys: {k: 0.0 for k in keys}
+        self.search.MEANING_ON = bool(meaning)
 
     @property
     def lib(self):

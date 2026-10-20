@@ -261,9 +261,17 @@ def bm25(query, items, k1=1.2, b=0.75):
         out[key] = s
     return out
 
+# Meaning half on/off for this process. Off = whole-word (BM25) scores only: the embedding model (~260 MB RSS) and the
+# passage vectors (~64 MB) are never loaded. Offline sweep 10/20: manual picks identical either way (66 own / 0 wrong);
+# off changes only the order of pages inside the picked manual. Hosted app: Streamlit secret TT_PAGEFINDER_MEANING.
+MEANING_ON = os.environ.get('TT_PAGEFINDER_MEANING', 'on').strip().lower() not in ('0', 'off', 'false', 'no')
+
+
 def meaning(lib, query, keys):
     """{(doc_id, sheet): best passage cosine} for the given pages"""
     import numpy as np
+    if not MEANING_ON:
+        return {k: 0.0 for k in keys}
     try:
         V, rows = lib.vectors(); q = lib.embed_query(query)
     except Exception as e:
