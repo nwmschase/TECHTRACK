@@ -33,6 +33,7 @@ DEFAULT_CATEGORY = "Lippert Unsorted"
 DEFAULT_BATCH = 2
 MAX_BATCH = 40
 LOCK_SECONDS = 600
+BUSY_POLL_SECONDS = 5
 R2_SUMMARY_PREFIXES = (
     "documents/",
     "certificates/",
@@ -875,9 +876,22 @@ def list_open_jobs(session) -> list:
         """
         SELECT * FROM bulk_import_jobs
         WHERE status NOT IN ('complete', 'abandoned')
-        ORDER BY id ASC
+        ORDER BY id DESC
         """,
     )
+
+
+def pick_active_job(opens: list, remembered=None):
+    """The import the panel works on: the one this manager started or picked last (if still open),
+    else the NEWEST open import. Never silently the oldest one."""
+    ids = [int(row["id"]) for row in opens]
+    if not ids:
+        return None
+    try:
+        rid = int(remembered) if remembered is not None else None
+    except (TypeError, ValueError):
+        rid = None
+    return rid if rid in ids else max(ids)
 
 
 def latest_open_job(session):
@@ -1290,20 +1304,16 @@ def _keywords(item: dict) -> str:
 
     The columns stay the source of truth for brand and model filters. This
     string is what title/keyword search already scans.
+
+    Only identifying words: the manifest keywords, the models, the maker (brand + product line)
+    and the doc / TI number. Category, doc type, title and revision date are NOT copied in:
+    they live in their own columns, and copying them made every doc in a category share the same
+    "keywords" (the padding the 10/20 library audit had to strip).
     """
     parts = []
-    parts.extend(split_semicolon_list(item.get("keywords") or ""))
+    parts.extend(split_semicolon_list((item.get("keywords") or "").replace("|", ";")))
     parts.extend(split_semicolon_list(item.get("models") or ""))
-    for field in (
-        "brand",
-        "product_line",
-        "doc_number",
-        "ti_number",
-        "doc_type",
-        "category_name",
-        "clean_title",
-        "revision_date",
-    ):
+    for field in ("brand", "product_line", "doc_number", "ti_number"):
         parts.append(item.get(field) or "")
     return _join_unique(parts)
 
@@ -1713,6 +1723,7 @@ def process_next_batch(
             )
             taken = set()
             for index, item in enumerate(working, 1):
+                _renew_lock(session, job_id)
                 try:
                     status = _import_one(
                         session,
@@ -1755,6 +1766,11 @@ def process_next_batch(
                         progress(index, len(working), item.get("filename") or "")
                     except Exception:
                         pass
+    except BaseException:
+        # A Streamlit rerun/stop (a click during the batch) or a crash in the middle of a file: drop that
+        # file's half-written rows; the file goes back to pending at the next batch.
+        session.rollback()
+        raise
     finally:
         counts = job_progress(session, job_id)
         finished = counts["pending"] == 0 and counts["working"] == 0 and not zip_error
@@ -1799,6 +1815,15 @@ def process_next_batch(
         "staging_zip_kept": staging["kept"],
         "staging_zip_error": staging["error"],
     }
+
+
+def _renew_lock(session, job_id: int) -> None:
+    """Heartbeat: a live batch keeps its lock; a batch that died stops renewing and its lock runs out."""
+    session.execute(
+        text("UPDATE bulk_import_jobs SET lock_until = :lock WHERE id = :id AND status = 'running'"),
+        {"lock": time.time() + LOCK_SECONDS, "id": job_id},
+    )
+    session.commit()
 
 
 def _status_label(status: str) -> str:
@@ -1891,12 +1916,22 @@ def render_manager_bulk_panel(
     except Exception as exc:
         st.error(f"Could not read import progress: {exc}")
     job = None
-    if len(opens) == 1:
-        job = opens[0]
-    elif len(opens) > 1:
-        labels = [f"#{row['id']} {row['zip_name']} ({row['status']})" for row in opens]
-        pick = st.selectbox("In-progress import", labels, key="bulk_job_pick")
-        job = opens[labels.index(pick)]
+    by_id = {int(row["id"]): row for row in opens}
+    active = pick_active_job(opens, st.session_state.get("bulk_active_job"))
+    if active is not None and len(opens) > 1:
+        # Options are job ids (stable across reruns); the label may change (status), the choice does not.
+        ids = list(by_id)
+        if st.session_state.get("bulk_job_pick") not in ids:
+            st.session_state["bulk_job_pick"] = active
+        active = st.selectbox(
+            "In-progress import",
+            ids,
+            key="bulk_job_pick",
+            format_func=lambda i: f"#{i} {by_id[i]['zip_name']} ({by_id[i]['status']})",
+        )
+    if active is not None:
+        st.session_state["bulk_active_job"] = active
+        job = by_id[active]
 
     if st.session_state.pop("bulk_drop_zip", False):
         st.session_state.pop("bulk_zip", None)
@@ -2027,6 +2062,8 @@ def render_manager_bulk_panel(
                 if staged.get("warning"):
                     st.warning(staged["warning"])
                 st.session_state["bulk_run_chain"] = bool(auto)
+                st.session_state["bulk_active_job"] = int(staged["job_id"])
+                st.session_state.pop("bulk_job_pick", None)
                 _run_batch(
                     st,
                     session,
@@ -2136,10 +2173,16 @@ def _run_batch(
     pace = import_pace_line(st.session_state, counts["done_files"], now)
     if pace:
         st.write(pace)
-    # Another run holds the lock. Keep Auto-continue armed and try again.
+    # Another run (another tab or a browser reconnect) holds the lock. Never spin on st.rerun():
+    # wait a few seconds per check, and only while Auto-continue is armed. The other run renews its
+    # lock per file; a dead run's lock runs out, and this session then takes over.
     if result.get("busy"):
         if st.session_state.get("bulk_run_chain"):
+            st.info("Another run is importing this ZIP. Checking again in 5 seconds...")
+            time.sleep(BUSY_POLL_SECONDS)
             st.rerun()
+        else:
+            st.button("Check again", key="bulk_busy_refresh")
         return
     carry_on = auto_continue_should_rerun(
         auto=bool(auto) and bool(st.session_state.get("bulk_run_chain")),

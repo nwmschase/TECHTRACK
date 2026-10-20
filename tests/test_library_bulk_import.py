@@ -670,6 +670,11 @@ class TestBulkImport(BulkCase):
         self.assertEqual(row["revision_date"], "2024-03-01")
         for needle in ("E2", "1234567", "PSX1", "Schwintek", "Lippert", "CCD-0001750"):
             self.assertIn(needle, row["keywords"])
+        # no padding: category, doc type, title and revision date stay in their own columns (10/20 audit)
+        for junk in ("Lippert Slide-Outs", "Service Manual", "Schwintek In-Wall", "2024-03-01"):
+            self.assertNotIn(junk, row["keywords"])
+        self.assertEqual(row["keywords"], bulk._keywords(dict(keywords="slide motor; E2; 1234567", models="PSX1; Schwintek",
+                                                               brand="Lippert", product_line="In-Wall Slide-Out", doc_number="CCD-0001750")))
         chunks = self.chunks_for(row["id"])
         self.assertTrue(chunks)
         self.assertIn("E2", chunks[0]["chunk_text"])
