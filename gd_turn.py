@@ -13,6 +13,14 @@ Turn flow
   5. Cut off the state block and store it (gd_state). If that block asks for a part or web lookup whose pages are not in
      hand yet, fetch them and redo the call once (MAX_FETCH_ROUNDS), so the step can cite the page.
   6. Return the brain's prose unchanged.
+
+Approved rule checks (CHASE-RULE-DECISIONS-2026-10-20; state-based, never a rewrite of the reply):
+  R2 web lookup: only pages from maker (OEM) domains are given to the brain (oem_domains.allowed).
+  R3 no part order while a test is pending: a state block with order_part while pending_test is open gets ONE re-call
+     with a plain note; if it still orders, the order is not recorded and the problem is logged.
+  R4 brand lock: the page-finder only hands over pages of the picked maker's manuals (gd_pages.LibraryPageFinder).
+  R5 citation check: a cited doc+page the brain was never shown is not recorded as a source; the problem is logged
+     and the brain is told on its next turn.
 """
 from __future__ import annotations
 
@@ -21,6 +29,7 @@ import time
 
 import gd_prompt
 import gd_state
+import oem_domains
 from gd_pages import Page, Picked, apply_budget, PAGE_BUDGET_PAGES, PAGE_BUDGET_CHARS
 
 REPLY_MAX_TOKENS = 2000           # prose + the state block
@@ -43,7 +52,7 @@ def _picked_from_dict(d: dict) -> Picked:
 def new_case(category, model_text, complaint):
     return {"unit": {"category": category or "", "model_text": model_text or ""}, "complaint": complaint or "",
             "picked": None, "picked_code": None, "toc": [], "part_pages": {}, "part_order": [], "web_pages": {},
-            "state": gd_state.new_state(), "turns": 0, "problems": []}
+            "state": gd_state.new_state(), "turns": 0, "problems": [], "shown": [], "notes_next": []}
 
 
 def _ensure_pages(case, finder, web_fn, notes):
@@ -81,10 +90,15 @@ def _web(case, web_fn, query, notes) -> bool:
     if query in case["web_pages"]:
         return False
     if web_fn is None:
-        notes.append(f"WEB LOOKUP '{query}': not available in this build. Say you don't know if the pages here do not cover it.")
+        notes.append(f"WEB LOOKUP '{query}': not available in this build. Work from the pages here; where they do not cover a "
+                     "step, use labeled [General trade knowledge] and say what the library is missing.")
         case["web_pages"][query] = []
         return False
-    got = [p.to_dict() for p in (web_fn(query) or [])]
+    brands = [m.get("brand") or "" for m in ((case.get("picked") or {}).get("manuals") or [])]
+    raw = list(web_fn(query) or [])
+    got = [p.to_dict() for p in raw if oem_domains.allowed(getattr(p, "url", ""), brands)]   # R2
+    if len(got) < len(raw):
+        notes.append(f"WEB LOOKUP '{query}': {len(raw) - len(got)} result(s) from non-maker sites were left out.")
     case["web_pages"][query] = got
     return bool(got)
 
@@ -99,6 +113,31 @@ def _ordered_pages(case, picked):
     return newest + entry + web + support + older
 
 
+def _remember_shown(case, pages):
+    seen = {tuple(x) for x in case["shown"]}
+    for p in list(pages) + [Page.from_dict(d) for d in case.get("toc") or []]:
+        for k in ((p.doc_id, str(p.page)), (p.doc_id, str(p.sheet))):
+            if k not in seen:
+                seen.add(k); case["shown"].append(list(k))
+
+
+def _check_citations(case, cited):
+    """R5: split cited [{doc_id, page}] into (shown, never shown). Page matches the printed page or the PDF sheet."""
+    seen = {tuple(x) for x in case["shown"]}
+    ok, bad = [], []
+    for c in cited:
+        key = (str(c.get("doc_id") or ""), str(c.get("page") or "").strip().lstrip("p.").strip())
+        (ok if key in seen else bad).append(c)
+    return ok, bad
+
+
+def _order_while_pending(state, update):
+    """R3: the pending test (after this update) when the update also orders a part, else ''."""
+    order = (update.get("order_part") or "").strip()
+    pending = (update["pending_test"] if "pending_test" in update else (state or {}).get("pending_test") or "").strip()
+    return pending if order and pending else ""
+
+
 def run_turn(user_msg, category, model_text, history, *, finder, chat_fn, store, usage_fn=None, web_fn=None,
              log_path="", max_pages=PAGE_BUDGET_PAGES, max_chars=PAGE_BUDGET_CHARS):
     """chat_fn(messages, max_tokens, reasoning_effort) -> str. Returns
@@ -111,7 +150,8 @@ def run_turn(user_msg, category, model_text, history, *, finder, chat_fn, store,
         # The tech changed the unit fields: new pages for the new unit; what the tech already reported stays.
         case["unit"] = {"category": category or "", "model_text": model_text or ""}
         case["picked"], case["part_pages"], case["part_order"], case["toc"] = None, {}, [], []
-    notes = []
+    case.setdefault("shown", []); case.setdefault("notes_next", [])
+    notes = list(case["notes_next"]); case["notes_next"] = []
     picked = _ensure_pages(case, finder, web_fn, notes)
     effort = FIRST_EFFORT if case["turns"] == 0 else LATER_EFFORT
     calls, usage, problems = 0, {}, []
@@ -128,12 +168,31 @@ def run_turn(user_msg, category, model_text, history, *, finder, chat_fn, store,
             usage = {k: usage.get(k, 0) + v if isinstance(v, (int, float)) and not isinstance(v, bool) else v for k, v in u.items()}
         prose, update, probs = gd_state.parse(reply)
         problems += probs
+        _remember_shown(case, pages)
+        r3 = _order_while_pending(case["state"], update)
         if calls > MAX_FETCH_ROUNDS:
+            if r3:
+                problems.append(f"R3: order of {update['order_part']!r} while test {r3!r} is pending; order not recorded")
+                update = dict(update, order_part="")
             break
+        if r3:
+            notes.append(f"CHECK: your last draft orders/replaces '{update['order_part']}' while the test '{r3}' is still "
+                         "pending. Finish that test or drop it (say why) before any part order. Redo your reply.")
+            continue
         part, query = (update.get("next_part_to_fetch") or "").strip(), (update.get("web_lookup") or "").strip()
         new_pages = (bool(part) and _fetch_part(case, finder, picked, part)) | (bool(query) and _web(case, web_fn, query, notes))
         if not new_pages:
             break
+    update = dict(update)
+    if update:
+        update.setdefault("order_part", "")   # per turn: an order is never carried into a later turn
+    if "cited" in update:                  # R5
+        ok, bad = _check_citations(case, update["cited"])
+        update["cited"] = ok
+        if bad:
+            problems.append("R5: cited page(s) not shown: " + ", ".join(f"{c.get('doc_id')} p.{c.get('page')}" for c in bad))
+            case["notes_next"].append("CHECK: your last reply cited " + ", ".join(f"{c.get('doc_id')} p.{c.get('page')}" for c in bad)
+                                      + ", which you were not shown. Cite only pages listed under SELECTED PAGES or TABLE OF CONTENTS.")
     case["state"] = gd_state.merge(case["state"], update)
     case["turns"] += 1
     case["problems"] = (case["problems"] + problems)[-50:]

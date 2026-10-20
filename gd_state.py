@@ -14,6 +14,7 @@ Fields (all optional in each update; missing = unchanged):
   part_working        str     the part currently being tested or worked on
   next_part_to_fetch  str     a part whose manual pages the brain wants next ("" when none)
   web_lookup          str     a web search the brain wants when the library has nothing ("" when none)
+  order_part          str     a part the brain tells the tech to order / replace this turn ("" when none; R3 check)
   cause               str     the brain's current diagnosis, with its doc + page
   repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words
   cited               [{doc_id, page}]   pages the brain cited this turn
@@ -30,7 +31,7 @@ OPEN, CLOSE = "<state>", "</state>"
 SCHEMA = {
     "complaint_verified": str, "complaint_quote": str, "complaint_actual": str,
     "facts": list, "fault_code": str, "pending_test": str, "part_working": str,
-    "next_part_to_fetch": str, "web_lookup": str, "cause": str, "repair": dict,
+    "next_part_to_fetch": str, "web_lookup": str, "order_part": str, "cause": str, "repair": dict,
     "cited": list, "summary": str, "closed": bool,
 }
 VERIFIED_VALUES = ("yes", "no", "not_asked")
@@ -38,7 +39,7 @@ VERIFIED_VALUES = ("yes", "no", "not_asked")
 
 def new_state() -> dict:
     return {"complaint_verified": "not_asked", "complaint_quote": "", "complaint_actual": "", "facts": [],
-            "fault_code": "", "pending_test": "", "part_working": "", "next_part_to_fetch": "", "web_lookup": "",
+            "fault_code": "", "pending_test": "", "part_working": "", "next_part_to_fetch": "", "web_lookup": "", "order_part": "",
             "cause": "", "repair": {"done": False, "verified": False, "what": "", "quote": ""}, "cited": [],
             "summary": "", "closed": False}
 
