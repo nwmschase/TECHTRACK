@@ -341,6 +341,19 @@ class TestRealLibraryWiring(unittest.TestCase):
         self.assertEqual(self.f.doc_title("L370"), self.f.lib.docs["L370"]["title"])
         self.assertEqual(self.f.doc_title("no-such-doc"), "no-such-doc")
 
+    def test_one_library_and_model_per_process_across_reruns(self):
+        # the app builds a finder on every script rerun; the Library (and its model/vectors) must be reused, not rebuilt
+        from pagefinder import search as pf
+        saved = pf._L
+        try:
+            a = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+            b = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+            self.assertIs(a.lib, b.lib)
+            self.assertIs(pf.shared_base_vectors(INDEX), pf.shared_base_vectors(INDEX))
+            self.assertFalse(pf.shared_base_vectors(INDEX)[0].flags.writeable)
+        finally:
+            pf._L = saved
+
     def test_full_turn_on_real_library(self):
         chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])
         r = gd_turn.run_turn("gas clicks but never lights", "Water Heaters", "Suburban SW6DE water heater", [], finder=self.f,

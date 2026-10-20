@@ -20,7 +20,7 @@ next part to check, then asks fetch_by_part() for that part's pages.
    tech sheets / service manuals for the same unit type (later tiers weighted 0.85 / 0.7).
 CLI: python3 search.py --unit "water heater" --brand Suburban --model SW6DE "gas clicks never lights" [--part "on/off switch"]
 """
-import hashlib, sqlite3, re, math, json, os, sys, collections, argparse
+import hashlib, sqlite3, re, math, json, os, sys, collections, argparse, threading
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Index built from the app library by pagefinder/build_index.py (index.sqlite + passages.npy/json).
 INDEX_DIR = os.environ.get('TT_PAGEFINDER_DIR', os.path.join(HERE, 'index'))
@@ -36,6 +36,35 @@ APP_DB = os.environ.get('TT_APP_DB', '')   # the app library DB: its documents t
 def _model_cached(cache_dir):
     root = os.path.join(cache_dir, 'models--Qdrant--bge-small-en-v1.5-onnx-Q', 'snapshots')
     return os.path.isdir(root) and any(os.path.exists(os.path.join(root, s, 'model_optimized.onnx')) for s in os.listdir(root))
+
+
+# Process-wide caches. The hosted app runs every session in its own thread and re-executes its script on every click;
+# the embedding model (~65 MB file, ~400 MB in RAM) and the shipped passage vectors do not depend on the app library,
+# so they are loaded ONCE per process and shared, never once per Library / per rerun (that churned RAM to 1.2 GB).
+_LOCK = threading.RLock()
+_MODELS = {}      # cache_dir -> TextEmbedding
+_BASE_VEC = {}    # vec_dir -> (V, {(doc_id, sheet): [row, ...]})
+
+
+def shared_embedding_model(cache_dir=None):
+    cache_dir = cache_dir or MODEL_DIR
+    with _LOCK:
+        if cache_dir not in _MODELS:
+            _MODELS[cache_dir] = embedding_model(cache_dir)
+        return _MODELS[cache_dir]
+
+
+def shared_base_vectors(vec_dir):
+    """passages.npy + passages.json of the shipped index, loaded once per process (read-only; never mutate)."""
+    with _LOCK:
+        if vec_dir not in _BASE_VEC:
+            import numpy as np
+            V = np.load(os.path.join(vec_dir, 'passages.npy'))   # float16 kept as is (half the RAM); scored in float32 per query
+            V.setflags(write=False)
+            rows = collections.defaultdict(list)
+            for i, (d, s) in enumerate(json.load(open(os.path.join(vec_dir, 'passages.json')))): rows[(d, s)].append(i)
+            _BASE_VEC[vec_dir] = (V, dict(rows))
+        return _BASE_VEC[vec_dir]
 
 
 def embedding_model(cache_dir=None, threads=None):
@@ -153,11 +182,13 @@ class Library:
         return r
     def vectors(self):
         """passage vectors (float32) and {(doc_id, sheet): [row, ...]}"""
+        with _LOCK:
+            return self._vectors_locked()
+    def _vectors_locked(self):
         if self._vec is None:
             import numpy as np
-            V = np.load(os.path.join(self.vec_dir, 'passages.npy'))   # float16 kept as is (half the RAM); scored in float32 per query
-            rows = collections.defaultdict(list)
-            for i, (d, s) in enumerate(json.load(open(os.path.join(self.vec_dir, 'passages.json')))): rows[(d, s)].append(i)
+            V, base_rows = shared_base_vectors(self.vec_dir)
+            rows = collections.defaultdict(list, base_rows)   # new dict; shared lists are replaced, never appended to
             added = [k for k in getattr(self, 'added_docs', []) if k in self.docs]
             if added:   # docs added in the app after the index build: embed their pages once
                 from pagefinder.build_index import passages
@@ -169,7 +200,7 @@ class Library:
                     E = np.asarray(list(self._embedder().embed(texts, batch_size=32)), dtype=np.float32)
                     E /= np.linalg.norm(E, axis=1, keepdims=True) + 1e-9
                     base = len(V); V = np.concatenate([V, E.astype(V.dtype)])
-                    for j, k in enumerate(keys): rows[k].append(base + j)
+                    for j, k in enumerate(keys): rows[k] = rows[k] + [base + j]
             self._vec = (V, rows)
         return self._vec
     def embed_query(self, text):
@@ -178,7 +209,7 @@ class Library:
         return v / (np.linalg.norm(v) + 1e-9)
     def _embedder(self):
         if self._model is None:
-            self._model = embedding_model()
+            self._model = shared_embedding_model()
         return self._model
     def pages(self, doc_id):
         if doc_id not in self._pages:
@@ -448,11 +479,22 @@ def app_signature(app_db):
 _L = None
 def _lib():
     global _L
-    if _L is None:
-        _L = Library()
-    elif _L.app_db and os.path.exists(_L.app_db) and app_signature(_L.app_db) != _L.app_sig:
-        _L = Library(_L.db_path, _L.vec_dir, _L.app_db)   # the app library changed: re-read it
-    return _L
+    with _LOCK:
+        if _L is None:
+            _L = Library()
+        elif _L.app_db and os.path.exists(_L.app_db) and app_signature(_L.app_db) != _L.app_sig:
+            _L = Library(_L.db_path, _L.vec_dir, _L.app_db)   # the app library changed: re-read it
+        return _L
+
+
+def use_library(db, vec_dir, app_db):
+    """The process-wide Library for this index + app DB: kept when it already matches (the app re-runs its script on
+    every click), rebuilt only for a different index/app DB; app-library edits are picked up by _lib()."""
+    global _L
+    with _LOCK:
+        if _L is None or (_L.db_path, _L.vec_dir, _L.app_db) != (db, vec_dir, app_db):
+            _L = Library(db, vec_dir, app_db=app_db)
+        return _L
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(); ap.add_argument('complaint', nargs='*'); ap.add_argument('--unit'); ap.add_argument('--brand')

@@ -134,7 +134,7 @@ class LibraryPageFinder:
         self.search = _search
         if index_dir or app_db is not None:
             d = index_dir or _search.INDEX_DIR
-            self.search._L = _search.Library(os.path.join(d, "index.sqlite"), d, app_db=app_db)
+            _search.use_library(os.path.join(d, "index.sqlite"), d, app_db)
         self.meaning = meaning
         if not meaning:
             self.search.meaning = lambda lib, query, keys: {k: 0.0 for k in keys}
