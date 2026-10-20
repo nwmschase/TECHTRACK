@@ -1910,29 +1910,9 @@ def render_manager_bulk_panel(
     if not r2_ready:
         st.error("R2 storage is not configured. Check Streamlit Secrets before starting an import.")
 
-    opens = []
-    try:
-        opens = list_open_jobs(session)
-    except Exception as exc:
-        st.error(f"Could not read import progress: {exc}")
-    job = None
-    by_id = {int(row["id"]): row for row in opens}
-    active = pick_active_job(opens, st.session_state.get("bulk_active_job"))
-    if active is not None and len(opens) > 1:
-        # Options are job ids (stable across reruns); the label may change (status), the choice does not.
-        ids = list(by_id)
-        if st.session_state.get("bulk_job_pick") not in ids:
-            st.session_state["bulk_job_pick"] = active
-        active = st.selectbox(
-            "In-progress import",
-            ids,
-            key="bulk_job_pick",
-            format_func=lambda i: f"#{i} {by_id[i]['zip_name']} ({by_id[i]['status']})",
-        )
-    if active is not None:
-        st.session_state["bulk_active_job"] = active
-        job = by_id[active]
-
+    # The job picker and progress are drawn AFTER "Start bulk import" is handled (into containers placed above it),
+    # so the run that starts an import already shows THAT job, never the previous open job's progress and buttons.
+    picker_slot = st.container()
     if st.session_state.pop("bulk_drop_zip", False):
         st.session_state.pop("bulk_zip", None)
     if "bulk_batch_size" not in st.session_state:
@@ -1959,75 +1939,7 @@ def render_manager_bulk_panel(
     if not auto:
         st.session_state["bulk_run_chain"] = False
 
-    if job:
-        counts = job_progress(session, int(job["id"]))
-        total = max(int(counts["total"]), 1)
-        st.progress(min(1.0, counts["done_files"] / total))
-        st.write(
-            f"**{counts['done_files']}** of **{counts['total']}** files in {job['zip_name']} "
-            f"(tier order, batch of {batch_size})"
-        )
-        st.write(
-            f"Imported {counts['imported']} · needs OCR {counts['needs_ocr']} · "
-            f"duplicates {counts['duplicate']} · failed {counts['failed']} · "
-            f"remaining {counts['pending']}"
-        )
-        rendering = _all(
-            session,
-            """
-            SELECT filename, index_note
-            FROM bulk_import_items
-            WHERE job_id = :id AND COALESCE(figure_page, 0) > 0
-            ORDER BY ordinal ASC
-            LIMIT 3
-            """,
-            {"id": int(job["id"])},
-        )
-        for item in rendering:
-            st.write(f"Rendering figures: {item.get('filename')} {item.get('index_note') or ''}".rstrip())
-        pace = import_pace_line(st.session_state, counts["done_files"], time.time())
-        if pace:
-            st.write(pace)
-        for item in recent_items(session, int(job["id"])):
-            note = item.get("error") or item.get("index_note") or ""
-            st.write(
-                f"{_status_label(item.get('status') or '')}: {item.get('filename')} "
-                f"(tier {item.get('tier')}) {note}".rstrip()
-            )
-        stop = st.button("Stop", key="bulk_stop")
-        go = st.button("Import next batch", type="primary", key="bulk_go")
-        abandon = st.button("Abandon this import", key="bulk_abandon")
-        if stop:
-            st.session_state["bulk_run_chain"] = False
-            freeze_import_pace(st.session_state, time.time())
-        if abandon:
-            st.session_state["bulk_run_chain"] = False
-            abandon_job(session, int(job["id"]))
-            st.rerun()
-        if go:
-            st.session_state["bulk_run_chain"] = bool(auto)
-        should_run = bool(go) or bool(st.session_state.get("bulk_run_chain"))
-        if stop:
-            should_run = False
-        if should_run and r2_ready:
-            _run_batch(
-                st,
-                session,
-                job_id=int(job["id"]),
-                upload_bytes=upload_bytes,
-                download_bytes=download_bytes,
-                backup_db=backup_db,
-                batch_size=batch_size,
-                auto=auto,
-                stopped=False,
-                reset_pace=bool(go),
-                delete_zip=delete_bytes,
-                index_figures=index_figures,
-                stream_download=stream_download,
-            )
-        elif should_run and not r2_ready:
-            st.session_state["bulk_run_chain"] = False
-
+    progress_slot = st.container()
     zip_up = st.file_uploader("ZIP of PDFs", type=["zip"], key="bulk_zip")
     manifest = st.file_uploader("Manifest CSV (optional)", type=["csv"], key="bulk_manifest")
     if st.button("Start bulk import", type="primary", key="bulk_start"):
@@ -2079,6 +1991,100 @@ def render_manager_bulk_panel(
                     index_figures=index_figures,
                     stream_download=stream_download,
                 )
+    with picker_slot:
+        opens = []
+        try:
+            opens = list_open_jobs(session)
+        except Exception as exc:
+            st.error(f"Could not read import progress: {exc}")
+        job = None
+        by_id = {int(row["id"]): row for row in opens}
+        active = pick_active_job(opens, st.session_state.get("bulk_active_job"))
+        if active is not None and len(opens) > 1:
+            # Options are job ids (stable across reruns); the label may change (status), the choice does not.
+            ids = list(by_id)
+            if st.session_state.get("bulk_job_pick") not in ids:
+                st.session_state["bulk_job_pick"] = active
+            active = st.selectbox(
+                "In-progress import",
+                ids,
+                key="bulk_job_pick",
+                format_func=lambda i: f"#{i} {by_id[i]['zip_name']} ({by_id[i]['status']})",
+            )
+        if active is not None:
+            st.session_state["bulk_active_job"] = active
+            job = by_id[active]
+
+    with progress_slot:
+        if job:
+            counts = job_progress(session, int(job["id"]))
+            total = max(int(counts["total"]), 1)
+            st.progress(min(1.0, counts["done_files"] / total))
+            st.write(
+                f"**{counts['done_files']}** of **{counts['total']}** files in {job['zip_name']} "
+                f"(tier order, batch of {batch_size})"
+            )
+            st.write(
+                f"Imported {counts['imported']} · needs OCR {counts['needs_ocr']} · "
+                f"duplicates {counts['duplicate']} · failed {counts['failed']} · "
+                f"remaining {counts['pending']}"
+            )
+            rendering = _all(
+                session,
+                """
+                SELECT filename, index_note
+                FROM bulk_import_items
+                WHERE job_id = :id AND COALESCE(figure_page, 0) > 0
+                ORDER BY ordinal ASC
+                LIMIT 3
+                """,
+                {"id": int(job["id"])},
+            )
+            for item in rendering:
+                st.write(f"Rendering figures: {item.get('filename')} {item.get('index_note') or ''}".rstrip())
+            pace = import_pace_line(st.session_state, counts["done_files"], time.time())
+            if pace:
+                st.write(pace)
+            for item in recent_items(session, int(job["id"])):
+                note = item.get("error") or item.get("index_note") or ""
+                st.write(
+                    f"{_status_label(item.get('status') or '')}: {item.get('filename')} "
+                    f"(tier {item.get('tier')}) {note}".rstrip()
+                )
+            stop = st.button("Stop", key="bulk_stop")
+            go = st.button("Import next batch", type="primary", key="bulk_go")
+            abandon = st.button("Abandon this import", key="bulk_abandon")
+            if stop:
+                st.session_state["bulk_run_chain"] = False
+                freeze_import_pace(st.session_state, time.time())
+            if abandon:
+                st.session_state["bulk_run_chain"] = False
+                abandon_job(session, int(job["id"]))
+                st.rerun()
+            if go:
+                st.session_state["bulk_run_chain"] = bool(auto)
+            should_run = bool(go) or bool(st.session_state.get("bulk_run_chain"))
+            if stop:
+                should_run = False
+            if should_run and r2_ready:
+                _run_batch(
+                    st,
+                    session,
+                    job_id=int(job["id"]),
+                    upload_bytes=upload_bytes,
+                    download_bytes=download_bytes,
+                    backup_db=backup_db,
+                    batch_size=batch_size,
+                    auto=auto,
+                    stopped=False,
+                    reset_pace=bool(go),
+                    delete_zip=delete_bytes,
+                    index_figures=index_figures,
+                    stream_download=stream_download,
+                )
+            elif should_run and not r2_ready:
+                st.session_state["bulk_run_chain"] = False
+
 
 
 def _run_batch(

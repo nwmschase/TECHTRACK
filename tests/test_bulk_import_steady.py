@@ -27,6 +27,21 @@ class PickActiveJob(unittest.TestCase):
         self.assertIsNone(bulk.pick_active_job([], 12))
 
 
+class StartShowsTheNewJob(unittest.TestCase):
+    """Headless run 10/20 (migrated DB holds live's paused job #11): the run that pressed Start drew job #11's progress and
+    'Import next batch' above the new import. Start is now handled before the picker/progress are drawn into their slots."""
+
+    def test_start_is_handled_before_the_job_panel_is_drawn(self):
+        import inspect
+        src = inspect.getsource(bulk)
+        a = src.index('st.button("Start bulk import"')
+        self.assertLess(src.index("picker_slot = st.container()"), a)
+        self.assertLess(src.index("progress_slot = st.container()"), a)
+        self.assertGreater(src.index("opens = list_open_jobs(session)"), a)
+        self.assertGreater(src.index('st.button("Import next batch"'), a)
+        self.assertGreater(src.index("with picker_slot:"), a)
+
+
 class InterruptedBatch(BulkCase):
     def test_click_mid_batch_rolls_back_and_releases_lock_then_resumes(self):
         files = {f"m{i}.pdf": _text_pdf(f"Manual {i} slide motor error E{i}") for i in range(3)}
