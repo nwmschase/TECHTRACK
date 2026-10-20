@@ -1,0 +1,4 @@
+# Model tags a library doc must NOT carry in the page-finder index (read by pagefinder/build_index.py doc_record), e.g. one
+# taken from an OEM cover that misprints a sibling product.
+# Columns (TAB): app document id <TAB> model <TAB> evidence. Data fixes only; the app library's own models field is not changed here.
+336	BC1715A	Doc 336 is the Furrion Greystone 17" Griddle/Grill Combo, CCD-0008001, models field BC1715D. Its OEM cover misprints "MODEL (LIPPERT PN) BC1715A (2022302019)", the model and part number of the sibling griddle (doc 337, CCD-0008002); every parts-list row on p.5 says BC1715D. Fixed 2026-10-20.

@@ -35,6 +35,21 @@ def split_models(s):
     return [x.strip() for x in re.split(r'[;,]', s or '') if x.strip()]
 
 
+MODEL_TAG_FIXES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'model_tag_fixes.tsv')
+
+
+def model_tag_fixes(path=MODEL_TAG_FIXES):
+    """{app doc id: {normalised model}}: model tags a doc must NOT carry even though its own page text shows them (a reviewed
+    data file, e.g. an OEM cover that prints the sibling product's model). One row per fix, with the evidence."""
+    out = {}
+    if os.path.exists(path):
+        for line in open(path, encoding='utf-8'):
+            if line.strip() and not line.startswith('#'):
+                c = line.rstrip('\n').split('\t')
+                if len(c) >= 2 and c[0].strip().isdigit(): out.setdefault(int(c[0]), set()).add(PT.norm_model(c[1].strip()))
+    return out
+
+
 def doc_record(app, pgs, text_source):
     """app: dict of the app documents row (+category name). pgs: [{sheet, text, method, hf}] -> (doc row, page rows)."""
     title = (app.get('clean_title') or app.get('title') or '').strip()
@@ -48,6 +63,8 @@ def doc_record(app, pgs, text_source):
     title_models = list(mods)
     first = '\n'.join(p['text'] for p in pgs[:2])[:4000]
     for m, _ in collections.Counter(PT.models_from(first[:2500])).most_common(12): add(m)
+    drop = model_tag_fixes().get(app.get('id'), set())
+    if drop: mods = [m for m in mods if PT.norm_model(m) not in drop]
     pn_map, off, oconf, _ = PT.page_numbers(pgs) if pgs else ({}, 0, 'none', '')
     plist = []
     for p in pgs:
