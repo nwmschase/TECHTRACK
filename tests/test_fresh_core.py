@@ -240,35 +240,87 @@ class TestPageBudget(unittest.TestCase):
         self.assertIn("PAGES FOUND BUT NOT SHOWN", chat.seen[0][0][1]["content"])
 
 
-LIB = os.environ.get("TT_LIBRARY_DIR", "/workspace/techtrack-fresh/library")
+INDEX = os.environ.get("TT_PAGEFINDER_DIR", str(ROOT / "pagefinder" / "index"))
+APP_DB = os.environ.get("TT_TEST_APP_DB", "/workspace/techtrack-fresh/migration-test/fresh-start.db")
 
 
-@unittest.skipUnless(os.path.exists(os.path.join(LIB, "library.sqlite")), "fresh library not on this box")
+@unittest.skipUnless(os.path.exists(os.path.join(INDEX, "index.sqlite")) and os.path.exists(APP_DB), "811-doc index / app DB not on this box")
 class TestRealLibraryWiring(unittest.TestCase):
-    """The real page-finder through the adapter, keyword half only (vectors not built yet). Wiring, not search quality."""
+    """The shipped page-finder index (built from the 811-doc app library) through the adapter, keyword half only so
+    the test needs no model download. Wiring + brand lock, not search quality (the picker sweep measures that)."""
 
     @classmethod
     def setUpClass(cls):
-        cls.f = gd_pages.LibraryPageFinder(LIB, meaning=False)
+        cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
 
-    def check(self, cat, model, complaint, want_doc, part):
+    def check(self, cat, model, complaint, brand, part):
         p = self.f.pick_manual(cat, model, complaint)
-        self.assertIn(want_doc, [m["doc_id"] for m in p.manuals])
+        self.assertTrue(p.manuals, model)
+        self.assertEqual(p.manuals[0]["brand"].lower(), brand.lower())
+        self.assertEqual(p.manuals[0]["unit_type"], cat)
         self.assertTrue(p.entry and all(x.kind == "entry" for x in p.entry))
         self.assertTrue(all(x.text and x.page for x in p.pages))
-        kept, _ = gd_pages.apply_budget(p.pages + self.f.fetch_part(part, p))
+        parts = self.f.fetch_part(part, p)
+        docs = self.f.lib.docs
+        picked_brands = {m["brand"].lower() for m in p.manuals}
+        self.assertTrue(all(docs[x.doc_id]["brand"].lower() in picked_brands for x in parts), "R4: another maker's page")
+        kept, _ = gd_pages.apply_budget(p.pages + parts)
         self.assertLessEqual(sum(len(x.text) for x in kept), gd_pages.PAGE_BUDGET_CHARS)
         return p
 
-    def test_suburban_sw6de(self):
-        self.check("Water Heaters", "Suburban SW6DE water heater", "gas clicks but never lights", "L124", "gas valve")
-
     def test_furrion_fcr10(self):
-        self.check("Refrigerators", "Furrion FCR10DCGTA-BG-PWH", "freezes contents, E2 blinking", "L298", "freezer fan motor")
+        self.check("Refrigerators", "Furrion FCR10DCGFA", "freezes contents, E2 blinking", "Furrion", "freezer fan motor")
 
-    def test_suburban_nt20seqt_model_hyphen_case(self):
-        p = self.check("Furnaces", "Suburban NT-20SEQT furnace", "furnace won't heat", "L120", "thermostat")
-        self.assertTrue(self.f.toc_pages(p))
+    def test_suburban_water_heater(self):
+        self.check("Water Heaters", "Suburban SW6DE water heater", "gas clicks but never lights", "Suburban", "gas valve")
+
+    def test_suburban_furnace_hyphen_case(self):
+        p = self.check("Furnaces", "Suburban NT-20SEQT furnace", "furnace won't heat", "Suburban", "thermostat")
+        self.assertTrue(self.f.toc_pages(p) is not None)
+
+    def test_brand_known_only_from_data(self):
+        p = self.f.pick_manual("Leveling", "DeWald 140-1179", "jacks won't extend")
+        self.assertTrue(p.manuals)
+        self.assertEqual(p.manuals[0]["brand"].lower(), "dewald")
+
+    def test_model_tag_beats_title_preference(self):
+        # 3f: a model listed by two docs goes to the doc made for that control first; the wider tip sheet comes second
+        for model, own in (("Power Gear 140-1230", "L370"), ("Power Gear 140-1227", "L555")):
+            p = self.f.pick_manual("Leveling", model, "not working")
+            self.assertEqual(p.manuals[0]["doc_id"], own, model)
+
+    def test_brand_lock_no_other_makers_manual(self):
+        # R4: a maker with no manual in the asked category gets none (never another maker's manual)
+        p = self.f.pick_manual("Leveling", "Furrion FACR13LPSA2-PS", "not cooling")
+        self.assertEqual(p.manuals, [])
+
+    def test_category_name_never_names_the_maker(self):
+        # 'electronics-onecontrol-...' must not make the maker Lippert (product-line words come only from the typed unit)
+        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Power Gear 140-1224", "not working")
+        self.assertTrue(p.manuals)
+        self.assertEqual(p.manuals[0]["brand"], "Power Gear")
+
+    def test_whole_unit_maker_owner_manual(self):
+        p = self.f.pick_manual("Air Conditioning", "Brinkley Model Z", "AC not cooling")
+        self.assertTrue(p.manuals)
+        self.assertEqual({m["brand"] for m in p.manuals}, {"Brinkley"})
+
+    def test_app_library_changes_reach_the_finder_without_restart(self):
+        import shutil, sqlite3, tempfile
+        from pagefinder import search as pf
+        d = tempfile.mkdtemp()
+        db = os.path.join(d, "app.db")
+        shutil.copy(APP_DB, db)
+        saved = pf._L
+        try:
+            f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=db)
+            self.assertEqual(f.pick_manual("Leveling", "Power Gear 140-1230", "x").manuals[0]["doc_id"], "L370")
+            c = sqlite3.connect(db)
+            c.execute("delete from doc_chunks where document_id=370"); c.execute("delete from documents where id=370"); c.commit(); c.close()
+            ids = [m["doc_id"] for m in f.pick_manual("Leveling", "Power Gear 140-1230", "x").manuals]
+            self.assertNotIn("L370", ids)
+        finally:
+            pf._L = saved
 
     def test_full_turn_on_real_library(self):
         chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])

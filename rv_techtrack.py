@@ -786,12 +786,34 @@ def r2_download_to_file(key: str, dest) -> bool:
         return False
 
 
+def r2_configured() -> bool:
+    """R2 settings present (no client is built and nothing is fetched)."""
+    try:
+        return BOTO3_AVAILABLE and all(k in st.secrets for k in ("R2_ENDPOINT_URL", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"))
+    except Exception:
+        return False
+
+
 def r2_download_button(label: str, key: str, filename: str, button_key: str):
-    data = r2_download_bytes(key)
-    if data is None:
-        st.caption("Storage not configured" if not get_r2_client() else "Could not download file")
+    """Download button that fetches the file from R2 only when it is clicked.
+
+    Rendering a list of documents must never download them: the old version read every PDF of the
+    selected category from R2 on every rerun, so Manage Documents never finished loading.
+    """
+    if not key:
+        st.caption("No file on record")
         return
-    st.download_button(label, data=data, file_name=filename, key=button_key)
+    if not r2_configured():
+        st.caption("Storage not configured")
+        return
+
+    def _fetch():
+        data = r2_download_bytes(key)
+        if data is None:
+            raise RuntimeError(f"Could not download {key} from storage")
+        return data
+
+    st.download_button(label, data=_fetch, file_name=filename, key=button_key, on_click="ignore")
 
 
 def r2_available() -> bool:
@@ -1138,6 +1160,84 @@ def _reopen_db():
     Session.configure(bind=engine)
     session = Session()
     _ensure_schema_upgrades()
+    _reset_page_finder()
+
+
+def _reset_page_finder():
+    """The page-finder reads titles/brands/categories from the app DB; after a restore it must re-read them."""
+    global _gd_finder
+    _gd_finder = None
+    try:
+        from pagefinder import search as _pf_search
+        _pf_search._L = None
+    except Exception:
+        pass
+
+
+def db_snapshot_bytes() -> bytes:
+    """A consistent copy of the live DB (SQLite online backup), made only when the download is clicked."""
+    import sqlite3
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, "snap.db")
+        src = sqlite3.connect(DB_PATH)
+        dst = sqlite3.connect(out)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+        with open(out, "rb") as fh:
+            return fh.read()
+
+
+def check_db_backup_bytes(data: bytes) -> str:
+    """'' when the bytes are a sound TechTrack DB, else why not (nothing is written)."""
+    import sqlite3
+    import tempfile
+    if not data or not data.startswith(b"SQLite format 3"):
+        return "That file is not a SQLite database."
+    with tempfile.TemporaryDirectory() as td:
+        path = os.path.join(td, "check.db")
+        with open(path, "wb") as fh:
+            fh.write(data)
+        try:
+            c = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            if c.execute("pragma integrity_check").fetchone()[0] != "ok":
+                return "The database file is damaged (integrity check failed)."
+            have = {r[0] for r in c.execute("select name from sqlite_master where type='table'")}
+            missing = {"users", "documents", "doc_chunks", "categories"} - have
+            if missing:
+                return "Not a TechTrack database (missing tables: " + ", ".join(sorted(missing)) + ")."
+            if not c.execute("select count(*) from users").fetchone()[0]:
+                return "The database has no users; restoring it would lock everyone out."
+            c.close()
+        except Exception as exc:
+            return f"Could not read the database: {exc}"
+    return ""
+
+
+def restore_db_from_bytes(data: bytes) -> str:
+    """Replace the live DB with a checked backup: keep a .bak, swap atomically, reopen. '' on success, else why not."""
+    why = check_db_backup_bytes(data)
+    if why:
+        return why
+    tmp = DB_PATH + ".restore_tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    try:
+        session.close()
+    except Exception:
+        pass
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if Path(DB_PATH).exists():
+        shutil.copy(DB_PATH, DB_PATH + ".bak")
+    os.replace(tmp, DB_PATH)
+    _reopen_db()
+    return ""
 
 
 def maybe_restore_db_from_r2() -> bool:
@@ -5065,11 +5165,13 @@ GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothi
 
 
 def _gd_page_finder():
+    """The ONE page-finder (GD, Bay PDF and library search). Its index ships in pagefinder/index; the app DB is
+    the source of truth for document metadata and for documents added after the index build."""
     global _gd_finder
     if _gd_finder is None:
         import gd_pages
 
-        _gd_finder = gd_pages.LibraryPageFinder()
+        _gd_finder = gd_pages.LibraryPageFinder(app_db=os.path.abspath(DB_PATH))
     return _gd_finder
 
 
@@ -5198,25 +5300,28 @@ def _doc_file_available(doc) -> bool:
 
 
 def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit):
-    """Every library search (GD reduced mode, Bay PDF) obeys the ONE selector, gd_official.select_manual:
-    exact model first, product-type and brand hard filters, never another product's manual. Returns (chunks, miss_line)."""
+    """Bay PDF / library search use the SAME manual pick as Guided Diagnostics: the page-finder's pick_manual
+    (category -> brand -> model, all from the library's own data). Chunks outside the picked manual(s) are dropped;
+    the picked pages lead. Returns (chunks, miss_line)."""
+    if not (model_text or "").strip():
+        return chunks, ""  # nothing to select on: the keyword search stands
     try:
-        import legacy_selector as _go  # Bay PDF + Ask coach only, until FIX-PLAN phase 5/6
-
-        unit = _go.identify_unit([], symptom or "", category_name or "", model_text or "")
-        if not unit.get("brand") and not _go.model_keys(unit):
-            return chunks, ""  # nothing to select on: legacy keyword search stands
-        sel = _go.select_manual(_go.OrmLibrary(session, Document, DocChunk), unit, available=_doc_file_available)
-        doc = sel.get("doc")
-        if not doc:
-            return [], sel.get("miss_line") or ""
-        mine = [c for c in (chunks or []) if int(getattr(c, "document_id", 0) or 0) == int(doc["id"])]
-        if not mine:
-            mine = (session.query(DocChunk).filter(DocChunk.document_id == doc["id"])
-                    .order_by(DocChunk.page, DocChunk.id).limit(max(int(limit or 8), 8)).all())
-        return mine, ""
+        picked = _gd_page_finder().pick_manual(category_name or "", model_text or "", symptom or "")
     except Exception:
         return chunks, ""
+    if not picked.found:
+        return [], f"No manual in the shop library matches {model_text.strip()} ({category_name or 'no category'})."
+    ids = [int(str(m["doc_id"]).lstrip("L")) for m in picked.manuals if str(m.get("doc_id", "")).lstrip("L").isdigit()]
+    order = {(int(p.doc_id.lstrip("L")), int(p.sheet)): i for i, p in enumerate(picked.pages) if p.doc_id.lstrip("L").isdigit()}
+    mine = [c for c in (chunks or []) if int(getattr(c, "document_id", 0) or 0) in ids]
+    want = max(int(limit or 8), 8)
+    if len(mine) < want and ids:
+        extra = (session.query(DocChunk).filter(DocChunk.document_id.in_(ids))
+                 .order_by(DocChunk.document_id, DocChunk.page, DocChunk.id).all())
+        have = {c.id for c in mine}
+        mine += [c for c in extra if c.id not in have]
+    mine.sort(key=lambda c: (order.get((int(c.document_id), int(c.page or 0)), 10_000), ids.index(int(c.document_id)), int(c.page or 0)))
+    return mine[:want], ""
 
 
 def _ask_manual_context(
@@ -7317,23 +7422,26 @@ if is_manager and tab_mgr is not None:
             c1, c2 = st.columns(2)
             with c1:
                 if Path(DB_PATH).exists():
-                    with open(DB_PATH, "rb") as f:
-                        st.download_button(
-                            "⬇️ Download Current Database",
-                            f,
-                            file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
-                            mime="application/octet-stream",
-                            type="primary",
-                        )
+                    st.download_button(
+                        "⬇️ Download Current Database",
+                        data=db_snapshot_bytes,   # copied only on click, not on every render
+                        file_name=f"techtrack_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+                        mime="application/octet-stream",
+                        type="primary",
+                        on_click="ignore",
+                        key="db_download",
+                    )
             with c2:
                 up_db = st.file_uploader("Upload .db backup to restore", type=["db"], key="restore_db")
                 if up_db and st.button("Restore Database"):
-                    if Path(DB_PATH).exists():
-                        shutil.copy(DB_PATH, DB_PATH + ".bak")
-                    with open(DB_PATH, "wb") as f:
-                        f.write(up_db.getbuffer())
-                    st.success("Database restored. Refresh the page, then run Re-index All PDFs.")
-                    st.rerun()
+                    why = restore_db_from_bytes(bytes(up_db.getbuffer()))
+                    if why:
+                        st.error(f"Not restored: {why}")
+                    else:
+                        st.session_state["_db_restore_note"] = "Database restored. Press Save to cloud now to keep it."
+                        st.rerun()
+                if st.session_state.get("_db_restore_note"):
+                    st.success(st.session_state.pop("_db_restore_note"))
 
         with st.expander("📜 All Team Certificates"):
             all_certs = session.query(Certificate).order_by(Certificate.created_date.desc()).all()

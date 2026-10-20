@@ -6,8 +6,9 @@ GD never searches or ranks pages itself. It asks a page-finder for:
   toc_pages(picked)                                  -> [Page]    the picked manuals' table-of-contents pages
   fetch_part(part, picked)                           -> [Page]    pages that test / replace / show one part
 
-The real finder is /workspace/techtrack-fresh/library/search.py (built by another worker; never edited
-from here). LibraryPageFinder adapts it. StubPageFinder is for offline tests.
+The real finder is pagefinder/search.py in this repo (from the fresh-library worker's search.py; brands and categories
+now come from the app library data). Its index is built from the app library by pagefinder/build_index.py.
+LibraryPageFinder adapts it. StubPageFinder is for offline tests.
 
 Page budget: only whole pages are sent, at most PAGE_BUDGET_PAGES pages and PAGE_BUDGET_CHARS characters
 per turn. Pages that do not fit are NOT silently lost: their doc + page labels are listed to the brain
@@ -15,12 +16,9 @@ as "pages not shown", so it can ask for one by name.
 """
 from __future__ import annotations
 
-import importlib
 import os
-import sys
 from dataclasses import dataclass, field, asdict
 
-LIBRARY_DIR = os.environ.get("TT_LIBRARY_DIR", "/workspace/techtrack-fresh/library")
 PAGE_BUDGET_PAGES = 8
 PAGE_BUDGET_CHARS = 40_000
 TOC_BUDGET_CHARS = 6_000
@@ -112,18 +110,28 @@ class StubPageFinder:
 
 
 class LibraryPageFinder:
-    """Adapter over the fresh library's search.py (read-only).
+    """Adapter over the in-repo page-finder (pagefinder/search.py) and its index built from the app library.
 
-    meaning=False runs the library with its meaning (embedding) half switched off, BM25-on-whole-words only.
-    That mode exists for offline tests while the library's vectors are not built; it is not a product mode."""
+    index_dir: pagefinder/index (index.sqlite + passages.npy/json) unless TT_PAGEFINDER_DIR says otherwise.
+    app_db: the app's library DB; its documents table is the single source of truth for titles, brands, categories
+            and models (docs deleted in the app leave the finder; docs added after the index build are read from the
+            app's own page chunks). Default: TT_APP_DB.
+    meaning=False switches the embedding half off (BM25 on whole words only). Offline-test mode, not a product mode.
+    R4 (approved): fetch_part only hands over pages of the picked manuals' maker(s)."""
 
-    def __init__(self, library_dir=LIBRARY_DIR, meaning=True):
-        if library_dir not in sys.path:
-            sys.path.insert(0, library_dir)
-        self.search = importlib.import_module("search")
+    def __init__(self, index_dir=None, meaning=True, app_db=None):
+        from pagefinder import search as _search
+        self.search = _search
+        if index_dir or app_db is not None:
+            d = index_dir or _search.INDEX_DIR
+            self.search._L = _search.Library(os.path.join(d, "index.sqlite"), d, app_db=app_db)
         self.meaning = meaning
         if not meaning:
             self.search.meaning = lambda lib, query, keys: {k: 0.0 for k in keys}
+
+    @property
+    def lib(self):
+        return self.search._lib()
 
     def _page(self, p: dict, kind: str) -> Page:
         return Page(doc_id=p["doc_id"], title=p["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
@@ -140,7 +148,7 @@ class LibraryPageFinder:
         return list(picked.pages)
 
     def toc_pages(self, picked: Picked, max_chars=TOC_BUDGET_CHARS):
-        lib = self.search._lib()
+        lib = self.lib
         out, used = [], 0
         for m in picked.manuals:
             for p in lib.pages(m["doc_id"]):
@@ -152,4 +160,8 @@ class LibraryPageFinder:
 
     def fetch_part(self, part, picked: Picked):
         res = self.search.fetch_by_part(part, {"manuals": picked.manuals})
+        brands = {(m.get("brand") or "").lower() for m in picked.manuals if m.get("brand")}
+        if brands:   # R4 brand lock: never another maker's manual for this unit
+            docs = self.lib.docs
+            res = [p for p in res if (docs.get(p["doc_id"], {}).get("brand") or "").lower() in brands]
         return [self._page(p, "part") for p in res]

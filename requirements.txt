@@ -1,12 +1,17 @@
-streamlit
-sqlalchemy
-groq
-openai
-boto3
-pypdf
-pymupdf
-pillow
-fpdf2
-reportlab
-extra-streamlit-components
-itsdangerous
+# Versions the fresh build was tested with offline on 2026-10-20 (Python 3.13.5).
+streamlit==1.66.0
+sqlalchemy==2.1.5
+groq==1.7.0
+openai==3.33.0
+boto3==1.43.113
+pypdf==6.21.0
+pymupdf==1.28.2
+pillow==12.3.0
+fpdf2==2.8.9
+reportlab==5.0.1
+extra-streamlit-components==0.1.81
+itsdangerous==2.2.0
+# page-finder (hybrid keyword + meaning search; the ~64 MB model downloads once into the cache on first start)
+fastembed==0.9.0
+numpy==2.5.4
+onnxruntime==1.31.0
