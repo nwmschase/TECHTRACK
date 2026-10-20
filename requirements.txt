@@ -1,4 +1,4 @@
-# Versions the fresh build was tested with offline on 2026-10-20 (Python 3.13.5).
+# Versions the fresh build was tested with offline on 2026-10-20: Python 3.14.8 (the host's version; full test suite + headless app run) and 3.13.5.
 streamlit==1.66.0
 sqlalchemy==2.1.5
 groq==1.7.0
