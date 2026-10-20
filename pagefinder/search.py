@@ -20,7 +20,7 @@ next part to check, then asks fetch_by_part() for that part's pages.
    tech sheets / service manuals for the same unit type (later tiers weighted 0.85 / 0.7).
 CLI: python3 search.py --unit "water heater" --brand Suburban --model SW6DE "gas clicks never lights" [--part "on/off switch"]
 """
-import hashlib, sqlite3, re, math, json, os, sys, collections, argparse, threading
+import hashlib, sqlite3, re, math, json, os, sys, collections, argparse, threading, time, logging
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Index built from the app library by pagefinder/build_index.py (index.sqlite + passages.npy/json).
 INDEX_DIR = os.environ.get('TT_PAGEFINDER_DIR', os.path.join(HERE, 'index'))
@@ -46,12 +46,28 @@ _MODELS = {}      # cache_dir -> TextEmbedding
 _BASE_VEC = {}    # vec_dir -> (V, {(doc_id, sheet): [row, ...]})
 
 
+_MODEL_FAIL = {}  # cache_dir -> (time, error): a failed load (e.g. no network for the first download) is retried after
+MODEL_RETRY_SEC = 600   # this long, not on every click
+_log = logging.getLogger("techtrack.pagefinder")
+
+
 def shared_embedding_model(cache_dir=None):
     cache_dir = cache_dir or MODEL_DIR
     with _LOCK:
-        if cache_dir not in _MODELS:
-            _MODELS[cache_dir] = embedding_model(cache_dir)
-        return _MODELS[cache_dir]
+        if cache_dir in _MODELS:
+            return _MODELS[cache_dir]
+        failed = _MODEL_FAIL.get(cache_dir)
+        if failed and time.time() - failed[0] < MODEL_RETRY_SEC:
+            raise RuntimeError(f'embedding model unavailable (retry later): {failed[1]}')
+        try:
+            m = embedding_model(cache_dir)
+        except Exception as e:
+            _MODEL_FAIL[cache_dir] = (time.time(), f'{type(e).__name__}: {e}'[:300])
+            _log.error('embedding model could not load; page-finder runs on whole-word (BM25) scores only: %s', e)
+            raise
+        _MODEL_FAIL.pop(cache_dir, None)
+        _MODELS[cache_dir] = m
+        return m
 
 
 def shared_base_vectors(vec_dir):
@@ -106,7 +122,7 @@ class Library:
         self.db = sqlite3.connect(f'file:{db}?mode=ro', uri=True, check_same_thread=False); self.db.row_factory = sqlite3.Row
         self.docs = {r['doc_id']: dict(r) for r in self.db.execute("select * from docs where status='active' and n_pages>0")}
         self._pages = {}; self._doc_tf = None; self._vec = None; self._model = None; self._extra_vec = {}
-        self.sync_note = ''
+        self.sync_note = ''; self.meaning_error = ''
         app_db = APP_DB if app_db is None else app_db
         self.app_db, self.app_sig = app_db, ''
         if app_db and os.path.exists(app_db):
@@ -245,7 +261,14 @@ def bm25(query, items, k1=1.2, b=0.75):
 def meaning(lib, query, keys):
     """{(doc_id, sheet): best passage cosine} for the given pages"""
     import numpy as np
-    V, rows = lib.vectors(); q = lib.embed_query(query)
+    try:
+        V, rows = lib.vectors(); q = lib.embed_query(query)
+    except Exception as e:
+        # The model is a download on first start. If it cannot load, manual picks stay on whole-word scores (the offline
+        # sweep gives the same picks: 66 own / 0 wrong both ways); only in-manual page order loses the meaning half.
+        lib.meaning_error = f'{type(e).__name__}: {e}'[:300]
+        return {k: 0.0 for k in keys}
+    lib.meaning_error = ''
     idx = [(k, rows.get(k, [])) for k in keys]
     flat = [i for _, r in idx for i in r]
     sims = dict(zip(flat, (V[flat].astype('float32') @ q).tolist())) if flat else {}

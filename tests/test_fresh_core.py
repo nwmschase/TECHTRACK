@@ -10,6 +10,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import gd_pages  # noqa: E402
+from pagefinder import search as _pf_search  # noqa: E402
+
+_REAL_MEANING = _pf_search.meaning   # keep before any test swaps in a keyword-only stub
 import gd_prompt  # noqa: E402
 import gd_state  # noqa: E402
 import gd_story  # noqa: E402
@@ -353,6 +356,27 @@ class TestRealLibraryWiring(unittest.TestCase):
             self.assertFalse(pf.shared_base_vectors(INDEX)[0].flags.writeable)
         finally:
             pf._L = saved
+
+    def test_model_that_cannot_load_falls_back_to_whole_words_and_retries_later(self):
+        from unittest import mock
+        from pagefinder import search as pf
+        saved_l, saved_fail, saved_models, saved_meaning = pf._L, dict(pf._MODEL_FAIL), dict(pf._MODELS), pf.meaning
+        calls = []
+        try:
+            pf._MODELS.clear(); pf._MODEL_FAIL.clear()
+            lib = pf.Library(os.path.join(INDEX, "index.sqlite"), INDEX, app_db=APP_DB)
+            def boom(*a, **k):
+                calls.append(1); raise OSError("no network")
+            with mock.patch.object(pf, "embedding_model", boom):
+                keys = [("L370", 1)]
+                out = _REAL_MEANING(lib, "jacks will not extend", keys)
+                self.assertEqual(out, {("L370", 1): 0.0})
+                self.assertIn("no network", lib.meaning_error)
+                _REAL_MEANING(lib, "again", keys)
+                self.assertEqual(len(calls), 1, "a failed model load is not retried on every click")
+        finally:
+            pf._L = saved_l; pf._MODEL_FAIL.clear(); pf._MODEL_FAIL.update(saved_fail)
+            pf._MODELS.clear(); pf._MODELS.update(saved_models); pf.meaning = saved_meaning
 
     def test_full_turn_on_real_library(self):
         chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])
