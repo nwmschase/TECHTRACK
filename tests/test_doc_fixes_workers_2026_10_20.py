@@ -108,9 +108,9 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertIn("Shurflo", self.lib.docs["L853"]["doc_note"])
 
     def test_rehost_pages_excluded_and_marks_cleared(self):
-        for k, sh in (("L241", 27), ("L149", 61), ("L121", 112), ("L224", 50), ("L867", 24), ("L161", 62), ("L803", 25)):
+        for k, sh in (("L241", 27), ("L149", 61), ("L121", 112), ("L224", 50), ("L867", 24), ("L161", 62)):   # L803 (Suburban parts manual) removed 2026-10-21 (parts-ordering only)
             self.assertNotIn(sh, [p["pdf_sheet"] for p in self.lib.pages(k)], k)
-            self.assertIn(sh - 1 if k != "L803" else 24, [p["pdf_sheet"] for p in self.lib.pages(k)])
+            self.assertIn(sh - 1, [p["pdf_sheet"] for p in self.lib.pages(k)])
         self.assertIn("My RV Works", self.lib.docs["L149"]["doc_note"])
         for k, sh in (("L809", 4), ("L810", 4), ("L806", 7), ("L819", 7)):
             self.assertEqual([p["is_troubleshooting"] for p in self.lib.pages(k) if p["pdf_sheet"] == sh], [0], k)
@@ -153,8 +153,8 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertTrue(self.f.doc_title("L868").startswith("THIRD-PARTY DOC"))
         for k in ("L136", "L542"):
             self.assertTrue(self.f.doc_title(k).startswith("DEALER/DISTRIBUTOR DOC"), k)
-        for k in ("L78", "L229"):   # same rev, different part numbers: both kept, both flagged
-            self.assertIn(k, d); self.assertIn("DOC DEFECT", d[k]["doc_note"])
+        for k in ("L78", "L229"):   # BAL parts guide PTS.LS.SS.001: removed 2026-10-21 (parts identification only, Chase)
+            self.assertNotIn(k, d)
         for k in ("L536", "L538", "L543"):
             self.assertIn("NEEDS OCR", d[k]["doc_note"])
         self.assertIn("L724", [m["doc_id"] for m in self.f.pick_manual("Leveling", "Bigfoot", "general maintenance lubrication").manuals])
