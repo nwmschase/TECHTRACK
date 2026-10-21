@@ -2,9 +2,9 @@
 # acronym	meaning	times_defined	first_seen
 abs	anti-lock braking system	8	L264 sheet 2
 acc	automatic climate control	3	L845 sheet 6
-adb	air distribution box	48	L151 sheet 2
+adb	air distribution box	51	L151 sheet 2
 aic	ampere interrupting capacity	2	L857 sheet 49
-atf	automatic transmission fluid	55	L17 sheet 8
+atf	automatic transmission fluid	66	L17 sheet 8
 ble	bluetooth low energy	4	L72 sheet 53
 bms	battery management system	21	L28 sheet 19
 bos	backup operating system	4	L185 sheet 2
@@ -45,6 +45,7 @@ nfpa	national fire protection association	3	L282 sheet 3
 nhtsa	national highway traffic safety administration	2	L804 sheet 13
 nws	national weather service	2	L804 sheet 20
 opd	overfill protection device	2	L804 sheet 94
+prv	pressure relief valve	2	L224 sheet 49
 rcd	residual current device	3	L28 sheet 63
 rgn	return goods number	5	L123 sheet 29
 rvia	recreational vehicle industry association	3	L714 sheet 9
