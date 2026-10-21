@@ -18,7 +18,9 @@ further library categories the doc's own pages cover, e.g. a control panel manua
 pages are the water heater's: the doc is also a candidate for those unit types), source_type, duplicate_of
 (a true duplicate: never returned, the kept copy is named), exclude (not an RV service doc, e.g. a residential product or
 a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), alt_titles ('; ' list of other names the manual is known by, e.g. the
-combined manual it was split out of), doc_note (shown with the
+combined manual it was split out of), also_brand (comma list of other maker names the product is sold or serviced under,
+e.g. Atwood water heaters are now Dometic: a tech who names that maker still gets the doc), printed_pages (the
+printed page number of each sheet in order, '1,2,3-12,26-32,40', for a PDF cut from a bigger book), doc_note (shown with the
 doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
 Page fields (sheet = PDF sheet): page_note (shown with the page), page_models_drop, page_exclude (the sheet is never
 returned, e.g. a re-host site's ad insert or a marketing page; the reason is the value), page_marks_off (comma list of page
@@ -42,7 +44,7 @@ SOURCE_LABELS = {
     'maker_web': ("MAKER WEB FAQ (maker's published web page, not a service manual)", 'Maker web FAQ'),
 }
 DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'also_category', 'source_type', 'duplicate_of', 'exclude',
-              'models_add', 'models_drop', 'doc_note', 'alt_titles')
+              'models_add', 'models_drop', 'doc_note', 'alt_titles', 'also_brand', 'printed_pages')
 PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
 PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
 
@@ -127,6 +129,7 @@ def apply(doc, pages=None, path=DOC_FIXES):
     if 'category' in f:
         doc['unit_type'] = f['category']
     doc['also_unit_types'] = ', '.join(u for u in split_list(f.get('also_category')) if u != doc.get('unit_type'))
+    doc['also_brands'] = ', '.join(b for b in split_list(f.get('also_brand')) if b.lower() != (doc.get('brand') or '').lower())
     doc['source_type'] = f.get('source_type', OEM)
     doc['doc_note'] = f.get('doc_note', '')
     if f.get('alt_titles'):   # other names the manual is known by ('; ' list): the title tier also matches these words
@@ -174,8 +177,25 @@ def page_kept(doc_id, file_path, sheet, path=DOC_FIXES):
     return not page_fix(doc_id, file_path, sheet, path).get('page_exclude')
 
 
+def printed_page_map(doc_id, file_path, path=DOC_FIXES):
+    """{sheet: printed page} from a doc's printed_pages fix: the printed page numbers of its sheets in order, as a comma
+    list with ranges ('1,2,3-12,26-32,40'), for a PDF assembled from pages of a bigger book that keep their own numbers."""
+    v = ((fix_for(doc_id, file_path, path) or {}).get('doc') or {}).get('printed_pages')
+    if not v:
+        return {}
+    nums = []
+    for part in split_list(v):
+        a, _, b = part.partition('-')
+        nums += list(range(int(a), int(b) + 1)) if b else [int(a)]
+    return {i: n for i, n in enumerate(nums, 1)}
+
+
 def fix_page_row(row, file_path, path=DOC_FIXES):
-    """Clear the wrong page marks of one page row in place (page_marks_off)."""
+    """Clear the wrong page marks of one page row in place (page_marks_off); set the printed page of a sheet from the
+    doc's printed_pages fix."""
+    pp = printed_page_map(row['doc_id'], file_path, path).get(int(row['pdf_sheet']))
+    if pp:
+        row['printed_page'], row['printed_how'] = pp, 'printed (doc_fixes printed_pages)'
     for m in split_list(page_fix(row['doc_id'], file_path, row['pdf_sheet'], path).get('page_marks_off')):
         row[m] = 0
     return row

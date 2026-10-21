@@ -149,6 +149,7 @@ class Library:
         for d in self.docs.values():
             d['brand'] = d.get('brand') or ''
             d['unit_type'] = d.get('unit_type') or ''
+            d['also_brands_l'] = {b.lower() for b in _fixes.split_list(d.get('also_brands'))}   # doc_fixes also_brand (Atwood = Dometic)
             d['models_n'] = [nmodel(m) for m in json.loads(d['models'] or '[]') if len(nmodel(m)) >= 3]
             d['page_models_n'] = set(json.loads(d.get('page_models') or '[]'))
         # vocabularies come from the library data itself (no hardcoded brand or category list)
@@ -163,6 +164,8 @@ class Library:
         for d in self.docs.values():
             if d['brand']:
                 names.setdefault(_phrase(d['brand']), d['brand'])
+            for ab in _fixes.split_list(d.get('also_brands')):
+                names.setdefault(_phrase(ab), ab)
         lines = collections.defaultdict(set)   # a product line names its maker (e.g. 'Ground Control' -> Lippert), from the data
         for d in self.docs.values():
             pl = _phrase(d.get('product_line') or '')
@@ -386,7 +389,7 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     b = brand or brand_of(model or '', lib)   # the maker comes from what the tech typed, never from the category name
     coach = []
     if b:
-        c2 = [d for d in cand if d['brand'].lower() == b.lower()]
+        c2 = [d for d in cand if d['brand'].lower() == b.lower() or b.lower() in d.get('also_brands_l', ())]
         if c2: cand = c2; why.append(f'brand {b}: {len(c2)} docs')
         else:
             # R4 brand lock: never another maker's manual for this unit. The one exception is a whole-unit maker (an RV
