@@ -145,8 +145,9 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertEqual(d["L488"]["product_line"], "Axles/Suspension"); self.assertNotEqual(d["L483"]["product_line"], "Tire Monitoring")
         for k, junk in (("L457", "C1036"), ("L461", "J673"), ("L463", "CABIN80AMINIBREAKERINSTALLATION"), ("L454", "1621HD"), ("L885", "EZE1")):
             self.assertNotIn(junk, d[k]["models_n"], k)
-        for k in ("L244", "L808", "L877"):
+        for k in ("L244", "L877"):
             self.assertTrue(self.f.doc_title(k).startswith("SHOP SHEET (not maker manual): "), k)
+        self.assertTrue(self.f.doc_title("L808").startswith("MAKER WEB FAQ"))   # maxxair.com FAQ: re-labeled 2026-10-20 (wrong-manual test)
         self.assertTrue(self.f.doc_title("L138").startswith("COACH-BUILDER DOC")); self.assertEqual(d["L138"]["brand"], "")
         self.assertTrue(self.f.doc_title("L142").startswith("COACH-BUILDER DOC"))
         self.assertTrue(self.f.doc_title("L868").startswith("THIRD-PARTY DOC"))

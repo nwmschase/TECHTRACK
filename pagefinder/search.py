@@ -350,6 +350,7 @@ def covers_unit(doc, ut):
     Cooking Appliances' is not one unit's doc). A document-kind category says nothing about the unit."""
     if not ut: return False
     if doc['unit_type'] == ut: return True
+    if ut in _fixes.split_list(doc.get('also_unit_types')): return True   # reviewed second category (doc_fixes.tsv also_category)
     return doc.get('title_units') == {ut}
 MW = re.compile(r'[a-z0-9]+(?:\.[0-9]+)?')
 def mwords(text):

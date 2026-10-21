@@ -25,7 +25,7 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE docs(doc_id TEXT PRIMARY KEY, app_id INT, title TEXT, brand TEXT, product_line TEXT, models TEXT, title_models TEXT,
   unit_type TEXT, doc_type TEXT, doc_number TEXT, file_path TEXT, sha256 TEXT, n_pages INT, n_ocr_pages INT,
   page_offset INT, offset_conf TEXT, status TEXT, page_models TEXT, alt_titles TEXT, text_source TEXT,
-  source_type TEXT DEFAULT 'oem', doc_note TEXT DEFAULT '', duplicate_of TEXT DEFAULT '');
+  source_type TEXT DEFAULT 'oem', doc_note TEXT DEFAULT '', duplicate_of TEXT DEFAULT '', also_unit_types TEXT DEFAULT '');
 CREATE TABLE pages(doc_id TEXT, pdf_sheet INT, printed_page INT, printed_how TEXT, text TEXT, method TEXT, content_hash TEXT,
   chars INT, codes TEXT, models TEXT, is_toc INT, is_cover INT, is_safety INT, is_parts INT, is_fault_codes INT, is_troubleshooting INT, is_wiring INT,
   PRIMARY KEY(doc_id, pdf_sheet));
@@ -85,18 +85,18 @@ def doc_record(app, pgs, text_source):
                doc_number=(app.get('doc_number') or '').strip(), file_path=app.get('file_path') or '', sha256=app.get('sha') or '',
                n_pages=len(pgs), n_ocr_pages=sum(1 for p in pgs if p.get('method') == 'ocr'), page_offset=off, offset_conf=oconf,
                status=status, page_models=json.dumps(sorted({m for p in plist for m in json.loads(p['models'])})), alt_titles='[]',
-               text_source=text_source, source_type=DF.OEM, doc_note='', duplicate_of='')
+               text_source=text_source, source_type=DF.OEM, doc_note='', duplicate_of='', also_unit_types='')
     DF.apply(doc, plist)   # reviewed data fixes (pagefinder/doc_fixes.tsv): brand, source type, duplicates, models, page fixes
     return doc, plist
 
 
 def apply_fixes_in_place(index_db):
     """Re-apply the reviewed fixes (model_tag_fixes.tsv + doc_fixes.tsv) to a built index without re-extracting or
-    re-embedding: page text and vectors do not change. Adds the source_type / doc_note / duplicate_of columns to an older
+    re-embedding: page text and vectors do not change. Adds the source_type / doc_note / duplicate_of / also_unit_types columns to an older
     index. Returns {doc_id: [changed fields]}."""
     db = sqlite3.connect(index_db); db.row_factory = sqlite3.Row
     have = {r[1] for r in db.execute('pragma table_info(docs)')}
-    for col, dflt in (('source_type', "'oem'"), ('doc_note', "''"), ('duplicate_of', "''")):
+    for col, dflt in (('source_type', "'oem'"), ('doc_note', "''"), ('duplicate_of', "''"), ('also_unit_types', "''")):
         if col not in have: db.execute(f'ALTER TABLE docs ADD COLUMN {col} TEXT DEFAULT {dflt}')
     tag_drops = model_tag_fixes()
     docs = {r['doc_id']: dict(r) for r in db.execute('select * from docs')}

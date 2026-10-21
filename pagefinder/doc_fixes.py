@@ -9,10 +9,13 @@ with the same id is never touched.
 
 source_type: oem (default) | shop_sheet (our own shop write-up) | maker_internal (a maker's unpublished internal flow) |
 third_party (not the maker's: an aftermarket vendor's or tool maker's doc) | coach_builder (an RV builder's own pages,
-e.g. a floorplan book or wiring standard) | dealer_doc (a dealer / distributor form or notice). A non-OEM doc can be shown, but is labeled
+e.g. a floorplan book or wiring standard) | dealer_doc (a dealer / distributor form or notice) | maker_web (the maker's own
+published web FAQ / support page, captured verbatim: maker content, but not a service manual). A non-OEM doc can be shown, but is labeled
 everywhere and never counts as the OEM manual.
 
-Doc fields: brand, product_line, title, doc_type, category (the library category = unit type), source_type, duplicate_of
+Doc fields: brand, product_line, title, doc_type, category (the library category = unit type), also_category (comma list of
+further library categories the doc's own pages cover, e.g. a control panel manual filed under Furnaces whose fault-code
+pages are the water heater's: the doc is also a candidate for those unit types), source_type, duplicate_of
 (a true duplicate: never returned, the kept copy is named), exclude (not an RV service doc, e.g. a residential product or
 a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), doc_note (shown with the
 doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
@@ -35,8 +38,9 @@ SOURCE_LABELS = {
     'third_party': ('THIRD-PARTY DOC (not maker manual)', 'Third-party doc'),
     'coach_builder': ("COACH-BUILDER DOC (not the component maker's manual)", 'Coach-builder doc'),
     'dealer_doc': ('DEALER/DISTRIBUTOR DOC (not maker manual)', 'Dealer/distributor doc'),
+    'maker_web': ("MAKER WEB FAQ (maker's published web page, not a service manual)", 'Maker web FAQ'),
 }
-DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'source_type', 'duplicate_of', 'exclude',
+DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'also_category', 'source_type', 'duplicate_of', 'exclude',
               'models_add', 'models_drop', 'doc_note')
 PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
 PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
@@ -121,6 +125,7 @@ def apply(doc, pages=None, path=DOC_FIXES):
             doc[k] = f[k]
     if 'category' in f:
         doc['unit_type'] = f['category']
+    doc['also_unit_types'] = ', '.join(u for u in split_list(f.get('also_category')) if u != doc.get('unit_type'))
     doc['source_type'] = f.get('source_type', OEM)
     doc['doc_note'] = f.get('doc_note', '')
     if f.get('duplicate_of'):
