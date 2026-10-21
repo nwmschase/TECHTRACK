@@ -28,7 +28,8 @@ e.g. L47 not for hydraulic / disc / ABS brakes), doc_note (shown with the
 doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
 Page fields (sheet = PDF sheet): page_note (shown with the page), page_models_drop, page_exclude (the sheet is never
 returned, e.g. a re-host site's ad insert or a marketing page; the reason is the value), page_marks_off (comma list of page
-marks that are wrong for that sheet, e.g. is_troubleshooting)."""
+marks that are wrong for that sheet, e.g. is_troubleshooting), page_topics ('; ' list of page-topic labels, e.g.
+'battery bank wiring: parallel batteries; DC busbars': shown to GD with the page and searched like page words)."""
 from __future__ import annotations
 
 import os
@@ -43,13 +44,14 @@ SOURCE_LABELS = {
     'shop_sheet': ('SHOP SHEET (not maker manual)', 'Shop sheet'),
     'maker_internal': ('MAKER INTERNAL FLOW, UNPUBLISHED (not maker manual)', 'Maker internal flow (unpublished, not a maker manual)'),
     'third_party': ('THIRD-PARTY DOC (not maker manual)', 'Third-party doc'),
+    'general_reference': ('GENERAL REFERENCE (not a product manual; applies to any brand)', 'General reference'),
     'coach_builder': ("COACH-BUILDER DOC (not the component maker's manual)", 'Coach-builder doc'),
     'dealer_doc': ('DEALER/DISTRIBUTOR DOC (not maker manual)', 'Dealer/distributor doc'),
     'maker_web': ("MAKER WEB FAQ (maker's published web page, not a service manual)", 'Maker web FAQ'),
 }
 DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'also_category', 'source_type', 'duplicate_of', 'exclude',
               'models_add', 'models_drop', 'doc_note', 'alt_titles', 'also_brand', 'printed_pages', 'any_brand', 'not_for')
-PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
+PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off', 'page_topics')
 PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
 
 _CACHE = {}
@@ -199,6 +201,9 @@ def printed_page_map(doc_id, file_path, path=DOC_FIXES):
 def fix_page_row(row, file_path, path=DOC_FIXES):
     """Clear the wrong page marks of one page row in place (page_marks_off); set the printed page of a sheet from the
     doc's printed_pages fix."""
+    topics = page_fix(row['doc_id'], file_path, row['pdf_sheet'], path).get('page_topics')
+    if topics:
+        row['topics'] = topics.strip()   # '; ' list of labels, kept as written
     pp = printed_page_map(row['doc_id'], file_path, path).get(int(row['pdf_sheet']))
     if pp:
         row['printed_page'], row['printed_how'] = pp, 'printed (doc_fixes printed_pages)'

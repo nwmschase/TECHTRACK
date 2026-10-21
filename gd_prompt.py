@@ -74,6 +74,8 @@ def _pages_block(title, pages):
     parts = [f"=== {title} ==="]
     for p in pages:
         note = f"\nPAGE NOTE (reviewed): {p.note}" if getattr(p, "note", "") else ""
+        if getattr(p, "topics", ""):
+            note += f"\nPAGE TOPICS: {p.topics}"
         parts.append(f"--- [{p.label()}] ({p.kind}{'; ' + p.reason if p.reason else ''}) ---{note}\n{p.text.strip()}")
     return "\n".join(parts)
 

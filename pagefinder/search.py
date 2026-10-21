@@ -220,7 +220,8 @@ class Library:
     @staticmethod
     def _page_row(r):
         r = dict(r)
-        r['tf'] = collections.Counter(tokens(r['text'])); r['len'] = sum(r['tf'].values())
+        r['tf'] = collections.Counter(tokens(r['text'] + ('\n' + r['topics'] if r.get('topics') else '')))   # + reviewed page topics
+        r['len'] = sum(r['tf'].values())
         r['codes'] = json.loads(r['codes']) if isinstance(r['codes'], str) else r['codes']
         return r
     def vectors(self):
@@ -401,6 +402,12 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     if out: cand = [d for d in cand if d['doc_id'] not in out]; why.append(f'not for this job (doc_fixes not_for): {out}')
     # generic manuals (doc_fixes any_brand): e.g. L47 Lippert Electric Brakes fits every maker's electric drum brake
     generic = [d for d in cand if scope_hit(d, jw)]
+    # a general reference (source_type general_reference, e.g. L28 DC wiring book) is about no one unit type: its scope
+    # phrases bring it in for a job filed under any category
+    ids = {d['doc_id'] for d in cand}
+    refs = [d for d in lib.docs.values() if d['doc_id'] not in ids and d.get('source_type') == 'general_reference'
+            and scope_hit(d, jw) and not ruled_out(d, jw)]
+    if refs: cand = cand + refs; generic += refs
     if generic: why.append(f'any-brand docs for this job: {[d["doc_id"] for d in generic]}')
     b = brand or brand_of(model or '', lib)   # the maker comes from what the tech typed, never from the category name
     coach = []
@@ -491,8 +498,12 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
         msc = {d['doc_id']: model_score(d, q_models, qwords) for d in coach}
         best = max(coach, key=lambda d: (msc[d['doc_id']], cs.get(d['doc_id'], 0), d['doc_id']))
         if best not in pinned: pinned = [best] + pinned; why.append(f'{b} owner\'s manual covers the unit: added {best["doc_id"]}')
-    if any(not is_oem(d) for d in pinned) and any(is_oem(d) for d in pinned):   # shown, but never ahead of the maker's manual
-        pinned = [d for d in pinned if is_oem(d)] + [d for d in pinned if not is_oem(d)]
+    # shown, but never ahead of the maker's manual; a general reference (L28 wiring book) keeps its rank when the job
+    # names no maker (a plain "battery bank wiring" question) in its own category: then no maker manual is more on-topic
+    # (filed under another category, e.g. a leveling job's battery cable, it stays after that unit's manuals)
+    front = lambda d: is_oem(d) or (not b and d.get('source_type') == 'general_reference' and d not in refs)
+    if any(not front(d) for d in pinned) and any(front(d) for d in pinned):
+        pinned = [d for d in pinned if front(d)] + [d for d in pinned if not front(d)]
         why.append('non-OEM docs (shop sheet / internal flow) listed after the maker\'s manuals')
     return pinned, why, cc
 
@@ -512,7 +523,7 @@ def _out(lib, p, score, reason):
     note = _fixes.page_fix(p['doc_id'], d.get('file_path'), p['pdf_sheet']).get('page_note', '')
     return dict(doc_id=p['doc_id'], title=shown_title(d), pdf_sheet=p['pdf_sheet'], printed_page=p['printed_page'], marks=_marks(p),
                 score=round(score, 3), reason=reason, codes=sorted(p['codes']), chars=len(p['text']), text=p['text'],
-                source_type=d.get('source_type') or _fixes.OEM, note=note)
+                source_type=d.get('source_type') or _fixes.OEM, note=note, topics=p.get('topics') or '')
 
 def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, k_max=5, n_entry=2, lib=None):
     """Pick the manual(s), the entry page(s) and the best supporting pages. No reasoning: the brain reads them."""
