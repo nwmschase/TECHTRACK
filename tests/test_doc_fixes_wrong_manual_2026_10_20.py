@@ -89,13 +89,23 @@ class TestLibrary(unittest.TestCase):
         self.assertNotIn("SHOP SHEET", self.f.doc_title("L808"))
 
     def test_models_filled(self):
+        # no longer searched since 2026-10-21 (models still filled in the index row): L150 duplicate of L215 (ae65201);
+        # L787 L791 retired combined Master Owner's Manuals, L799 and L32 removed by Chase (exclude rows)
+        gone = {150: "duplicate", 787: "excluded", 791: "excluded", 799: "excluded", 32: "excluded"}
+        db = sqlite3.connect(f"file:{os.path.join(INDEX, 'index.sqlite')}?mode=ro", uri=True)
+        row = lambda i: db.execute("select status, models from docs where doc_id=?", (f"L{i}",)).fetchone()
         for i in FILLED:
-            self.assertTrue(json.loads(self.lib.docs[f"L{i}"]["models"]), i)
+            if i in gone:
+                self.assertNotIn(f"L{i}", self.lib.docs, i)
+                self.assertEqual(row(i)[0], gone[i], i)
+                self.assertTrue(json.loads(row(i)[1]), i)
+            else:
+                self.assertTrue(json.loads(self.lib.docs[f"L{i}"]["models"]), i)
         self.assertIn("Ground Control 3.0", json.loads(self.lib.docs["L1"]["models"]))
         self.assertIn("8330-735", json.loads(self.lib.docs["L236"]["models"]))
         # held back: multi-model docs whose exact tags would push a dedicated doc out (ranking tie-break is Chase's call)
-        self.assertNotIn("140-1227", json.loads(self.lib.docs["L799"]["models"]))
-        self.assertEqual(json.loads(self.lib.docs["L32"]["models"]), [])
+        self.assertNotIn("140-1227", json.loads(row(799)[1]))
+        self.assertEqual(json.loads(row(32)[1]), [])
         self.assertEqual([m["doc_id"] for m in self.f.pick_manual("Leveling", "Power Gear 140-1227", "not working").manuals][:2], ["L802", "L555"])
 
 

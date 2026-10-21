@@ -110,7 +110,10 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertIn("Shurflo", self.lib.docs["L853"]["doc_note"])
 
     def test_rehost_pages_excluded_and_marks_cleared(self):
-        for k, sh in (("L241", 27), ("L149", 61), ("L121", 112), ("L224", 50), ("L867", 24), ("L161", 62)):   # L803 (Suburban parts manual) removed 2026-10-21 (parts-ordering only)
+        # L803 (Suburban parts manual) removed 2026-10-21 (parts-ordering only); L224 (cut-off Atwood copy, its p50 was the
+        # My RV Works insert) retired 2026-10-21 (ab43ae5), replaced by the clean split L892/L893/L894, which has no insert page
+        self.assertNotIn("L224", self.lib.docs)
+        for k, sh in (("L241", 27), ("L149", 61), ("L121", 112), ("L867", 24), ("L161", 62)):
             self.assertNotIn(sh, [p["pdf_sheet"] for p in self.lib.pages(k)], k)
             self.assertIn(sh - 1, [p["pdf_sheet"] for p in self.lib.pages(k)])
         self.assertIn("My RV Works", self.lib.docs["L149"]["doc_note"])
