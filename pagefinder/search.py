@@ -104,8 +104,10 @@ def embedding_model(cache_dir=None, threads=None):
 # term families on the query side. All of it lives in reviewable data files under pagefinder/terms/ (see terms.py).
 try:
     from pagefinder import terms as _terms
+    from pagefinder import doc_fixes as _fixes
 except ImportError:   # run as a script from inside pagefinder/
     import terms as _terms
+    import doc_fixes as _fixes
 STOP, TOKEN, stem = _terms.STOP, _terms.TOKEN, _terms.stem
 def tokens(text): return _terms.vocab().tokens(text)
 def query_terms(text, extra=()):
@@ -132,7 +134,16 @@ class Library:
         if app_db and os.path.exists(app_db):
             self.app_sig = app_signature(app_db)
             self.sync_with_app(app_db)
+        self.apply_doc_fixes()
         self._prepare()
+
+    def apply_doc_fixes(self):
+        """Reviewed data fixes (pagefinder/doc_fixes.tsv) win over the app DB's documents row, which the sync just copied
+        in: e.g. L413 is Valid, not Lippert; a duplicate (L139 = L236) leaves the finder; shop sheets keep their label."""
+        for k in list(self.docs):
+            _fixes.apply(self.docs[k])
+            if self.docs[k].get('status', 'active') != 'active':
+                self.docs.pop(k)
 
     def _prepare(self):
         for d in self.docs.values():
@@ -377,7 +388,7 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
             # R4 brand lock: never another maker's manual for this unit. The one exception is a whole-unit maker (an RV
             # builder): its owner's manuals are filed under a reference-kind category and cover every system of the unit.
             coach = [d for d in lib.docs.values() if d['brand'].lower() == b.lower() and d['doc_type'] == 'owners-manual'
-                     and re.search(REFERENCE_KIND, d['unit_type'] or '', re.I)]
+                     and is_oem(d) and re.search(REFERENCE_KIND, d['unit_type'] or '', re.I)]
             if not coach:
                 why.append(f'brand {b}: no {ut or ""} manuals of this maker in the library (brand lock): none picked')
                 return [], why, ''
@@ -429,8 +440,8 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     # diagnosis needs a troubleshooting / service manual: if the model-matched docs are only owner, install, spec
     # or form docs, add the best such manual of the same brand + unit (by complaint text)
     DIAG = ('troubleshooting', 'service-manual')
-    if pinned and not any(d['doc_type'] in DIAG for d in pinned):
-        pool2 = [d for d in brand_pool if d['doc_type'] in DIAG and d not in pinned]
+    if pinned and not any(d['doc_type'] in DIAG and is_oem(d) for d in pinned):   # a shop sheet is never the OEM manual
+        pool2 = [d for d in brand_pool if d['doc_type'] in DIAG and is_oem(d) and d not in pinned]
         near = [d for d in pool2 if ms.get(d['doc_id'], (0, 0)) != (0, 0)] or pool2
         if near:
             ns = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in near], b=0.3)
@@ -449,6 +460,9 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
         msc = {d['doc_id']: model_score(d, q_models, qwords) for d in coach}
         best = max(coach, key=lambda d: (msc[d['doc_id']], cs.get(d['doc_id'], 0), d['doc_id']))
         if best not in pinned: pinned = [best] + pinned; why.append(f'{b} owner\'s manual covers the unit: added {best["doc_id"]}')
+    if any(not is_oem(d) for d in pinned) and any(is_oem(d) for d in pinned):   # shown, but never ahead of the maker's manual
+        pinned = [d for d in pinned if is_oem(d)] + [d for d in pinned if not is_oem(d)]
+        why.append('non-OEM docs (shop sheet / internal flow) listed after the maker\'s manuals')
     return pinned, why, cc
 
 DOWN = ('is_toc', 'is_cover', 'is_safety', 'is_parts')
@@ -457,10 +471,17 @@ def code_pattern(cc):
     return re.compile(r'(?<![A-Za-z0-9])' + r'\s?-?\s?'.join(re.findall(r'[A-Z]+|\d+', cc)) + r'(?![0-9])', re.I)
 
 def _marks(p): return [m[3:] for m in ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring') if p[m]]
+def is_oem(d): return (d.get('source_type') or _fixes.OEM) == _fixes.OEM
+def shown_title(d):
+    """The doc title as GD shows it: a shop sheet / unpublished internal flow carries its label in front, so no page of
+    it ever reads as the maker's manual (pagefinder/doc_fixes.py)."""
+    return _fixes.display_title(d['title'], d.get('source_type'))
 def _out(lib, p, score, reason):
     d = lib.docs[p['doc_id']]
-    return dict(doc_id=p['doc_id'], title=d['title'], pdf_sheet=p['pdf_sheet'], printed_page=p['printed_page'], marks=_marks(p),
-                score=round(score, 3), reason=reason, codes=sorted(p['codes']), chars=len(p['text']), text=p['text'])
+    note = _fixes.page_fix(p['doc_id'], d.get('file_path'), p['pdf_sheet']).get('page_note', '')
+    return dict(doc_id=p['doc_id'], title=shown_title(d), pdf_sheet=p['pdf_sheet'], printed_page=p['printed_page'], marks=_marks(p),
+                score=round(score, 3), reason=reason, codes=sorted(p['codes']), chars=len(p['text']), text=p['text'],
+                source_type=d.get('source_type') or _fixes.OEM, note=note)
 
 def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, k_max=5, n_entry=2, lib=None):
     """Pick the manual(s), the entry page(s) and the best supporting pages. No reasoning: the brain reads them."""
@@ -493,7 +514,8 @@ def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, 
         if len(chosen) >= k_min and sc[key(p)] < 0.6 * top: break
         chosen.append(p); reasons[key(p)] = f'hybrid {sc[key(p)]:.2f}'
     out = [_out(lib, p, sc.get(key(p), 0), reasons[key(p)]) for p in chosen]
-    return dict(manuals=[dict(doc_id=d['doc_id'], title=d['title'], brand=d['brand'], unit_type=d['unit_type'], doc_type=d['doc_type']) for d in pinned],
+    return dict(manuals=[dict(doc_id=d['doc_id'], title=shown_title(d), brand=d['brand'], unit_type=d['unit_type'], doc_type=d['doc_type'],
+                              source_type=d.get('source_type') or _fixes.OEM, note=d.get('doc_note') or '') for d in pinned],
                 entry=out[:len(entry)], pages=out, why=why, chars=sum(p['chars'] for p in out), code=cc)
 
 DIAG_TYPES = ('tech-sheet', 'service-manual', 'troubleshooting', 'install-manual', 'recall-bulletin')
@@ -514,7 +536,7 @@ def fetch_by_part(part, result=None, brand=None, unit=None, k=3, lib=None):
         if d['doc_id'] in tier: continue
         for_unit = any(covers_unit(d, u) for u in units)
         if d['brand'].lower() in brands and for_unit: tier[d['doc_id']] = 0.85
-        elif for_unit and d['doc_type'] in DIAG_TYPES: tier[d['doc_id']] = 0.7
+        elif for_unit and d['doc_type'] in DIAG_TYPES and is_oem(d): tier[d['doc_id']] = 0.7
     pages = [p for d in tier for p in lib.pages(d) if p['len']]
     hs = hybrid(lib, part, pages)
     key = lambda p: (p['doc_id'], p['pdf_sheet'])

@@ -35,6 +35,7 @@ class Page:
     reason: str = ""
     source: str = "library"  # library | web
     url: str = ""
+    note: str = ""           # reviewed page note (pagefinder/doc_fixes.tsv), e.g. a misprinted page; shown with the page
 
     @property
     def key(self):
@@ -144,7 +145,8 @@ class LibraryPageFinder:
 
     def _page(self, p: dict, kind: str) -> Page:
         return Page(doc_id=p["doc_id"], title=p["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
-                    sheet=int(p["pdf_sheet"]), text=p.get("text") or "", kind=kind, reason=p.get("reason", ""))
+                    sheet=int(p["pdf_sheet"]), text=p.get("text") or "", kind=kind, reason=p.get("reason", ""),
+                    note=p.get("note") or "")
 
     def pick_manual(self, category, model_text, complaint="", code=None) -> Picked:
         r = self.search.search(unit=category or None, model=model_text or None, complaint=complaint or "", code=code or None)
@@ -178,4 +180,4 @@ class LibraryPageFinder:
     def doc_title(self, doc_id) -> str:
         """Title of a library doc for source lines; the doc id itself when unknown."""
         d = self.lib.docs.get(str(doc_id)) or {}
-        return d.get("title") or str(doc_id)
+        return self.search.shown_title(d) if d.get("title") else str(doc_id)

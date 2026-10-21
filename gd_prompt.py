@@ -41,6 +41,9 @@ GUIDANCE = """How to work (guidance):
   page says [General trade knowledge].
 - No special tester is required: give a meter and hand-tool path. A maker's tester may be named only as an option.
 - Cite only manuals of this unit's maker (the MANUALS PICKED list); never another maker's manual for this unit.
+- A doc labeled "SHOP SHEET (not maker manual)" is this shop's own write-up, and "MAKER INTERNAL FLOW, UNPUBLISHED" is a
+  maker's unpublished support flow. Use them, but cite them with that label, never as the maker's manual, and take specs,
+  part numbers and phone numbers from maker pages when you have them. Follow any PAGE NOTE shown with a page.
 - Don't tell the tech to order or replace a part while a test is still pending; finish or drop that test first.
 - This is a warranty shop: before a warranty part or whole-unit replacement, the tech calls the maker for authorization.
   Give the findings to report (readings and the tests done) and the phone number printed in the manual pages you have.
@@ -66,14 +69,16 @@ def _pages_block(title, pages):
         return ""
     parts = [f"=== {title} ==="]
     for p in pages:
-        parts.append(f"--- [{p.label()}] ({p.kind}{'; ' + p.reason if p.reason else ''}) ---\n{p.text.strip()}")
+        note = f"\nPAGE NOTE (reviewed): {p.note}" if getattr(p, "note", "") else ""
+        parts.append(f"--- [{p.label()}] ({p.kind}{'; ' + p.reason if p.reason else ''}) ---{note}\n{p.text.strip()}")
     return "\n".join(parts)
 
 
 def context_block(*, category, model_text, picked, toc, pages, not_shown, state, notes=()):
     lines = [f"UNIT (as the tech typed it): category={category or '-'}; model={model_text or '-'}"]
     if picked is not None and picked.found:
-        lines.append("MANUALS PICKED FROM THE SHOP LIBRARY: " + "; ".join(f"{m['title']} ({m['doc_id']})" for m in picked.manuals))
+        lines.append("MANUALS PICKED FROM THE SHOP LIBRARY: " + "; ".join(
+            f"{m['title']} ({m['doc_id']})" + (f" [note: {m['note']}]" if m.get("note") else "") for m in picked.manuals))
     else:
         lines.append("MANUALS PICKED FROM THE SHOP LIBRARY: none found for this unit.")
     for n in notes:

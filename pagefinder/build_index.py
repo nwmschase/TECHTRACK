@@ -18,12 +18,14 @@ import argparse, collections, csv, hashlib, json, os, re, sqlite3, sys, time
 os.environ.setdefault('HF_HUB_OFFLINE', '1')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pagefinder import pagetext as PT
+from pagefinder import doc_fixes as DF
 
 SCHEMA = '''
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE docs(doc_id TEXT PRIMARY KEY, app_id INT, title TEXT, brand TEXT, product_line TEXT, models TEXT, title_models TEXT,
   unit_type TEXT, doc_type TEXT, doc_number TEXT, file_path TEXT, sha256 TEXT, n_pages INT, n_ocr_pages INT,
-  page_offset INT, offset_conf TEXT, status TEXT, page_models TEXT, alt_titles TEXT, text_source TEXT);
+  page_offset INT, offset_conf TEXT, status TEXT, page_models TEXT, alt_titles TEXT, text_source TEXT,
+  source_type TEXT DEFAULT 'oem', doc_note TEXT DEFAULT '', duplicate_of TEXT DEFAULT '');
 CREATE TABLE pages(doc_id TEXT, pdf_sheet INT, printed_page INT, printed_how TEXT, text TEXT, method TEXT, content_hash TEXT,
   chars INT, codes TEXT, models TEXT, is_toc INT, is_cover INT, is_safety INT, is_parts INT, is_fault_codes INT, is_troubleshooting INT, is_wiring INT,
   PRIMARY KEY(doc_id, pdf_sheet));
@@ -40,7 +42,8 @@ MODEL_TAG_FIXES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mode
 
 def model_tag_fixes(path=MODEL_TAG_FIXES):
     """{app doc id: {normalised model}}: model tags a doc must NOT carry even though its own page text shows them (a reviewed
-    data file, e.g. an OEM cover that prints the sibling product's model). One row per fix, with the evidence."""
+    data file, e.g. an OEM cover that prints the sibling product's model). One row per fix, with the evidence. The model is
+    dropped from the doc's model tags and from its page-text models (page_models), so neither tier matches it."""
     out = {}
     if os.path.exists(path):
         for line in open(path, encoding='utf-8'):
@@ -73,7 +76,7 @@ def doc_record(app, pgs, text_source):
         plist.append(dict(pdf_sheet=p['sheet'], printed_page=pp, printed_how=how, text=p['text'], method=p.get('method', 'text'),
                           content_hash=hashlib.sha1(re.sub(r'\s+', ' ', p['text'].lower()).strip().encode()).hexdigest(),
                           chars=len(p['text']), codes=json.dumps(codes),
-                          models=json.dumps(sorted({PT.norm_model(m) for m in PT.models_from(p['text'])})), **marks))
+                          models=json.dumps(sorted({PT.norm_model(m) for m in PT.models_from(p['text'])} - drop)), **marks))
     norm = re.sub(r'\s+', ' ', ' '.join(p['text'] for p in pgs)).strip()
     status = 'active' if len(norm) >= 60 else 'no-text'
     doc = dict(doc_id=f"L{app['id']}", app_id=app['id'], title=title, brand=(app.get('brand') or '').strip(),
@@ -82,8 +85,40 @@ def doc_record(app, pgs, text_source):
                doc_number=(app.get('doc_number') or '').strip(), file_path=app.get('file_path') or '', sha256=app.get('sha') or '',
                n_pages=len(pgs), n_ocr_pages=sum(1 for p in pgs if p.get('method') == 'ocr'), page_offset=off, offset_conf=oconf,
                status=status, page_models=json.dumps(sorted({m for p in plist for m in json.loads(p['models'])})), alt_titles='[]',
-               text_source=text_source)
+               text_source=text_source, source_type=DF.OEM, doc_note='', duplicate_of='')
+    DF.apply(doc, plist)   # reviewed data fixes (pagefinder/doc_fixes.tsv): brand, source type, duplicates, models, page fixes
     return doc, plist
+
+
+def apply_fixes_in_place(index_db):
+    """Re-apply the reviewed fixes (model_tag_fixes.tsv + doc_fixes.tsv) to a built index without re-extracting or
+    re-embedding: page text and vectors do not change. Adds the source_type / doc_note / duplicate_of columns to an older
+    index. Returns {doc_id: [changed fields]}."""
+    db = sqlite3.connect(index_db); db.row_factory = sqlite3.Row
+    have = {r[1] for r in db.execute('pragma table_info(docs)')}
+    for col, dflt in (('source_type', "'oem'"), ('doc_note', "''"), ('duplicate_of', "''")):
+        if col not in have: db.execute(f'ALTER TABLE docs ADD COLUMN {col} TEXT DEFAULT {dflt}')
+    tag_drops = model_tag_fixes()
+    docs = {r['doc_id']: dict(r) for r in db.execute('select * from docs')}
+    changed = {}
+    for k, d in docs.items():
+        before = dict(d)
+        pages = [dict(r) for r in db.execute('select pdf_sheet, models from pages where doc_id=? order by pdf_sheet', (k,))]
+        drop = tag_drops.get(d['app_id'], set())
+        if drop:
+            d['models'] = json.dumps([m for m in json.loads(d['models'] or '[]') if PT.norm_model(m) not in drop])
+            for p in pages: p['models'] = json.dumps([m for m in json.loads(p['models'] or '[]') if m not in drop])
+            d['page_models'] = json.dumps(sorted({m for p in pages for m in json.loads(p['models'])}))
+        if d.get('status') == 'duplicate' and not (DF.fix_for(k, d['file_path']) or {}).get('doc', {}).get('duplicate_of'):
+            d['status'] = 'active'; d['duplicate_of'] = ''
+        DF.apply(d, pages)
+        for p in pages: db.execute('update pages set models=? where doc_id=? and pdf_sheet=?', (p['models'], k, p['pdf_sheet']))
+        diff = [c for c in d if c in before and d[c] != before[c]]
+        if diff:
+            changed[k] = diff
+            db.execute(f'update docs set {", ".join(f"{c}=?" for c in diff)} where doc_id=?', [d[c] for c in diff] + [k])
+    db.commit(); db.close()
+    return changed
 
 
 def pages_from_chunks(conn, app_id):
@@ -129,6 +164,10 @@ def main(argv=None):
     ap.add_argument('--app-db', required=True); ap.add_argument('--sources'); ap.add_argument('--out', required=True)
     ap.add_argument('--page-cache'); ap.add_argument('--page-cache-manifest'); ap.add_argument('--no-embed', action='store_true')
     ap.add_argument('--model-dir'); ap.add_argument('--workers', type=int, default=6)
+    if argv is None: argv = sys.argv[1:]
+    if argv[:1] == ['--apply-fixes']:   # python -m pagefinder.build_index --apply-fixes pagefinder/index/index.sqlite
+        for k, v in sorted(apply_fixes_in_place(argv[1]).items()): print(k, v)
+        return
     a = ap.parse_args(argv)
     conn = sqlite3.connect(f'file:{a.app_db}?mode=ro', uri=True)
     apps = app_documents(conn)

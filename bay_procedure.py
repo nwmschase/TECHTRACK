@@ -7634,6 +7634,36 @@ def _plain_kit_procedures(packets, job: str) -> list:
     return built
 
 
+def apply_library_doc_fixes(chunks):
+    """Reviewed library data fixes (pagefinder/doc_fixes.tsv) on the Bay PDF's library excerpts, same as the page-finder:
+    a duplicate doc (e.g. L139 = L236) is dropped, a corrected brand/title (L413 is Valid) is used for the brand lock, and a
+    shop sheet is cited as "Shop sheet: ..." instead of under a maker's name. Chunks of docs without a fix are untouched;
+    a fix applies only to the file it was reviewed for (so a test doc with a reused id is never touched)."""
+    if chunks is None:
+        return chunks
+    from pagefinder import doc_fixes as _df
+    out = []
+    for ch in chunks:
+        get = ch.get if isinstance(ch, dict) else (lambda k, _c=ch: getattr(_c, k, None))
+        fix = _df.fix_for(get("document_id"), get("file_path") or "")
+        if not fix:
+            out.append(ch)
+            continue
+        f = fix["doc"]
+        if f.get("duplicate_of"):
+            continue
+        d = dict(ch) if isinstance(ch, dict) else chunk_as_dict(ch)
+        for k in ("brand", "product_line"):
+            if k in f:
+                d[k] = f[k]
+        title = f.get("title") or d.get("clean_title") or d.get("title") or ""
+        d["title"] = _df.bay_title(title, f.get("source_type"))
+        if f.get("title") or f.get("source_type"):
+            d["clean_title"] = d["title"]
+        out.append(d)
+    return out
+
+
 def compile_bay_procedure(
     concern: str,
     brand: str = "",
@@ -7660,6 +7690,7 @@ def compile_bay_procedure(
     if category in ("(any)", "-"):
         category = ""
     model_text = model_text_from(brand, model)
+    chunks = apply_library_doc_fixes(chunks)
     _, brand_miss = bay_brand_retrieval(chunks, category, model_text, concern)
     ranked = rank_bay_chunks(chunks, category, model_text, concern, limit=8)
     ranked, fact12_mislabeled_only = _separate_mislabeled_fact12(ranked, model_text)
