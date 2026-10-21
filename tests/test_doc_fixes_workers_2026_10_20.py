@@ -79,7 +79,9 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertEqual(self.lib.docs["L133"]["brand"], "Furrion")   # the one genuine Furrion form
 
     def test_categories(self):
-        want = {"Air Conditioning": ("L320", "L321", "L322", "L409"), "Leveling": ("L704", "L705", "L706", "L707", "L708", "L709", "L710", "L711", "L20"),
+        for k in ("L320", "L321", "L322", "L409"):   # Trans/Air bus/van HVAC: excluded 2026-10-21 (not RV, Chase)
+            self.assertNotIn(k, self.lib.docs, k)
+        want = {"Leveling": ("L704", "L705", "L706", "L707", "L708", "L709", "L710", "L711", "L20"),
                 "Electrical": ("L406",), "axles-suspension-brakes": ("L45", "L46", "L47"), "Range & Cooktops": ("L869",),
                 "Slideouts": ("L872", "L424", "L879"), "Plumbing / Toilets": ("L314",), "Furnaces": ("L846",)}
         for ut, ks in want.items():
@@ -136,16 +138,16 @@ class TestWorkerFixes(unittest.TestCase):
         d = self.lib.docs
         for k in ("L677", "L584", "L688", "L702", "L703", "L713", "L463"):
             self.assertEqual(d[k]["unit_type"], "Leveling", k)
-        self.assertEqual(d["L877"]["unit_type"], "Air Conditioning")
+        self.assertNotIn("L877", d)   # Trans/Air truck/van A/C drawing: excluded 2026-10-21 (not RV, Chase)
         self.assertNotIn("L685", d)   # marine product
-        for k in ("L517", "L528", "L529"):
-            self.assertNotEqual(d[k]["unit_type"], "chassis-frames", k)
+        for k in ("L517", "L528", "L529"):   # furniture / mattress covers: excluded 2026-10-21 (not RV service docs, Chase)
+            self.assertNotIn(k, d, k)
         self.assertEqual((d["L852"]["brand"], d["L852"]["title"][:7]), ("Dometic", "Dometic"))
         self.assertIn("Tire Clearance", d["L871"]["title"])
         self.assertEqual(d["L488"]["product_line"], "Axles/Suspension"); self.assertNotEqual(d["L483"]["product_line"], "Tire Monitoring")
         for k, junk in (("L457", "C1036"), ("L461", "J673"), ("L463", "CABIN80AMINIBREAKERINSTALLATION"), ("L454", "1621HD"), ("L885", "EZE1")):
             self.assertNotIn(junk, d[k]["models_n"], k)
-        for k in ("L244", "L877"):
+        for k in ("L244",):   # L877 excluded 2026-10-21 (Trans/Air, not RV)
             self.assertTrue(self.f.doc_title(k).startswith("SHOP SHEET (not maker manual): "), k)
         self.assertTrue(self.f.doc_title("L808").startswith("MAKER WEB FAQ"))   # maxxair.com FAQ: re-labeled 2026-10-20 (wrong-manual test)
         self.assertTrue(self.f.doc_title("L138").startswith("COACH-BUILDER DOC")); self.assertEqual(d["L138"]["brand"], "")
