@@ -316,9 +316,12 @@ class TestRealLibraryWiring(unittest.TestCase):
 
     def test_category_name_never_names_the_maker(self):
         # 'electronics-onecontrol-...' must not make the maker Lippert (product-line words come only from the typed unit)
-        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Power Gear 140-1224", "not working")
+        # (the Power Gear sheets once filed here are leveling sheets, re-filed under Leveling on 2026-10-20: worker 4 flags)
+        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Furrion FOS7HTASM", "no picture")
         self.assertTrue(p.manuals)
-        self.assertEqual(p.manuals[0]["brand"], "Power Gear")
+        self.assertEqual({m["brand"] for m in p.manuals}, {"Furrion"})
+        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Power Gear 140-1224", "not working")
+        self.assertNotIn("Lippert", {m["brand"] for m in p.manuals})
 
     def test_whole_unit_maker_owner_manual(self):
         p = self.f.pick_manual("Air Conditioning", "Brinkley Model Z", "AC not cooling")
