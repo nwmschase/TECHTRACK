@@ -17,7 +17,8 @@ Doc fields: brand, product_line, title, doc_type, category (the library category
 further library categories the doc's own pages cover, e.g. a control panel manual filed under Furnaces whose fault-code
 pages are the water heater's: the doc is also a candidate for those unit types), source_type, duplicate_of
 (a true duplicate: never returned, the kept copy is named), exclude (not an RV service doc, e.g. a residential product or
-a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), doc_note (shown with the
+a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), alt_titles ('; ' list of other names the manual is known by, e.g. the
+combined manual it was split out of), doc_note (shown with the
 doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
 Page fields (sheet = PDF sheet): page_note (shown with the page), page_models_drop, page_exclude (the sheet is never
 returned, e.g. a re-host site's ad insert or a marketing page; the reason is the value), page_marks_off (comma list of page
@@ -41,7 +42,7 @@ SOURCE_LABELS = {
     'maker_web': ("MAKER WEB FAQ (maker's published web page, not a service manual)", 'Maker web FAQ'),
 }
 DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'also_category', 'source_type', 'duplicate_of', 'exclude',
-              'models_add', 'models_drop', 'doc_note')
+              'models_add', 'models_drop', 'doc_note', 'alt_titles')
 PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
 PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
 
@@ -128,6 +129,8 @@ def apply(doc, pages=None, path=DOC_FIXES):
     doc['also_unit_types'] = ', '.join(u for u in split_list(f.get('also_category')) if u != doc.get('unit_type'))
     doc['source_type'] = f.get('source_type', OEM)
     doc['doc_note'] = f.get('doc_note', '')
+    if f.get('alt_titles'):   # other names the manual is known by ('; ' list): the title tier also matches these words
+        doc['alt_titles'] = json.dumps([t.strip() for t in f['alt_titles'].split(';') if t.strip()])
     if f.get('duplicate_of'):
         doc['status'] = 'duplicate'
         doc['duplicate_of'] = f['duplicate_of']
