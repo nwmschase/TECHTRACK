@@ -109,8 +109,9 @@ def apply_fixes_in_place(index_db):
             d['models'] = json.dumps([m for m in json.loads(d['models'] or '[]') if PT.norm_model(m) not in drop])
             for p in pages: p['models'] = json.dumps([m for m in json.loads(p['models'] or '[]') if m not in drop])
             d['page_models'] = json.dumps(sorted({m for p in pages for m in json.loads(p['models'])}))
-        if d.get('status') == 'duplicate' and not (DF.fix_for(k, d['file_path']) or {}).get('doc', {}).get('duplicate_of'):
-            d['status'] = 'active'; d['duplicate_of'] = ''
+        fx = (DF.fix_for(k, d['file_path']) or {}).get('doc', {})
+        if (d.get('status') == 'duplicate' and not fx.get('duplicate_of')) or (d.get('status') == 'excluded' and not fx.get('exclude')):
+            d['status'] = 'active'; d['duplicate_of'] = ''   # the fix was taken back
         DF.apply(d, pages)
         for p in pages: db.execute('update pages set models=? where doc_id=? and pdf_sheet=?', (p['models'], k, p['pdf_sheet']))
         diff = [c for c in d if c in before and d[c] != before[c]]

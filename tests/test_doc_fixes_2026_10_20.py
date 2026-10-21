@@ -147,8 +147,8 @@ class TestRealLibrary(unittest.TestCase):
 
     def test_l413_is_valid_not_lippert(self):
         p = self.f.pick_manual("Leveling", "Valid TrueLine", "system will not auto level")
-        self.assertEqual([m["doc_id"] for m in p.manuals], ["L413"])
-        self.assertEqual(p.manuals[0]["brand"], "Valid")
+        self.assertEqual([m["doc_id"] for m in p.manuals][:1], ["L413"])
+        self.assertEqual({m["brand"] for m in p.manuals}, {"Valid"})   # L384/L381 are Valid TrueLine too (worker 1 flags)
         for model in ("Lippert Level Up Advantage 807662", "Lippert Ground Control 3.0", "Lippert leveling"):
             p = self.f.pick_manual("Leveling", model, "manual mode not working")
             self.assertNotIn("L413", [m["doc_id"] for m in p.manuals])

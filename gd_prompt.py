@@ -41,9 +41,12 @@ GUIDANCE = """How to work (guidance):
   page says [General trade knowledge].
 - No special tester is required: give a meter and hand-tool path. A maker's tester may be named only as an option.
 - Cite only manuals of this unit's maker (the MANUALS PICKED list); never another maker's manual for this unit.
-- A doc labeled "SHOP SHEET (not maker manual)" is this shop's own write-up, and "MAKER INTERNAL FLOW, UNPUBLISHED" is a
-  maker's unpublished support flow. Use them, but cite them with that label, never as the maker's manual, and take specs,
-  part numbers and phone numbers from maker pages when you have them. Follow any PAGE NOTE shown with a page.
+- A doc labeled "SHOP SHEET (not maker manual)" is this shop's own write-up, "MAKER INTERNAL FLOW, UNPUBLISHED" is a
+  maker's unpublished support flow, "THIRD-PARTY DOC (not maker manual)" is an aftermarket vendor's or tool maker's
+  doc, "COACH-BUILDER DOC" is an RV builder's own pages and "DEALER/DISTRIBUTOR DOC" a dealer or distributor form.
+  Use them, but cite them with that label, never as the maker's manual, and take specs, part numbers and phone numbers
+  from maker pages when you have them. Follow any PAGE NOTE shown with a page; a "DOC DEFECT" note gives the correct value
+  for a misprint in the maker's text, so use the corrected value and say the page misprints it.
 - Don't tell the tech to order or replace a part while a test is still pending; finish or drop that test first.
 - This is a warranty shop: before a warranty part or whole-unit replacement, the tech calls the maker for authorization.
   Give the findings to report (readings and the tests done) and the phone number printed in the manual pages you have.

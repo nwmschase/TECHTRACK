@@ -195,7 +195,8 @@ class Library:
                     doc, plist = B.doc_record(a, pgs, 'app doc_chunks (added after index build)')
                     if doc['status'] != 'active': continue
                     self.docs[k] = doc
-                    self._pages[k] = [self._page_row(dict(p, doc_id=k)) for p in plist]
+                    self._pages[k] = [self._page_row(_fixes.fix_page_row(dict(p, doc_id=k), doc['file_path'])) for p in plist
+                                      if _fixes.page_kept(k, doc['file_path'], p['pdf_sheet'])]
                     added.append(k)
                     continue
                 d['title'] = (a.get('clean_title') or a.get('title') or d['title']).strip()
@@ -250,7 +251,9 @@ class Library:
         return self._model
     def pages(self, doc_id):
         if doc_id not in self._pages:
-            self._pages[doc_id] = [self._page_row(dict(r)) for r in self.db.execute('select * from pages where doc_id=? order by pdf_sheet', (doc_id,))]
+            fp = (self.docs.get(doc_id) or {}).get('file_path')   # reviewed page fixes: excluded sheets, wrong marks
+            self._pages[doc_id] = [self._page_row(_fixes.fix_page_row(dict(r), fp)) for r in self.db.execute('select * from pages where doc_id=? order by pdf_sheet', (doc_id,))
+                                   if _fixes.page_kept(doc_id, fp, r['pdf_sheet'])]
         return self._pages[doc_id]
     def doc_tf(self):
         if self._doc_tf is None:
@@ -442,11 +445,16 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     DIAG = ('troubleshooting', 'service-manual')
     if pinned and not any(d['doc_type'] in DIAG and is_oem(d) for d in pinned):   # a shop sheet is never the OEM manual
         pool2 = [d for d in brand_pool if d['doc_type'] in DIAG and is_oem(d) and d not in pinned]
-        near = [d for d in pool2 if ms.get(d['doc_id'], (0, 0)) != (0, 0)] or pool2
+        # closest to what the tech typed first: a diagnosis doc carrying the same model tag (Power Gear 140-1227 gets the
+        # L555 tip sheet with that tag), else one whose title holds 3+ of the tech's model words (Lippert Ground Control 3.0
+        # gets the Ground Control manual L9, not any same-brand doc sharing 'Lippert'), else any doc with some model match
+        tier = max((ms.get(d['doc_id'], (0, 0)) for d in pool2), default=(0, 0))
+        near = ([d for d in pool2 if ms.get(d['doc_id'], (0, 0)) == tier] if tier[0] or tier[1] >= 3 else []) \
+            or [d for d in pool2 if ms.get(d['doc_id'], (0, 0)) != (0, 0)] or pool2
         if near:
             ns = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in near], b=0.3)
             best = max(near, key=lambda d: (ns.get(d['doc_id'], 0), d['doc_id']))
-            if ns.get(best['doc_id'], 0) > 0:
+            if ns.get(best['doc_id'], 0) > 0 or tier[0]:
                 pinned = pinned[:max_docs] + [best]
                 why.append(f'model docs are {sorted({d["doc_type"] for d in pinned[:-1]})} only; added {best["doc_type"]} {best["doc_id"]}')
     # best title match is only a 1-2 page sheet: also search the product family (titles missing one model word)

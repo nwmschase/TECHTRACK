@@ -302,9 +302,12 @@ class TestRealLibraryWiring(unittest.TestCase):
 
     def test_model_tag_beats_title_preference(self):
         # 3f: a model listed by two docs goes to the doc made for that control first; the wider tip sheet comes second
-        for model, own in (("Power Gear 140-1230", "L370"), ("Power Gear 140-1227", "L555")):
-            p = self.f.pick_manual("Leveling", model, "not working")
-            self.assertEqual(p.manuals[0]["doc_id"], own, model)
+        p = self.f.pick_manual("Leveling", "Power Gear 140-1230", "not working")
+        self.assertEqual(p.manuals[0]["doc_id"], "L370")
+        # 140-1227: L802 (the operation manual for touch pad 140-1226 / control box 140-1227, brand fixed to Power Gear on
+        # 2026-10-20) leads; the L555 tip sheet carrying the same tag is the troubleshooting doc added after it
+        p = self.f.pick_manual("Leveling", "Power Gear 140-1227", "not working")
+        self.assertEqual([m["doc_id"] for m in p.manuals][:2], ["L802", "L555"])
 
     def test_brand_lock_no_other_makers_manual(self):
         # R4: a maker with no manual in the asked category gets none (never another maker's manual)

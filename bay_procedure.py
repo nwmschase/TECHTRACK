@@ -7650,8 +7650,10 @@ def apply_library_doc_fixes(chunks):
             out.append(ch)
             continue
         f = fix["doc"]
-        if f.get("duplicate_of"):
+        if f.get("duplicate_of") or f.get("exclude"):
             continue
+        if not _df.page_kept(get("document_id"), get("file_path") or "", get("page") or 0):
+            continue   # e.g. a re-host site's ad insert page
         d = dict(ch) if isinstance(ch, dict) else chunk_as_dict(ch)
         for k in ("brand", "product_line"):
             if k in f:

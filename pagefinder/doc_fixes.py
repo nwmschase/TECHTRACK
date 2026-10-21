@@ -7,8 +7,18 @@ app DB (the app's own documents row would otherwise put the old value back), and
 library excerpts. A row only applies when the doc's file name matches the `file` column, so a reused id or a test doc
 with the same id is never touched.
 
-source_type: oem (default) | shop_sheet (our own shop write-up) | maker_internal (a maker's unpublished internal flow).
-A non-OEM doc can be shown, but is labeled everywhere and never counts as the OEM manual."""
+source_type: oem (default) | shop_sheet (our own shop write-up) | maker_internal (a maker's unpublished internal flow) |
+third_party (not the maker's: an aftermarket vendor's or tool maker's doc) | coach_builder (an RV builder's own pages,
+e.g. a floorplan book or wiring standard) | dealer_doc (a dealer / distributor form or notice). A non-OEM doc can be shown, but is labeled
+everywhere and never counts as the OEM manual.
+
+Doc fields: brand, product_line, title, doc_type, category (the library category = unit type), source_type, duplicate_of
+(a true duplicate: never returned, the kept copy is named), exclude (not an RV service doc, e.g. a residential product or
+a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), doc_note (shown with the
+doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
+Page fields (sheet = PDF sheet): page_note (shown with the page), page_models_drop, page_exclude (the sheet is never
+returned, e.g. a re-host site's ad insert or a marketing page; the reason is the value), page_marks_off (comma list of page
+marks that are wrong for that sheet, e.g. is_troubleshooting)."""
 from __future__ import annotations
 
 import os
@@ -22,9 +32,14 @@ OEM = 'oem'
 SOURCE_LABELS = {
     'shop_sheet': ('SHOP SHEET (not maker manual)', 'Shop sheet'),
     'maker_internal': ('MAKER INTERNAL FLOW, UNPUBLISHED (not maker manual)', 'Maker internal flow (unpublished, not a maker manual)'),
+    'third_party': ('THIRD-PARTY DOC (not maker manual)', 'Third-party doc'),
+    'coach_builder': ("COACH-BUILDER DOC (not the component maker's manual)", 'Coach-builder doc'),
+    'dealer_doc': ('DEALER/DISTRIBUTOR DOC (not maker manual)', 'Dealer/distributor doc'),
 }
-DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'source_type', 'duplicate_of', 'models_add', 'doc_note')
-PAGE_FIELDS = ('page_note', 'page_models_drop')
+DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'source_type', 'duplicate_of', 'exclude',
+              'models_add', 'models_drop', 'doc_note')
+PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
+PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
 
 _CACHE = {}
 
@@ -62,12 +77,17 @@ def load(path=DOC_FIXES):
         if sheet:
             if field not in PAGE_FIELDS:
                 raise ValueError(f'{path}:{n}: unknown page field {field!r}')
-            e['pages'].setdefault(int(sheet), {})[field] = value
+            if field == 'page_marks_off' and not set(split_list(value)) <= set(PAGE_MARKS):
+                raise ValueError(f'{path}:{n}: unknown page mark in {value!r}')
+            pf = e['pages'].setdefault(int(sheet), {})
+            pf[field] = (pf[field] + ' ' + value) if field == 'page_note' and field in pf else value
         else:
             if field not in DOC_FIELDS:
                 raise ValueError(f'{path}:{n}: unknown doc field {field!r}')
             if field == 'source_type' and value != OEM and value not in SOURCE_LABELS:
                 raise ValueError(f'{path}:{n}: unknown source_type {value!r}')
+            if field in e['doc'] and field in ('doc_note', 'models_add', 'models_drop'):
+                value = e['doc'][field] + (' ' if field == 'doc_note' else ', ') + value   # several rows add up
             e['doc'][field] = value
         e['evidence'].append(ev)
     _CACHE[path] = (mt, out)
@@ -99,18 +119,30 @@ def apply(doc, pages=None, path=DOC_FIXES):
     for k in ('brand', 'product_line', 'title', 'doc_type'):
         if k in f:
             doc[k] = f[k]
+    if 'category' in f:
+        doc['unit_type'] = f['category']
     doc['source_type'] = f.get('source_type', OEM)
     doc['doc_note'] = f.get('doc_note', '')
     if f.get('duplicate_of'):
         doc['status'] = 'duplicate'
         doc['duplicate_of'] = f['duplicate_of']
-    if f.get('models_add'):
-        mods = json.loads(doc.get('models') or '[]')
+    elif f.get('exclude'):
+        doc['status'] = 'excluded'
+    drop_all = '*' in split_list(f.get('models_drop'))   # '*': every listed "model" is a part / document number
+    doc_drop = {_norm_model(m) for m in split_list(f.get('models_drop')) if m != '*'}
+    if drop_all:
+        doc_drop |= {_norm_model(m) for m in json.loads(doc.get('models') or '[]')}
+    if f.get('models_add') or doc_drop:
+        mods = [m for m in json.loads(doc.get('models') or '[]') if _norm_model(m) not in doc_drop]
         have = {_norm_model(m) for m in mods}
-        mods += [m for m in split_list(f['models_add']) if _norm_model(m) not in have and not have.add(_norm_model(m))]
+        mods += [m for m in split_list(f.get('models_add')) if _norm_model(m) not in have and not have.add(_norm_model(m))]
         doc['models'] = json.dumps(mods)
+    if doc_drop and doc.get('page_models'):   # a part / document number is no model on any page of the doc
+        doc['page_models'] = json.dumps(sorted(m for m in json.loads(doc['page_models']) if m not in doc_drop))
     if pages is not None:   # a model printed only on a misprinted page is not a model of this doc
         drops = {sh: {_norm_model(m) for m in split_list(pf.get('page_models_drop'))} for sh, pf in e['pages'].items()}
+        if doc_drop:
+            drops = {int(p['pdf_sheet']): drops.get(int(p['pdf_sheet']), set()) | doc_drop for p in pages}
         if any(drops.values()):
             union = set()
             for p in pages:
@@ -127,6 +159,18 @@ def apply(doc, pages=None, path=DOC_FIXES):
 def page_fix(doc_id, file_path, sheet, path=DOC_FIXES):
     e = fix_for(doc_id, file_path, path)
     return (e or {}).get('pages', {}).get(int(sheet), {}) if e else {}
+
+
+def page_kept(doc_id, file_path, sheet, path=DOC_FIXES):
+    """False for a sheet marked page_exclude (a re-host ad insert, a marketing page)."""
+    return not page_fix(doc_id, file_path, sheet, path).get('page_exclude')
+
+
+def fix_page_row(row, file_path, path=DOC_FIXES):
+    """Clear the wrong page marks of one page row in place (page_marks_off)."""
+    for m in split_list(page_fix(row['doc_id'], file_path, row['pdf_sheet'], path).get('page_marks_off')):
+        row[m] = 0
+    return row
 
 
 def duplicates_into(target_doc_id, path=DOC_FIXES):
