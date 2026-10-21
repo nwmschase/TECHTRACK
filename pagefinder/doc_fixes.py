@@ -20,7 +20,11 @@ pages are the water heater's: the doc is also a candidate for those unit types),
 a seminar flyer: never returned, the reason is the value), models_add / models_drop (comma list), alt_titles ('; ' list of other names the manual is known by, e.g. the
 combined manual it was split out of), also_brand (comma list of other maker names the product is sold or serviced under,
 e.g. Atwood water heaters are now Dometic: a tech who names that maker still gets the doc), printed_pages (the
-printed page number of each sheet in order, '1,2,3-12,26-32,40', for a PDF cut from a bigger book), doc_note (shown with the
+printed page number of each sheet in order, '1,2,3-12,26-32,40', for a PDF cut from a bigger book),
+any_brand ('; ' list of scope phrases: the doc is a generic manual for every maker's unit of that kind, e.g. L47 Lippert
+Electric Brakes fits any electric drum brake; when the job names a scope phrase the doc stays a candidate whatever brand
+the job names, and it is always offered), not_for ('; ' list of phrases: the doc is never picked for a job that names one,
+e.g. L47 not for hydraulic / disc / ABS brakes), doc_note (shown with the
 doc; a misprint is a "DOC DEFECT: ..." note giving the correct value, the maker's text is never rewritten).
 Page fields (sheet = PDF sheet): page_note (shown with the page), page_models_drop, page_exclude (the sheet is never
 returned, e.g. a re-host site's ad insert or a marketing page; the reason is the value), page_marks_off (comma list of page
@@ -44,7 +48,7 @@ SOURCE_LABELS = {
     'maker_web': ("MAKER WEB FAQ (maker's published web page, not a service manual)", 'Maker web FAQ'),
 }
 DOC_FIELDS = ('brand', 'product_line', 'title', 'doc_type', 'category', 'also_category', 'source_type', 'duplicate_of', 'exclude',
-              'models_add', 'models_drop', 'doc_note', 'alt_titles', 'also_brand', 'printed_pages')
+              'models_add', 'models_drop', 'doc_note', 'alt_titles', 'also_brand', 'printed_pages', 'any_brand', 'not_for')
 PAGE_FIELDS = ('page_note', 'page_models_drop', 'page_exclude', 'page_marks_off')
 PAGE_MARKS = ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring')
 
@@ -130,6 +134,8 @@ def apply(doc, pages=None, path=DOC_FIXES):
         doc['unit_type'] = f['category']
     doc['also_unit_types'] = ', '.join(u for u in split_list(f.get('also_category')) if u != doc.get('unit_type'))
     doc['also_brands'] = ', '.join(b for b in split_list(f.get('also_brand')) if b.lower() != (doc.get('brand') or '').lower())
+    doc['any_brand'] = '; '.join(split_list(f.get('any_brand')))   # generic manual: applies to every maker's unit of this kind
+    doc['not_for'] = '; '.join(split_list(f.get('not_for')))       # ... but never to these kinds of the unit
     doc['source_type'] = f.get('source_type', OEM)
     doc['doc_note'] = f.get('doc_note', '')
     if f.get('alt_titles'):   # other names the manual is known by ('; ' list): the title tier also matches these words

@@ -150,6 +150,8 @@ class Library:
             d['brand'] = d.get('brand') or ''
             d['unit_type'] = d.get('unit_type') or ''
             d['also_brands_l'] = {b.lower() for b in _fixes.split_list(d.get('also_brands'))}   # doc_fixes also_brand (Atwood = Dometic)
+            d['any_brand_p'] = [w for w in (mwords(x) for x in _fixes.split_list(d.get('any_brand'))) if w]   # doc_fixes any_brand scope
+            d['not_for_p'] = [w for w in (mwords(x) for x in _fixes.split_list(d.get('not_for'))) if w]
             d['models_n'] = [nmodel(m) for m in json.loads(d['models'] or '[]') if len(nmodel(m)) >= 3]
             d['page_models_n'] = set(json.loads(d.get('page_models') or '[]'))
         # vocabularies come from the library data itself (no hardcoded brand or category list)
@@ -378,6 +380,14 @@ def model_score(doc, qtokens, qwords):
     tw = mwords(doc['title'] + ' ' + ' '.join(json.loads(doc.get('alt_titles') or '[]')))
     return tag, len(qwords & tw)
 
+def scope_hit(d, jw):
+    """The job names one of the doc's any_brand scope phrases (all words of the phrase, page-finder normalised)."""
+    return any(p <= jw for p in d.get('any_brand_p') or ())
+
+def ruled_out(d, jw):
+    """The job names one of the doc's not_for phrases (e.g. 'hydraulic' for the electric drum brake manual)."""
+    return any(p <= jw for p in d.get('not_for_p') or ())
+
 def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None, max_docs=3):
     ms = {}
     why = []
@@ -386,11 +396,18 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     if ut:
         c2 = [d for d in cand if covers_unit(d, ut)]
         if c2: cand = c2; why.append(f'unit type {ut}: {len(c2)} docs')
+    jw = mwords(f'{unit or ""} {model or ""} {complaint or ""}')
+    out = [d['doc_id'] for d in cand if ruled_out(d, jw)]
+    if out: cand = [d for d in cand if d['doc_id'] not in out]; why.append(f'not for this job (doc_fixes not_for): {out}')
+    # generic manuals (doc_fixes any_brand): e.g. L47 Lippert Electric Brakes fits every maker's electric drum brake
+    generic = [d for d in cand if scope_hit(d, jw)]
+    if generic: why.append(f'any-brand docs for this job: {[d["doc_id"] for d in generic]}')
     b = brand or brand_of(model or '', lib)   # the maker comes from what the tech typed, never from the category name
     coach = []
     if b:
         c2 = [d for d in cand if d['brand'].lower() == b.lower() or b.lower() in d.get('also_brands_l', ())]
-        if c2: cand = c2; why.append(f'brand {b}: {len(c2)} docs')
+        c2 += [d for d in generic if d not in c2]   # R4 brand lock exception: a doc marked any-brand for this kind of unit
+        if c2: cand = c2; why.append(f'brand {b}: {len(c2)} docs' + (' (incl. any-brand docs)' if generic else ''))
         else:
             # R4 brand lock: never another maker's manual for this unit. The one exception is a whole-unit maker (an RV
             # builder): its owner's manuals are filed under a reference-kind category and cover every system of the unit.
@@ -467,6 +484,8 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
         fs = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in more], b=0.3)
         add = sorted(more, key=lambda d: -fs.get(d['doc_id'], 0))[:max_docs - len(pinned)]
         if add: pinned += add; why.append(f'best match has < 3 pages; added family docs {[d["doc_id"] for d in add]}')
+    for g in generic:   # a generic manual the job's words name is always offered, after the maker's own manuals
+        if g in brand_pool and g not in pinned: pinned.append(g); why.append(f'any-brand doc {g["doc_id"]} added (scope phrase in the job)')
     if coach:
         cs = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in coach], b=0.3)
         msc = {d['doc_id']: model_score(d, q_models, qwords) for d in coach}
