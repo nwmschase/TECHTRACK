@@ -5,9 +5,6 @@ The code only cuts that block off the reply, checks the field types, and stores 
 The code never reads the tech's words or the brain's prose to decide anything: no regex on prose.
 
 Fields (all optional in each update; missing = unchanged):
-  complaint_verified  "yes" | "no" | "not_asked"     whether the tech has seen the complaint happen (their answer)
-  complaint_quote     str     the tech's own words for that answer
-  complaint_actual    str     when the tech said "no, it's actually X": X
   facts               [{item, value, quote}]  readings / observations the tech gave (upsert by item)
   fault_code          str     a code the tech reported (the finder re-picks pages for it)
   pending_test        str     the test the brain is waiting on ("" when none)
@@ -29,16 +26,14 @@ import json
 OPEN, CLOSE = "<state>", "</state>"
 
 SCHEMA = {
-    "complaint_verified": str, "complaint_quote": str, "complaint_actual": str,
     "facts": list, "fault_code": str, "pending_test": str, "part_working": str,
     "next_part_to_fetch": str, "web_lookup": str, "order_part": str, "cause": str, "repair": dict,
     "cited": list, "summary": str, "closed": bool,
 }
-VERIFIED_VALUES = ("yes", "no", "not_asked")
 
 
 def new_state() -> dict:
-    return {"complaint_verified": "not_asked", "complaint_quote": "", "complaint_actual": "", "facts": [],
+    return {"facts": [],
             "fault_code": "", "pending_test": "", "part_working": "", "next_part_to_fetch": "", "web_lookup": "", "order_part": "",
             "cause": "", "repair": {"done": False, "verified": False, "what": "", "quote": ""}, "cited": [],
             "summary": "", "closed": False}
@@ -72,9 +67,6 @@ def validate(update) -> tuple:
             continue
         if not isinstance(v, want) or (want is not bool and isinstance(v, bool)):
             problems.append(f"field {k!r} has type {type(v).__name__}, expected {want.__name__}; ignored")
-            continue
-        if k == "complaint_verified" and v not in VERIFIED_VALUES:
-            problems.append(f"complaint_verified {v!r} not one of {VERIFIED_VALUES}; ignored")
             continue
         if k == "facts":
             v = [f for f in v if isinstance(f, dict) and isinstance(f.get("item"), str) and f.get("item")]

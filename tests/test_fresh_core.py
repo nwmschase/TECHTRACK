@@ -135,7 +135,6 @@ class TestNoBannedLeftovers(unittest.TestCase):
 class TestStateRoundTrip(unittest.TestCase):
     def test_parse_strip_merge(self):
         reply = "Check the fan at F+ F- [Acme, p.29]\n" + block(
-            complaint_verified="yes", complaint_quote="yep, E2 and frozen",
             facts=[{"item": "fan volts", "value": "10.4 V", "quote": "10.4"}], pending_test="fan amps",
             part_working="freezer fan", next_part_to_fetch="", cited=[{"doc_id": "L1", "page": "29"}], summary="s1")
         prose, upd, probs = gd_state.parse(reply)
@@ -147,13 +146,12 @@ class TestStateRoundTrip(unittest.TestCase):
                                "repair": {"done": True, "verified": True, "what": "replaced fan", "quote": "new fan, cools"},
                                "closed": True})
         self.assertEqual([f["value"] for f in s["facts"]], ["12.1 V", "0.4 A"])
-        self.assertEqual(s["complaint_verified"], "yes")
         back = gd_state.loads(gd_state.dumps(s))
         self.assertEqual(back, s)
 
     def test_missing_or_bad_block_changes_nothing(self):
         for reply in ("Just prose, the tech said it is fixed and verified.", "x <state>{not json}</state>",
-                      block(complaint_verified="maybe", closed="yes", nonsense=1)):
+                      block(closed="yes", nonsense=1)):
             prose, upd, probs = gd_state.parse(reply)
             self.assertEqual(upd, {})
             self.assertTrue(probs)
@@ -166,18 +164,17 @@ class TestStateRoundTrip(unittest.TestCase):
     def test_story_from_state_only(self):
         case = gd_turn.new_case("Refrigerators", "Acme X1", "freezes, E2")
         case["state"] = gd_state.merge(case["state"], {
-            "complaint_verified": "no", "complaint_actual": "not cooling at all", "complaint_quote": "no, it's actually warm",
             "facts": [{"item": "fan volts", "value": "10.4 V", "quote": "10.4"}], "cause": "fan motor [Acme p.29]",
             "repair": {"done": True, "verified": True, "what": "Replaced freezer fan", "quote": "new fan in, cooling"}})
         txt = gd_story.warranty_story(case, [{"role": "user", "content": "freezes, E2"}])
-        for want in ("freezes, E2", "not cooling at all", "fan volts: 10.4 V", "fan motor [Acme p.29]", "Replaced freezer fan", "verified working"):
+        for want in ("freezes, E2", "fan volts: 10.4 V", "fan motor [Acme p.29]", "Replaced freezer fan", "verified working"):
             self.assertIn(want, txt)
 
 
 class TestTurnFlowAndRetrieval(unittest.TestCase):
     def test_first_turn_picks_pages_and_stores_state(self):
         f, store = finder(), {}
-        chat = FakeChat(["Did you see it freeze yourself?\n" + block(complaint_verified="not_asked", summary="start", cited=[])])
+        chat = FakeChat(["Did you see it freeze yourself?\n" + block(summary="start", cited=[])])
         r = gd_turn.run_turn("freezes contents, E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
         self.assertEqual(f.calls[0], ("pick_manual", "Refrigerators", "Acme X1", "freezes contents, E2", None))
         self.assertEqual(r["reply"], "Did you see it freeze yourself?")

@@ -14,14 +14,6 @@ def warranty_story(case: dict, history: list = None, model_text: str = "") -> st
     if not first_user and not st:
         return "No session recorded."
     unit = (case.get("unit") or {}).get("model_text") or model_text or "not recorded"
-    v = st.get("complaint_verified", "not_asked")
-    if v == "yes":
-        found = "Tech confirmed the complaint" + (f': "{st["complaint_quote"]}"' if st.get("complaint_quote") else ".")
-    elif v == "no":
-        found = "Tech reported a different complaint" + (f': {st["complaint_actual"]}' if st.get("complaint_actual") else "") + \
-                (f' ("{st["complaint_quote"]}")' if st.get("complaint_quote") else "")
-    else:
-        found = "Not recorded in this session."
     facts = st.get("facts") or []
     tests = "\n".join(f"- {f['item']}: {f.get('value', '')}" + (f' (tech: "{f["quote"]}")' if f.get("quote") else "")
                       for f in facts) or "None recorded."
@@ -34,8 +26,7 @@ def warranty_story(case: dict, history: list = None, model_text: str = "") -> st
     return "\n".join([
         f"UNIT: {unit}", "",
         "1. CUSTOMER COMPLAINT", first_user or "Not recorded.", "",
-        "2. ON-ARRIVAL FINDINGS (complaint verification)", found, "",
-        "3. TESTS AND READINGS (as the tech reported them)", tests, "",
-        "4. CAUSE", st.get("cause") or "Not determined in this session.", "",
-        "5. CORRECTION", corr,
+        "2. TESTS AND READINGS (as the tech reported them)", tests, "",
+        "3. CAUSE", st.get("cause") or "Not determined in this session.", "",
+        "4. CORRECTION", corr,
     ])

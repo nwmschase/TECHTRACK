@@ -21,8 +21,7 @@ with open(PRIMER_PATH, encoding="utf-8") as _fh:
     PRIMER = _fh.read().strip()
 
 STATE_FORMAT = """**State block (response format).** A reply ends with one state block that the app strips off and stores; the tech does not see it.
-<state>{"complaint_verified": "yes|no|not_asked", "complaint_quote": "", "complaint_actual": "",
-"facts": [{"item": "", "value": "", "quote": ""}], "fault_code": "", "pending_test": "", "part_working": "",
+<state>{"facts": [{"item": "", "value": "", "quote": ""}], "fault_code": "", "pending_test": "", "part_working": "",
 "next_part_to_fetch": "", "web_lookup": "", "order_part": "", "cause": "",
 "repair": {"done": false, "verified": false, "what": "", "quote": ""},
 "cited": [{"doc_id": "", "page": ""}], "summary": "", "closed": false}</state>
