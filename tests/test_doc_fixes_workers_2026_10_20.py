@@ -134,8 +134,8 @@ class TestWorkerFixes(unittest.TestCase):
         p6 = [x for x in p.pages if x.doc_id == "L341" and x.sheet == 6]
         if p6:
             self.assertIn("PAGE NOTE (reviewed): DOC DEFECT", gd_prompt._pages_block("SELECTED PAGES", p6))
-        self.assertIn('"DOC DEFECT"', gd_prompt.SYSTEM)
-        self.assertIn('"THIRD-PARTY DOC (not maker manual)"', gd_prompt.SYSTEM)
+        self.assertIn("DOC DEFECT", gd_prompt.SYSTEM)       # the primer describes the page note
+        self.assertIn("third-party document", gd_prompt.SYSTEM)
 
     def test_worker4_small_sheets(self):
         d = self.lib.docs

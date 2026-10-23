@@ -30,7 +30,7 @@ class TestMaxxAirBrand(unittest.TestCase):
 
     def test_miss_line_when_only_other_brands(self):
         line = g.library_miss_reply_for_turn([], S, "", M, S, [FURRION, COLEMAN])
-        self.assertIn("No MaxxAir document", line)
+        self.assertEqual(line, "")   # the library-miss line is retired (Chase 2026-10-23)
 
 
 class TestUnknownBrandGuard(unittest.TestCase):
@@ -56,7 +56,7 @@ class TestMissLineVsSameBrandPage(unittest.TestCase):
 
     def test_foreign_page_still_a_miss(self):
         out = g._unmatched_unit_line([], S, "", M, current="", chunks=[FURRION])
-        self.assertIn("No MaxxAir document", out)
+        self.assertEqual(out, "")   # the library-miss line is retired (Chase 2026-10-23)
 
 
 if __name__ == "__main__":

@@ -50,29 +50,15 @@ class TestProductPath(unittest.TestCase):
         self.assertFalse(HARD_TREE_EXCLUSIVE_CHAT)
         self.assertTrue(hard_tree_yields_to_coach("anything", {"type": "binary", "edges": {"yes": "x"}}))
 
-    def test_coach_rule_forbids_trap_and_reask(self):
-        self.assertIn("NEVER say", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("start a new chat", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("NEVER re-ask", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("Fan Fault Current", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("freezer evaporator fan", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("cookware", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("complete stabilizer jack assembly", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("ice and moisture", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("page 36", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("2021128850", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("no jumper", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("rubber boot", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("firefly", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("two network plugs", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("unplug that cable only", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertNotIn("wired coach can", OPEN_LIBRARY_COACH_RULE.lower())
+    def test_coach_rule_text_is_retired(self):
+        self.assertEqual(OPEN_LIBRARY_COACH_RULE, "")
         self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
         self.assertTrue(
             is_path_complete_trap(
                 "This path is complete. Start a new chat for another symptom branch."
             )
         )
+
 
     def test_strip_path_complete_trap(self):
         cleaned = strip_path_complete_trap(
@@ -240,7 +226,6 @@ class TestProductSource(unittest.TestCase):
             "This path is complete. Start a new chat for another symptom branch.",
             src,
         )
-        self.assertIn("OPEN LIBRARY COACH", src)
         self.assertIn("_load_gd_library_coach", src)
         self.assertIn("gd_library_coach.py", src)
         self.assertIn("HARD_TREE_EXCLUSIVE_CHAT", src)
@@ -249,7 +234,6 @@ class TestProductSource(unittest.TestCase):
     def test_jobs_plan_function_still_present(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         self.assertIn("def run_guided_diagnostics(", src)
-        self.assertIn("Write the guided diagnostic plan now.", src)
         self.assertIn("Bay procedure PDF", src)
         self.assertIn("Generate {BAY_PROCEDURE_LABEL}", src)
         self.assertNotIn("Start Job + Build Test Plan", src)
@@ -337,9 +321,6 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", src)
         self.assertIn("1976-536", src)
         self.assertIn("lock_spark_free_part_g", src)
-        self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
-        self.assertIn("freezer evaporator fan", FCR_E2_FAN_FAULT_PRODUCT_LOCK.lower())
-        self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
 
     def test_no_tree_dump_hint_in_coach_module(self):
         coach = (ROOT / "gd_library_coach.py").read_text()

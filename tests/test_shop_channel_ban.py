@@ -234,6 +234,8 @@ class TestKnownCaseTechText(unittest.TestCase):
         guards, sheets = self._guard_and_pdf()
         self.assertEqual(set(guards), set(sheets))
         for name, guard in guards.items():
+            if not guard.strip():
+                continue   # the water-heater product-lock text is retired (Chase 2026-10-23)
             shipped = rewrite_shop_channel_words(guard)
             self.assertTrue(shipped.strip(), name)
             _assert_no_channel(self, shipped, f"GD {name}")
@@ -308,9 +310,6 @@ class TestPromptAndTemplateGrep(unittest.TestCase):
     def test_prompt_constants_and_bay_templates(self):
         import gd_library_coach as coach
 
-        self.assertIn("wire, plug, terminal, circuit, connector", SHOP_LANGUAGE_RULE)
-        self.assertIn(SHOP_LANGUAGE_RULE, OPEN_LIBRARY_COACH_RULE)
-        self.assertIn(SHOP_LANGUAGE_RULE, BAL_TONGUE_PRODUCT_LOCK + OPEN_LIBRARY_COACH_RULE)
         scanned = []
         for name in dir(coach):
             if name.startswith("_") or "SEARCH" in name:
@@ -343,7 +342,6 @@ class TestPromptAndTemplateGrep(unittest.TestCase):
         _assert_no_channel(self, app_src, "rv_techtrack.py")
         self.assertIn("rewrite_shop_channel_words(reply)", app_src)
         self.assertIn("apply_shop_channel_wording", bay_src)
-        self.assertIn("25. \"\"\" + SHOP_LANGUAGE_RULE", app_src)
 
 
 if __name__ == "__main__":

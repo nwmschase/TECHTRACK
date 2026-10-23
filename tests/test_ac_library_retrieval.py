@@ -260,13 +260,6 @@ class TestAcHonesty(unittest.TestCase):
         self.assertIn("FACT12SA2", note)
         self.assertFalse(claims_ac_library_empty(note))
 
-    def test_product_lock_forbids_unity_substitute(self):
-        t = AC_PRODUCT_LOCK.lower()
-        self.assertIn("never cite", t)
-        self.assertIn("unity", t)
-        self.assertIn("re-index", t)
-        self.assertIn("fact", t)
-        self.assertIn("b57915", t)
 
     def test_figure_render_fail_names_ac_not_missing_library(self):
         note = figure_render_honesty_note(FACT["title"], True)
@@ -338,12 +331,6 @@ class TestFacrFreezeRetrieval(unittest.TestCase):
         self.assertFalse(is_facr_freeze_library_title(BRISK["title"]))
         self.assertFalse(is_facr_freeze_library_title(FRIDGE["title"]))
 
-    def test_product_lock_names_existing_facr_titles_only(self):
-        t = AC_PRODUCT_LOCK.lower()
-        self.assertIn("ccd-0007990", t)
-        self.assertIn("ccd-0008666", t)
-        self.assertIn("facr", t)
-        self.assertIn("do not invent", t)
 
 
 if __name__ == "__main__":

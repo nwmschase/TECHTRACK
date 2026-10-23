@@ -164,11 +164,6 @@ class TestFcrE2CageDetect(unittest.TestCase):
         self.assertFalse(claims_fcr_e2_board_only_cage(good))
         self.assertIn("freezer evaporator fan", good.lower())
 
-    def test_product_lock_is_not_flagged_as_a_cage(self):
-        self.assertFalse(claims_fcr_e2_board_only_cage(FCR_E2_FAN_FAULT_PRODUCT_LOCK))
-        self.assertIn("Fan Replacement", FCR_E2_FAN_FAULT_PRODUCT_LOCK)
-        self.assertIn("27", str(FURRION_FCR_FAN_FAULT_PAGES))
-        self.assertIn("33", str(FURRION_FCR_FAN_FAULT_PAGES))
 
     def test_ensure_uncages_live_miss_board_only(self):
         live = (

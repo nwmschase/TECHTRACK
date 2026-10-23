@@ -172,14 +172,6 @@ class TestStabilizerAssemblyGuard(unittest.TestCase):
         self.assertFalse(stabilizer_reply_needs_assembly_rr(good, facts))
         self.assertEqual(ensure_stabilizer_assembly_rr(good, facts), good)
 
-    def test_product_lock_is_not_coupler_only_and_names_assembly(self):
-        self.assertFalse(claims_coupler_only_rr(PSX1_PRODUCT_LOCK))
-        low = PSX1_PRODUCT_LOCK.lower()
-        self.assertIn("complete", low)
-        self.assertIn("assembly", low)
-        self.assertIn("coupler only", low)
-        self.assertIn("p.7", low)
-        self.assertIn("override", low)
 
 
 if __name__ == "__main__":

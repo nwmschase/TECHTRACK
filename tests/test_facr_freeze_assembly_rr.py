@@ -4,8 +4,6 @@ import unittest
 
 from gd_library_coach import (
     FACR_ASSEMBLY_RR_SHOP_LINE,
-    FACR_FREEZE_ASSEMBLY_LOCK,
-    OPEN_LIBRARY_COACH_RULE,
     ensure_facr_freeze_assembly_rr,
     facr_freeze_proves_from_text,
     facr_proves_complete,
@@ -73,9 +71,6 @@ class TestFacrAssemblyClimax(unittest.TestCase):
         ):
             split.update(facr_freeze_proves_from_text(line))
         self.assertTrue(facr_proves_complete(split))
-        self.assertIn("rooftop assembly", OPEN_LIBRARY_COACH_RULE.lower())
-        self.assertIn("CCD-0007990", FACR_FREEZE_ASSEMBLY_LOCK)
-        self.assertIn("searching manuals", FACR_FREEZE_ASSEMBLY_LOCK.lower())
 
     def test_stall_and_drain_loop_stay_on_prove_without_rr(self):
         facts = facr_freeze_proves_from_text(PROVES)

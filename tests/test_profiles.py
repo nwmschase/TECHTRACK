@@ -44,29 +44,22 @@ def _transcript(turns):
 
 
 class TestProfileDocs(unittest.TestCase):
-    def test_v1_files_are_the_standard(self):
+    def test_profiles_are_short_descriptions_after_the_2026_10_23_order(self):
         readme = (ROOT / "docs" / "profiles" / "README.md").read_text(encoding="utf-8")
         guided = (ROOT / "docs" / "profiles" / "GD-PROFILE.md").read_text(encoding="utf-8")
         pdf = (ROOT / "docs" / "profiles" / "PDF-PROFILE.md").read_text(encoding="utf-8")
-        self.assertIn("Before ANY TechTrack change", readme)
-        self.assertIn("Established by Chase on 2026-10-11.", guided)
-        self.assertIn("No rigid label block. No step counter in the chat.", guided)
-        self.assertIn("May ask the tech for a photo when that would really help.", guided)
-        self.assertIn("Established by Chase on 2026-10-11.", pdf)
-        self.assertIn("Before you start", pdf)
-        self.assertIn("Thetford-42070", pdf)
-        self.assertIn("Version 1.2", guided)
-        self.assertIn("Version 1.5", pdf)  # 1.5: Chase LOCKED via Leader 2026-10-16
-        self.assertIn("PDF-PAST-FAILS.md", pdf)
-        self.assertIn("## Performance scorecard (grade every reviewed session, PASS/FAIL per line)", guided)
-        self.assertIn("Any FAIL on 1, 8, or 10 is an automatic overall FAIL.", guided)
-        self.assertIn("## Performance scorecard (grade every PDF, PASS/FAIL per line)", pdf)
-        self.assertIn("Any FAIL on 2, 7, 8, or 9 is an automatic overall FAIL.", pdf)
+        for name, text in (("GD-PROFILE", guided), ("PDF-PROFILE", pdf)):
+            self.assertIn("Version 2.0", text, name)
+            self.assertIn("Chase", text, name)
+            self.assertLess(len(text.split()), 400, name)          # a short statement, not a rule list
+            self.assertNotIn("Performance scorecard", text, name)
+            self.assertNotIn("automatic overall FAIL", text, name)
+        self.assertIn("REMOVED-RULES-2026-10-23", guided + pdf + readme)
         log = (ROOT / "docs" / "profiles" / "PROFILE-CHANGE-LOG.md").read_text(encoding="utf-8")
-        self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)
-        self.assertIn("| 2026-10-11 10:50 AM | PDF | 1.3 |", log)
-        self.assertIn("| 2026-10-11 12:11 PM | PDF | 1.4 |", log)
+        self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)      # earlier rows kept as history
         self.assertIn("| 2026-10-16 9:40 PM | PDF | 1.5 |", log)
+        self.assertIn("2026-10-23 8:34 AM", log)
+        self.assertIn("Approved by Chase in chat 2026-10-23 8:34 AM", log)
 
 
 class TestPdfProfile(unittest.TestCase):

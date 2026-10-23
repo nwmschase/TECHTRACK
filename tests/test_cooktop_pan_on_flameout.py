@@ -166,15 +166,6 @@ class TestCooktopTipPanGuard(unittest.TestCase):
         self.assertIn("sdn2u", fixed.lower())
         self.assertNotIn("does not cover", fixed.lower())
 
-    def test_product_lock_requires_tip_pan_before_parts(self):
-        low = COOKTOP_PRODUCT_LOCK.lower()
-        self.assertIn("tip", low)
-        self.assertIn("position", low)
-        self.assertIn("cookware", low)
-        self.assertIn("before", low)
-        self.assertIn("thermocouple", low)
-        self.assertNotIn("10.5", COOKTOP_PRODUCT_LOCK)
-        self.assertNotIn("page 12", COOKTOP_PRODUCT_LOCK)
 
 
 if __name__ == "__main__":

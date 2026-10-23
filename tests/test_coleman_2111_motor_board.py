@@ -4,7 +4,6 @@ import unittest
 
 from gd_library_coach import (
     COLEMAN_MOTOR_BOARD_AUTH_LINE,
-    COLEMAN_MOTOR_BOARD_LOCK,
     coleman_motor_board_evidence_complete,
     ensure_coleman_motor_board_auth,
     facts_from_chat,
@@ -67,11 +66,6 @@ class TestColemanMotorBoardClimax(unittest.TestCase):
                 "water leaking inside, frost on the evaporator",
             )
         )
-        self.assertIn("control board", COLEMAN_MOTOR_BOARD_LOCK.lower())
-        self.assertIn("1976-536", COLEMAN_MOTOR_BOARD_LOCK)
-        self.assertIn("1976-695", COLEMAN_MOTOR_BOARD_LOCK)
-        self.assertIn("peacemaker", COLEMAN_MOTOR_BOARD_LOCK.lower())
-        self.assertNotIn("page 12", COLEMAN_MOTOR_BOARD_LOCK.lower())
 
     def test_evidence_complete_stops_fishing_with_motor_and_board_only(self):
         facts, card = _card(PROVE, FISHING)

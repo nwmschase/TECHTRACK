@@ -165,7 +165,7 @@ class TestRealLibrary(unittest.TestCase):
         self.assertTrue(shop_pages)
         self.assertTrue(all(x.label().startswith("SHOP SHEET (not maker manual): ") for x in shop_pages))
         ctx = gd_prompt.context_block(category="Leveling", model_text="Level Up 807662", picked=p, toc=[], pages=p.pages,
-                                      not_shown=[], state={})
+                                      state={})
         self.assertIn("SHOP SHEET (not maker manual): Level Up Advantage 807662", ctx)
         self.assertTrue(self.f.doc_title("L218").startswith("SHOP SHEET (not maker manual)"))
         self.assertTrue(self.f.doc_title("L1").startswith("MAKER INTERNAL FLOW, UNPUBLISHED"))
@@ -201,19 +201,19 @@ class TestRealLibrary(unittest.TestCase):
     def test_doc_note_reaches_prompt(self):
         p = Picked(manuals=[{"doc_id": "L804", "title": "Brinkley Model Z", "note": self.lib.docs["L804"]["doc_note"]}])
         ctx = gd_prompt.context_block(category="ID & Reference", model_text="Brinkley Z", picked=p, toc=[], pages=[],
-                                      not_shown=[], state={})
+                                      state={})
         self.assertIn("[note: Owner's manual (care, operation, safety). It has no repair procedure", ctx)
 
     def test_fault_codes_stay_brand_locked(self):
         """E3 / E5 mean different things per maker (Furrion E5 = air pressure/exhaust, Girard E5 = blower): code search
-        never crosses the brand lock."""
+        never crosses the brand lock inside the search (pick_manual)."""
         for unit, model, code, brand in (("Water Heaters", "Furrion FWH09A", "E5", "Furrion"),
                                          ("Water Heaters", "Girard GSWH-2", "E5", "Girard"),
                                          ("Air Conditioning", "Furrion multi zone thermostat", "E3", "Furrion")):
             p = self.f.pick_manual(unit, model, "error code", code)
             self.assertTrue(p.manuals)
             self.assertEqual({m["brand"] for m in p.manuals}, {brand})
-            self.assertEqual({self.lib.docs[x.doc_id]["brand"] for x in self.f.fetch_part("blower", p)} - {brand}, set())
+            self.assertTrue(all(x.text for x in self.f.fetch_part("blower", p)))   # the part search returns what it found, no adapter filter
 
 
 class TestBayPdfSources(unittest.TestCase):
@@ -244,9 +244,10 @@ class TestBayPdfSources(unittest.TestCase):
 
 
 class TestPrompt(unittest.TestCase):
-    def test_rule_names_the_labels(self):
-        self.assertIn('"SHOP SHEET (not maker manual)"', gd_prompt.SYSTEM)
-        self.assertIn("PAGE NOTE", gd_prompt.SYSTEM)
+    def test_primer_describes_the_labels(self):
+        self.assertIn("shop sheet", gd_prompt.SYSTEM)
+        self.assertIn("Page notes", gd_prompt.SYSTEM)
+        self.assertIn("DOC DEFECT", gd_prompt.SYSTEM)
 
     def test_page_without_note_unchanged(self):
         block = gd_prompt._pages_block("SELECTED PAGES", [Page("L9", "Acme", "3", 3, "text", "entry", "r")])

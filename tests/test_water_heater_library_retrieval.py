@@ -220,14 +220,6 @@ class TestWaterHeaterHonesty(unittest.TestCase):
         self.assertIn("CCD-0009390", note)
         self.assertFalse(claims_water_heater_library_empty(note))
 
-    def test_product_lock_forbids_unity_and_invented_leds(self):
-        t = WATER_HEATER_PRODUCT_LOCK.lower()
-        self.assertIn("never cite", t)
-        self.assertIn("unity", t)
-        self.assertIn("re-index", t)
-        self.assertIn("gswh", t)
-        self.assertIn("ccd-0009390", t)
-        self.assertIn("never invent blink", t)
 
     def test_figure_render_fail_names_gswh_not_missing_library(self):
         note = figure_render_honesty_note(GSWH["title"], True)

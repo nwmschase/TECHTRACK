@@ -207,12 +207,6 @@ class TestLevelUpHonesty(unittest.TestCase):
         )
         self.assertFalse(claims_level_up_library_empty(good))
 
-    def test_product_lock_forbids_unity_substitute(self):
-        t = LEVEL_UP_PRODUCT_LOCK.lower()
-        self.assertIn("never cite", t)
-        self.assertIn("unity", t)
-        self.assertIn("re-index", t)
-        self.assertIn("807662", t)
 
     def test_figure_render_fail_names_level_up_not_missing_library(self):
         note = figure_render_honesty_note(TI005["title"], True)

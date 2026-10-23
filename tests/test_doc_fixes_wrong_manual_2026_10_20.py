@@ -36,7 +36,7 @@ class TestFields(unittest.TestCase):
         self.assertEqual(e["source_type"], "maker_web")
         self.assertEqual(DF.display_title("T", "maker_web"), "MAKER WEB FAQ (maker's published web page, not a service manual): T")
         self.assertEqual(DF.bay_title("T", "maker_web"), "Maker web FAQ: T")
-        self.assertIn('"MAKER WEB FAQ"', gd_prompt.SYSTEM)
+        self.assertIn("maker web FAQ", gd_prompt.SYSTEM)
 
     def test_doc_without_second_category(self):
         self.assertFalse(S.covers_unit(dict(unit_type="Furnaces"), "Water Heaters"))

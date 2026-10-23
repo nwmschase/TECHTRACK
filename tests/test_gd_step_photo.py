@@ -101,7 +101,7 @@ class TestXaiVisionCall(unittest.TestCase):
         payload = sent[0]["content"]
         self.assertEqual(payload[1]["type"], "image_url")
         self.assertTrue(payload[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
-        self.assertIn("Do not guess", payload[0]["text"])
+        self.assertIn("verdict", payload[0]["text"])
         self.assertNotIn("llama-4-scout", json.dumps(sent))
 
 

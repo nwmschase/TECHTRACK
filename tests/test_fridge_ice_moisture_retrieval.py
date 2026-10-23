@@ -224,21 +224,6 @@ class TestIceMoistureGuard(unittest.TestCase):
         again = ensure_fridge_ice_moisture_path(fixed)
         self.assertEqual(again, fixed)
 
-    def test_product_lock_is_p36_not_fuse_tree(self):
-        self.assertFalse(reply_opens_fuse_12v_no_power(ICE_MOISTURE_PRODUCT_LOCK))
-        low = ICE_MOISTURE_PRODUCT_LOCK.lower()
-        self.assertIn("ice and moisture", low)
-        self.assertIn("page 36", low)
-        self.assertIn("fig. 36", low)
-        self.assertIn("gasket", low)
-        self.assertIn("dial max", low)
-        self.assertIn("1 month", low)
-        self.assertIn("replace the unit", low)
-        self.assertIn("no power", low)
-        self.assertIn("fuse location", low)
-        self.assertIn("unless", low)
-        self.assertFalse(reply_opens_fuse_12v_no_power(ICE_MOISTURE_SHOP_LINE))
-        self.assertTrue(reply_names_ice_moisture_p36(ICE_MOISTURE_SHOP_LINE))
 
 
 if __name__ == "__main__":

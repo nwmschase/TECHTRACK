@@ -1491,6 +1491,35 @@ def _no_brand_match_path(brand: str = "", model: str = "", concern: str = "") ->
     }
 
 
+_OCR_HEADER_RE = re.compile(
+    r"\brev\s*:\s*\d{1,2}[./]\d{1,2}[./]\d{2,4}\b"
+    r"|\bpage\s+\d{1,3}\b"
+    r"|\btime\s+line\s+description\b"
+    r"|\bsequence\s+of\s+operation\b"
+    r"|\bfor\s+\d+\s*vac\s+fan\s+control\s+module\s+board\b"
+    r"|\bpart\s+number\s+\d+\b"
+    r"|\bstart\s+time\b"
+    r"|\bthermostat\s+calls\s+for\s+heat\b",
+    re.I,
+)
+_SHORT_WORD_KEEP = {
+    "a", "an", "the", "if", "to", "of", "or", "on", "in", "at", "is", "it",
+    "no", "yes", "do", "be", "by", "as", "for", "and", "not", "but", "then",
+    "when", "with", "from", "into", "over", "both", "open", "fan", "gas",
+    "so", "up",
+    "air", "heat", "this", "that", "after", "before",
+}
+_ACTION_RE = re.compile(
+    r"\b(inspect|check|measure|replace|verify|bypass|jumper|reset|connect|"
+    r"record|prove|retest|locate|clear|clean|test)\b",
+    re.I,
+)
+
+
+_ABBREV_DOT_RE = re.compile(r"\b(?:Fig|Figs|fig|figs|e\.g|i\.e|No|Nos|vs|Mr|Mrs|Dr)\.")
+_FIG_CALL_RE = re.compile(r"\b(Figs?)\s*\.\s*(\d+)", re.I)
+
+
 def _split_sentences(text: str) -> list[str]:
     """Split on sentence ends. 'Fig. 12' and 'Fig . 12' stay one sentence."""
     raw = _FIG_CALL_RE.sub(lambda match: f"{match.group(1)}\u0001 {match.group(2)}", text or "")

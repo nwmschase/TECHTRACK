@@ -5285,8 +5285,6 @@ def _ask_manual_context(
         if skip_wh_unity and not chunks:
             return [], honesty
     chunks, miss = _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit)
-    if miss:
-        honesty = (honesty + "\n" if honesty else "") + miss + " - use the unit label or labeled general trade knowledge."
     if not chunks:
         return [], honesty or ""
     parts = []

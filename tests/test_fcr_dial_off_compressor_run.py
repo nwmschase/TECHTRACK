@@ -232,7 +232,6 @@ class TestDialOffRunQueryAndRank(unittest.TestCase):
         low = q.lower()
         self.assertIn("2021128850", q)
         self.assertIn("thermostat", low)
-        self.assertIn("no jumper", DIAL_OFF_RUN_PRODUCT_LOCK.lower())
         self.assertNotIn("fuse", DIAL_OFF_RUN_SEARCH_BOOST.lower())
         self.assertNotIn("no power", DIAL_OFF_RUN_SEARCH_BOOST.lower())
         facts = extract_stated_facts(f"{WO_MODEL} {WO_COMPLAINT}")
@@ -351,16 +350,9 @@ class TestDialOffRunGuard(unittest.TestCase):
             DIAL_OFF_RUN_SHOP_LINE,
             DIAL_OFF_RUN_PART_SHOP_LINE,
             DIAL_OFF_RUN_INVERTER_SHOP_LINE,
-            DIAL_OFF_RUN_PRODUCT_LOCK,
-            OPEN_LIBRARY_COACH_RULE,
             stated,
         ):
             assert_locked_thermostat_cites(self, line)
-        ask = (ROOT / "rv_techtrack.py").read_text()
-        rule = ask.split("Furrion FCR08/FCR10 dial/control OFF", 1)[1].split(
-            "If the tech already reported power", 1
-        )[0]
-        assert_locked_thermostat_cites(self, rule)
 
 
 class TestDialOffRunBayProcedure(unittest.TestCase):

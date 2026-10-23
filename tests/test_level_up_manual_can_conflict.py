@@ -278,18 +278,6 @@ class TestLevelUpCanGuardBranches(unittest.TestCase):
         self.assertFalse(level_up_can_reply_needs_guard(good, facts))
         self.assertEqual(ensure_level_up_manual_can_path(good, facts), good)
 
-    def test_product_lock_names_branches_not_encyclopedia(self):
-        low = LEVEL_UP_CAN_PRODUCT_LOCK.lower()
-        self.assertIn("rubber boot", low)
-        self.assertIn("two network plugs", low)
-        self.assertIn("unplug that cable only", low)
-        self.assertIn("574-825-4600", low)
-        self.assertIn("4 gb", low)
-        self.assertIn("do not swap another level up controller", low)
-        self.assertIn("do not push firefly usb", low)
-        self.assertIn("do not build a firefly encyclopedia", low)
-        self.assertNotIn("wired coach can", low)
-        self.assertNotIn("victron", low)
 
 
 if __name__ == "__main__":

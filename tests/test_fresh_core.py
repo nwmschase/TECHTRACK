@@ -58,32 +58,30 @@ class TestPromptAssembly(unittest.TestCase):
         f = finder()
         picked = f.pick_manual("Refrigerators", "Acme X1", "freezes")
         msgs = gd_prompt.build_messages(user_msg="now what", history=hist, category="Refrigerators", model_text="Acme X1",
-                                        picked=picked, toc=f.toc_pages(picked), pages=picked.pages,
-                                        not_shown=[page(sheet=40)], state=st)
+                                        picked=picked, toc=f.toc_pages(picked), pages=picked.pages, state=st)
         sys_txt, ctx = msgs[0]["content"], msgs[1]["content"]
-        self.assertIn("RULE 1 - Library docs first, relevant pages only.", sys_txt)
-        self.assertIn("RULE 2 - Verify the complaint with one quick question at the start.", sys_txt)
-        for g in ("Don't re-ask a reading", "doc and page on every step", "phone number printed in the manual",
-                  "Spell out physical steps", "adjustment, calibration, realign or reset"):
-            self.assertIn(g, sys_txt)
+        # system text = the primer + the state-block format, nothing else
+        self.assertEqual(sys_txt, gd_prompt.PRIMER + "\n\n" + gd_prompt.STATE_FORMAT)
+        self.assertNotIn("RULE 1", sys_txt)
         self.assertIn("<state>", sys_txt)
-        # context: unit, manual, toc, pages with doc + page labels, not-shown list, state, summary - in that order
+        # context: unit, manual, toc, pages with doc + page labels, state, summary - in that order
         order = ["UNIT (as the tech typed it)", "MANUALS PICKED", "=== TABLE OF CONTENTS ===", "=== SELECTED PAGES ===",
-                 "[Acme Fridge Service Manual (L1), p.25]", "PAGES FOUND BUT NOT SHOWN", "CASE STATE SO FAR", "RUNNING SUMMARY"]
+                 "[Acme Fridge Service Manual (L1), p.25]", "CASE STATE SO FAR", "RUNNING SUMMARY"]
         idx = [ctx.index(o) for o in order]
         self.assertEqual(idx, sorted(idx))
         self.assertIn("10.4 V", ctx)
         self.assertIn("E2 on arrival", ctx)
-        # last N exchanges only, then the new message
+        # the whole conversation, then the new message
         body = msgs[2:]
-        self.assertEqual(len(body), 2 * gd_prompt.HISTORY_TURNS + 1)
-        self.assertEqual(body[0]["content"], "tech 4")
+        self.assertEqual(len(body), 2 * 10 + 1)
+        self.assertEqual(body[0]["content"], "tech 0")
         self.assertEqual(body[-1], {"role": "user", "content": "now what"})
 
-    def test_no_manual_is_said_plainly(self):
+    def test_nothing_found_is_stated_as_a_fact(self):
         ctx = gd_prompt.context_block(category="Leveling", model_text="?", picked=gd_pages.Picked(), toc=[], pages=[],
-                                      not_shown=[], state=gd_state.new_state())
-        self.assertIn("none found for this unit", ctx)
+                                      state=gd_state.new_state())
+        self.assertIn("MANUALS PICKED BY THE PAGE FINDER: none", ctx)
+        self.assertNotIn("none found for this unit", ctx)
 
 
 BANNED = [
@@ -127,7 +125,7 @@ class TestNoBannedLeftovers(unittest.TestCase):
             self.assertIsNone(re.search(pat, gd), f"{name} found in the app's GD path")
         self.assertNotIn("ask_techtrack_reply", gd, "GD must not fall back to the keyword coach")
         self.assertIsNone(re.search(r"unity_gate\s*=\s*st\.selectbox", src), "Unity selector still in the app")
-        self.assertFalse((ROOT / "gd_official.py").exists())
+        self.assertIn("gd_official", gd)  # the web tool is wired in the GD path (no longer a None stub)
 
     def test_core_never_regex_reads_prose(self):
         for f in ("gd_turn.py", "gd_state.py", "gd_story.py"):
@@ -184,7 +182,7 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
         self.assertEqual(f.calls[0], ("pick_manual", "Refrigerators", "Acme X1", "freezes contents, E2", None))
         self.assertEqual(r["reply"], "Did you see it freeze yourself?")
         self.assertEqual(r["mode"], "walk")
-        self.assertEqual(chat.seen[0][2], gd_turn.FIRST_EFFORT)
+        self.assertIsNone(chat.seen[0][2])  # no reasoning-effort setting is passed
         self.assertIn("p.25", r["pages_used"][0])
         self.assertEqual(store["gd_case"]["state"]["summary"], "start")
 
@@ -216,10 +214,10 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
     def test_no_manual_and_web_not_wired(self):
         f, store = StubPageFinder(), {}
         chat = FakeChat([block(web_lookup="Brinkley Z3100 front jack bracket", summary="a"), "I don't know.\n" + block(summary="b")])
-        r = gd_turn.run_turn("front jack", "Leveling", "Brinkley Model Z", [], finder=f, chat_fn=chat, store=store)
+        r = gd_turn.run_turn("front jack", "Leveling", "Brinkley Model Z", [], finder=f, chat_fn=chat, store=store, web_fn=None)
         self.assertEqual(r["mode"], "no_manual")
         self.assertEqual(r["calls"], 1)  # nothing new arrived, so no redo
-        self.assertIn("none found for this unit", chat.seen[0][0][1]["content"])
+        self.assertIn("MANUALS PICKED BY THE PAGE FINDER: none", chat.seen[0][0][1]["content"])
 
     def test_reply_is_returned_unchanged(self):
         f, store = finder(), {}
@@ -240,21 +238,21 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
 
 
 class TestPageBudget(unittest.TestCase):
-    def test_caps_and_lists_what_was_not_shown(self):
-        pages = [page(sheet=i, text="x" * 9000) for i in range(1, 8)] + [page(sheet=1, text="dup")]
-        kept, not_shown = gd_pages.apply_budget(pages, max_pages=8, max_chars=40_000)
-        self.assertEqual([p.sheet for p in kept], [1, 2, 3, 4])
-        self.assertEqual([p.sheet for p in not_shown], [5, 6, 7])
-        self.assertLessEqual(sum(len(p.text) for p in kept), 40_000)
+    """The old 8-page / 40k-char cap (R6) is gone; apply_budget only merges duplicates unless a caller sets a budget."""
 
-    def test_turn_respects_budget(self):
+    def test_no_cap_by_default_and_duplicates_merged(self):
+        pages = [page(sheet=i, text="x" * 9000) for i in range(1, 8)] + [page(sheet=1, text="dup")]
+        kept, not_shown = gd_pages.apply_budget(pages)
+        self.assertEqual([p.sheet for p in kept], [1, 2, 3, 4, 5, 6, 7])
+        self.assertEqual(not_shown, [])
+
+    def test_turn_sends_every_page(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
         chat = FakeChat(["ok\n" + block(summary="s")])
         r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, chat_fn=chat, store={})
-        self.assertEqual(len(r["pages_used"]), 3)
-        self.assertEqual(len(r["not_shown"]), 8)
-        self.assertLess(r["context_chars"], gd_pages.PAGE_BUDGET_CHARS + 10_000)
-        self.assertIn("PAGES FOUND BUT NOT SHOWN", chat.seen[0][0][1]["content"])
+        self.assertEqual(len(r["pages_used"]), 11)
+        self.assertEqual(r["not_shown"], [])
+        self.assertNotIn("NOT SHOWN", chat.seen[0][0][1]["content"])
 
 
 INDEX = os.environ.get("TT_PAGEFINDER_DIR", str(ROOT / "pagefinder" / "index"))
@@ -264,7 +262,7 @@ APP_DB = os.environ.get("TT_TEST_APP_DB", "/workspace/techtrack-fresh/migration-
 @unittest.skipUnless(os.path.exists(os.path.join(INDEX, "index.sqlite")) and os.path.exists(APP_DB), "811-doc index / app DB not on this box")
 class TestRealLibraryWiring(unittest.TestCase):
     """The shipped page-finder index (built from the 811-doc app library) through the adapter, keyword half only so
-    the test needs no model download. Wiring + brand lock, not search quality (the picker sweep measures that)."""
+    the test needs no model download. Wiring, not search quality (the picker sweep measures that)."""
 
     @classmethod
     def setUpClass(cls):
@@ -278,11 +276,9 @@ class TestRealLibraryWiring(unittest.TestCase):
         self.assertTrue(p.entry and all(x.kind == "entry" for x in p.entry))
         self.assertTrue(all(x.text and x.page for x in p.pages))
         parts = self.f.fetch_part(part, p)
-        docs = self.f.lib.docs
-        picked_brands = {m["brand"].lower() for m in p.manuals}
-        self.assertTrue(all(docs[x.doc_id]["brand"].lower() in picked_brands for x in parts), "R4: another maker's page")
+        self.assertTrue(all(x.text and x.page for x in parts))   # the search returns whatever it found, unfiltered by maker
         kept, _ = gd_pages.apply_budget(p.pages + parts)
-        self.assertLessEqual(sum(len(x.text) for x in kept), gd_pages.PAGE_BUDGET_CHARS)
+        self.assertTrue(kept)
         return p
 
     def test_furrion_fcr10(self):
@@ -310,7 +306,7 @@ class TestRealLibraryWiring(unittest.TestCase):
         self.assertEqual([m["doc_id"] for m in p.manuals][:2], ["L802", "L555"])
 
     def test_brand_lock_no_other_makers_manual(self):
-        # R4: a maker with no manual in the asked category gets none (never another maker's manual)
+        # the search itself (pagefinder Q01) returns no manual for a maker with none in the asked category
         p = self.f.pick_manual("Leveling", "Furrion FACR13LPSA2-PS", "not cooling")
         self.assertEqual(p.manuals, [])
 
@@ -415,7 +411,6 @@ class TestRealLibraryWiring(unittest.TestCase):
                              chat_fn=chat, store={})
         self.assertEqual(r["mode"], "walk")
         self.assertTrue(r["pages_used"])
-        self.assertLessEqual(len(r["pages_used"]), gd_pages.PAGE_BUDGET_PAGES)
 
 
 if __name__ == "__main__":

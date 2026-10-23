@@ -110,11 +110,6 @@ class TestFigureQueryRewrite(unittest.TestCase):
         self.assertNotIn("nominal voltage", low)
         self.assertNotIn("quick notes", low)
 
-    def test_honesty_rule_forbids_invented_pads(self):
-        t = FIGURE_PAGE_HONESTY.lower()
-        self.assertIn("no diagram", t)
-        self.assertIn("do not invent pad locations", t)
-        self.assertIn("quick notes", t)
 
 
 class TestPageLayoutGuard(unittest.TestCase):

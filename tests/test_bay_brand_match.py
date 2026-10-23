@@ -196,9 +196,9 @@ class TestBrandMismatchGuard(unittest.TestCase):
             chunks=FURRION_PAGES,
         )
         low = procedure_plain_text(proc).lower()
-        self.assertIn("no dometic document in the shop library for this unit", proc.primary_cite.lower())
+        self.assertIn("dometic: general shop safety sheet", proc.primary_cite.lower())
         self.assertIn("general shop safety, not an oem procedure", low)
-        self.assertIn("add the dometic oem manual", low)
+        self.assertNotIn("add the dometic oem manual", low)
         self.assertNotIn("furrion", proc.primary_cite.lower())
         self.assertNotIn("ccd-0008666", low)
         self.assertNotIn("fact12", low)

@@ -13,9 +13,7 @@ from bay_procedure import (
 )
 from gd_library_coach import (
     BAL_TONGUE_PART,
-    BAL_TONGUE_PRODUCT_LOCK,
     BAL_TONGUE_SEARCH_BOOST,
-    OPEN_LIBRARY_COACH_RULE,
     bal_tongue_stage,
     ensure_bal_tongue_only_path,
     extract_bal_tongue_facts,
@@ -82,10 +80,6 @@ class TestBalTongueContext(unittest.TestCase):
         self.assertEqual(facts.get("tongue_motor_12v"), "ok")
         self.assertEqual(facts.get("tongue_coupler"), "ok")
         self.assertEqual(bal_tongue_stage(facts), "prove")
-        self.assertIn("20300427", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("INS.STA.001", OPEN_LIBRARY_COACH_RULE)
-        self.assertIn("20300427", BAL_TONGUE_PRODUCT_LOCK)
-        self.assertIn("do not lead", BAL_TONGUE_PRODUCT_LOCK.lower())
 
     def test_psx1_and_all_jacks_dead_are_not_this_path(self):
         psx1 = (

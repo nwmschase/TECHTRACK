@@ -466,13 +466,9 @@ class TestExactFireflyTwoPlugLock(unittest.TestCase):
 
     def test_gd_path_strings_use_exact_block_and_ban_jargon(self):
         self.assertIn(EXACT_TWO_PLUG, LEVEL_UP_CAN_ISOLATE_SHOP_LINE)
-        self.assertIn(EXACT_TWO_PLUG, LEVEL_UP_CAN_PRODUCT_LOCK)
-        self.assertIn(EXACT_TWO_PLUG, OPEN_LIBRARY_COACH_RULE)
         from pathlib import Path
 
         app = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
-        self.assertIn(EXACT_TWO_PLUG, app)
-        self.assertNotIn("wired coach can", app.lower().split("18b.")[1].split("19.")[0])
         for blob in (
             LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
             LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
@@ -853,7 +849,6 @@ class TestNavAndGdUntouched(unittest.TestCase):
         self.assertIn('"🧾 Bay procedure PDF"', src)
         self.assertIn("BAY_PROCEDURE_LABEL", src)
         self.assertNotIn("AI report", BAY_PROCEDURE_LABEL)
-        self.assertIn("OPEN LIBRARY COACH", src)
         self.assertIn("with tab_ask:", src)
         self.assertIn("💬 Guided Diagnostics", src)
         self.assertIn("full A to Z", src)

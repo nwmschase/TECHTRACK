@@ -60,9 +60,9 @@ class TestThetfordLibraryMiss(unittest.TestCase):
         )
         text = procedure_plain_text(proc)
         low = text.lower()
-        self.assertIn("no thetford document in the shop library for this unit", low)
+        self.assertIn("thetford: general shop safety sheet", low)
         self.assertIn("general shop safety, not an oem procedure", low)
-        self.assertIn("add the thetford oem manual", low)
+        self.assertNotIn("add the thetford oem manual", low)
         self.assertNotIn("norcold", low)
         self.assertNotIn("619394", low)
         self.assertNotIn("propane", low)
@@ -72,7 +72,7 @@ class TestThetfordLibraryMiss(unittest.TestCase):
         self.assertNotIn("no:", low)
         self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
         pdf = _pdf_text(render_bay_procedure_pdf(proc)).lower()
-        self.assertIn("no thetford document in the shop library for this unit", pdf)
+        self.assertIn("general shop safety sheet", pdf)
         self.assertNotIn("norcold", pdf)
         self.assertNotIn("619394", pdf)
         self.assertNotIn("/g6e", pdf)
@@ -87,7 +87,7 @@ class TestThetfordLibraryMiss(unittest.TestCase):
             chunks=NORCOLD,
         )
         low = procedure_plain_text(proc).lower()
-        self.assertIn("no thetford document in the shop library for this unit", low)
+        self.assertIn("thetford: general shop safety sheet", low)
         self.assertNotIn("norcold", low)
 
     def test_a_real_thetford_page_is_kept(self):
@@ -111,10 +111,9 @@ class TestThetfordLibraryMiss(unittest.TestCase):
                 filler, history, latest, "", MODEL
             )
             low = reply.lower()
-            self.assertIn("no thetford document in the shop library for this unit", low)
-            self.assertIn("what do you observe", low)
+            self.assertNotIn("no thetford document in the shop library", low)   # the library-miss line is retired
             self.assertNotIn("check the reading on this unit", low)
-            self.assertEqual(reply, library_miss_shop_line("Thetford"))
+            self.assertEqual(library_miss_shop_line("Thetford"), "")
             history.append({"role": "user", "content": latest})
             history.append({"role": "assistant", "content": reply})
 
