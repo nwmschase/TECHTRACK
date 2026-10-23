@@ -9,6 +9,8 @@ from __future__ import annotations
 def warranty_story(case: dict, history: list = None, model_text: str = "") -> str:
     case = case or {}
     st = case.get("state") or {}
+    if (st.get("story") or "").strip():
+        return st["story"].strip()
     first_user = next(((m.get("content") or "").strip() for m in (history or []) if m.get("role") == "user"
                        and (m.get("content") or "").strip()), "") or case.get("complaint", "")
     if not first_user and not st:

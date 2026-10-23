@@ -17,6 +17,7 @@ Fields (all optional in each update; missing = unchanged):
   cited               [{doc_id, page}]   pages the brain cited this turn
   summary             str     running summary of the job so far (replaces old turns in the prompt)
   closed              bool    the brain closed the job (repair verified, incl. adjustments)
+  story               str     the technician story the brain wrote once the tech called the repair verified
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ OPEN, CLOSE = "<state>", "</state>"
 SCHEMA = {
     "facts": list, "fault_code": str, "pending_test": str, "part_working": str,
     "next_part_to_fetch": str, "web_lookup": str, "order_part": str, "cause": str, "repair": dict,
-    "cited": list, "summary": str, "closed": bool,
+    "cited": list, "summary": str, "closed": bool, "story": str,
 }
 
 
@@ -36,7 +37,7 @@ def new_state() -> dict:
     return {"facts": [],
             "fault_code": "", "pending_test": "", "part_working": "", "next_part_to_fetch": "", "web_lookup": "", "order_part": "",
             "cause": "", "repair": {"done": False, "verified": False, "what": "", "quote": ""}, "cited": [],
-            "summary": "", "closed": False}
+            "summary": "", "closed": False, "story": ""}
 
 
 def split_reply(reply: str):

@@ -412,3 +412,11 @@ class TestRealLibraryWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGrokWrittenStory(unittest.TestCase):
+    def test_story_field_is_stored_and_returned(self):
+        case = gd_turn.new_case("Refrigerators", "Acme X1", "freezes, E2")
+        case["state"] = gd_state.merge(case["state"], {"story": "Complaint: ... Cause: ... Correction: ...",
+                                                       "repair": {"done": True, "verified": True, "what": "x", "quote": "y"}})
+        self.assertEqual(gd_story.warranty_story(case, []), "Complaint: ... Cause: ... Correction: ...")

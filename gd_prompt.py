@@ -24,9 +24,9 @@ STATE_FORMAT = """**State block (response format).** A reply ends with one state
 <state>{"facts": [{"item": "", "value": "", "quote": ""}], "fault_code": "", "pending_test": "", "part_working": "",
 "next_part_to_fetch": "", "web_lookup": "", "order_part": "", "cause": "",
 "repair": {"done": false, "verified": false, "what": "", "quote": ""},
-"cited": [{"doc_id": "", "page": ""}], "summary": "", "closed": false}</state>
+"cited": [{"doc_id": "", "page": ""}], "summary": "", "closed": false, "story": ""}</state>
 Every field is optional: a field that is left out keeps its stored value. `summary` and `cited` are stored fresh each turn.
-`quote` fields hold the tech's exact words. `next_part_to_fetch` is the text for a library search, `web_lookup` is the text for a
+`quote` fields hold the tech's exact words. `story` holds the technician story once the tech has called the repair verified; the app shows it in the shop notes box. `next_part_to_fetch` is the text for a library search, `web_lookup` is the text for a
 web lookup, `order_part` is a part the reply tells the tech to order or replace this turn, and `cited` lists the document and
 page of each source the reply used."""
 
