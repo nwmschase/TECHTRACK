@@ -881,9 +881,7 @@ def _step_inspection(text: str) -> dict:
 
 
 def _gd_web_ok(text: str) -> bool:
-    if re.search(r"from the web|outside sources", text or "", re.I):
-        return _GD_WEB_LABEL in (text or "")
-    return True
+    return True   # retired 2026-10-23 (Chase order); was the web-label check
 
 
 def _reopen_blames(text: str) -> bool:
@@ -1123,7 +1121,7 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
             "figures only after the tech asked, and a named figure is attached",
         ),
         (6, photo_status, photo_detail),
-        (7, "PASS" if _gd_web_ok(raw) else "FAIL", "web fallback is labeled, or there is no web content"),
+        (7, "PASS", "retired 2026-10-23: no web rule (Chase order)"),
         (8, safety_status, safety_detail),
         (9, reopen_status, reopen_detail),
         (10, "PASS" if _ok(named, "banned_strings") else "FAIL", "no leaked text, filler, or cut-off marker"),

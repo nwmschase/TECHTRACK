@@ -709,6 +709,11 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - The no-model show-me offers "Send a photo if it helps." It does not order a photo.
 
 
+### fresh-core LOCAL change — 2026-10-23 (not deployed; no version stamp bumped; branch `fresh-core`, tag `pre-rule-removal-2026-10-23`)
+- Chase directly ordered every rule removed (2026-10-23 8:34 AM). Removed: RULE 1/RULE 2 and the GUIDANCE block from `gd_prompt.py`; R2 maker-domain filter (`oem_domains.py` deleted), R3 order-while-pending re-call, R4 brand-lock filter on part search, R5 citation check; the "not available in this build" and "No {brand} document ... Add the OEM manual" lines; the 8-page / 40k-char budget, one-fetch-round, history window, token and effort settings; GD/PDF profile rules and the 33 PDF past-fail checkpoints; the legacy Ask / WO-plan / warranty-story prompt rules and product LOCK constants. All removed text is preserved in `drafts/REMOVED-RULES-2026-10-23/`.
+- Added: `gd_primer.md` (one plain description of TechTrack, loaded by `gd_prompt.py` as the only guidance text); `gd_official.py` web lookup tool (port of the live official-manual fetcher, no gate by library, tech ask or domain), wired as `web_fn`. Kept: library data and labels, page finder/search, state-block format, session handling, PDF rendering.
+- Profiles: GD-PROFILE and PDF-PROFILE are now short descriptive statements (v2.0); PROFILE-CHANGE-LOG row added.
+
 ### v4.19.64 — 2026-10-16 15:59 PT — PR #90 squash-merged (head `806f867`) — main SHA `dbd2cce56553ae90ee89b96ea4814589a5aa80e2`
 - ROOT CAUSE: gd_official.model_tokens kept "12V" as a model token and pin_document counted any digit-token hit as a model match, so the Furrion 12V Vent Fan tied the FCR08 fridge manual and won on id order; the type gate passed unknown-type docs; the wrong doc counted as found so no web lookup ran (RC30)
 - One manual selector (gd_official.select_manual) for GD and the library/Bay search: exact model key from model field, complaint or label wins outright; category product type and brand are hard filters; ratings are not model tokens
