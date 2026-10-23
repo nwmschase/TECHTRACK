@@ -115,11 +115,7 @@ COACH_REQUEST_PHRASES = (
 
 # Everyday shop words for tech-facing GD replies and Bay sheets.
 # The ban names the jargon once so the model is told not to say it.
-SHOP_LANGUAGE_RULE = (
-    "SHOP WORDS: Use everyday shop words (wire, plug, terminal, circuit, connector). "
-    'Avoid engineering jargon like "channel" or "channels". '
-    'Say "output wire", "check the wire", or "check the circuit".'
-)
+SHOP_LANGUAGE_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Longest shop phrases first. Leftover "channel" / "channels" becomes wire / circuit.
 _CHANNEL_PHRASE_RE = re.compile(
@@ -312,32 +308,8 @@ def strip_leaked_prompt(text: str) -> str:
     return cleaned or raw
 
 
-OPEN_LIBRARY_COACH_RULE = """
-OPEN LIBRARY COACH (product path — not a locked flowchart, not a Jobs WO plan):
-- Take the complaint and guide the tech from THIS SHOP's Document Library / service-manual excerpts only.
-- Say "the shop Document Library" or "the Furrion (or brand) service manual" — never "the text you uploaded."
-- Answer clarifying questions, figure/diagram/illustration requests, and mid-job pivots in THIS chat.
-- NEVER say "This path is complete" or tell the tech to start a new chat for another symptom branch.
-- NEVER re-ask a fact the tech already stated in this chat (including the latest message). Do not open or close with Heard or Noted. Start with the next check, or with the repair after that check is reported.
-- If they already said the cavity light is on and the fridge is not cooling, do NOT ask those again. Do NOT restart at the fuse / no-power path. Follow the cited service-manual section for a powered unit that is not cooling (e.g. inoperable compressor). Do not force Fan Replacement on that not-cooling / compressor path unless THIS turn's excerpt or an already-stated Furrion FCR E2 / 2-flash / Fan Fault Current says so.
-- Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current is freezer-fan / airflow (CCD-0008122 Error Code — Fan Fault Diagnostics + Fan Replacement). The SM fan on F+/F− is a replaceable part (shop name: freezer evaporator fan). Do not cage that path to rear inverter/control board only. Recommend freezer evaporator fan R&R, and board + fan when readings support both.
-- Suburban / gas cooktop burner lights then goes out when a pan is placed: verify the thermocouple / flame-sensor tip is in the flame WITH COOKWARE ON before condemning thermocouple, safety valve, orifice, regulator, or igniter. Cite Suburban Range/Cooktops SM. Do not invent voltages.
-- Front stabilizer / PSX1 power works but manual crank/override will not engage with a broken or seized roll pin / override coupler: replace the complete stabilizer jack assembly (not coupler-only). Lippert PSX1 CCD-0007345 override-usage pages are for using the override, not the end fix for a destroyed pin.
-- BAL Soft-Touch SS 5.1 electric tongue jack ONLY dead, other stabilizers and panel lights still work: press tongue extend/retract and check for 12V on the tongue jack output wire at the panel, then the local tongue pigtail / panel-to-motor leads. No 12V on the tongue output wire → soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail. Do NOT lead with coupler / shear-pin / coupler replacement, and do NOT lead with the fuse / 30A / remote stabilizer harness. Coupler path only if the manual override will not turn or the motor fails a direct-12V prove. Cite INS.STA.001. Do not invent a page number.
-- Furrion FCR / Arctic / similar fridge ice, frost, or icing on the rear/back wall (including about half from the top) or moisture in the fridge cavity: follow CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. Closing step: if ice or moisture persists after drying and waiting 1 month, replace the unit. Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake "Fuse location" title with no page.
-- Furrion Arctic FCR08/FCR10 (FCR10DCGTA-class): temperature dial/control OFF but the compressor still runs or the cavity overcools (won't shut off, runs when Off, freezer frozen solid with control Off). Do NOT open fuse (p.19), 12V continuity (p.20), or diagnostic LED / inverter control voltage (p.18). Leave the dial fully OFF, seat the probe and thermostat wires (Repair §2 p.43), then open flag terminals C (blue) and T (black) with no jumper (tech adaptation; inverse of Intermittent Thermostat Operation p.31 Figs. 24–25). Compressor stops → R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per p.43–45 Figs. 57–67. Compressor keeps running with C/T open → inverter/harness secondary. Thermostat cites are p.31 and p.43–45 only.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps. Order on CCD-0007990: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressures are reported and the freeze or interior leak remains, the terminal card must authorize rooftop assembly R&R and cite CCD-0007990. That card is an authorization to replace the rooftop assembly, not a procedure dump. If the excerpt has no R&R steps, still authorize once pressures are reported. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Once this freeze/leak prove is the complaint, do not leave it for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals. Do not loop a drain-only check once those proves are in.
-- Coleman-Mach 2111-0001 that ran and then went dead: when board Fan High is dead (tester dark and/or about 0 VAC on the 9-pin black/white Fan High path), a Peacemaker bypass shows the compressor runs while the fan does not rotate and stall current is about 1.9 A, and the fan run capacitor measures about its rated value, authorize R&R of the fan motor and the control board only. Do not authorize the full 2111-0001 assembly. Stop further tests. Cite the 12VDC wall-thermostat rooftop service manual, 1976-536, 1976-603, the Peacemaker manual, and the mechanical-controls manual / 1976-695. Do not invent page numbers.
-- Lippert Level Up Manual Mode flashes then dumps to home while Auto Level (or other pad functions) still work: cheap proves first (power / no brownout; Auto works; dump is not sticky Low Voltage / Excess Angle / External Sensor). Then say: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM from Settings; Firefly 574-825-4600; USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in). Reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged. Do not frame it as confirm Manual dump works.
-- If they say "go to compressor section" (or any other change of direction), follow that request using cited library pages.
-- Cite 📖 Source: [Exact manual title from excerpt] - page [N] when you use a page. Never invent OEM steps or page numbers.
-- If the tech asks to see a figure/diagram/page, describe the check in shop words. Do not say a PDF page will appear below. Do not invent markdown images.
-- If they ask for labeled terminals / PCB / inverter board / pinout / wiring: cite a page that actually has Fig./F+/F−/inverter PCB/wiring/housing labels. If the excerpt is Quick Notes / Nominal voltage with no diagram, say so — do not invent pad locations. Try the next figure page, or ask which: wiring / LED D/+ / fan F+ F− / housing labels.
-- When recommending the next check (not answering a question), give at most 1-2 concrete tests, then wait. Ask only for facts that are still missing.
-"""
-OPEN_LIBRARY_COACH_RULE = (
-    OPEN_LIBRARY_COACH_RULE.rstrip() + "\n- " + SHOP_LANGUAGE_RULE + "\n"
-)
+OPEN_LIBRARY_COACH_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
+OPEN_LIBRARY_COACH_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Board / terminal / PCB figure asks (Chase live: "show me labeled output terminals").
 BOARD_FIGURE_ASK_HINTS = (
@@ -368,13 +340,7 @@ FURRION_FCR_TEXT_ONLY_PAGES = (13,)  # Troubleshooting Instructions / Quick Note
 FIG_CAPTION_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 F_PLUS_MINUS_RE = re.compile(r"\bf\s*[+\-–−]", re.I)
 
-FIGURE_PAGE_HONESTY = """
-FIGURE / TERMINAL PAGE HONESTY:
-- If the tech asks for a figure, diagram, labeled terminals, PCB / inverter board layout, or pinout: cite a page whose excerpt actually contains Fig./figure numbers, F+/F−, inverter PCB, wiring diagram, or housing labels.
-- If the excerpt is Quick Notes / Nominal voltage / troubleshooting text with NO figure or terminal layout: say that page has no diagram. Do not invent pad locations. Try the next diagram-candidate excerpt, or ask which they need: wiring / LED terminals D/+ / fan F+ F− / housing labels.
-- Never describe pad locations from a text-only Quick Notes page.
-- If TechTrack cannot render the shop-library figure page, say that. Name the manual title if known. Do not invent a substitute product manual. Do not claim the PDF is missing from the library when the title is on the catalog.
-"""
+FIGURE_PAGE_HONESTY = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Lippert Level Up Advantage hydraulic leveling controller (807662 / 25499 / 24999).
 # NOT Ground Control electric. NOT OneControl Unity M-Series awning/slide reversing.
@@ -441,17 +407,7 @@ LEVEL_UP_ADVANTAGE_HINT_TITLES = (
     "QR-092 Level-Up OCTP wiring",
     "QR-059 ID guide",
 )
-LEVEL_UP_PRODUCT_LOCK = """
-LEVEL UP ADVANTAGE / 807662 PRODUCT LOCK:
-- 807662 / 25499 / 24999 is the Lippert Level Up (Level-Up) towable hydraulic leveling controller with slide output. It is NOT Ground Control electric and NOT a Lippert OneControl Unity M-Series awning/slide reversing board.
-- Search and cite Leveling Level-Up / OCTP / TI-005 / TI-170 / QR-092 / QR-059 / touch-pad leveling manuals FIRST.
-- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the Level Up Advantage controller manual.
-- Manual Mode flashes / dumps to home while Auto still works is the Firefly path — not a hydraulic dump test. Cheap-prove Auto, then leave the rubber-boot plug alone and unplug only the Firefly cable. If Manual stays on flash/home: Firefly USB firmware, 574-825-4600, stick 4 GB or smaller + interim file. Do not start at pump R&R.
-- Do NOT say the shop library does not include Level Up controller diagnostics if any Level-Up / OCTP / TI-005 / QR-092 / QR-059 / Leveling Level-Up title exists in the catalog.
-- If the best Level-Up hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
-- If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the procedure.
-- Manual Mode flash/dump-to-home while Auto Level or other pad functions still work is a Firefly / OneControl prove: leave the rubber-boot plug alone and unplug only the Firefly cable. Do not open board/LCD swap first. Firefly USB firmware is the fix only when Manual holds with the Firefly cable unplugged. If Manual still dumps, stay on the Level Up sensor / harness path — do not swap another Level Up controller for Firefly blame and do not push Firefly USB.
-"""
+LEVEL_UP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
     r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
     r"(level[\s-]*up|807662|leveling controller)|"
@@ -466,15 +422,7 @@ LEVEL_UP_CAN_SEARCH_BOOST = (
     "Manual Mode flash home Auto Level Firefly terminator "
     "rubber boot network plugs Firefly cable isolate Level Up controller USB firmware"
 )
-LEVEL_UP_CAN_PRODUCT_LOCK = """
-LEVEL UP MANUAL MODE / FIREFLY PRODUCT LOCK (Level Up controller, Auto Level still works):
-- Manual Mode flashes then dumps to home while Auto Level or other pad functions still work is a Firefly / OneControl prove. It is NOT a board/LCD swap-first path.
-- Cheap proves first: power looks sane / no brownout; Auto Level works; dump is not sticky Low Voltage / Excess Angle / External Sensor (clear those first if present).
-- Then use the two-plug prove: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again.
-- Manual holds with the Firefly cable unplugged → Firefly / OneControl conflict confirmed. Tell the tech to reconnect the Firefly cable after the prove unless using the interim. Real fix = Firefly USB firmware update: read GUI + CCM from Settings, call Firefly 574-825-4600, USB stick 4 GB or smaller. Interim: front-bay main battery switch OFF (solar can stay ON) so Firefly drops, OR leave the Firefly cable unplugged with the rubber-boot plug still in.
-- Manual still dumps with the Firefly cable unplugged → NOT this issue. Stay on the Level Up sensor / harness / support path. Do NOT swap another Level Up controller for Firefly blame alone. Do NOT push Firefly USB as the fix.
-- Do not build a Firefly encyclopedia. Do not cite Unity awning/slide reversing SM as the Level Up procedure.
-"""
+LEVEL_UP_CAN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 LEVEL_UP_CAN_ISOLATE_SHOP_LINE = (
     "Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, "
     "Excess Angle, or External Sensor text if it is present. "
@@ -572,17 +520,7 @@ FACR_FREEZE_HINT_TITLES = (
     "CCD-0008666",
     "Furrion Chill FACR",
 )
-AC_PRODUCT_LOCK = """
-AIR CONDITIONING / ROOFTOP AC PRODUCT LOCK:
-- Furrion FACT* (FACT12SA2), Furrion FACR* / Chill, Dometic B57915 / Brisk, rooftop AC / ADB, and E2/E3 AC codes are Air Conditioning jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs.
-- Search and cite Furrion / Dometic Air Conditioning rooftop / ADB / Brisk / FACT / FACR manuals FIRST.
-- Furrion FACR* rooftop freeze / ice / frost / condensate / base-pan / suction icing / melt-leak: search and cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual AND CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Do not invent OEM steps or page numbers; use those existing titles. Order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. When that path is reported and pressures are in, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure paste. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave this prove for compressor no-start, fan-winding continuity, or a DC bus measurement. Do not return a blank card. Do not open fuse or 12V first. Do not stall on searching manuals or repeat drain-only.
-- Coleman-Mach 2111-0001: Fan High dead (tester dark and/or about 0 VAC on 9-pin black/white) plus Peacemaker compressor running with the fan locked at about 1.9 A plus a fan run capacitor near its rated value authorizes R&R of the fan motor and the control board only. Do not authorize the full assembly. Stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers.
-- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the rooftop AC procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls.
-- Do NOT say the shop library does not include an AC procedure, or that it only has Unity, if any Furrion/Dometic rooftop AC / FACT / FACR / Brisk / ADB title exists in the catalog or this turn's excerpts.
-- If the best AC hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
-- If a figure/page render fails, say the figure is in that shop-library PDF and the page image could not be shown. Do not claim the library lacks the AC procedure.
-"""
+AC_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 AC_EMPTY_CLAIM_RE = re.compile(
     r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
     r"(air\s*condit|rooftop\s+a/?c|fact\d|b57915|brisk)|"
@@ -623,15 +561,7 @@ WATER_HEATER_HINT_TITLES = (
     "CCD-0009390",
     "GSWH-2",
 )
-WATER_HEATER_PRODUCT_LOCK = """
-WATER HEATER / GIRARD GSWH-2 PRODUCT LOCK:
-- Girard GSWH-2, tankless water heater, E8, Petit Tube, and air-pressure-switch complaints are Water Heaters jobs. They are NOT Lippert OneControl Unity M-Series awning/slide reversing board jobs. They are NOT Furrion FCR fridge E2 / Fan Fault Current. They are NOT rooftop AC E2/E3.
-- Search and cite Girard GSWH-2 / CCD-0009390 / Water Heaters troubleshooting manuals FIRST.
-- NEVER cite Lippert OneControl M Series Unity Board SM (Electrical) — or any Unity awning/slide reversing board — as the water heater procedure unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls.
-- Do NOT say the shop library does not include a Girard GSWH-2 / E8 / water heater procedure if any Girard / GSWH-2 / CCD-0009390 / Water Heaters title exists in the catalog or this turn's excerpts.
-- If the best Water Heaters hit is unindexed or has zero searchable chunks, name that title and ask a manager to re-index it. Do not invent Unity as a substitute.
-- Use ONLY excerpted OEM steps. Never invent blink LEDs, fault-light flash counts, or page numbers.
-"""
+WATER_HEATER_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 WATER_HEATER_EMPTY_CLAIM_RE = re.compile(
     r"(library|manuals?|document library).{0,80}"
     r"(does not include|doesn't include|does not have|doesn't have|do not have|lacks?|without).{0,60}"
@@ -651,15 +581,7 @@ FAN_FAULT_SEARCH_BOOST = (
     "F+ F- Fan Replacement inverter PCB and fan "
     "freezer evaporator fan airflow"
 )
-FCR_E2_FAN_FAULT_PRODUCT_LOCK = """
-FURRION FCR E2 / FAN FAULT CURRENT (CCD-0008122) — 12V fridge only, not rooftop AC E2:
-- Furrion FCR08/FCR10 2-flash / E2 / Fan Fault Current is freezer-fan / airflow monitoring. It is NOT a Furrion FACT / Dometic rooftop AC freeze-sensor E2.
-- CCD-0008122 Error Code — Fan Fault Diagnostics measures voltage at the F+ and F− terminals on the inverter PCB, then Fan Replacement in Repair Section 2. That SM fan is a separate replaceable part. Shop name: freezer evaporator fan. The excerpt may only say "fan" — that is still the freezer evaporator fan on F+/F−.
-- NEVER say the shop Document Library or CCD-0008122 does not list a separate freezer evaporator fan. NEVER say E2 / Fan Fault Current repair is rear inverter/control board only forever.
-- Fan Fault Current (1 A peak) is a diagnostic spec, not a board-only sentence. Fan amps under that peak do not prove the fan is good or that only the board is bad.
-- SM diamond already in this shop's CCD-0008122 encoding: no nominal ~12 V at F+/F− → inverter/control board R&R. Nominal voltage at F+/F−, connections checked, error remains → replace the inverter PCB AND fan. When the tech already reported fan volts and/or fan amps and E2 / 2-flash returned after thaw or reset, recommend freezer evaporator fan R&R and the rear inverter/control board — not board only.
-- Cite 📖 Source from the Fan Fault Diagnostics / Fan Replacement excerpt actually used. Do not invent blink LEDs or page numbers.
-"""
+FCR_E2_FAN_FAULT_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 FCR_E2_NO_SEPARATE_FAN_RE = re.compile(
     r"(does not list|doesn't list|does not include|doesn't include|"
     r"does not (?:have|name|show)|doesn't (?:have|name|show)|"
@@ -697,15 +619,7 @@ COOKTOP_SEARCH_BOOST = (
     "Suburban Range Cooktops cooktop burner thermocouple flame sensor "
     "tip position cookware pan-on flame stays on tip"
 )
-COOKTOP_PRODUCT_LOCK = """
-SUBURBAN / GAS COOKTOP PAN-ON FLAME-OUT PRODUCT LOCK:
-- Burner lights, then goes out when a pan/cookware is placed (either burner) is a cooktop flame-sensor / thermocouple-tip geometry complaint. It is NOT a furnace sail-switch / draft / igniter-first path.
-- Search and cite Suburban Range/Cooktops SM FIRST.
-- Early in this path, instruct the tech to verify the thermocouple / flame-sensor TIP is positioned in the burner flame WITH COOKWARE ON. Factory often sets the tip too close to the burner head; the flame can leave the tip under load. End that sentence. Do not glue the next instruction onto "under load".
-- Do this BEFORE condemning or R&R of the thermocouple, safety valve, orifice, regulator, or igniter.
-- Only if tip geometry is correct WITH the pan on and the flame still drops out, proceed to parts / readings from the Suburban Range/Cooktops SM excerpt actually used.
-- Never invent OEM voltages or page numbers. Cite 📖 Source from an excerpt actually used.
-"""
+COOKTOP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 COOKTOP_TIP_CITE = (
     "📖 Source: Suburban SDN2U Range/Cooktops SM - page 4 (Figs. 3-4)"
 )
@@ -735,14 +649,7 @@ PSX1_SEARCH_BOOST = (
     "Lippert PSX1 CCD-0007345 front stabilizer jack "
     "manual crank override roll pin complete assembly"
 )
-PSX1_PRODUCT_LOCK = """
-LIPPERT PSX1 / FRONT STABILIZER MANUAL OVERRIDE PRODUCT LOCK:
-- Power extend/retract works but manual crank/override will not engage, with a broken or seized roll pin / override coupler that is not field-serviceable, is a complete front stabilizer jack assembly R&R. It is NOT a coupler-only repair.
-- Search Lippert PSX1 CCD-0007345 and the rear stabilizer owner manual for identification / override usage. Those pages tell how to USE the override — they are not the end fix for a destroyed pin.
-- Do NOT recommend replacing the coupler only. Do NOT treat CCD-0007345 p.7 override usage as the repair.
-- Steer to replace the COMPLETE front stabilizer jack assembly: reconnect mount + electrical; retest power AND manual.
-- Never invent OEM voltages or extra page numbers.
-"""
+PSX1_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 PSX1_PROVE_LINE = (
     "Does the manual crank turn, and what does the override roll pin or coupler look like? "
     "Report what you see.\n"
@@ -775,15 +682,7 @@ ICE_MOISTURE_SEARCH_BOOST = (
     "Ice and Moisture Ice or Moisture in the Fridge "
     "rear wall back wall frost gasket Fig. 36 figure 36"
 )
-ICE_MOISTURE_PRODUCT_LOCK = """
-FURRION FCR / ARCTIC FRIDGE ICE AND MOISTURE PRODUCT LOCK (CCD-0008122 p.36 / Fig.36):
-- Ice, frost, or icing on the rear/back wall (including about half from the top down) or moisture in the fridge cavity is Ice and Moisture → Ice or Moisture in the Fridge. It is NOT a No Power / 15A fuse / 12V inverter tree.
-- Search and cite Furrion FCR08/FCR10 SM CCD-0008122 Ice and Moisture (page 36, Fig. 36) FIRST.
-- Coach order — open language, one clarifying ask or 1–2 next checks per turn, not a quiz cage: pattern note → dial max? → gasket → cooling verify → watch/replace. Closing step: if ice or moisture persists after drying and waiting 1 month, replace the unit.
-- Do NOT open No Power / fuse / 12V inverter unless the complaint is no power / dead / won't run / no light.
-- Cite the real page and figure: 📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36). Never invent a "Fuse location" title with no page.
-- Never invent other OEM steps or page numbers. Use the Ice and Moisture excerpt actually retrieved.
-"""
+ICE_MOISTURE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 ICE_MONTH_CLOSE = (
     "If ice or moisture persists after drying and waiting 1 month, replace the unit."
 )
@@ -2002,17 +1901,7 @@ def drop_unity_chunks_for_ac(chunks) -> list:
 FACR_ASSEMBLY_SEARCH_BOOST = (
     "CCD-0007990 rooftop assembly condensate R&R replace rooftop assembly"
 )
-FACR_FREEZE_ASSEMBLY_LOCK = """
-FURRION FACR FREEZE / INTERIOR LEAK — ASSEMBLY CLIMAX (CCD-0007990):
-- Named branch: Furrion FACR* / Chill rooftop freeze, ice, frost, condensate, or interior leak.
-- Cite CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666. Do not invent page numbers.
-- Walk order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Suction line, thermostat, and nozzles/ambient stay on this prove.
-- Do NOT authorize rooftop assembly replacement until refrigerant pressures have been reported. Drain clear plus fan/filter OK plus a good freeze sensor is not enough.
-- When drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are all reported and the freeze or interior leak remains, the terminal card MUST authorize rooftop assembly R&R and cite CCD-0007990. The card is the authorization. Do not dump an R&R procedure. Do not return a blank card. Do not open a fuse or 12V-first tree.
-- If the tech asks to authorize rooftop assembly R&R after that prove, emit that same authorization card. NEVER say the Document Library has no R&R steps. NEVER ask the tech to paste an R&R section or a page number.
-- Once this freeze/leak prove is the complaint, stay on it. Do NOT drift into compressor no-start, fan-winding continuity, or a DC bus measurement.
-- Do NOT stall on "searching manuals" / "searching the library". Do NOT loop a drain-only check once those three proves are in. An unfinished prove does not get the assembly authorization card.
-"""
+FACR_FREEZE_ASSEMBLY_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 FACR_TERMINAL_ASSEMBLY_RR_LINE = (
     "Drain, pan and slope, filter and fan, suction line, freeze sensor, "
     "thermostat, nozzles, ambient, and refrigerant pressures are reported good. "
@@ -2849,14 +2738,7 @@ COLEMAN_2111_SEARCH_BOOST = (
     "Peacemaker control box bypass "
     "1976-695 mechanical controls fan motor run capacitor"
 )
-COLEMAN_MOTOR_BOARD_LOCK = """
-COLEMAN-MACH 2111-0001 — FAN MOTOR + CONTROL BOARD ONLY:
-- Named unit: Coleman-Mach / Airxcel rooftop model 2111-0001. Not a Furrion FACR freeze job. Not the 2111-004x install book.
-- Walk the prove: board Fan High (tester lamp and/or VAC on the 9-pin black/white Fan High path), then a Peacemaker or equivalent bypass of the thermostat and control box, then the fan run capacitor against its rated value.
-- When Fan High is dead (tester dark and/or about 0 VAC), the bypass shows the compressor runs while the fan does not rotate on either speed and stall current is about 1.9 A, and the fan run capacitor measures about rated: TERMINAL CARD authorizes R&R of the fan motor and the control board ONLY. Do not authorize the full 2111-0001 assembly. Stop. Do not ask for more tests.
-- Cite existing titles only: 12VDC wall-thermostat rooftop service manual (12 VDC present and 115 VAC missing at the 9-pin means the printed circuit board), 1976-536 and 1976-603 (pin 5 black is Fan High, pin 9 white is fan common), SkillAbove Peacemaker (bypass; compressor and fan; amperage), mechanical-controls service manual and 1976-695 (capacitor good and the motor will not start: replace the motor). Do not invent page numbers. Do not cite a 2111-0001-only bulletin.
-- Incomplete evidence does not get this authorization card.
-"""
+COLEMAN_MOTOR_BOARD_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 COLEMAN_MOTOR_BOARD_AUTH_LINE = (
     "AUTHORIZATION: R&R the rooftop fan motor and the control board only on the Coleman-Mach 2111-0001. "
     "Fan High at the control board is dead (tester dark and about 0 VAC on the 9-pin black-to-white Fan High path). "
@@ -3176,7 +3058,7 @@ def library_miss_brand_label(
     model_text: str = "",
     symptom: str = "",
 ) -> str:
-    """Name used in 'No {brand} document in the shop library for this unit.'"""
+    """The brand (or 'toilet') named in the typed unit; '' when none."""
     brand = typed_unit_brand(category_name, model_text, symptom)
     if brand:
         return brand
@@ -3186,13 +3068,8 @@ def library_miss_brand_label(
 
 
 def library_miss_shop_line(brand: str) -> str:
-    """The only shop line when this unit's manual is not in the library."""
-    who = (brand or "").strip() or "this brand"
-    return (
-        f"No {who} document in the shop library for this unit. "
-        "Add the OEM manual to the shop library. "
-        "What do you observe?"
-    )
+    """Removed 2026-10-23 (Chase): the tech is not told what the library holds. Kept as '' so callers fall through."""
+    return ""
 
 
 def is_coleman_library_text(text: str) -> bool:
@@ -4407,10 +4284,7 @@ _FILLER_RE = re.compile(
     r"check the reading on this unit(?:\s+and write it down)?\.?",
     re.I,
 )
-_LIBRARY_MISS_LINE_RE = re.compile(
-    r"no .+ document in the shop library for this unit",
-    re.I,
-)
+_LIBRARY_MISS_LINE_RE = re.compile(r"(?!x)x")   # was: 'no .+ document in the shop library for this unit' (removed; matches nothing)
 _BARE_REPAIR_LABEL_RE = re.compile(r"^that is the repair\.?$", re.I)
 
 
@@ -9093,14 +8967,7 @@ BAL_TONGUE_SEARCH_BOOST = (
     "BAL Soft-Touch SS 5.1 INS.STA.001 20300427 soft-touch user panel "
     "tongue jack output wire pigtail panel-to-motor"
 )
-BAL_TONGUE_PRODUCT_LOCK = """
-BAL SOFT-TOUCH SS 5.1 TONGUE JACK ONLY DEAD (INS.STA.001):
-- Named branch: electric tongue jack dead, other stabilizers still work, soft-touch panel lights still work. Motor OK on direct 12V and coupler OK is this complaint.
-- Order: (1) Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. (2) Then the local tongue pigtail / panel-to-motor leads. (3) No 12V on the tongue output wire → replace soft-touch user panel 20300427. 12V present on that wire → repair the tongue pigtail.
-- Do NOT lead with coupler, shear-pin, or coupler replacement. Do NOT lead with the fuse, a 30A supply fuse, or the remote stabilizer harness.
-- Coupler path ONLY if the manual override will not turn, or the motor fails a direct-12V prove. That is not this complaint when the motor runs on direct 12V and the coupler is engaged.
-- Cite INS.STA.001. Do not invent a page number.
-"""
+BAL_TONGUE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 BAL_TONGUE_PROVE_SHOP_LINE = (
     "The electric tongue jack is the only jack that is dead. The other stabilizers "
     "and the soft-touch panel lights still work.\n"
@@ -9994,16 +9861,7 @@ DIAL_OFF_RUN_SEARCH_BOOST = (
     "flag terminals C blue T black probe seated Fig. 24 Fig. 25 "
     "part 2021128850 Repair Section 2"
 )
-DIAL_OFF_RUN_PRODUCT_LOCK = """
-FURRION FCR08/FCR10 DIAL OFF / COMPRESSOR STILL RUNNING (CCD-0008122):
-- Named branch: temperature dial or control OFF and the compressor still runs, or the fridge/freezer overcools (won't shut off, runs when Off, overcooling with dial Off, freezer frozen solid with control Off). Family is Furrion Arctic FCR08/FCR10 / FCR10DCGTA-class.
-- Compressor already running AND overcool proven means 12V is live. Do NOT lead with Fuse Diagnostics (p.19), 12V continuity (p.20), or diagnostic LED flash / inverter control voltage (p.18).
-- Coach order, one or two checks then wait: (1) confirm the dial is fully OFF past the detent. (2) Seat the capillary probe and the blue/black thermostat wires — CCD-0008122 Repair §2 Thermostat Replacement p.43 steps 2–6, Figs. 59–60. (3) Disconnect flag terminals C (blue) and T (black) and leave them OPEN — no jumper. That is a tech adaptation of Intermittent Thermostat Operation p.31 Figs. 24–25 (OEM jumper forces a run for intermittent / won't-run). Do not call the open-circuit prove an OEM "runs when Off" flowchart.
-- If the compressor STOPS with C/T open: the thermostat was holding a continuous run call. R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per Repair §2 p.43–45 Figs. 57–67 (clocking pin, straighten probe, reseat, reconnect wires).
-- If the compressor KEEPS RUNNING with C/T open: run-call is downstream of the thermostat. Escalate inverter/harness (secondary). At the inverter, C and T may be reversed without affecting performance (p.45 Fig. 70A). Do not go back to the fuse. Leave the dial fully OFF.
-- Locked cites for this prove: p.31 (C/T terminals) and p.43–45 (Spark-Free Thermostat R&R, part G 2021128850). Leave the dial fully OFF.
-- Never invent a dedicated OEM "runs when Off" tree. CCD-0008122 does not publish one.
-"""
+DIAL_OFF_RUN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 DIAL_OFF_RUN_SHOP_LINE = (
     "Confirm the dial is fully OFF, past the detent. "
     "Seat the capillary probe and the blue and black thermostat wires. "

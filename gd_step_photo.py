@@ -135,15 +135,12 @@ def vision_prompt(asked: str, typed: str) -> str:
         "You are checking one shop photo for an RV tech. "
         f"The step asked for this: {(asked or '').strip() or '(no step)'}. "
         f"The tech typed: {(typed or '').strip() or '(nothing)'}. "
-        "Return ONLY JSON with keys verdict and sees. "
+        "Reply as JSON with keys verdict and sees. "
         "verdict is confirm, mismatch, or unclear. "
-        "sees is one short sentence of only what is visible in the photo. "
-        "If the photo is blurry, dark, cut off, or you cannot tell, "
-        "verdict is unclear and sees is an empty string. "
-        "Do not guess. Do not describe anything you cannot see. "
+        "sees is one short sentence describing what is visible in the photo. "
         "confirm means the photo shows the asked step and agrees with the typed finding. "
         "mismatch means the photo shows something else, or it disagrees with the typed finding. "
-        "On mismatch, sees must still be only what is visible."
+        "unclear means the photo is blurry, dark or cut off; sees is then an empty string."
     )
 
 

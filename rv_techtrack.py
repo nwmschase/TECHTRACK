@@ -1781,66 +1781,44 @@ def improve_tech_story(concern: str, tech_notes: str, status_text=None) -> str:
             return (
                 f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis.'}\n\n"
                 f"**TESTING PERFORMED**\n{tech_notes or 'See technician notes.'}\n\n"
-                "**STATUS**\nOpen. No repair completed. Next tech: resume from testing performed. "
-                "Do not treat recommended checks as done."
+                "**STATUS**\nOpen. No repair completed. Next tech: resume from testing performed."
             )
         return (
             f"**CONCERN**\n{concern or 'Customer reported an issue requiring diagnosis and repair.'}\n\n"
             f"**TESTING / FINDINGS**\n{tech_notes or 'See technician notes.'}\n\n"
-            "**CAUSE**\nOnly as stated in the technician notes. If no root cause was recorded, leave unknown.\n\n"
-            "**CORRECTION**\nOnly repairs the technician recorded. If none were recorded, none were performed."
+            "**CAUSE**\nAs stated in the technician notes; not confirmed when none was recorded.\n\n"
+            "**CORRECTION**\nThe repairs the technician recorded; none when none were recorded."
         )
     try:
-        system_prompt = """You write shop documentation for RV warranty claims (Lippert, Dometic, Furrion, etc.).
+        system_prompt = """You write shop documentation for RV warranty claims (Lippert, Dometic, Furrion, etc.) from the technician's notes. The write-up is built from what the technician recorded as done or measured, with each test, location and reading in the order it was done, each reading followed by a short interpretation grounded in that number. Coach-recommended tests become part of the record when the technician reports doing them. The tone is plain shop documentation.
 
-HARD RULES - facts (violating any of these is a failed write-up):
-1. Use ONLY facts the TECHNICIAN recorded as already done or measured. Coach/AI recommended tests are NOT performed work unless the tech later said they did that exact test and reported a result.
-2. NEVER invent voltages, ohm readings, parts, corrosion, failed fuses, connector damage, reset buttons pressed, photos taken, or a completed repair.
-3. NEVER write that the unit was repaired, corrected, restored, returned to service, or fully functional unless the tech explicitly said the repair was done and the unit works.
-4. Decide OPEN vs complete from the LATEST technician status. An earlier "no repair yet" / "need warranty story" / handoff does NOT override a later recorded repair (replaced / job complete / compressor ran). Only if the latest status is still open: do NOT write a completed CAUSE or CORRECTION. Write a handoff log instead.
-5. Do not turn "I will press the Write warranty story button" into a controller reset or any shop-floor button press.
-6. You may clean up grammar. You may NOT add tests, parts, or steps that were not recorded.
-
-HARD RULES - writing quality (a thin checklist that drops readings is also a failed write-up):
-7. Include EVERY recorded test, location, and reading. If the tech wrote 13.8 V at the converter, 13.5 V at the controller, 12.8 V at the display, a 1.0 V drop, or continuity - those numbers MUST appear. Do not collapse several measurements into "voltage checked OK."
-8. After each reading, add one short interpretation grounded only in that number and what the tech said it meant. Example: "13.8 V at the converter is supply/charging voltage; a 1.0 V drop to the display is more than a healthy short run of wire usually shows." Do not invent a spec chart the tech did not record.
-9. Write chronological shop paragraphs, not a one-line bullet dump. Short paragraphs are fine. Sentence fragments that drop the numbers are not.
-10. Cite a manual only if the tech or the notes already named that source. Do not invent page numbers.
-11. Professional warranty tone. No fluff, no first-person diary, no "I then proceeded to."
-12. PASS-BIND: If the coach recommended a specific test (location + expected threshold/action) and the technician later replied with only a vague pass ("good", "done", "pass", "step 2 good", "voltage good", "completed test"), write a clean professional line bound to THAT exact check. Example: coach said measure at the front-vent fuse / supply and expect ≥11.3 V, tech said "voltage good" → write that voltage was checked at that location and confirmed at/above the stated threshold. Do NOT leave "completed voltage test, it was good." Do NOT invent a numeric reading the tech did not give (do not invent 12.6 V). Using the coach's stated threshold as the pass criterion is allowed when the tech only said good/pass. Do NOT invent pins, parts, or steps the coach never asked for.
-13. SOURCE CITE: For every test the technician reported as done, write it in order with the reading/result. When the coach cited 📖 Source: [manual title] - page [N] for that check (or the notes include that title + page), put the same citation on that story paragraph. Prefer binding the tech result to the matching coach step AND carry that step's source into TESTING / CAUSE. Do not invent page numbers. If no source was cited for a tech-reported check, write the fact without a fake citation. Open jobs stay handoff-only; still cite sources on tests that were actually performed.
-
-IF THE JOB IS OPEN / NOT REPAIRED, use EXACTLY this structure:
+An open job (no repair recorded) is written as:
 CONCERN
-(Restate the customer symptom in one or two complete sentences. Do not add unstated details.)
+(the customer symptom)
 
 TESTING PERFORMED
-(Full paragraphs covering every recorded test and reading, in the order they were done, with the interpretation rule above. Do not omit a number.)
+(each recorded test and reading, in order)
 
 STATUS
 Open. No repair completed.
-Next tech: [where they left off, using only recorded facts].
+Next tech: [where the work left off].
 
-IF THE JOB IS COMPLETE (tech said they repaired it), use EXACTLY this structure:
+A completed job (the technician recorded a repair) is written as:
 CONCERN
-(Restate the customer symptom.)
+(the customer symptom)
 
 CAUSE
-(Only if the tech stated a root cause. Otherwise write: Not confirmed.)
-Include the testing narrative and every recorded reading that supports the cause. Do not invent a cause from a recommended-but-untested theory.
+(the root cause the technician stated, or: Not confirmed.)
+The testing narrative and the readings that support the cause.
 
 CORRECTION
-(Only the repair steps the tech said they performed. No extra typical steps.)
+(the repair steps the technician performed)
 """
 
         status_line = (
-            "JOB STATUS: OPEN / NOT REPAIRED (latest tech status). Write the handoff structure. Do not invent a cause or a fix."
+            "JOB STATUS: OPEN / NOT REPAIRED (latest tech status). The write-up uses the open structure."
             if incomplete
-            else (
-                "JOB STATUS: Write a completed warranty story ONLY if the notes clearly say a repair was performed. "
-                "If they do not, treat it as OPEN. If a later tech message recorded a repair, do not keep the job "
-                "OPEN because an earlier message said no repair yet."
-            )
+            else "JOB STATUS: the completed structure applies when the notes say a repair was performed; otherwise the job is open."
         )
         user_prompt = f"""CUSTOMER CONCERN:
 {concern or '(not provided)'}
@@ -3946,25 +3924,12 @@ def load_job_sources(job: DiagnosticJob) -> list:
 
 
 def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks, unity_gate: str = "") -> tuple:
-    """Returns (plan_text, sources_text, sources_json)."""
+    """Returns (plan_text, sources_text, sources_json). The system text is the primer; the user text is the unit,
+    the symptom and the excerpts."""
+    import gd_prompt
+
     if not chunks:
-        asked = named_brands(model_text or "", symptom or "")
-        brand_line = ""
-        if asked:
-            brand_line = (
-                f"- Named brand/model: {', '.join(asked)}. Nothing in the library "
-                "for that brand in this category.\n"
-                "- Do not use another brand's voltages, ohms, or pin names.\n"
-            )
-        msg = (
-            "No matching manual text was found in TechTrack.\n\n"
-            + brand_line
-            + "- Check category selection\n"
-            "- Try different keywords / model number\n"
-            "- Ask a manager to upload/index the service manual\n"
-            "- Scanned PDFs with no text cannot be searched until OCR is added"
-        )
-        return msg, "", "[]"
+        return "", "", "[]"
 
     sources_text, sources_json = build_sources_payload(chunks)
     context_parts = []
@@ -3992,152 +3957,28 @@ def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, ch
             body.append(f"**Excerpt {i} [{kind}] - {ch.title} p.{ch.page}**")
             body.append(ch.chunk_text[:700] + ("..." if len(ch.chunk_text) > 700 else ""))
             body.append("")
-        body.append(
-            "\nCite 📖 Source lines from the excerpts above. Ask Guided Diagnostics chat "
-            "to show a page only if you need the illustration."
-        )
         return "\n".join(body), sources_text, sources_json
-
     try:
-        system_prompt = """You are an expert RV technician coach helping shop techs diagnose and repair units on the floor.
-
-You will receive:
-- Category, optional model/system, and the reported symptom
-- EXCERPTS from the shop's uploaded service manuals only
-- Some excerpts may be labeled INDEX CHART (symptom → cause → section/page tables)
-- Others are labeled PROCEDURE (actual tests, specs, wiring, measurements)
-- Each PROCEDURE excerpt includes Manual title and Page number - you MUST use those on every step
-
-CRITICAL RULES:
-1. Use ONLY the provided manual excerpts for procedures, specs, LED codes, and test steps.
-2. If an INDEX CHART is present: pick ONLY the single best matching symptom row for THIS concern (not every row on the chart). Name that row once. Then expand ITS causes only into shop-floor tests using PROCEDURE excerpts.
-3. NEVER paste the whole index chart as the plan. NEVER list 15+ causes as step 1. Max about 10-12 guided steps.
-4. NEVER end a step with only "refer to page X", "see the manual", or "contact support" if any PROCEDURE excerpt covers that check. Write the actual check (measure/inspect/expected reading/pass-fail).
-5. OEM ORDER for refrigerator "not cooling" (when relevant):
-   a) Confirm operation / display / mode
-   b) DC power / fuses / supply voltage
-   c) Heat source path - AC/electric (element, AC volts, board) AND/OR gas (LP, valve, igniter/solenoid, burner, orifice) as the concern requires
-   d) Shared: ventilation, level (skip if already confirmed), door seals/air leaks
-   e) Thermistor / controls
-   f) Cooling unit performance LAST (only after heat source proven)
-5b. OEM ORDER for RV furnace (Dometic / Atwood / Suburban) when category is Furnaces or the item is a furnace - do this almost first, before board, igniter, gas valve, or electrode:
-   a) Bypass the wall thermostat at the furnace (jumper t-stat terminals / local heat call) so coach controls are out of the path
-   b) Confirm 12V at the furnace under load while the blower runs (about 10.5-13.5 VDC)
-   c) Verify sail-switch POWER IN and POWER OUT with the blower running. IN without OUT = sail not closed or no airflow. No IN = wiring/board/limit/t-stat path - do not replace the sail yet
-   d) Then dirty blower / restricted return-exhaust / high-limit in series / correct sail part and paddle position
-   e) Temporary sail jumper only AFTER the blower is running; never leave jumped
-   f) Igniter, gas valve, and flame sense ONLY after the sail/limit path is proven
-   If the concern is fan runs / won't light / no heat / 1-flash airflow on a Dometic furnace, steps a-c are mandatory first recommendations even if the tech did not mention the sail switch.
-6. Start with brief SAFETY notes when relevant.
-7. Output format:
-   - SAFETY (short)
-   - MATCHED SYMPTOM ROW (one line from index if used)
-   - GUIDED TEST SEQUENCE (numbered)
-8. REQUIRED - cite source INLINE on EVERY numbered step (not only at the bottom).
-   Use this exact pattern:
-
-   N. [Action]. Expected: [result]. If fail: [next].
-      📖 Source: [Exact manual title from excerpt] - page [N]
-
-   - The page number MUST match the PROCEDURE excerpt page you used for that step.
-   - If two pages apply, list both on that step: page 11, page 12.
-   - Do NOT leave any step without a 📖 Source line.
-9. After all steps, add a short SOURCES list (optional recap). The inline citations are the primary requirement.
-10. Plain shop language. Do not invent OEM procedures not in the excerpts.
-11. BRAND LOCK: If the tech named a brand or model (Furrion, Norcold N641, etc.) and the excerpts are a DIFFERENT brand, do NOT use those excerpts as the procedure. Say the library does not have that brand's service manual and ask only what they can see (blower run, spark, lockout, check light). No borrowed voltages, ohms, pin names, or step order from the other brand.
-12. Sister-model specs from the SAME brand are OK only if you label them (e.g. "RM1350 chart says 34.3 Ω - confirm on the RM2662 page before using it").
-13. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
-14. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters or pin names unless they appear in the SPMP / excerpt.
-15. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. Furrion FCR08/FCR10 flash codes need the SM temporary 10 mA LED on rear inverter D/+ - say that, or skip flash codes. Never invent a control-panel blink LED.
-16. SOURCE PAGE HONESTY: 📖 Source page must be the excerpt page that actually shows the figure/terminals you describe. Never invent markdown images.
-17. NO FAKE IMAGES: Never output ![alt](url) or HTML img tags in the plan.
-18. """ + SHOP_LANGUAGE_RULE
-
-        furnace_rule = FURNACE_OEM_ORDER if is_furnace_context(category_name, model_text, symptom) else ""
-        unity_rule = (
-            UNITY_OEM_ORDER
-            if is_unity_context(category_name, model_text, symptom, unity_gate)
-            and not skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
-            and not skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
-            else ""
-        )
-        ice_job = is_fridge_ice_moisture_context(category_name, model_text, symptom)
-        dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom)
-        fridge_rule = (
-            FRIDGE_OEM_ORDER
-            if is_fridge_context(category_name, model_text, symptom)
-            and not ice_job
-            and not dial_off_job
-            else ""
-        )
-        ac_rule = AC_PRODUCT_LOCK if is_air_conditioning_context(category_name, model_text, symptom) else ""
-        wh_rule = WATER_HEATER_PRODUCT_LOCK if is_water_heater_context(category_name, model_text, symptom) else ""
-        cooktop_rule = (
-            COOKTOP_PRODUCT_LOCK
-            if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
-            else ""
-        )
-        stab_rule = (
-            PSX1_PRODUCT_LOCK
-            if is_stabilizer_override_pin_context(category_name, model_text, symptom)
-            else ""
-        )
-        ice_rule = ICE_MOISTURE_PRODUCT_LOCK if ice_job else ""
-        dial_off_rule = DIAL_OFF_RUN_PRODUCT_LOCK if dial_off_job else ""
-        level_up_can_rule = (
-            LEVEL_UP_CAN_PRODUCT_LOCK
-            if is_level_up_manual_can_conflict_context(category_name, model_text, symptom)
-            or is_level_up_manual_dump_context(category_name, model_text, symptom)
-            else ""
-        )
         user_prompt = f"""CATEGORY: {category_name}
 MODEL / SYSTEM: {model_text or "(not provided)"}
 SYMPTOM: {symptom}
-{furnace_rule}
-{unity_rule}
-{fridge_rule}
-{ac_rule}
-{wh_rule}
-{cooktop_rule}
-{stab_rule}
-{ice_rule}
-{dial_off_rule}
-{level_up_can_rule}
-{DIAG_LED_HONESTY}
 
-MANUAL EXCERPTS (INDEX CHART = pick one matching row only; PROCEDURE = write real tests from these).
-Each excerpt header has Manual + Page - copy those into every step's 📖 Source line:
+MANUAL EXCERPTS (each header has the manual and page; INDEX CHART = a symptom index, PROCEDURE = test text):
 
 {context}
 
-Write the guided diagnostic plan now.
-Pick the ONE best index symptom row if a chart is present.
-Give a tight GUIDED TEST SEQUENCE in OEM order.
-EVERY step must end with:
-📖 Source: [manual title] - page [N]
-Do not tell the tech to open a Source pages dropdown.
-Do not put sources only at the bottom. Do not dump the entire chart."""
-
+Write the guided diagnostic plan: a numbered test sequence, each step followed by its source line in the form
+📖 Source: [manual title] - page [N]."""
         answer = ai_chat(
             [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": gd_prompt.PRIMER},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.15,
-            max_tokens=2400,
+            max_tokens=None,
         )
         if "source" not in answer.lower():
             answer += "\n\n**Sources used**\n" + sources_text
-        answer = (
-            "**WO plan (documentation).** Live coaching is in Guided Diagnostics chat — "
-            "ask questions, request a cited page figure, or change direction there.\n\n"
-            + answer
-        )
-        answer += (
-            "\n\n---\n"
-            "Citations are 📖 Source lines from the shop Document Library. "
-            "Ask Guided Diagnostics chat to show a page only if you need the illustration."
-        )
         return rewrite_shop_channel_words(answer), sources_text, sources_json
     except Exception as e:
         return f"Error contacting AI: {e}", sources_text, sources_json
@@ -4174,39 +4015,15 @@ def fridge_search_symptom(category_name: str, model_text: str, symptom: str) -> 
     return f"{symptom} refrigerator fridge fuse voltage front vent no power display".strip()
 
 
-FURNACE_OEM_ORDER = """
-FURNACE OEM ORDER (Dometic / Atwood / Suburban and any RV furnace job) - use this whenever the category is Furnaces OR the item/model/concern is a furnace. Do this almost first. Do not wait for the tech to ask about the sail switch.
-
-1) Bypass the wall thermostat / coach climate board at the FURNACE: jumper the furnace thermostat terminals (or apply a known-good heat call at the furnace) so a bad t-stat or AC control board is out of the path. Confirm the furnace blower starts from that local call.
-2) Measure sail-switch POWER IN and POWER OUT while the blower is running (12 VDC typical).
-   - IN present, OUT absent with blower running = sail not closed (switch, paddle alignment, or not enough airflow).
-   - IN absent = do not condemn the sail yet (call circuit, wiring, board, or series high-limit).
-3) If IN is good and OUT is dead: watch the paddle, check dirty blower wheel, restricted return/exhaust, low voltage under load (need about 10.5-13.5 VDC at the furnace while running), then high-limit in series. Replace the sail only after those checks or a failed manual-actuate/continuity test.
-4) Temporary sail jumper is DIAGNOSTIC ONLY and ONLY after the blower is already running. Never jumper before the motor starts (lockout). Never leave a safety switch jumped.
-5) Only after the t-stat-bypass + sail/limit path is proven: electrode/igniter, gas pressure/valve, flame sense.
-
-When the concern is fan runs / no light / no heat / airflow or 1-flash limit fault on a Dometic furnace, the FIRST recommended inspections must be thermostat bypass and sail-switch voltage in vs out. Do not skip them because the tech did not type "sail switch".
-"""
+FURNACE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 
-FRIDGE_OEM_ORDER = """
-FRIDGE / 12V COMPRESSOR NO-POWER OEM ORDER (Furrion FCR08/FCR10 and similar 12V residential-style RV fridges) - only when this is a refrigerator job AND the complaint is no power / dead / won't run / no light. Do NOT use this fuse-first order for rear/back-wall ice, frost, icing, or moisture in the fridge cavity — those use CCD-0008122 Ice and Moisture p.36 / Fig.36. Do NOT use this fuse-first order when the dial/control is OFF and the compressor is still running or the box is overcooling — that is the thermostat C/T open prove (p.31 + p.43–45, part 2021128850).
-1) Do NOT remove the fridge first.
-2) Check accessible customer/tech fuse first (Furrion FCR08/FCR10: front vent cover, left side of front vent cavity, 15A ATC blade fuse / cartridge - follow the shop SM excerpt). If blown, replace and retest before any teardown.
-3) Confirm dial is ON (not OFF), about 4-5. Confirm 12V supply at the unit only after the accessible fuse path is checked (or if this model has no front fuse per the excerpt - say so from the manual). If still no cool: hard reset / lockout path from the SM (disconnect all power at the fridge, wait, restore, wait 5-10 minutes) when that path is in the excerpts.
-4) Fault flash codes on Furrion FCR08/FCR10 (CCD-0008122): NOT a built-in LED on the temperature dial / control panel. The SM requires a TEMPORARY 10 mA diagnostic LED clipped to the rear inverter/driver terminals D (LED negative) and + (LED positive, piggyback). Say that clearly, or SKIP flash codes and meter 12V into the inverter/board instead. NEVER say "watch the control panel LED blink" or that the driver board "just has an LED that flashes" without the clip-on procedure.
-5) Only then harness, inverter/PCB, compressor / fan paths from the manual.
-6) Furrion FCR08/FCR10 E2 / 2-flash / Fan Fault Current: follow Error Code — Fan Fault Diagnostics (F+/F−) and Fan Replacement in Repair Section 2. The SM fan on F+/F− is a replaceable freezer evaporator fan. Do not treat E2 as rear inverter/control board only. Board + fan when F+ voltage is present and the fault remains.
-7) Cite 📖 Source lines from the Furrion/Norcold/Dometic excerpt actually used. Brand lock: do not use a furnace or rooftop AC manual for a fridge.
-"""
+FRIDGE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
-DIAG_LED_HONESTY = """
-DIAGNOSTIC LED HONESTY (ALL brands / models):
-- NEVER invent indicator lights, LEDs, displays, buttons, or connectors that are not in the provided manual excerpts.
-- If the excerpt describes a temporary / jumper / clip-on diagnostic LED (Furrion FCR CCD-0008122 style), you MUST say: tech supplies a 10 mA LED, remove rear cover, clip to terminals D (-) and + (+), then count flashes. Do NOT call that a front control-panel LED.
-- If the excerpts do not describe any built-in flash LED, do NOT ask the tech to count flashes on a panel LED.
-- Prefer real gates (fuse, dial, hard reset, metered voltage) over a special LED setup the tech may not have ready.
-"""
+
+DIAG_LED_HONESTY = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
+
+
 
 
 def is_unity_context(category_name: str = "", model_text: str = "", symptom: str = "", unity_gate: str = "") -> bool:
@@ -4253,23 +4070,7 @@ def unity_search_symptom(category_name: str, model_text: str, symptom: str, unit
     return symptom
 
 
-UNITY_OEM_ORDER = """
-UNITY / ONECONTROL BOARD OEM ORDER (only when this coach has or may have a Lippert Unity / OneControl multiplex board - CAN/bus). Skip entirely if the tech confirmed the coach has NO Unity board.
-
-Not every RV has a Unity board. Direct-switch Carefree awnings, standalone slide controllers, etc. stay on their own OEM path.
-
-When Unity / OneControl IS in play:
-1) Confirm command: switch/panel command produces a relay click at the Unity. Click alone does NOT prove the board is good - only that the control/coil side received a command.
-2) BAT1 and BAT2 at the Unity: resting ~12-14 VDC each. Trace feeds to protection and RECORD fuse/breaker sizes as found (do not invent a failure cause from fuse size alone - note for OEM review). X270 / X270D boards are commonly specified with dedicated 30A on EACH battery feed; if mixed sizes are found, document them.
-3) MONEY TEST at the Unity reversing (or latching) output for THIS function (awning, slide, etc.): resting; hold EXTEND; hold RETRACT. Pass ≈ ~12 V with polarity reverse on REV outputs. FAIL / authorize board R&R when BAT supply is solid, relay clicks, and at the Unity pins: no ~12 V, no polarity flip, stuck mid-voltage (~4-5 V), or intermittent spike-then-dropout while commanding.
-4) Same measurement at the motor/load. Good at Unity, bad at motor → harness/connector. Good at motor, no move → motor/mechanical bind.
-5) Optional: brief direct 12 V reverse-polarity at the motor only. Runs both ways → motor OK.
-6) Intermittent catch: when fault is present, retest immediately at Unity pins. Dropout at Unity → board. Cite the shop PRIMARY Unity Board Diagnostic and the coach SPMP pin map from the library (Electrical / Reference). Do not invent connector letters if the SPMP for this coach is not in the excerpts - tell the tech to open the SPMP / silkscreen for that function.
-7) CAN note: some functions (e.g. bed slide on some builds) are CAN-only with no local REV pin on the Unity. If SPMP says CAN-only, diagnose via CAN/module path - do not invent a REV meter point.
-8) Always ask early if unknown: "Does this coach have Lippert OneControl / Unity board (CAN multiplex)?"
-
-HARDWARE LOCK: Do not treat an LCD as a separate touchpad. Do not invent pins. Brand lock still applies.
-"""
+UNITY_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 
 # ---------------- GUIDED FLOW ENGINE (v4.10.0, soft-disabled in GD chat v4.13.0) ----------------
@@ -5295,38 +5096,7 @@ def guided_diagnostics_reply(
 
 
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
-ASK_TECHTRACK_SYSTEM = """You are an OPEN LIBRARY COACH for Tacoma RV Center techs. You guide diagnosis from THIS SHOP's Document Library (indexed service manuals). You are not a locked flowchart and not a Jobs work-order plan writer.
-
-You have excerpts from THIS SHOP's Document Library stored by Tacoma RV Center. The technician did not upload those excerpts. Never say "the text you uploaded," "the excerpts you provided," or "images weren't in what you uploaded." Say "the shop Document Library" or "the Furrion/Norcold/… service manual in TechTrack." Figures live in those PDFs. If the tech asks to see a page, say it is shown below from the shop library. Do not tell them to open a Source pages dropdown.
-
-Rules:
-1. Use ONLY the provided Document Library excerpts for procedures, specs, LED codes, and test steps. If excerpts are missing or do not cover the issue, say so and ask a clarifying question - do not invent OEM procedures.
-2. OPEN COACH: Answer clarifying questions, figure/diagram/illustration requests, and mid-job pivots in THIS chat. NEVER say "This path is complete" or tell the tech to start a new chat for another symptom branch. If they want to test the compressor or go to the compressor section, follow that request using cited library pages.
-3. NEVER re-ask a fact the tech already stated in this chat (including the latest message). Do not open or close with Heard or Noted. Start with the next check, or with the repair after that check is reported.
-4. When recommending the next check (not answering a question), give at most ONE clarifying question OR 1-2 concrete tests. Prefer ONE test when possible. Ask only for facts that are still missing. Do not dump the whole tree.
-5. NEVER list Step 3 / 4 / 5 or a long numbered sequence in one chat turn unless the tech explicitly asks for the full plan.
-6. After giving 1-2 tests, wait for those results — unless the tech asks a question, wants a figure, or changes direction. Then answer that request.
-7. Do not front-load inverter PCB teardown, compressor fan, and error-code flash together if fuse/supply checks are still open AND the tech has not already reported power. If they already said the cavity light is on and it is not cooling, skip fuse/no-power and use the not-cooling / inoperable-compressor pages from the excerpts.
-8. If the tech pastes multiple results at once, acknowledge each, then give only the next 1-2 checks.
-9. Cite sources inline when you use an excerpt:
-   📖 Source: [Exact manual title from excerpt] - page [N]
-10. Do not paste index charts. If an INDEX CHART excerpt is present, pick the single best matching symptom row for THIS concern.
-11. Start with a brief SAFETY note only when the next test is hazardous (LP, 120VAC, high voltage, refrigerant).
-12. Plain shop language. Short sentences. No fluff.
-13. After the tech reports a result, interpret it and give the next 1-2 checks — or answer their question if they asked one.
-14. If the tech says the job is not repaired, they need a warranty story, they will press the Write warranty story button, or they want you to hold/record the notes for a handoff: acknowledge, restate ONLY the tests and readings they already reported, and STOP. Do not give more tests. Do not treat "press the button" as a controller reset or any shop-floor button. The warranty story button is in this app, not on the unit.
-15. HARDWARE LOCK: An LCD screen is not automatically a separate touchpad. On Lippert Level-Up and similar systems the display may be the controller interface. Do not tell the tech to unplug, test, or replace a "touchpad" unless THIS model's manual excerpt or the tech notes name a separate touchpad. Do not invent a second control device.
-16. Do not invent tests the tech has not run. When they report readings, acknowledge every number before giving the next check.
-17. FURNACE OEM ORDER (when category is Furnaces or the item/model/concern is a furnace, especially Dometic): start almost first with (1) bypass the wall thermostat at the furnace so the unit has a local heat call, then (2) verify sail-switch power IN and power OUT while the blower is running. Do not skip the sail switch because the tech did not name it. Do not go to board / igniter / gas valve first on fan-runs-no-light. Temporary sail jumper is diagnostic only after the blower is running; never leave jumped. Low voltage under load and dirty blower / restricted airflow are why a NEW sail still will not pass power.
-18. If the coach may have Lippert OneControl/Unity (CAN multiplex), follow UNITY OEM ORDER before condemning awning/slide motors. If the tech confirmed NO Unity board, skip Unity steps entirely. Do not invent connector letters. If Unity is unknown and excerpts do not mention Unity, ask once: Does this coach have Lippert OneControl / Unity board (CAN multiplex)? Rooftop Air Conditioning jobs (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915/Brisk, ADB, E2/E3 AC codes) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the AC controls. Furrion FACR* freeze / ice / frost / condensate / base-pan / suction icing / melt-leak should cite existing CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual and CCD-0008666 (Furrion Chill FACR) — not Dometic-only rooftop books. Order is the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor, then rooftop assembly replacement. Do not authorize rooftop assembly replacement until refrigerant pressures have been reported. After drain, pan/slope, filter/fan, suction, freeze sensor, thermostat, nozzles/ambient, and refrigerant pressure are reported good, the terminal card authorizes rooftop assembly R&R and cites CCD-0007990. That card is the authorization, not an R&R procedure. Never say the library has no R&R steps. Never ask the tech to paste an R&R section. Do not leave that prove for compressor no-start, fan-winding continuity, or a DC bus reading. Never leave that card blank and do not open fuse or 12V first. Coleman-Mach 2111-0001: when Fan High is dead, a Peacemaker bypass shows the compressor running with the fan locked at about 1.9 A, and the fan run capacitor is about rated, authorize R&R of the fan motor and the control board only — not the full assembly — and stop further tests. Cite the 12VDC wall-thermostat service manual, 1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. Do not invent page numbers. If Furrion/Dometic AC excerpts are present, never say the library only has Unity or that no AC procedure exists. Water Heaters jobs (Girard GSWH-2, CCD-0009390, tankless water heater, E8, Petit Tube, air pressure switch) skip Unity unless the tech explicitly named OneControl, Unity, or CAN multiplex for the water heater controls. If Girard / GSWH-2 / Water Heaters excerpts are present, never say the library has no GSWH-2 procedure. Never invent blink LEDs.
-18b. LEVEL UP MANUAL MODE: when Manual Mode flashes then dumps to home and Auto Level (or other pad functions) still work, cheap proves first (power / no brownout; no sticky Low Voltage / Excess Angle / External Sensor). Then: The Level Up controller has two network plugs. One has a rubber boot on it — leave that one alone. The other has a cable running to the Firefly / OneControl system — unplug that cable only. Then try Manual Mode again. Manual holds → Firefly USB firmware (GUI+CCM, 574-825-4600, USB ≤4 GB) plus interim (front-bay main battery OFF, solar OK, or leave the Firefly cable unplugged with the rubber-boot plug still in); reconnect the Firefly cable after the prove unless using interim. Manual still dumps → not Firefly; stay Level Up sensor/harness. Do not swap another Level Up controller for Firefly blame. Do not push Firefly USB unless Manual holds with the Firefly cable unplugged.
-19. FRIDGE: when this is a refrigerator job, follow FRIDGE OEM ORDER for no-power only. Rear/back-wall ice, frost, icing (including half from the top), or moisture in the fridge cavity uses CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36): pattern note → dial max? → gasket → cooling verify → watch/replace. Do NOT open fuse / 12V inverter unless the complaint is no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a fake Fuse location title with no page. Furrion FCR08/FCR10 dial/control OFF with the compressor still running or the box overcooling (won't shut off, runs when Off, freezer frozen solid with control Off): do NOT open fuse p.19, 12V continuity p.20, or LED / inverter control voltage p.18. Leave the dial fully OFF, seat the probe and wires (p.43), open C (blue) and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → part G 2021128850 / C-FCR10DCGTA-007, p.43–45. Compressor keeps running with C/T open → inverter/harness. Cite p.31 and p.43–45 only for this prove. If the tech already reported power (cavity light on, fuse replaced) and not cooling, do NOT restart at the fuse — use the not-cooling / inoperable-compressor pages from the excerpts. Do not use a furnace or rooftop AC manual for a fridge.
-20. If the tech asks for illustrations, figures, drawings, associated illustrations, Fig. N, or "show that page": do not say the drawings are missing from text they uploaded. Stay on the SAME cited 📖 Source manual title and page. NEVER pull a figure from a different brand or manual. Do not invent markdown images. Do not say a PDF page will appear below. Do not instruct them to open a Source pages dropdown or list every linked page.
-21. NO FAKE IMAGES: Never output markdown images (![alt](url)), HTML img tags, or pretend photo embeds in chat. Do not say a library page will appear below. Do not draw a fake picture.
-22. DIAG LED HONESTY: NEVER invent built-in fault/blink LEDs. For Furrion FCR08/FCR10 (CCD-0008122), flash codes require a temporary 10 mA LED clipped to rear inverter terminals D (-) and + (+). Say that full clip-on procedure, or skip flash codes and go dial / hard reset / meter 12V. NEVER say the control panel or driver board simply has an LED that blinks when power is applied.
-23. SOURCE PAGE HONESTY: The page number in 📖 Source MUST be the Document Library excerpt page that actually contains the figure or terminal you are describing. Do not say page 18 shows power-input terminals if that excerpt is the diagnostic LED page. If you do not have the correct page in the excerpts, say so - do not invent page-to-figure mapping.
-24. FIGURE / TERMINAL PAGES: If the tech asks for labeled terminals, PCB / inverter board layout, pinout, wiring, or housing labels, cite a page whose excerpt has Fig./F+/F−/inverter PCB/wiring diagram/housing labels. Quick Notes / Nominal voltage / Troubleshooting Instructions pages are text-only — say that page has no diagram, do not invent pad locations, and try the next figure excerpt (or ask: wiring / LED D/+ / fan F+ F− / housing labels).
-25. """ + SHOP_LANGUAGE_RULE
+ASK_TECHTRACK_SYSTEM = ""  # removed 2026-10-23 (Chase order): the Ask prompt is now the primer (gd_prompt.PRIMER); original in drafts/REMOVED-RULES-2026-10-23
 
 
 def _ask_chat_transcript(history: list) -> str:
@@ -5532,405 +5302,46 @@ def _ask_manual_context(
 
 
 def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "", extra_system_rule: str = "") -> str:
-    """One chat turn: optional manual search + Grok/Groq coach reply."""
+    """One chat turn of the older Ask chat (not used by Guided Diagnostics): manual excerpts + the primer + the chat."""
+    import gd_prompt
+
     user_msg = (user_msg or "").strip()
     if not user_msg:
         return "Type a symptom or question first."
-
-    facts = facts_from_chat(history, user_msg)
-    prior_user = " ".join(
-        (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
-    )
-    figure_seek = wants_board_or_terminal_figure(user_msg) or (
-        wants_library_figures(user_msg) and wants_board_or_terminal_figure(f"{prior_user} {user_msg}")
-    )
+    prior_user = " ".join((m.get("content") or "") for m in (history or []) if m.get("role") == "user")
     search_symptom = f"{prior_user} {user_msg}".strip()
-    search_symptom = furnace_search_symptom(category_name, model_text, search_symptom)
-    fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, search_symptom)
-    cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, search_symptom)
-    stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, search_symptom)
-    bal_tongue_job = is_bal_soft_touch_tongue_only_context(
-        category_name, model_text, search_symptom
-    )
-    if bal_tongue_job:
-        stabilizer_job = False
-        facts = dict(facts)
-        facts["bal_tongue"] = "only_dead"
-        for m in history or []:
-            if (m.get("role") or "") != "user":
-                continue
-            facts.update(extract_bal_tongue_facts(m.get("content") or ""))
-        facts.update(extract_bal_tongue_facts(user_msg))
-    facr_freeze_job = is_facr_rooftop_freeze_context(category_name, model_text, search_symptom)
-    if facr_freeze_job or _gdc._job_key(history, user_msg, category_name, model_text) == "facr":
-        facts = dict(facts)
-        facts.update(facr_proves_from_chat(history, user_msg, category_name, model_text))
-    coleman_job = (not facr_freeze_job) and is_coleman_2111_context(
-        category_name, model_text, search_symptom
-    )
-    if coleman_job:
-        facts = dict(facts)
-        facts.update(
-            coleman_facts_from_chat(
-                history, user_msg, f"{category_name} {model_text}"
-            )
-        )
-    ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, search_symptom)
-    dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, search_symptom)
-    level_up_can_job = is_level_up_manual_can_conflict_context(
-        category_name, model_text, search_symptom
-    ) or is_level_up_manual_dump_context(category_name, model_text, search_symptom)
-    if dial_off_job:
-        facts = dict(facts)
-        facts["dial_off_run"] = facts.get("dial_off_run") or "overcool"
-        prove = ct_prove_from_turn(user_msg, facts)
-        if prove:
-            facts["ct_prove"] = prove
-        ice_moisture_job = False
-    if (
-        not ice_moisture_job
-        and not dial_off_job
-        and is_fridge_context(category_name, model_text, search_symptom)
-        and facts.get("ice_moisture") == "rear_wall"
-        and not is_fridge_no_power_complaint(category_name, model_text, search_symptom)
-        and not fan_fault_job
-    ):
-        ice_moisture_job = True
-    if (
-        not fan_fault_job
-        and is_fridge_context(category_name, model_text, search_symptom)
-        and (facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
-    ):
-        fan_fault_job = True
-    # Jobs still uses fridge_search_symptom (no-power fuse boost). Coach skips that
-    # bias once the tech already reported power + not cooling, on FCR E2 /
-    # Fan Fault Current (do not crown fuse/board-only pages over Fan Replacement),
-    # on rear-wall ice/frost (Ice and Moisture p.36 — not fuse/12V), and on
-    # dial-OFF + compressor-still-running (thermostat C/T, not fuse/12V).
-    # Figure/terminal asks must NOT inherit "voltage" / Quick Notes bias.
-    if figure_seek:
-        fig_boost = figure_library_search_boost(user_msg)
-        if is_fridge_context(category_name, model_text, search_symptom):
-            search_symptom = f"{search_symptom} refrigerator fridge inverter {fig_boost}".strip()
-        else:
-            search_symptom = f"{search_symptom} {fig_boost}".strip()
-    elif dial_off_job:
-        search_symptom = dial_off_run_search_symptom(category_name, model_text, search_symptom)
-        if DIAL_OFF_RUN_SEARCH_BOOST not in search_symptom:
-            search_symptom = f"{search_symptom} {DIAL_OFF_RUN_SEARCH_BOOST}".strip()
-    elif fan_fault_job:
-        search_symptom = fcr_e2_search_symptom(category_name, model_text, search_symptom)
-        if FAN_FAULT_SEARCH_BOOST not in search_symptom:
-            search_symptom = f"{search_symptom} {FAN_FAULT_SEARCH_BOOST}".strip()
-    elif ice_moisture_job:
-        search_symptom = ice_moisture_search_symptom(category_name, model_text, search_symptom)
-        if ICE_MOISTURE_SEARCH_BOOST not in search_symptom:
-            search_symptom = f"{search_symptom} {ICE_MOISTURE_SEARCH_BOOST}".strip()
-    elif powered_not_cooling(facts) and is_fridge_context(category_name, model_text, search_symptom):
-        search_symptom = f"{search_symptom} refrigerator fridge not cooling compressor inoperable"
-    else:
-        search_symptom = fridge_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = level_up_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = ac_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = _gdc.ground_control_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = _gdc.dometic_nocoool_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = coleman_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = water_heater_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = cooktop_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = bal_tongue_search_symptom(category_name, model_text, search_symptom)
-    search_symptom = stabilizer_search_symptom(category_name, model_text, search_symptom)
-    if (
-        not skip_unity_for_level_up(category_name, model_text, search_symptom)
-        and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
-        and not skip_unity_for_water_heater(category_name, model_text, search_symptom, unity_gate)
-    ):
-        search_symptom = unity_search_symptom(category_name, model_text, search_symptom, unity_gate)
-    boost = coach_library_search_boost(facts)
-    if boost and not figure_seek:
-        search_symptom = f"{search_symptom} {boost}".strip()
-    chunks, context = _ask_manual_context(
-        category_name,
-        model_text,
-        search_symptom,
-        limit=5,
-        unity_gate=unity_gate,
-        figure_seek=figure_seek,
-        figure_query=user_msg,
-    )
+    chunks, context = _ask_manual_context(category_name, model_text, search_symptom, limit=5, unity_gate=unity_gate,
+                                          figure_seek=False, figure_query=user_msg)
     store_ask_sources(chunks)
-    missed = _gdc.library_miss_reply_for_turn(
-        history,
-        user_msg,
-        category_name,
-        model_text,
-        search_symptom,
-        chunks,
-    )
-    if missed:
-        return rewrite_shop_channel_words(missed)
-
-    stated = format_stated_facts_rule(facts)
-    system_prompt = ASK_TECHTRACK_SYSTEM
-    if category_name and not _gdc.category_conflicts_with_model(
-        category_name, model_text, search_symptom
-    ):
+    system_prompt = gd_prompt.PRIMER
+    if category_name:
         system_prompt += f"\n\nCategory selected: {category_name}"
-    elif _gdc.category_conflicts_with_model(category_name, model_text, search_symptom):
-        system_prompt += (
-            "\n\nThe category dropdown does not match this model. "
-            "Follow the model and its manual."
-        )
     if model_text:
         system_prompt += f"\nModel/system: {model_text}"
-    if is_furnace_context(category_name, model_text, search_symptom):
-        system_prompt += "\n\n" + FURNACE_OEM_ORDER
-    level_up_job = is_level_up_advantage_context(category_name, model_text, search_symptom)
-    firefly_job = is_firefly_can_path_context(category_name, model_text, search_symptom)
-    ac_job = is_air_conditioning_context(category_name, model_text, search_symptom)
-    water_heater_job = is_water_heater_context(category_name, model_text, search_symptom)
-    if level_up_job or firefly_job:
-        system_prompt += "\n\n" + LEVEL_UP_PRODUCT_LOCK
-    if level_up_can_job or facts.get("manual_dump") or facts.get("can_isolate"):
-        system_prompt += "\n\n" + LEVEL_UP_CAN_PRODUCT_LOCK
-    if ac_job:
-        system_prompt += "\n\n" + AC_PRODUCT_LOCK
-    if water_heater_job:
-        system_prompt += "\n\n" + WATER_HEATER_PRODUCT_LOCK
-    if fan_fault_job:
-        system_prompt += "\n\n" + FCR_E2_FAN_FAULT_PRODUCT_LOCK
-    if cooktop_job:
-        system_prompt += "\n\n" + COOKTOP_PRODUCT_LOCK
-    if stabilizer_job:
-        system_prompt += "\n\n" + PSX1_PRODUCT_LOCK
-    if bal_tongue_job:
-        system_prompt += "\n\n" + BAL_TONGUE_PRODUCT_LOCK
-    if facr_freeze_job:
-        system_prompt += "\n\n" + FACR_FREEZE_ASSEMBLY_LOCK
-    if coleman_job:
-        system_prompt += "\n\n" + COLEMAN_MOTOR_BOARD_LOCK
-    if _gdc.is_ground_control_context(category_name, model_text, search_symptom):
-        system_prompt += (
-            "\n\nGROUND CONTROL 343633: give the Electric Leveling zero-point sequence once. "
-            "Do not open later turns with it again, and do not swap a level sensor or replace a harness.\n"
-            + _gdc.GROUND_CONTROL_LEVEL_LINE
-        )
-    dometic_turn = _gdc.is_dometic_b57915_nocoool_context(
-        category_name, model_text, user_msg
-    ) or _gdc.is_dometic_b57915_nocoool_context(
-        category_name, model_text, search_symptom
-    )
-    if dometic_turn:
-        system_prompt += (
-            "\n\nDOMETIC B57915 TURNS ON / NO COLD: turn 1 is diagnostic manual 3311071. "
-            "If the fan has not been confirmed, confirm the fan runs, then the Peacemaker bypass. "
-            "If the fan is already running, start at the Peacemaker bypass, then the ceiling selector. "
-            "Do not open on a filter check and do not say the library has no no-cool steps.\n"
-            + _gdc.dometic_nocoool_open_line(_gdc.dometic_bypass_facts(history, user_msg))
-        )
-    if ice_moisture_job:
-        system_prompt += "\n\n" + ICE_MOISTURE_PRODUCT_LOCK
-    if dial_off_job:
-        system_prompt += "\n\n" + DIAL_OFF_RUN_PRODUCT_LOCK
-    if (
-        is_unity_context(category_name, model_text, search_symptom, unity_gate)
-        and not level_up_job
-        and not skip_unity_for_ac(category_name, model_text, search_symptom, unity_gate)
-        and not skip_unity_for_water_heater(category_name, model_text, search_symptom, unity_gate)
-    ):
-        system_prompt += "\n\n" + UNITY_OEM_ORDER
-    if (
-        is_fridge_context(category_name, model_text, search_symptom)
-        and not ice_moisture_job
-        and not dial_off_job
-    ):
-        system_prompt += "\n\n" + FRIDGE_OEM_ORDER
-    system_prompt += "\n\n" + DIAG_LED_HONESTY
-    if figure_seek or wants_library_page_shown(user_msg):
-        system_prompt += "\n\n" + FIGURE_PAGE_HONESTY
-    if extra_system_rule:
-        system_prompt += "\n\n" + extra_system_rule
-    if stated and stated not in system_prompt:
-        system_prompt += "\n\n" + stated
     if chunks and context:
-        context = compact_manual_context(context)
         system_prompt += (
-            "\n\nMANUAL EXCERPTS from this shop's Document Library "
-            "(INDEX CHART = pick one matching row only; PROCEDURE = write real tests). "
-            "The technician did not upload these excerpts. "
-            "Each header has Manual + Page - copy those into 📖 Source lines:\n\n"
-            + context
+            "\n\nMANUAL EXCERPTS (each header has the manual and page; cite them as 📖 Source: [manual title] - page [N]):\n\n"
+            + compact_manual_context(context)
         )
-    elif context:
-        system_prompt += (
-            "\n\nNo searchable chunks were retrieved this turn, but the shop catalog "
-            "still applies. Follow this honesty block. Do not invent OEM page numbers "
-            "and do not substitute a Unity / OneControl awning-slide board manual.\n\n"
-            + context
-        )
-    else:
-        system_prompt += (
-            "\n\nNo matching manual excerpts were found for this turn. "
-            "Ask 1-2 questions to narrow category/model/symptom, or give safe general next checks. "
-            "Do not invent OEM page numbers."
-        )
-
     if not ai_available():
         fallback = ["AI is offline (no XAI_API_KEY or GROQ_API_KEY). Matching manual excerpts:", ""]
-        if chunks:
-            for i, ch in enumerate(chunks[:6], 1):
-                fallback.append(f"**{ch.title}** p.{ch.page}")
-                fallback.append((ch.chunk_text or "")[:500])
-                fallback.append("")
-        elif context:
-            fallback.append(context)
-        else:
-            fallback.append(
-                "No matching manual text found. Check category / try different wording, "
-                "or ask a manager to index the manual."
-            )
+        for ch in (chunks or [])[:6]:
+            fallback.append(f"**{ch.title}** p.{ch.page}")
+            fallback.append((ch.chunk_text or "")[:500])
+            fallback.append("")
         return rewrite_shop_channel_words("\n".join(fallback))
-
     messages = [{"role": "system", "content": system_prompt}]
-    for m in trim_coach_history(history):
-        messages.append({"role": m["role"], "content": m["content"]})
+    for m in history or []:
+        if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip():
+            messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": user_msg})
-
     try:
-        reply = ai_chat(
-            messages,
-            temperature=0.2,
-            max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
-            reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
-        )
+        reply = ai_chat(messages, temperature=0.2, max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
+                        reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT)
     except Exception as e:
-        if dial_off_job and is_ai_request_too_large(e):
-            reply = ensure_fcr_dial_off_compressor_run_path("", facts)
-            record_cited_pages(reply)
-            return rewrite_shop_channel_words(reply)
-        if facr_freeze_job:
-            climax = ensure_facr_freeze_assembly_rr("", facts)
-            if (climax or "").strip():
-                record_cited_pages(climax)
-                return rewrite_shop_channel_words(climax)
-        if coleman_job and coleman_motor_board_evidence_complete(facts):
-            climax = ensure_coleman_motor_board_auth("", facts)
-            if (climax or "").strip():
-                record_cited_pages(climax)
-                return rewrite_shop_channel_words(climax)
         return rewrite_shop_channel_words(f"Error contacting AI: {e}")
-    reply = strip_path_complete_trap(strip_fake_markdown_images(reply))
-    if fan_fault_job and claims_fcr_e2_board_only_cage(reply):
-        retry_rule = (
-            "Your previous draft said CCD-0008122 has no separate freezer evaporator fan "
-            "or that E2 / Fan Fault Current is rear inverter/control board only. Rewrite: "
-            "the shop SM Fan Fault path includes Fan Replacement. Recommend freezer "
-            "evaporator fan R&R, and the rear inverter/control board as well when fan "
-            "volts/amps are present and the fault returned. Do not invent pages or LEDs."
-        )
-        retry_messages = list(messages)
-        retry_messages[0] = {
-            "role": "system",
-            "content": system_prompt + "\n\n" + retry_rule,
-        }
-        try:
-            retry = ai_chat(
-                retry_messages,
-                temperature=0.1,
-                max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
-                reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
-            )
-            retry = strip_path_complete_trap(strip_fake_markdown_images(retry))
-            if retry and not claims_fcr_e2_board_only_cage(retry):
-                reply = retry
-        except Exception:
-            pass
-    if fan_fault_job:
-        reply = ensure_fcr_e2_fan_rr(reply, facts)
-    if cooktop_job:
-        reply = ensure_cooktop_tip_pan_check(reply, f"{search_symptom} {user_msg}", history)
-    if _gdc.is_ground_control_context(category_name, model_text, search_symptom):
-        reply = _gdc.ensure_ground_control_level_path(reply, history)
-    if dometic_turn:
-        reply = _gdc.ensure_dometic_ceiling_thermostat(
-            reply, _gdc.dometic_bypass_facts(history, user_msg), history
-        )
-    reply = _gdc.ensure_furnace_wall_thermostat(
-        reply, history, user_msg, category_name, model_text
-    )
-    if stabilizer_job:
-        reply = ensure_stabilizer_assembly_rr(reply, facts)
-    if bal_tongue_job:
-        reply = ensure_bal_tongue_only_path(reply, facts)
-    if facr_freeze_job:
-        reply = ensure_facr_freeze_assembly_rr(reply, facts)
-    if coleman_job:
-        reply = ensure_coleman_motor_board_auth(reply, facts)
-    if ice_moisture_job:
-        reply = ensure_fridge_ice_moisture_path(reply)
-    if dial_off_job:
-        reply = ensure_fcr_dial_off_compressor_run_path(reply, facts)
-    if (
-        level_up_can_job
-        or facts.get("manual_dump")
-        or facts.get("can_isolate")
-        or facts.get("auto_level") == "works"
-    ):
-        reply = ensure_level_up_manual_can_path(reply, facts)
-    reasked = reply_reasks_stated_facts(reply, facts)
-    if reasked:
-        retry_rule = (
-            "Your previous draft re-asked facts the tech already stated: "
-            + ", ".join(reasked)
-            + ". Rewrite: acknowledge those facts in one short sentence, then give ONLY "
-            "the next cited service-manual check or answer their question. Do not ask "
-            "about light, cooling, or fuse again."
-        )
-        retry_messages = list(messages)
-        retry_messages[0] = {
-            "role": "system",
-            "content": system_prompt + "\n\n" + retry_rule,
-        }
-        try:
-            retry = ai_chat(
-                retry_messages,
-                temperature=0.1,
-                max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
-                reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT,
-            )
-            retry = strip_path_complete_trap(strip_fake_markdown_images(retry))
-            if retry and not reply_reasks_stated_facts(retry, facts):
-                reply = retry
-        except Exception:
-            pass
-    reply = _gdc.limit_library_miss_mentions(reply, history)
-    # A re-ask retry can replace the guard with another model draft. Put it back.
-    if dometic_turn:
-        reply = _gdc.ensure_dometic_ceiling_thermostat(
-            reply, _gdc.dometic_bypass_facts(history, user_msg), history
-        )
-    if cooktop_job:
-        reply = ensure_cooktop_tip_pan_check(reply, f"{search_symptom} {user_msg}", history)
-    reply = _gdc.ensure_furnace_wall_thermostat(
-        reply, history, user_msg, category_name, model_text
-    )
-    reply = _gdc.ensure_girard_petit_align(
-        reply, history, user_msg, category_name, model_text, search_symptom
-    )
-    reply = _gdc.ensure_fact12_freeze_resecure(
-        reply,
-        history,
-        user_msg,
-        category_name,
-        model_text,
-        f"{prior_user} {user_msg}".strip(),
-    )
-    if facr_freeze_job:
-        reply = ensure_facr_freeze_assembly_rr(reply, facts)
-    reply = _gdc.avoid_duplicate_reply(
-        reply, history, user_msg, category_name, model_text
-    )
     record_cited_pages(reply)
-    return rewrite_shop_channel_words(_gdc.strip_leaked_prompt(reply))
+    return rewrite_shop_channel_words(reply)
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
