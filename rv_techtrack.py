@@ -5891,11 +5891,9 @@ with tab_ask:
         reset_guided_diagnostics_session()
     st.subheader("💬 Guided Diagnostics")
     st.caption(
-        "Open library coach — takes the complaint and guides from this shop's Document Library. "
+        "Guided Diagnostics works from the complaint, the shop's manuals and, when it helps, the web. "
         "Ask questions, ask for clarification, or ask to see a cited page figure/diagram in this chat. "
-        "You can change direction mid-job (no 'start a new chat' trap). "
-        "Citations are shop manual pages only — TechTrack will not invent OEM steps. "
-        "Write warranty story uses the chat plus any unsent text. Only records what you actually tested."
+        "Write warranty story uses the chat plus any unsent text."
     )
 
     if "ask_chat" not in st.session_state:
