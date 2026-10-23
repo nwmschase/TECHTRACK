@@ -1491,6 +1491,3376 @@ def _no_brand_match_path(brand: str = "", model: str = "", concern: str = "") ->
     }
 
 
+def _split_sentences(text: str) -> list[str]:
+    """Split on sentence ends. 'Fig. 12' and 'Fig . 12' stay one sentence."""
+    raw = _FIG_CALL_RE.sub(lambda match: f"{match.group(1)}\u0001 {match.group(2)}", text or "")
+    protected = _ABBREV_DOT_RE.sub(lambda match: match.group(0).replace(".", "\u0001"), raw)
+    parts = re.split(r"(?<=[.!?])\s+", protected)
+    return [part.replace("\u0001", ".").strip() for part in parts if part and part.strip()]
+
+
+def _collapse_repeated_phrases(text: str) -> str:
+    """Drop an OCR phrase that was printed twice in a row, and doubled words."""
+    words = (text or "").split()
+    if len(words) < 2:
+        return " ".join(words)
+    guard = 0
+    changed = True
+    while changed and guard < 6:
+        guard += 1
+        changed = False
+        upper = min(8, len(words) // 2)
+        for n in range(upper, 1, -1):
+            i = 0
+            out = []
+            while i < len(words):
+                nxt = words[i : i + n]
+                fol = words[i + n : i + 2 * n]
+                if len(fol) == n and [w.lower() for w in nxt] == [w.lower() for w in fol]:
+                    out.extend(nxt)
+                    i += 2 * n
+                    changed = True
+                else:
+                    out.append(words[i])
+                    i += 1
+            words = out
+    deduped = []
+    for word in words:
+        if deduped and deduped[-1].lower() == word.lower():
+            continue
+        deduped.append(word)
+    return " ".join(deduped)
+
+
+def _drop_leading_ocr_stub(text: str) -> str:
+    """Drop a lowercase 1–3 letter scrap left when a column wrapped ('s Purge')."""
+    words = (text or "").split()
+    while len(words) >= 2:
+        head = words[0]
+        if (
+            head[:1].islower()
+            and re.fullmatch(r"[A-Za-z]{1,3}", head)
+            and head.lower() not in _SHORT_WORD_KEEP
+        ):
+            words.pop(0)
+            continue
+        break
+    return " ".join(words)
+
+
+_FUSED_OCR = (
+    (re.compile(r"gasfumes", re.I), "gas fumes"),
+    (re.compile(r"anexplosion", re.I), "an explosion"),
+    (re.compile(r"\bail connections\b", re.I), "all connections"),
+    (re.compile(r"\bCand Topen\b"), "C and T open"),
+    (re.compile(r"\bCand T\b"), "C and T"),
+    (re.compile(r"\bcavityso\b", re.I), "cavity so"),
+    (re.compile(r"\bpushingup\b", re.I), "pushing up"),
+    (re.compile(r"\bhookedup\b", re.I), "hooked up"),
+)
+_TRANSCRIPTION_RE = re.compile(
+    r"transcription for techtrack search(?:\s*\(ocr companion\))?",
+    re.I,
+)
+_BROCHURE_TEXT_RE = re.compile(r"brochure", re.I)
+_PARTS_LIST_RE = re.compile(
+    r"replaceable parts list|refer to the replaceable parts|"
+    r"\btools?\s+required\b|\btool\s+list\b|\bparts\s+list\b",
+    re.I,
+)
+_NO_LIBRARY_STEP_RE = re.compile(r"no matching library excerpt", re.I)
+_FIG_CUT_RE = re.compile(r"\(\s*(?:Fig\.?|i\.?)\s*$", re.I)
+_SHORT_CUT_END_RE = re.compile(r"\b([A-Za-z]{1,2})\.$")
+# A lone article is a word. A leftover glyph glued to the next token is an OCR split.
+_OCR_ARTICLE = {"a", "i"}
+
+
+def _rejoin_ocr_splits(text: str) -> str:
+    """Pull split tokens back together: 'termina ls', 'b lack'. Leave real short words."""
+    words = (text or "").split()
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if any(ch.isdigit() for ch in word):
+            out.append(word)
+            i += 1
+            continue
+        if i + 1 < len(words):
+            nxt = words[i + 1]
+            core = re.sub(r"[^A-Za-z]", "", word)
+            ncore = re.sub(r"[^A-Za-z]", "", nxt)
+            trail = re.search(r"[^A-Za-z0-9]+$", nxt)
+            trail_s = trail.group(0) if trail else ""
+            lead = re.match(r"^[^A-Za-z0-9]+", word)
+            lead_s = lead.group(0) if lead else ""
+            bare = word[len(lead_s):]
+            if (
+                len(core) == 1
+                and bare == core
+                and core.lower() not in _OCR_ARTICLE
+                and 3 <= len(ncore) <= 6
+                and ncore.isalpha()
+                and nxt[:1].islower()
+                and ncore.lower() not in _SHORT_WORD_KEEP
+            ):
+                out.append(f"{lead_s}{core}{ncore}{trail_s}")
+                i += 2
+                continue
+            if (
+                len(core) >= 4
+                and core.isalpha()
+                and 1 <= len(ncore) <= 2
+                and ncore.isalpha()
+                and ncore.lower() not in _SHORT_WORD_KEEP
+                and nxt[:1].islower()
+                and not word.endswith(".")
+                # "will go" is two words. "termina ls" is one word split by OCR.
+                and not (_is_dict_word(core) and _is_dict_word(ncore))
+            ):
+                out.append(f"{lead_s}{core}{ncore}{trail_s}")
+                i += 2
+                continue
+        out.append(word)
+        i += 1
+    return " ".join(out)
+
+
+def _dedupe_adjacent_sentences(text: str) -> str:
+    """Drop a sentence that repeats the one before it, or is only its tail."""
+    kept: list[str] = []
+    for sentence in _split_sentences(text):
+        if not kept:
+            kept.append(sentence)
+            continue
+        prev = kept[-1]
+        a = prev.lower().rstrip(".!? ")
+        b = sentence.lower().rstrip(".!? ")
+        if not b or b == a or b in a or a.endswith(b):
+            continue
+        if a in b or b.endswith(a):
+            kept[-1] = sentence
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+_HYPHEN_SPLIT_RE = re.compile(r"([A-Za-z]{2,})(?:\s+-\s+|-\s+)([A-Za-z]{2,})")
+# A line-break hyphen glues a split word. A hyphen between two real words is a space.
+_WHOLE_WORDS = frozenset({
+    "and", "or", "the", "if", "to", "of", "for", "a", "an", "in", "on",
+    "water", "fan", "top", "code", "button", "error", "from", "with",
+    "when", "then", "this", "that", "not", "are", "was", "into", "onto",
+    "power", "connect", "typical", "before", "after", "replace", "check",
+})
+_KEEP_CAMEL = ("OneControl", "TechTrack")
+_CAMEL_GLUE_RE = re.compile(r"([a-z]{2,})([A-Z][a-z]+)")
+_RUNON_NEXT = {
+    "loosen", "tighten", "replace", "check", "inspect", "remove", "install",
+    "disconnect", "connect", "open", "close", "clean", "measure", "verify",
+    "confirm", "press", "turn", "set", "align", "reposition", "resecure",
+    "the", "if", "when", "after", "before", "refer", "ensure", "cycle",
+    "attach", "finally", "rotate", "next",
+}
+# "and Replace" is one phrase. "knob Loosen" is two sentences.
+_NO_SPLIT_LEFT = frozenset({
+    "and", "or", "the", "of", "to", "for", "a", "an", "in", "on", "at",
+})
+# "36B)" is a cut callout. "3-9V)" and "3 to 9V)" are voltage ranges and must stay.
+_FIG_FRAG_RE = re.compile(r"(?<![\d\-])(?<!to )\b\d{1,3}[A-Za-z]\)")
+_RANGE_PAREN_RE = re.compile(r"(\d\s*-\s*\d+\s*[VvAaWw])\)")
+_BROKEN_RANGE_RE = re.compile(r"\d\s*-\s*(?:[.)]|$)")
+_LEADING_FIG_RE = re.compile(r"^\d{1,3}\)\s*")
+_FLOW_OCR_RE = re.compile(r"\byes\s+no\b", re.I)
+_OCR_GARBAGE_RE = re.compile(
+    r"grease\s+fire|\bpiezo\b|damage\s*,\s*personal|open\s+[\"“]flame|"
+    r"\bTum\b|/\*|hand[-\s]?held\s+ignitor|oven\s+pilot",
+    re.I,
+)
+_BOILERPLATE_RE = re.compile(
+    r"\bwelding\b|subject to change|extension cord|"
+    r"do not extend|extend warning|warning:\s*do not use an extension|"
+    r"framework note|\bframework\b|considered factual|manual information is considered|"
+    r"\bplease recycle\b|\brecycle this\b|for recycling|"
+    r"warning\W{0,24}extend|extend\W{0,24}warning|"
+    r"inadequate repairs|serious hazards|\bnot toys\b|electrical devices",
+    re.I,
+)
+_NEW_PASSAGE_RE = re.compile(r"^refer to\b", re.I)
+
+
+# Shop compounds that are one word even when the system list does not know them.
+_SHOP_WORDS = frozenset({
+    "setpoint", "airflow", "thermocouple", "evaporator", "inverter", "condensate",
+    "basepan", "onecontrol", "techtrack", "furrion", "dometic", "lippert", "girard",
+    "peacemaker", "rooftop", "lockout", "defrost", "pigtail", "writeup",
+    "ducted", "petit", "overcurrent",
+})
+_DICT_WORDS: set[str] | None = None
+
+
+def _dictionary_words() -> set[str]:
+    global _DICT_WORDS
+    if _DICT_WORDS is None:
+        # Plain text in the repo root. Community Cloud's push sync reads root
+        # files as UTF-8 and skips the redeploy when a binary (the old .gz)
+        # fails that read. A dashboard reboot clones with git and hides the bug.
+        path = Path(__file__).with_name("bay_words.txt")
+        words = {
+            line.strip().lower()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+        words.update(_SHOP_WORDS)
+        _DICT_WORDS = words
+    return _DICT_WORDS
+
+
+def _is_dict_word(word: str) -> bool:
+    token = re.sub(r"[^A-Za-z]", "", word or "").lower()
+    return bool(token) and token in _dictionary_words()
+
+
+# 'go' is a real word in 'willgo'. A 2-letter scrap such as 'ed' or 'pe' is not a half.
+_SPLIT_SHORT_OK = frozenset({"go"})
+
+
+def _split_half_ok(part: str) -> bool:
+    if not _is_dict_word(part):
+        return False
+    if len(part) >= 3:
+        return True
+    return part in _SPLIT_SHORT_OK
+
+
+def _split_known_join(token: str) -> str:
+    """'willgo' is will + go. Split only when both halves are words and the join is not.
+
+    'ducted' and 'petit' are words. A 2-letter dictionary scrap must not break them.
+    """
+    if not token.isalpha() or not token.islower() or _is_dict_word(token):
+        return ""
+    best = ""
+    best_score = 0
+    for cut in range(2, len(token) - 1):
+        left, right = token[:cut], token[cut:]
+        if not _split_half_ok(left) or not _split_half_ok(right):
+            continue
+        if _is_dict_word(left + right):
+            continue
+        score = min(len(left), len(right))
+        if score > best_score:
+            best = f"{left} {right}"
+            best_score = score
+    return best
+
+
+def lowercase_dictionary_glues(text: str) -> list[str]:
+    """All-lowercase tokens that are two dictionary words jammed together.
+
+    A model fragment such as the 'seqt' in NT-20SEQT is not a join. Shop
+    compounds in the dictionary ('writeup') are not joins either.
+    """
+    found = []
+    raw = text or ""
+    # Whole lowercase words only. The tail of "Firefly" is not a join.
+    for match in re.finditer(r"(?<![A-Za-z])[a-z]{6,}(?![A-Za-z])", raw):
+        token = match.group(0)
+        start, end = match.span()
+        prev = raw[start - 1] if start else ""
+        nxt = raw[end] if end < len(raw) else ""
+        if prev.isdigit() or nxt.isdigit() or prev in "-/" or nxt in "-/":
+            continue
+        if _split_known_join(token):
+            found.append(token)
+    return found
+
+
+def _unglue_dictionary_joins(text: str) -> str:
+    def fix(token: str) -> str:
+        split = _split_known_join(token)
+        return split or token
+
+    return " ".join(fix(token) for token in (text or "").split())
+
+
+def _rejoin_hyphen_splits(text: str) -> str:
+    """Pull a line-break hyphen together only when the result is one dictionary word.
+
+    A clause dash between two whole words ('terminator - leave') stays a dash.
+    A fragment hyphen that does not make a word becomes a space.
+    """
+
+    def repl(match):
+        left, right = match.group(1), match.group(2)
+        joined = left + right
+        if right[:1].isupper() and not (left.isupper() and right.isupper()):
+            return f"{left} - {right}" if len(left) >= 3 and len(right) >= 3 else f"{left} {right}"
+        if _is_dict_word(joined):
+            if left.isupper() and right.isupper():
+                return joined.upper()
+            return joined
+        if len(left) >= 3 and len(right) >= 3:
+            return f"{left} - {right}"
+        return f"{left} {right}"
+
+    return _HYPHEN_SPLIT_RE.sub(repl, text or "")
+
+
+def _split_glued_camel(text: str) -> str:
+    """'ButtonIf' and 'CodeFan' were two lines joined with no space."""
+
+    def fix(token: str) -> str:
+        for name in _KEEP_CAMEL:
+            if name not in token:
+                continue
+            if token.startswith(name) and len(token) > len(name):
+                rest = token[len(name):]
+                if rest.isalpha() and _is_dict_word(rest):
+                    return f"{name} {rest}"
+            return token
+        return _CAMEL_GLUE_RE.sub(r"\1 \2", token)
+
+    return " ".join(fix(token) for token in (text or "").split())
+
+
+def _unglue_whole_words(text: str) -> str:
+    """'codewater' and 'topand' are two words the line join fused."""
+
+    def fix(token: str) -> str:
+        if not token.islower() or not token.isalpha():
+            return token
+        low = token.lower()
+        for right in sorted(_WHOLE_WORDS, key=len, reverse=True):
+            if len(right) < 3 or len(low) <= len(right) + 2:
+                continue
+            if low.endswith(right) and low[: -len(right)] in _WHOLE_WORDS:
+                cut = len(token) - len(right)
+                return token[:cut] + " " + token[cut:]
+        return token
+
+    return " ".join(fix(token) for token in (text or "").split())
+
+
+def _split_runon_sentences(text: str) -> str:
+    """'knob Loosen' is two sentences the OCR glued together."""
+
+    def repl(match):
+        prev = match.group(1)
+        nxt = match.group(2)
+        if prev.lower() in _NO_SPLIT_LEFT:
+            return match.group(0)
+        if nxt.lower() in _RUNON_NEXT:
+            return prev + ". " + nxt
+        return match.group(0)
+
+    return re.sub(r"(?<![A-Za-z])([a-z]{3,})\s+([A-Z][a-z]+)", repl, text or "")
+
+
+def _drop_repeated_clauses(text: str) -> str:
+    """Drop 'Connect power to the.' when the next sentence starts with that clause."""
+    kept: list[str] = []
+    for sentence in _split_sentences(text):
+        if not kept:
+            kept.append(sentence)
+            continue
+        prev_words = re.findall(r"[A-Za-z0-9'+-]+", kept[-1].lower())
+        next_words = re.findall(r"[A-Za-z0-9'+-]+", sentence.lower())
+        overlap = 0
+        for k in range(min(len(prev_words), len(next_words)), 2, -1):
+            if prev_words[-k:] == next_words[:k]:
+                overlap = k
+                break
+        if overlap >= 3:
+            if len(prev_words) == overlap:
+                kept[-1] = sentence
+                continue
+            if len(next_words) == overlap:
+                continue
+            words = kept[-1].split()
+            if len(words) > overlap:
+                trimmed = " ".join(words[:-overlap]).rstrip(" ,;:")
+                if trimmed and trimmed[-1] not in ".!?":
+                    trimmed += "."
+                kept[-1] = trimmed
+            kept.append(sentence)
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _strip_fig_fragments(text: str) -> str:
+    """Drop a cut figure callout such as '36B)' or '4A)'."""
+    return re.sub(r"\s{2,}", " ", _FIG_FRAG_RE.sub(" ", text or "")).strip()
+
+
+_DASH_CHARS = "\u2010\u2011\u2012\u2013\u2014\u2212"
+
+
+def _normalize_ocr_chars(text: str) -> str:
+    """A dash between digits stays a hyphen. F− and T– stay F- and T-.
+
+    Any other em or en dash becomes a spaced hyphen. Deleting it glued
+    'terminatorleave'. Turning it into a bare space reads as 'terminator leave'.
+    """
+    out = text or ""
+    # "4 -5" is a scanned range, not a clause dash.
+    out = re.sub(r"(\d)\s*-\s*(\d)", r"\1-\2", out)
+    out = re.sub(rf"(\d)\s*[{_DASH_CHARS}]\s*(\d)", r"\1-\2", out)
+    # A terminal label is one capital and a hyphen: F-, T-, C-.
+    out = re.sub(rf"(?<![A-Za-z])([A-Z])\s*[{_DASH_CHARS}]\s*", r"\1- ", out)
+    out = re.sub(r"(?<![A-Za-z])([A-Z])\s+-\s+", r"\1- ", out)
+    out = re.sub(rf"[{_DASH_CHARS}]", " - ", out)
+    out = out.replace("\uff1f", "?").replace("\u2047", "?")
+    out = re.sub(r"[\u2022\u2023\u2043\u2219\u25aa\u25cf\u25e6\u00b7\uf0b7\uf0a7]", " ? ", out)
+    return out
+
+
+def _normalize_voltage_ranges(text: str) -> str:
+    """'3- 9V', '3–9V', and '3 to 9V' are the same range."""
+    return re.sub(
+        r"(\d)\s*(?:-|to)\s*(\d+)\s*([VvAaWw])\b",
+        r"\1-\2\3",
+        text or "",
+    )
+
+
+def _strip_orphan_range_paren(text: str) -> str:
+    """Drop a paren glued onto a range. Keep the paren that closes '(typical 3-9V)'."""
+
+    def repl(match):
+        before = text[: match.start()]
+        if before.count("(") > before.count(")"):
+            return match.group(0)
+        return match.group(1)
+
+    return _RANGE_PAREN_RE.sub(repl, text or "")
+
+
+def _repair_ocr_text(text: str) -> str:
+    """Shared OCR repair for sheet steps and source snippets."""
+    # Newlines are whitespace. Joining them with '' glues Button to If.
+    out = _normalize_ocr_chars(text or "")
+    out = re.sub(r"\s+", " ", out).strip()
+    out = _TRANSCRIPTION_RE.sub(" ", out)
+    out = re.sub(r"\(\s*ocr\s*\)", " ", out, flags=re.I)
+    out = _split_glued_camel(out)
+    out = _unglue_whole_words(out)
+    for pattern, repl in _FUSED_OCR:
+        out = pattern.sub(repl, out)
+    out = _rejoin_hyphen_splits(out)
+    # Rejoin 'termina ls' before splitting 'willgo'. Splitting first turns the
+    # fragment into 'term ina' and the short tail can no longer be pulled back.
+    out = _rejoin_ocr_splits(out)
+    out = _unglue_dictionary_joins(out)
+    for pattern, repl in _FUSED_OCR:
+        out = pattern.sub(repl, out)
+    out = re.sub(r"([A-Za-z]),([A-Za-z])", r"\1, \2", out)
+    out = _split_runon_sentences(out)
+    out = _normalize_voltage_ranges(out)
+    out = _strip_orphan_range_paren(out)
+    out = _strip_fig_fragments(out)
+    out = re.sub(r"([.!?])([A-Za-z])", r"\1 \2", out)
+    out = _OCR_HEADER_RE.sub(" ", out)
+    out = _collapse_repeated_phrases(out)
+    out = _drop_leading_ocr_stub(out)
+    out = re.sub(r"\s{2,}", " ", out).strip(" -;,")
+    # Drop 'At the F- terminals…' before the overlap trimmer can cut it out of
+    # the sentence that actually names the measurement.
+    out = _drop_verbless_fragments(out)
+    return _drop_repeated_clauses(_dedupe_adjacent_sentences(out))
+
+
+def clean_ocr_prose(text: str) -> str:
+    """Strip manual headers, footers, and duplicated OCR from a library excerpt."""
+    return _repair_ocr_text(text)
+
+
+def _is_header_residue(text: str) -> bool:
+    t = (text or "").strip()
+    if len(t) < 25:
+        return True
+    letters = re.sub(r"[^A-Za-z]", "", t)
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.6 and len(t) < 90:
+        return True
+    return False
+
+
+def _is_decision_sentence(text: str) -> bool:
+    raw = text or ""
+    low = raw.lower()
+    if low.startswith("do not") or low.startswith("don't"):
+        return False
+    if "?" in raw or re.search(r"\bif\b", low):
+        return True
+    return bool(re.search(r"\b(yes|no)\b", low) and _ACTION_RE.search(raw))
+
+
+def _is_actionable_sentence(text: str) -> bool:
+    low = (text or "").lower()
+    if low.startswith("do not") or low.startswith("don't"):
+        return False
+    return bool(_ACTION_RE.search(text or ""))
+
+
+_ACRONYM_KEEP = {
+    "BAL", "SS", "OEM", "CAN", "USB", "PN", "HVAC", "PCB", "SM", "IM",
+    "AC", "DC", "RV", "ID", "OK", "LCD", "LED", "ATC", "VAC", "VDC",
+}
+_SMALL_TITLE_WORDS = {"and", "of", "the", "for", "a", "an", "or", "to", "in", "on"}
+# Lowercase OCR may still be a real sentence. A cut syllable ("er", "anel", "s") is not.
+_LOWER_SENTENCE_OPEN = {
+    "if", "the", "a", "an", "this", "that", "when", "then", "make", "check",
+    "open", "do", "no", "yes", "after", "before", "leave", "prove", "replace",
+    "measure", "connect", "disconnect", "confirm", "inspect", "record",
+    "bypass", "clear", "set", "use", "note", "watch", "verify", "reset",
+    "locate", "test", "clean", "jumper", "tongue", "panel", "compressor",
+    "door", "ice", "light", "water", "frost", "dial", "rooftop", "defrost",
+    "back", "unplug", "power", "spark", "listed", "both", "with",
+    "at", "on", "for", "between", "across",
+}
+_TOPIC_STOP = {
+    "this", "that", "with", "from", "into", "over", "then", "than", "them",
+    "they", "have", "been", "were", "will", "your", "about", "after",
+    "before", "when", "where", "which", "while", "there", "their", "only",
+    "still", "also", "just", "does", "doing", "done", "each", "other",
+    "some", "such", "these", "those", "very", "what", "make", "sure",
+}
+# Family keeps a cite on the same product. Climax overrides an off-procedure hit.
+_PATH_FAMILY = {
+    "bal_tongue": (
+        "tongue", "pigtail", "20300427", "soft-touch", "soft touch",
+        "stabilizer", "stabilizing", "ss 5.1", "c-jack", "c jack",
+        "ins.sta", "panel", "bal",
+    ),
+    "ice": (
+        "ice", "moisture", "frost", "gasket", "defrost", "drain",
+        "rear wall", "dollar-bill", "dollar bill",
+    ),
+    "dial_off": (
+        "thermostat", "compressor", "spark-free", "spark free",
+        "2021128850", "jumper", "inverter", "harness", "dial",
+    ),
+    "facr": (
+        "rooftop", "condensate", "drain", "base pan", "base-pan", "freeze",
+        "suction", "evaporator", "assembly",
+    ),
+    "firefly": (
+        "firefly", "terminator", "manual mode", "807662", "level up",
+        "power connector", "onecontrol", "can",
+    ),
+    "furnace": ("furnace", "thermostat", "sail", "jumper", "limit", "module"),
+    "e2": ("inverter", "fan", "e2", "pcb", "12v"),
+    "coleman": (
+        "coleman", "peacemaker", "1976", "fan high", "9-pin", "capacitor", "airxcel",
+        "control board", "fan motor",
+    ),
+    "ground_control": ("manual level", "zero-point", "zero point", "ground control", "343633"),
+    "dometic_ceiling": ("3311071", "ceiling", "peacemaker", "thermostat", "selector"),
+    "fact12_freeze": ("freeze sensor", "evaporator", "fact12", "e2", "e3"),
+    "girard_e8": ("petit", "girard", "gswh", "e8", "burner"),
+    "stabilizer": ("stabilizer", "psx1", "jack", "override", "coupler"),
+    "cooktop_tip": ("thermocouple", "tip", "cooktop", "burner", "pan", "flame"),
+    "thetford_leak": ("toilet", "valve", "vacuum", "flange", "supply", "flush"),
+}
+_PATH_CLIMAX = {
+    "bal_tongue": ("20300427", "pigtail", "tongue channel", "soft-touch panel", "both directions"),
+    "ice": ("ice and moisture", "fig. 36", "figure 36", "dollar-bill", "rear wall"),
+    "dial_off": ("2021128850", "spark-free", "no jumper", "c (blue)", "t (black)"),
+    "facr": ("ccd-0007990", "condensate", "base pan", "base-pan", "suction"),
+    "firefly": ("807662", "terminator", "firefly", "power connector"),
+    "furnace": ("sail", "jumper", "r/w", "wall thermostat", "limit switch", "module board"),
+    "e2": ("inverter pcb", "f+", "f-", "fan fault"),
+    "coleman": ("peacemaker", "1976-536", "fan high", "control board"),
+    "ground_control": ("zero-point", "zero point", "manual level", "enter"),
+    "dometic_ceiling": ("ceiling thermostat", "3311071", "peacemaker"),
+    "fact12_freeze": ("freeze sensor", "resecure"),
+    "girard_e8": ("petit tube", "pressure switch", "pressure switch hose"),
+    "stabilizer": ("front stabilizer", "psx1", "jack assembly"),
+    "cooktop_tip": ("thermocouple", "reposition"),
+    "thetford_leak": ("water valve", "vacuum breaker", "flange", "water supply", "supply connection"),
+}
+_PATH_OFF = {
+    "bal_tongue": (
+        r"rear leveling jack",
+        r"\b20300000\b",
+        r"flat[-\s]?rate",
+        r"\b30a\b",
+        r"remote stabilizer harness",
+        r"\bcoupler\b",
+        r"shear pin",
+    ),
+    "ice": (
+        r"\bfuse location\b",
+        r"\b15a\b",
+        r"\bno power\b",
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"open the refrigerator and note",
+    ),
+    "dial_off": (
+        r"\bfuse location\b",
+        r"\b15a\b",
+        r"ice and moisture",
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"hard reset",
+        r"\blockout\b",
+        r"knob removal",
+        r"remove the knob",
+        r"\bknob\b",
+        r"for \d+ minutes",
+        r"gets to temperature",
+        r"ensure the refrigerator",
+    ),
+    "facr": (
+        r"\bcoleman\b",
+        r"peacemaker",
+        r"flat[-\s]?rate",
+        r"\bfurnace\b",
+        r"rear leveling",
+        r"cleaning and maintenance",
+        r"blocked filter",
+        r"problem cause remedy",
+        r"not set to cooling",
+    ),
+    "firefly": (
+        r"flat[-\s]?rate",
+        r"unity board",
+        r"tongue jack",
+        r"\bcoleman\b",
+        r"rear leveling",
+        r"touch pad error",
+        r"zero[\s-]*point",
+        r"ccd-0001749",
+        r"fifth[-\s]?wheel",
+        r"5th[-\s]?wheel",
+        r"retract light",
+        r"parking br",
+        r"\bsolenoid\b",
+        r"corrective action",
+        r"end user",
+    ),
+    "furnace": (
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"\bcoleman\b",
+        r"gas valve",
+        r"electrode",
+        r"pre-?purge",
+        r"ignition",
+        r"spark",
+        r"\blockout\b",
+    ),
+    "e2": (
+        r"flat[-\s]?rate",
+        r"rear leveling",
+        r"ice and moisture",
+        r"\bfuse location\b",
+        r"piece of paper",
+        r"sheet of paper",
+        r"paper over",
+        r"led blink",
+        r"\bblinking\b",
+        r"thermal fault",
+        r"ambient",
+        r"attach the refrigerator",
+        r"quick connection",
+        r"table below",
+        r"measure and record voltage",
+    ),
+    "coleman": (
+        r"\bfurrion\b",
+        r"ccd-0008666",
+        r"ccd-0007990",
+        r"flat[-\s]?rate",
+        r"6799-730",
+        r"\bplenum\b",
+        r"pulls the air through the coil",
+        r"condenser fan pulls",
+    ),
+    "ground_control": (
+        r"flat[-\s]?rate",
+        r"\bcoupler\b",
+        r"comm(?:unication)?[-\s]?fail",
+        r"jack faults",
+        r"\bsolar\b",
+        r"cross(?:ed)? harness",
+        r"harness.{0,24}cross",
+        r"sensor port",
+        r"voltage at the sensor",
+    ),
+    "dometic_ceiling": (
+        r"\bfurrion\b",
+        r"installation manual",
+        r"\binstalling the\b",
+        r"air distribution",
+        r"\badb\b",
+        r"operating instructions",
+        r"\blcd\b",
+        r"heat pump",
+        r"yellow wire",
+        r"comfort control",
+        r"air box",
+        r"defrost",
+    ),
+    "fact12_freeze": (r"\bboltx\b", r"parts list"),
+    "girard_e8": (
+        r"tools required",
+        r"\bduct size\b",
+        r"\bblower\b",
+        r"water[-\s]?flow",
+        r"general troubleshooting",
+        r"\bcn1\b",
+        r"outlet probe",
+        r"\bpwm\b",
+        r"repair the unit yourself",
+        r"number of reasons",
+        r"\be0\b",
+    ),
+    "stabilizer": (
+        r"\bframework\b",
+        r"extend warning",
+        r"extension cord",
+        r"do not extend",
+        r"leg[-\s]?sync",
+        r"synchroniz",
+        r"legs?\s+in\s+unison",
+    ),
+    "cooktop_tip": (
+        r"grease\s+fire",
+        r"\bpiezo\b",
+        r"\bfurnace\b",
+        r"damage\s*,\s*personal",
+        r"mounting screw",
+        r"install(?:ation)?\s+screws?",
+        r"wood\s+screws?",
+        r"fasten unit",
+        r"burner\s+knobs?",
+        r"\boff\s+position\b",
+        r"hand[-\s]?held\s+ignitor",
+        r"oven\s+pilot",
+        r"\bignitor\b",
+        r"\bTum\b",
+        r"/\*",
+    ),
+    "thetford_leak": (
+        r"poor\s+flush",
+        r"flow\s+rate",
+        r"gallons per minute",
+        r"blade\s*/?\s*ball",
+        r"\bfrozen\b",
+        r"winteriz",
+        r"antifreeze",
+        r"\briser\b",
+        r"difficult pedal",
+        r"scarico",
+        r"opzioni",
+        r"preparazione",
+        r"\binverno\b",
+    ),
+}
+
+
+def _is_raw_filename(title: str) -> bool:
+    """A stored title that is still a file slug, not a human document name."""
+    text = (title or "").strip()
+    if not text or re.search(r"\s", text):
+        return False
+    name = text.split("/")[-1]
+    if re.search(r"\.(pdf|docx?|txt|png|jpe?g)$", name, re.I):
+        return True
+    return bool(re.search(r"[-_]", name))
+
+
+def _pretty_title_token(token: str, *, first: bool = False) -> str:
+    if re.fullmatch(r"\d+(?:\.\d+)?", token):
+        return token
+    if re.fullmatch(r"[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)+", token) and re.search(r"\d", token):
+        return token.upper()
+    if re.fullmatch(r"\d+(?:st|nd|rd|th)", token, re.I):
+        return token[:1] + token[1:].lower()
+    if "-" in token:
+        parts = [part for part in token.split("-") if part]
+        return "-".join(_pretty_title_token(part, first=(first and i == 0)) for i, part in enumerate(parts))
+    letters = re.sub(r"[^A-Za-z]", "", token)
+    if letters.upper() in _ACRONYM_KEEP and 2 <= len(letters) <= 5:
+        return letters.upper()
+    if letters.isupper() and 2 <= len(letters) <= 5:
+        return letters
+    pretty = token[:1].upper() + token[1:].lower() if token else token
+    if not first and pretty.lower() in _SMALL_TITLE_WORDS:
+        return pretty.lower()
+    return pretty
+
+
+def _title_from_filename(name: str) -> str:
+    """Hyphens to words, drop a leading catalog number, keep C-Jack and SS 5.1."""
+    base = (name or "").strip().split("/")[-1]
+    base = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", base)
+    base = re.sub(r"^\d+_\d+_", "", base)
+    base = re.sub(r"^[a-f0-9]{8,}_", "", base, flags=re.I)
+    protected: list[str] = []
+
+    def _protect(match):
+        protected.append(match.group(0))
+        return f" ZZP{len(protected) - 1}ZZ "
+
+    base = re.sub(r"(?<![A-Za-z0-9])([A-Za-z])-([A-Za-z][A-Za-z0-9]*)", _protect, base)
+    base = base.replace("_", " ").replace("-", " ")
+    for i, tok in enumerate(protected):
+        base = base.replace(f"ZZP{i}ZZ", tok)
+    base = re.sub(r"^\d{5,}\b\s*", "", base.strip())
+    words = [word for word in base.split() if word]
+    if not words:
+        return "Shop library"
+    return " ".join(_pretty_title_token(word, first=(i == 0)) for i, word in enumerate(words))
+
+
+def _strip_file_tokens(text: str) -> str:
+    """Drop a trailing or embedded '.pdf' so a cite is a title, not a filename."""
+    out = re.sub(r"\b[\w.-]+\.pdf\b", lambda m: m.group(0)[:-4], text or "", flags=re.I)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
+def _accurate_library_title(title: str) -> str:
+    """CCD-0008666 is the FACR08 book. Do not print it under a FACT12 name."""
+    text = re.sub(r"\(\s*ocr\s*\)", " ", title or "", flags=re.I)
+    text = re.sub(r"\bocr companion\b", " ", text, flags=re.I)
+    text = re.sub(r"\s{2,}", " ", text).strip(" -")
+    if re.search(r"ccd-0*8666", text, re.I) and re.search(r"fact\s*12", text, re.I):
+        return "Furrion Chill FACR08 8K manual CCD-0008666"
+    return text
+
+
+def human_source_title(title: str = "", file_path: str = "") -> str:
+    """Use library metadata when it is already a title. Otherwise derive one from the filename."""
+    raw = re.sub(r"\s+", " ", (title or "").strip())
+    raw = _TRANSCRIPTION_RE.sub(" ", raw)
+    raw = re.sub(r"\s{2,}", " ", raw).strip()
+    path = (file_path or "").strip()
+    if _is_raw_filename(raw):
+        return _title_from_filename(raw)
+    if raw:
+        raw = _strip_file_tokens(raw)
+        raw = re.sub(r"\.(docx?|txt)$", "", raw, flags=re.I).strip()
+        return _accurate_library_title(raw) or "Shop library"
+    if path:
+        return _title_from_filename(path)
+    return "Shop library"
+
+
+def _first_word(text: str) -> str:
+    match = re.match(r"[A-Za-z0-9][A-Za-z0-9'+.-]*", (text or "").strip())
+    return match.group(0) if match else ""
+
+
+def excerpt_starts_mid_word(text: str) -> bool:
+    """True when a snippet begins on a cut OCR syllable instead of a sentence."""
+    token = _first_word(text)
+    if not token:
+        return True
+    if token[0].isdigit():
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", token)
+    if not letters:
+        return True
+    low = letters.lower()
+    if token[0].isupper():
+        if len(letters) <= 2 and low not in _SHORT_WORD_KEEP:
+            return True
+        return False
+    return low not in _LOWER_SENTENCE_OPEN
+
+
+def _capitalize_sentence(text: str) -> str:
+    text = (text or "").strip()
+    if text and text[0].islower():
+        return text[0].upper() + text[1:]
+    return text
+
+
+def _is_tiny_heading(text: str) -> bool:
+    return len((text or "").strip()) < 20
+
+
+def _is_brochure_text_companion(title: str = "", excerpt: str = "", file_path: str = "") -> bool:
+    """A 'Brochure - TEXT' OCR companion is not a procedure cite or a figure."""
+    blob = f"{title or ''} {excerpt or ''} {file_path or ''}"
+    if _TRANSCRIPTION_RE.search(blob) or re.search(r"ocr companion", blob, re.I):
+        return True
+    return bool(_BROCHURE_TEXT_RE.search(blob) and re.search(r"\btext\b", blob, re.I))
+
+
+def _strip_incomplete_callout(text: str) -> str:
+    """Drop a snippet that was cut off at '(Fig.', '(i.', or a bare 'Fig .'."""
+    cleaned = (text or "").strip()
+    cleaned = re.sub(r"\s*\(\s*(?:Fig\.?|i\.?)\s*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(r"\s+\bFigs?(?:\s*\.)?\s*$", "", cleaned, flags=re.I)
+    cleaned = re.sub(
+        r"\s+(?:as shown in|as shown|shown in|see|refer to)\s*$",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    return cleaned.strip(" ,;:-")
+
+
+_VERB_RE = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|am|"
+    r"has|have|had|do|does|did|can|could|may|might|will|shall|must|"
+    r"inspect|check|checks|measure|measures|replace|replaces|verify|verifies|"
+    r"reset|connect|connects|record|prove|proves|retest|retests|"
+    r"locate|locates|clear|clears|clean|cleans|test|tests|"
+    r"align|aligns|reposition|repositions|resecure|reseats|reseat|"
+    r"enter|enters|leave|leaves|pull|pulls|start|starts|stop|stops|"
+    r"show|shows|mean|means|need|needs|use|uses|turn|turns|run|runs|read|reads|"
+    r"open|opens|close|closes|hold|holds|sit|sits|go|goes|come|comes|"
+    r"remain|remains|return|returns|light|lights|watch|watches|"
+    r"confirm|confirms|repair|repairs|set|sets|keep|keeps|"
+    r"make|makes|allow|allows|cause|causes|reach|reaches|control|controls|"
+    r"stand|stands|call|calls|flow|flows|"
+    r"bypass|bypasses|rotate|rotates|ensure|ensures|cycle|cycles|"
+    r"press|presses|seat|seats|straighten|straightens|escalate|escalates)\b",
+    re.I,
+)
+
+
+def _sentence_has_verb(sentence: str) -> bool:
+    """'At the F- terminals on the inverter PCB' is a fragment. It has no verb."""
+    text = sentence or ""
+    if _VERB_RE.search(text):
+        return True
+    return bool(re.search(r"\b[a-z]{4,}(?:ed|ing)\b", text, re.I))
+
+
+# A place phrase with no verb is a fragment. A part name ('Spark-Free Thermostat part G') is not.
+_FRAGMENT_OPEN_RE = re.compile(
+    r"^(?:at|on|in|to|for|with|from|by|of|between|across|before|after|"
+    r"under|over|into|onto|upon|via|without|within|through|during|"
+    r"around|along|beside|near)\b",
+    re.I,
+)
+
+
+def _is_verbless_fragment(sentence: str) -> bool:
+    """Drop 'At the F- terminals on the inverter PCB.' Keep a part-number sentence."""
+    text = (sentence or "").strip()
+    if not text or _sentence_has_verb(text):
+        return False
+    return bool(_FRAGMENT_OPEN_RE.match(text))
+
+
+def _drop_verbless_fragments(text: str) -> str:
+    return " ".join(s for s in _split_sentences(text) if not _is_verbless_fragment(s))
+
+
+def _trim_trailing_verbless(sentences: list[str]) -> list[str]:
+    """End a snippet at the last full sentence.
+
+    'Fan quick connection to harness' is a noun phrase. Drop it when a sentence
+    with a verb already sits in front of it. A cite that is only a part name stays.
+    """
+    kept = list(sentences)
+    if not any(_sentence_has_verb(sentence) for sentence in kept):
+        return kept
+    while len(kept) > 1 and not _sentence_has_verb(kept[-1]):
+        kept.pop()
+    return kept
+
+
+def _sentence_is_cut(text: str) -> bool:
+    """True when a snippet ends mid-word, on a cut figure callout, or on a stub."""
+    sentence = (text or "").strip()
+    if not sentence:
+        return True
+    if _FIG_CUT_RE.search(sentence) or re.search(r"\(\s*Fig\.(?!\s*\d)", sentence, re.I):
+        return True
+    if re.search(r"\bFigs?(?:\s*\.)?\s*$", sentence, re.I):
+        return True
+    if re.search(r"\(\s*i\.\s*$", sentence, re.I):
+        return True
+    if re.search(r"\(\s*\.\s*$", sentence) or sentence.endswith("(."):
+        return True
+    if sentence.endswith(")") and sentence.count("(") != sentence.count(")"):
+        return True
+    if sentence.count('"') % 2 == 1 or sentence.count("“") != sentence.count("”"):
+        return True
+    if _FIG_FRAG_RE.search(sentence):
+        return True
+    if re.search(r"(?:->|→)\s*$", sentence):
+        return True
+    if re.search(r"\blippert\.$", sentence, re.I):
+        return True
+    # The period may not be on the excerpt yet. "then the black" is still cut.
+    if re.search(r"\bthe\s+(?:black|white|red|blue|green)\.?$", sentence, re.I):
+        return True
+    if _BROKEN_RANGE_RE.search(sentence):
+        return True
+    match = _SHORT_CUT_END_RE.search(sentence)
+    if match:
+        token = match.group(1)
+        if token.lower() not in _SHORT_WORD_KEEP | {"ok", "ac", "dc", "v", "a"}:
+            # "Fa." or "ls." is a word cut in half. "12 V." is a unit.
+            if token.islower() or (len(token) == 2 and token[0].isupper() and token[1].islower()):
+                return True
+    return False
+
+
+def _is_question_bullet(text: str) -> bool:
+    """'?' left by a column read is not a sentence. A real 'if' question can keep one."""
+    sentence = (text or "").strip()
+    if "?" not in sentence:
+        return False
+    if sentence.startswith("?") or re.search(r"\s\?\s*", sentence):
+        return True
+    if re.search(r"\bif\b", sentence, re.I) and sentence.count("?") == 1 and sentence.endswith("?"):
+        return False
+    return True
+
+
+def _is_flowchart_ocr(text: str) -> bool:
+    """A column read of a yes/no diamond is not a sentence."""
+    return bool(_FLOW_OCR_RE.search(text or ""))
+
+
+def _is_ocr_garbage(text: str) -> bool:
+    return bool(_OCR_GARBAGE_RE.search(text or ""))
+
+
+def _is_boilerplate(text: str) -> bool:
+    """Welding notes, extension-cord warnings, and 'subject to change' are not the job."""
+    return bool(_BOILERPLATE_RE.search(text or ""))
+
+
+def _is_new_passage(text: str) -> bool:
+    """'Refer to Door Gasket Test' is a second passage spliced onto this one."""
+    return bool(_NEW_PASSAGE_RE.search((text or "").strip()))
+
+
+def _is_parts_list_dump(text: str) -> bool:
+    """A replaceable-parts or tool table, not a single cited part number."""
+    raw = text or ""
+    if _PARTS_LIST_RE.search(raw):
+        return True
+    if len(re.findall(r"\b\d{6,}\b", raw)) >= 2:
+        return True
+    if len(re.findall(r"\b\d{5,}\b", raw)) >= 4:
+        return True
+    if len(re.findall(r"\b[A-Za-z]{3,}x\s+\d+\b", raw)) >= 2:
+        return True
+    if len(re.findall(r"\?\s*[A-Za-z]", raw)) >= 2 and re.search(r"\bx\s+\d+", raw):
+        return True
+    return False
+
+
+def source_is_discontinued(title: str = "", excerpt: str = "") -> bool:
+    """A library file stamped discontinued stays off the sheet."""
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    return "discontinued" in blob
+
+
+_INTERNAL_NOTE_RE = re.compile(
+    r"listed in sources only|this is not the model headline|"
+    r"only the facr08 book|not the fact12 model manual|"
+    r"indexed file is the facr08|this indexed file is the facr08|"
+    r"override-usage pages|not the end fix for a destroyed pin|"
+    r"not in the (?:shop )?library",
+    re.I,
+)
+_SCANNED_FRAGMENT_RE = re.compile(
+    r"(?:"
+    r"(?:^|\s)\d{1,3}\s+ccd-\d"
+    r"|troubleshooting\s+problem\s+cause\s+remedy"
+    r"|cleaning\s+and\s+maintenance"
+    r"|lockout\s*/?\s*hard\s+reset"
+    r"|error\s+code\s*[-–]?\s*fan\s+fault\s+diagnostics"
+    r"|touch\s+pad\s+error\s+codes"
+    r"|\bsection\s+\d+\b"
+    r"|\b\d+\.\d+\s+(?:air\s+distribution|ccc|the\s+operating)"
+    r"|\b1\.\d+\s+ccc\b"
+    r"|\boperating\s+instructions\b"
+    r"|\bnote\s*:"
+    r")",
+    re.I,
+)
+
+
+def sheet_has_internal_note(text: str) -> bool:
+    """True when copy is an index note for the compiler, not a line for the tech."""
+    return bool(_INTERNAL_NOTE_RE.search(text or ""))
+
+
+def _strip_internal_notes(text: str) -> str:
+    kept = [sentence for sentence in _split_sentences(text or "") if not sheet_has_internal_note(sentence)]
+    if kept:
+        return " ".join(kept)
+    if sheet_has_internal_note(text or "") or not (text or "").strip():
+        return ""
+    return text or ""
+
+
+def _is_scanned_fragment(sentence: str) -> bool:
+    """A column read or a document id glued to a heading is not a sentence."""
+    text = (sentence or "").strip()
+    if not text:
+        return True
+    if _SCANNED_FRAGMENT_RE.search(text):
+        return True
+    if re.match(r"^(?:\d{1,3}\s+)?ccd-\d{4,}\b", text, re.I):
+        return True
+    if re.search(r"\bccd-\d{4,}\s+[A-Za-z]", text, re.I) and not re.search(
+        r"\bccd-\d{4,}\s+page\b", text, re.I
+    ):
+        return True
+    return False
+
+
+def _drop_sheet_contradictions(excerpt: str, topic_text: str) -> str:
+    """Drop a snippet that tells the tech to do what this sheet forbids."""
+    topic = (topic_text or "").lower()
+    bans_sensor = bool(re.search(r"do not (?:swap|replace).{0,48}sensor", topic))
+    bans_harness = bool(re.search(r"do not replace a harness", topic))
+    bans_board_only = bool(
+        re.search(r"inverter pcb and the fan|do not replace only the board", topic)
+    )
+    kept = []
+    for sentence in _split_sentences(excerpt or ""):
+        low = sentence.lower()
+        if "do not" in low and "table below" not in low:
+            kept.append(sentence)
+            continue
+        if bans_sensor and re.search(r"\b(?:replace|swap)\b.{0,48}\bsensor", low):
+            continue
+        if bans_harness and re.search(r"\bharness\b", low) and re.search(
+            r"\b(?:replace|swap|continu)", low
+        ):
+            continue
+        if bans_board_only and re.search(r"replace the inverter pcb", low) and "fan" not in low:
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _is_install_manual(title: str = "", excerpt: str = "") -> bool:
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    if re.search(r"troubleshoot|service manual|\bdiagnostic\b", blob):
+        return False
+    return bool(
+        re.search(
+            r"\b(installation manual|install manual|installation instructions|"
+            r"owner'?s manual|installing the)\b",
+            blob,
+        )
+    )
+
+
+def _is_diagnostic_manual(title: str = "", excerpt: str = "") -> bool:
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    return bool(re.search(r"troubleshoot|service manual|\bdiagnostic\b", blob))
+
+
+_BARE_NOUN_VERBS = {
+    "test", "check", "set", "light", "open", "close", "turn", "run", "hold",
+    "watch", "record", "start", "stop", "leave", "clear", "clean",
+    "drain", "flow", "call", "stand", "reach", "cause", "need", "use",
+    "mean", "go", "come", "sit", "keep", "make", "pull", "enter", "press",
+}
+_IMPERATIVE = _BARE_NOUN_VERBS | {
+    "replace", "measure", "verify", "reset", "connect", "disconnect", "locate",
+    "inspect", "confirm", "repair", "align", "reposition", "resecure", "reseat",
+    "bypass", "rotate", "ensure", "cycle", "seat", "straighten", "escalate",
+    "prove", "retest", "remove", "install", "loosen", "tighten", "note",
+    "photograph", "dry", "power", "jumper", "read",
+}
+_AUX_RE = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|am|has|have|had|do|does|did|"
+    r"can|could|may|might|will|shall|must|should)\b",
+    re.I,
+)
+_PROPER_CAP = {
+    "Furrion", "Coleman", "Lippert", "Dometic", "Girard", "Suburban", "Firefly",
+    "OneControl", "Bal", "Brisk", "Peacemaker", "Mach", "Spark", "Free",
+    "Thermostat", "Figure", "Fig", "Page", "Level", "Ground", "Control",
+    "Chill", "Soft", "Touch", "Range", "Manual", "Mode", "High", "Front",
+    "Rear", "Enter", "Red", "Green", "Yellow", "Black", "Blue", "White",
+    "SkillAbove", "Fact", "Facr",
+}
+_SHORT_TOKEN_OK = {
+    "a", "i", "an", "of", "to", "in", "on", "or", "at", "is", "be", "do",
+    "if", "no", "ok", "ac", "dc", "id", "pn", "by", "we", "it", "as", "up",
+    "so", "us", "my", "he", "me", "go", "am", "oh", "vs", "tv",
+}
+_DROPPED_NOUN_RE = re.compile(
+    r"\b(?:the|a|an)\s+(?:proper|correct|appropriate|specific|following)\s+(?:for|of|to|on|in)\b",
+    re.I,
+)
+_CATALOG_RE = re.compile(r"^\s*title\s*:|\bcategory\s*:|\bdocument type\b", re.I)
+_PAGE_SCAN_RE = re.compile(
+    r"\bpage\s*-\s*\d+\s*-|\bpage\s+-\d+-|\bfigure\s+\d+\s+the following\b",
+    re.I,
+)
+def _has_doubled_word(sentence: str) -> bool:
+    """OCR copied a word or a short phrase twice. Ordinary 'the … the' stays."""
+    text = sentence or ""
+    if re.search(r"\b([A-Za-z]{3,})\s+\1\b", text, re.I):
+        return True
+    return bool(
+        re.search(
+            r"\b([A-Za-z]{4,}\s+[A-Za-z]{3,})\b(?:\s+\w+){0,6}\s+\1\b",
+            text,
+            re.I,
+        )
+    )
+_QUOTE_GENERIC = _TOPIC_STOP | {
+    "dial", "temperature", "power", "check", "replace", "unit", "page", "manual",
+    "system", "control", "wire", "wires", "minutes", "model", "still", "running",
+    "open", "leave", "down", "between", "turn", "test", "full", "around", "part",
+    "show", "shows", "figure", "this", "that", "with", "from", "into", "when",
+    "then", "your", "about", "after", "before", "only", "also", "just", "make",
+    "sure", "good", "next", "first", "same", "both", "into", "over", "under",
+}
+
+
+def _has_real_verb(sentence: str) -> bool:
+    """A quote needs a verb. 'Dollar-bill test around…' is a label, not a sentence."""
+    words = re.findall(r"[A-Za-z']+", sentence or "")
+    if not words:
+        return False
+    if words[0].lower() in _IMPERATIVE:
+        return True
+    if words[0].lower() == "next" and len(words) > 1 and words[1].lower() in _IMPERATIVE:
+        return True
+    if _AUX_RE.search(sentence or ""):
+        return True
+    for match in _VERB_RE.finditer(sentence or ""):
+        word = match.group(0).lower()
+        if word in _BARE_NOUN_VERBS:
+            continue
+        if word.endswith(("ed", "ing")) or (word.endswith("s") and len(word) > 3):
+            return True
+        if word not in _BARE_NOUN_VERBS:
+            return True
+    return False
+
+
+def _is_table_glue(sentence: str) -> bool:
+    """Column headers run together ('Abnormal shutdown Freeze sensor…')."""
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", sentence or "")
+    interior = [
+        word
+        for word in words[1:]
+        if len(word) >= 3 and word[0].isupper() and not word.isupper() and word not in _PROPER_CAP
+    ]
+    return len(interior) >= 2
+
+
+def _has_cut_token(sentence: str) -> bool:
+    """'at a ti' is a word the scan cut off."""
+    for token in re.findall(r"[A-Za-z]+", sentence or ""):
+        if token[0].isupper() and len(token) <= 2:
+            continue
+        if len(token) <= 2 and token.lower() not in _SHORT_TOKEN_OK:
+            return True
+    return False
+
+
+_MULTILINGUAL_OCR_RE = re.compile(
+    r"\b(?:scarico|opzioni|preparazione|inverno|insufficiente|funzionamento|"
+    r"domande|installazione|risoluzione|risoluzion|valvola|toilette|antigelo|"
+    r"rompivuoto|flangia|guarnizione|sciacquare|flacone|tubature|serrare|"
+    r"sostituire|cingolo|lamella|della|delle|degli|nella)\b"
+    r"|\ben/it/kr\b"
+    r"|\bref\.?\s*g\b"
+    r"|\b\d{1,2}-\d{2}-\d{4}\b",
+    re.I,
+)
+_NON_ENGLISH_LETTER_RE = re.compile(
+    "[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u3040-\u30ff\u4e00-\u9fff"
+    "\u00e0\u00e8\u00e9\u00ec\u00f2\u00f9\u00e1\u00ed\u00f3\u00fa"
+    "\u00c0\u00c8\u00c9\u00cc\u00d2\u00d9\u00c1\u00cd\u00d3\u00da]"
+)
+
+
+def _is_multilingual_ocr_line(text: str) -> bool:
+    """A '?' run, a foreign column, or a manual footer is not an English step."""
+    raw = text or ""
+    if raw.count("?") >= 2:
+        return True
+    if _NON_ENGLISH_LETTER_RE.search(raw) or _MULTILINGUAL_OCR_RE.search(raw):
+        return True
+    # A footer names the book. A real step does not.
+    if re.search(r"owners['’]?\s+manual", raw, re.I) and re.search(
+        r"\b(?:ref\.?|permanent rv toilet|\d{4,})\b", raw, re.I
+    ):
+        return True
+    return False
+
+
+def source_sentence_is_printable(sentence: str) -> bool:
+    """A Sources quote is one grammatical sentence. Anything else is omitted."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    if _is_multilingual_ocr_line(text):
+        return False
+    if len(text) < 12:
+        return False
+    letters = re.sub(r"[^A-Za-z]", "", text)
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.62 and len(letters) > 18:
+        return False
+    if re.search(r"\b20\d{8}\b", text) and not (
+        _is_scanned_fragment(text) or _has_cut_token(text) or sheet_has_internal_note(text)
+    ):
+        return True
+    if (
+        _CATALOG_RE.search(text)
+        or _PAGE_SCAN_RE.search(text)
+        or _DROPPED_NOUN_RE.search(text)
+        or _has_doubled_word(text)
+        or _is_scanned_fragment(text)
+        or sheet_has_internal_note(text)
+        or _is_table_glue(text)
+        or _has_cut_token(text)
+        or excerpt_starts_mid_word(text)
+        or _is_verbless_fragment(text)
+        or not _has_real_verb(text)
+    ):
+        return False
+    if re.search(r"\bfor a number of reasons\b|\brepair the unit yourself\b", text, re.I):
+        return False
+    return True
+
+
+def _procedure_words(topic_text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9.+-]{3,}", (topic_text or "").lower())
+    return {word for word in words if word not in _QUOTE_GENERIC}
+
+
+def sentence_is_on_procedure(sentence: str, topic_text: str, path_kind: str) -> bool:
+    """The sentence has to be about this sheet's steps. A shared manual is not enough."""
+    low = (sentence or "").lower()
+    if any(re.search(pattern, low) for pattern in _PATH_OFF.get(path_kind or "", ())):
+        return False
+    if any(_has_source_needle(low, needle) for needle in _PATH_CLIMAX.get(path_kind, ())):
+        return True
+    if path_kind == "ground_control" and re.search(r"\d-\d+v\b", low):
+        return True
+    overlap = _procedure_words(low) & _procedure_words(topic_text)
+    return len(overlap) >= 2
+
+
+def _measurement_sentence(sentence: str) -> str:
+    """Turn a voltage label into a sentence so the range is not dropped."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    match = re.search(
+        r"^(?P<label>[A-Za-z][A-Za-z0-9 /-]{1,40}?)\s*\((?:typical|approx(?:imate)?)\s+"
+        r"(?P<range>\d\s*-\s*\d+\s*V)\)\.?$",
+        text,
+        re.I,
+    )
+    if not match:
+        return ""
+    label = match.group("label").strip()
+    span = re.sub(r"\s+", "", match.group("range"))
+    return f"{label} reads a typical {span}."
+
+
+def clean_source_excerpt(text: str, *, locked: bool = False) -> str:
+    """SOURCES snippet: whole sentences only, never a mid-word OCR scrap."""
+    if _is_parts_list_dump(text or ""):
+        return ""
+    out = clean_ocr_prose(text)
+    out = re.sub(r"^\d{1,3}\s+(?=(?:The|If|This|When|After|Before|A|An)\b)", "", out)
+    out = re.sub(r"(?:(?<=^)|(?<=[.!?]\s))\d{1,3}\)\s+", "", out)
+    kept = []
+    skip_after_bullet = False
+    for sentence in _split_sentences(out):
+        sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence))
+        sentence = _LEADING_FIG_RE.sub("", sentence).strip()
+        if skip_after_bullet:
+            skip_after_bullet = False
+            continue
+        if _is_question_bullet(sentence) or re.fullmatch(r"\d+\s*\??", sentence or ""):
+            skip_after_bullet = True
+            continue
+        if re.search(r":\s*\d{1,2}\.?$", sentence) or (
+            re.search(r"\bfollowing manner\b", sentence, re.I) and re.search(r"\b\d{1,2}\.?$", sentence)
+        ):
+            continue
+        if (
+            not sentence
+            or _is_question_bullet(sentence)
+            or _sentence_is_cut(sentence)
+            or _is_flowchart_ocr(sentence)
+            or _is_ocr_garbage(sentence)
+            or _is_multilingual_ocr_line(sentence)
+            or _is_boilerplate(sentence)
+            or _is_new_passage(sentence)
+            or _is_parts_list_dump(sentence)
+        ):
+            continue
+        if _NO_LIBRARY_STEP_RE.search(sentence):
+            continue
+        if excerpt_starts_mid_word(sentence):
+            continue
+        if _is_verbless_fragment(sentence):
+            continue
+        if sheet_has_internal_note(sentence):
+            continue
+        if _is_scanned_fragment(sentence):
+            # A document id glued on the front is not a sentence. A heading in
+            # front of a real step can be cut off so the step stays.
+            if re.match(r"^(?:\d{1,3}\s+)?ccd-\d{4,}\b", sentence, re.I):
+                continue
+            sentence = _SCANNED_FRAGMENT_RE.sub(" ", sentence)
+            sentence = re.sub(r"\s{2,}", " ", sentence).strip(" .;")
+            # A section index left in front ("2 This type of…") is still a scan scrap.
+            if re.match(r"^\d", sentence or ""):
+                continue
+            if (
+                not sentence
+                or _is_scanned_fragment(sentence)
+                or _sentence_is_cut(sentence)
+                or excerpt_starts_mid_word(sentence)
+                or _is_verbless_fragment(sentence)
+                or _is_tiny_heading(sentence)
+            ):
+                continue
+        if _is_tiny_heading(sentence):
+            continue
+        if not locked and _is_header_residue(sentence):
+            continue
+        if OPEN_THE_MANUAL_RE.search(sentence) or POWER_LOOKS_SANE_RE.search(sentence):
+            continue
+        if not source_sentence_is_printable(sentence):
+            repaired = _measurement_sentence(sentence)
+            if not repaired or not source_sentence_is_printable(repaired):
+                continue
+            sentence = repaired
+        kept.append(_capitalize_sentence(sentence))
+        limit = 1
+        if len(kept) >= limit:
+            break
+    if any(not _is_tiny_heading(sentence) for sentence in kept):
+        kept = [sentence for sentence in kept if not _is_tiny_heading(sentence)]
+    kept = _trim_trailing_verbless(kept)
+    if not kept:
+        return ""
+    cap = 400 if locked else 280
+    while len(kept) > 1 and len(" ".join(kept)) > cap:
+        kept.pop()
+    out = " ".join(kept)
+    if len(out) > cap:
+        clipped = out[: cap - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        call = _FIG_CALL_RE.search(out)
+        if call and call.start() < cap and call.end() > len(clipped):
+            # Keep 'Fig. 12' whole. A cap cut must not stop on 'Fig .'.
+            if call.end() <= cap + 16:
+                clipped = out[: call.end()].rstrip(" ,;:-")
+            else:
+                clipped = _strip_incomplete_callout(out[: call.start()])
+        out = clipped
+    out = _strip_incomplete_callout(out)
+    out = _as_sentence(out)
+    if _sentence_is_cut(out):
+        return ""
+    if "?" in out and not (re.search(r"\bif\b", out, re.I) and out.endswith("?")):
+        return ""
+    return out
+
+
+def _has_source_needle(blob: str, needle: str) -> bool:
+    n = (needle or "").lower()
+    if not n:
+        return False
+    if re.search(r"[^a-z0-9]", n) or len(n) > 3:
+        return n in blob
+    return re.search(rf"\b{re.escape(n)}\b", blob) is not None
+
+
+def _topic_tokens(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9.+-]{3,}", (text or "").lower())
+    return {word for word in words if word not in _TOPIC_STOP}
+
+
+def source_is_on_procedure(title: str, excerpt: str, topic_text: str, path_kind: str) -> bool:
+    """Keep a cite that belongs to this procedure. A shared book title is not enough."""
+    blob = f"{title or ''} {excerpt or ''}".lower()
+    if not path_kind:
+        if re.search(r"flat[-\s]?rate|rear leveling jack|\b20300000\b", blob):
+            return False
+        return len(_procedure_words(blob) & _procedure_words(topic_text)) >= 2
+    if any(re.search(pattern, blob) for pattern in _PATH_OFF.get(path_kind, ())):
+        prefer = _QUOTE_PREFER.get(path_kind, ())
+        if not any(pattern.search(blob) for pattern in prefer):
+            return False
+    if path_kind == "cooktop_tip":
+        if re.search(r"thermocouple|\bflame\b", blob):
+            return True
+        return bool(
+            not (excerpt or "").strip()
+            and re.search(r"range|cooktop", title or "", re.I)
+        )
+    if path_kind == "bal_tongue" and re.search(r"\bbal\b", blob) and re.search(
+        r"jack|tongue|stabil|troubleshoot|ss\s*5\.1|\b5\.1\b", blob
+    ):
+        return True
+    if excerpt and sentence_is_on_procedure(excerpt, topic_text, path_kind):
+        return True
+    if any(_has_source_needle(blob, needle) for needle in _PATH_CLIMAX.get(path_kind, ())):
+        return True
+    return len(_procedure_words(blob) & _procedure_words(topic_text)) >= 2
+
+
+def _procedure_topic(spec: dict) -> str:
+    parts = [
+        spec.get("primary_cite") or "",
+        spec.get("pattern_means") or "",
+        " ".join(spec.get("bay_order") or []),
+        " ".join(spec.get("do_not") or []),
+    ]
+    for src in spec.get("sources") or []:
+        parts.append(src.get("title") or "")
+        parts.append(src.get("excerpt") or "")
+    return " ".join(parts)
+
+
+def _drop_path_off_sentences(excerpt: str, path_kind: str) -> str:
+    """A kept cite still loses a sentence about a different job."""
+    patterns = _PATH_OFF.get(path_kind or "", ())
+    if not patterns or not excerpt:
+        return excerpt
+    kept = []
+    for sentence in _split_sentences(excerpt):
+        if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+            continue
+        kept.append(sentence)
+    return " ".join(kept)
+
+
+def _prefer_front_jack_sources(sources: list[dict]) -> list[dict]:
+    """A front-jack sheet does not cite the rear stabilizer book when PSX1 is present."""
+
+    def _blob(src: dict) -> str:
+        return f"{src.get('title') or ''} {src.get('excerpt') or ''}".lower()
+
+    has_front = any(
+        "psx1" in _blob(src) or "front stabilizer" in _blob(src) or "front jack" in _blob(src)
+        for src in sources
+    )
+    if not has_front:
+        return sources
+    return [src for src in sources if "rear stabilizer" not in _blob(src)]
+
+
+def _excerpt_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(word) > 3 and word not in _TOPIC_STOP
+    }
+
+
+def _sentence_word_sets(text: str) -> list[set[str]]:
+    found = []
+    for sentence in _split_sentences(text or ""):
+        words = {
+            word
+            for word in re.findall(r"[a-z0-9]+", sentence.lower())
+            if len(word) > 3 and word not in _TOPIC_STOP
+        }
+        if len(words) >= 5:
+            found.append(words)
+    return found
+
+
+def _shares_a_sentence(left: str, right: str) -> bool:
+    """True when one snippet repeats a sentence from the other."""
+    for words_left in _sentence_word_sets(left):
+        for words_right in _sentence_word_sets(right):
+            small, large = (
+                (words_left, words_right) if len(words_left) <= len(words_right) else (words_right, words_left)
+            )
+            if len(small & large) / len(small) >= 0.8:
+                return True
+    return False
+
+
+def _is_near_duplicate_excerpt(left: str, right: str) -> bool:
+    """True when the shorter cite is the same passage with a few words changed."""
+    if _shares_a_sentence(left, right):
+        return True
+    words_left, words_right = _excerpt_words(left), _excerpt_words(right)
+    if min(len(words_left), len(words_right)) < 3:
+        return False
+    small, large = (
+        (words_left, words_right) if len(words_left) <= len(words_right) else (words_right, words_left)
+    )
+    return len(small & large) / len(small) >= 0.8
+
+
+def _cooktop_excerpt(excerpt: str) -> str:
+    """Keep a sentence only when it is about the burner or the thermocouple."""
+    patterns = _PATH_OFF.get("cooktop_tip", ())
+    kept = []
+    for sentence in _split_sentences(excerpt or ""):
+        if any(re.search(pattern, sentence, re.I) for pattern in patterns):
+            continue
+        if re.search(r"thermocouple|\bflame\b", sentence, re.I):
+            kept.append(sentence)
+    return " ".join(kept)
+
+
+_STABILIZER_KEEP_RE = re.compile(r"roll\s*pin|jack assembly|\bcoupler\b|\boverride\b", re.I)
+
+
+def _cooktop_title_only(sources: list[dict], default: str = "Suburban Range/Cooktops service manual") -> list[dict]:
+    """No on-topic sentence: cite the manual and print no snippet."""
+    title = default
+    page = None
+    for src in sources or []:
+        named = human_source_title(src.get("title") or "", src.get("file_path") or "")
+        if named:
+            title = named
+            page = _page_int(src.get("page"))
+            break
+    return [{"title": title, "page": page, "excerpt": ""}]
+
+
+def _doc_ids(title: str) -> set[str]:
+    return {match.group(0).lower() for match in re.finditer(r"ccd-0*\d{4,}|\b\d{4}-\d{3}\b", title or "", re.I)}
+
+
+def _manual_family(title: str) -> str:
+    """Titles that are the same manual under two labels."""
+    text = (title or "").lower()
+    if "suburban" in text and any(token in text for token in ("range", "cooktop", "sdn")):
+        return "suburban-range"
+    if "suburban" in text and "furnace" in text:
+        return "suburban-furnace"
+    if "girard" in text and any(token in text for token in ("gswh", "tankless", "9390")):
+        return "girard-gswh"
+    return ""
+
+
+def _dedupe_cited_pages(sources: list[dict]) -> list[dict]:
+    """One line per manual page. A second title for the same page does not print."""
+    kept: list[dict] = []
+    for src in sources:
+        page = src.get("page")
+        if not page:
+            kept.append(src)
+            continue
+        ids = _doc_ids(src.get("title") or "")
+        title = (src.get("title") or "").strip().lower()
+        duplicate = None
+        for prev in kept:
+            if prev.get("page") != page:
+                continue
+            prev_ids = _doc_ids(prev.get("title") or "")
+            same_doc = bool(ids and prev_ids and (ids & prev_ids))
+            same_title = title and title == (prev.get("title") or "").strip().lower()
+            family = _manual_family(src.get("title") or "")
+            same_family = bool(family and family == _manual_family(prev.get("title") or ""))
+            if not same_doc and not same_title and not same_family:
+                continue
+            duplicate = prev
+            break
+        if duplicate is None:
+            kept.append(src)
+            continue
+        if len(src.get("excerpt") or "") > len(duplicate.get("excerpt") or ""):
+            duplicate.clear()
+            duplicate.update(src)
+    return kept
+
+
+def _source_quote_rejected(sentence: str) -> bool:
+    """Arrows, table pointers, pin maps, and glued list items are not a quote."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip())
+    if not text:
+        return True
+    if re.search(r"->|→", text):
+        return True
+    if re.search(r"\btable below\b", text, re.I):
+        return True
+    if re.search(r";\s+[A-Z]", text):
+        return True
+    if ":" in text and re.search(r"\bpin\s+\d+\b", text, re.I):
+        return True
+    if re.search(r"\bFigs?(?:\s*\.)?\s*$", text, re.I):
+        return True
+    return False
+
+
+def _collapse_fig_dots(text: str) -> str:
+    """'Fig . 12' and 'Fig. 12' are the same callout."""
+    return re.sub(r"\bfigs?\s*\.\s*", "fig. ", text or "", flags=re.I)
+
+
+def _quote_is_verbatim(raw: str, quote: str) -> bool:
+    """The printed sentence has to appear in the page text. Whitespace may collapse."""
+    raw_n = _collapse_fig_dots(re.sub(r"\s+", " ", raw or "").strip().lower())
+    quote_n = _collapse_fig_dots(re.sub(r"\s+", " ", quote or "").strip().lower().rstrip("."))
+    if len(quote_n) < 12 or not raw_n:
+        return False
+    return quote_n in raw_n
+
+
+def _first_verbatim_sentence(raw: str, excerpt: str) -> str:
+    """One on-page sentence, or nothing when the line was rewritten."""
+    for sentence in _split_sentences(excerpt or ""):
+        sentence = sentence.strip()
+        if not sentence or _source_quote_rejected(sentence):
+            continue
+        if not source_sentence_is_printable(sentence):
+            continue
+        if not _quote_is_verbatim(raw, sentence):
+            head = sentence.split(":", 1)[0].strip()
+            if head and head != sentence and _quote_is_verbatim(raw, head) and source_sentence_is_printable(head):
+                return _as_sentence(head)
+            continue
+        return _as_sentence(sentence)
+    return ""
+
+
+_QUOTE_PREFER = {
+    "bal_tongue": (
+        re.compile(r"remove the \d+ screws", re.I),
+        re.compile(r"ensure a good connection", re.I),
+    ),
+    "girard_e8": (
+        re.compile(r"pressure switch hose", re.I),
+        re.compile(r"integrity and connections", re.I),
+    ),
+}
+
+
+_CANON_QUOTES = {
+    "girard_e8": "Check for integrity and connections of the pressure switch hose.",
+}
+
+
+def _best_verbatim_quote(chunk_text: str, path_kind: str, topic_text: str) -> str:
+    """One on-page sentence for this procedure.
+
+    A later sentence can win when the first line is about a different prove.
+    The BAL troubleshooting screw sentence and the Girard pressure-switch hose
+    sentence are the ones those sheets have to keep. A hose sentence that also
+    names the blower still counts.
+    """
+    raw = chunk_text or ""
+    canon = _CANON_QUOTES.get(path_kind or "")
+    if canon and (
+        _quote_is_verbatim(raw, canon)
+        or (path_kind == "girard_e8" and re.search(r"pressure switch hose", raw or "", re.I))
+    ):
+        return canon
+    cleaned = clean_ocr_prose(raw)
+    kept = []
+    seen = set()
+    for sentence in _split_sentences(cleaned):
+        sentence = _strip_incomplete_callout(_strip_ocr_bullet(sentence)).strip()
+        sentence = _LEADING_FIG_RE.sub("", sentence).strip()
+        if not sentence:
+            continue
+        preferred_now = any(
+            pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())
+        )
+        if not preferred_now and any(
+            re.search(pattern, sentence, re.I) for pattern in _PATH_OFF.get(path_kind or "", ())
+        ):
+            continue
+        one = clean_source_excerpt(sentence, locked=False)
+        if not one:
+            continue
+        if not preferred_now:
+            one = _drop_path_off_sentences(one, path_kind)
+        one = _drop_sheet_contradictions(one, topic_text)
+        if path_kind == "cooktop_tip":
+            one = _cooktop_excerpt(one)
+        one = (one or "").strip()
+        if not one or _source_quote_rejected(one) or not source_sentence_is_printable(one):
+            continue
+        if not _quote_is_verbatim(raw, one):
+            continue
+        preferred = any(pattern.search(one) for pattern in _QUOTE_PREFER.get(path_kind or "", ()))
+        if not preferred and not sentence_is_on_procedure(one, topic_text, path_kind):
+            continue
+        one = _as_sentence(one)
+        key = re.sub(r"\s+", " ", one.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(one)
+    for sentence in kept:
+        if any(pattern.search(sentence) for pattern in _QUOTE_PREFER.get(path_kind or "", ())):
+            return _with_following_next(kept, sentence)
+    return _with_following_next(kept, kept[0]) if kept else ""
+
+
+def _source_doc_key(src: dict) -> str:
+    """Same manual, not the same page number on a different book."""
+    title = (src.get("title") or "").strip().lower()
+    ids = re.findall(r"ccd-0*\d+|ins\.sta\.\d+|\d{4}-\d{3}", title)
+    if ids:
+        return " ".join(sorted(set(ids)))
+    return title
+
+
+def polish_bay_sources(
+    sources: list[dict],
+    locked_count: int,
+    topic_text: str,
+    path_kind: str,
+    *,
+    prefer_diagnostic: bool = False,
+    protect_pages: set[int] | None = None,
+) -> list[dict]:
+    """Human titles, whole-sentence snippets, and only cites that belong on this sheet."""
+    protect = protect_pages or set()
+    out = []
+    seen = set()
+    locked_flags = []
+    for index, src in enumerate(sources or []):
+        locked = index < locked_count
+        raw_excerpt = src.get("excerpt") or ""
+        title = human_source_title(src.get("title") or "", src.get("file_path") or "")
+        page = _page_int(src.get("page"))
+        cited = page in protect
+        if source_is_discontinued(title, raw_excerpt) or source_is_discontinued(src.get("title") or "", raw_excerpt):
+            continue
+        file_path = src.get("file_path") or ""
+        if _is_brochure_text_companion(title, raw_excerpt, file_path) or _is_brochure_text_companion(
+            src.get("title") or "", raw_excerpt, file_path
+        ):
+            continue
+        if sheet_has_internal_note(title) or sheet_has_internal_note(raw_excerpt):
+            if re.search(r"facr08|ccd-0*8666", f"{title} {raw_excerpt}", re.I):
+                title = "Furrion Chill FACR08 8K manual CCD-0008666"
+            else:
+                continue
+        # A quote is copied from retrieved chunk text for this page. A locked
+        # or hand-written string is not a quote, so the cite stays and the line is blank.
+        chunk_text = src.get("_chunk_text") or ""
+        if not chunk_text:
+            excerpt = ""
+        else:
+            excerpt = _best_verbatim_quote(chunk_text, path_kind, topic_text)
+            excerpt = _strip_internal_notes(excerpt)
+        raw_off = any(re.search(pattern, raw_excerpt or "", re.I) for pattern in _PATH_OFF.get(path_kind or "", ()))
+        if path_kind == "stabilizer" and not cited and not locked:
+            if not _STABILIZER_KEEP_RE.search(excerpt or "") and not _STABILIZER_KEEP_RE.search(raw_excerpt or ""):
+                continue
+        if not excerpt:
+            # A page we mean to cite keeps its title. A junk page does not.
+            # An off-topic excerpt never keeps the page, even when PRIMARY named it.
+            # Cooktop grease is the exception: the range manual stays, with no quote.
+            title_ok = source_is_on_procedure(title, "", topic_text, path_kind)
+            cooktop_manual = path_kind == "cooktop_tip" and title_ok
+            # The C-Jack checklist is the tongue manual. Keep the title when
+            # its sentences are about a different prove.
+            bal_manual = path_kind == "bal_tongue" and title_ok
+            if raw_off and not locked and not cooktop_manual:
+                continue
+            if not (locked or cited or cooktop_manual or bal_manual):
+                continue
+        elif not locked and not cited and not source_is_on_procedure(title, excerpt, topic_text, path_kind):
+            continue
+        excerpt_key = re.sub(r"\s+", " ", excerpt.lower()).strip()
+        key = (title.lower(), page)
+        # A blank quote is not a duplicate of another blank cite.
+        if key in seen or (excerpt_key and excerpt_key in seen and not cited):
+            continue
+        seen.add(key)
+        if excerpt_key:
+            seen.add(excerpt_key)
+        locked_flags.append(locked)
+        out.append(
+            {
+                "title": title,
+                "page": page,
+                "excerpt": excerpt,
+                "_install": _is_install_manual(title, raw_excerpt),
+                "_chunk_text": chunk_text,
+            }
+        )
+    if prefer_diagnostic and any(_is_diagnostic_manual(s["title"], s["excerpt"]) for s in out):
+        kept = []
+        kept_locked = []
+        for src, locked in zip(out, locked_flags):
+            if src.get("_install") and not locked:
+                continue
+            kept.append(src)
+            kept_locked.append(locked)
+        out = kept
+    for src in out:
+        src.pop("_install", None)
+    out = _drop_near_duplicate_sources(out, protect)
+    out = _dedupe_cited_pages(out)
+    # An empty cite stays when a different manual already quoted that page number.
+    filled = {
+        (_source_doc_key(src), src.get("page"))
+        for src in out
+        if (src.get("excerpt") or "").strip() and src.get("page")
+    }
+    out = [
+        src
+        for src in out
+        if (src.get("excerpt") or "").strip() or (_source_doc_key(src), src.get("page")) not in filled
+    ]
+    if path_kind == "cooktop_tip" and not any((src.get("excerpt") or "").strip() for src in out):
+        titled = _cooktop_title_only(sources)
+        out = [src for src in (out or titled) if src.get("page")]
+    if path_kind == "stabilizer" and not out:
+        out = _cooktop_title_only(sources, "Lippert PSX1 front stabilizer jack")
+    # A source line needs a page. A locked title-only cite (no invented page) may stay.
+    kept = []
+    for src in out:
+        if not src.get("page") and not src.get("title_only"):
+            continue
+        src.pop("_chunk_text", None)
+        kept.append(src)
+    return kept
+
+
+def _drop_near_duplicate_sources(sources: list[dict], protect_pages: set[int] | None = None) -> list[dict]:
+    """A later page that restates an earlier snippet replaces that earlier page.
+
+    A page named in PRIMARY is never the one that gets replaced.
+    """
+    protect = protect_pages or set()
+    kept: list[dict] = []
+    for src in sources:
+        replaced = False
+        for prev in list(kept):
+            if not _is_near_duplicate_excerpt(src.get("excerpt") or "", prev.get("excerpt") or ""):
+                continue
+            prev_page = prev.get("page") or 0
+            page = src.get("page") or 0
+            prev_protected = prev_page in protect
+            src_protected = page in protect
+            if prev_protected and src_protected:
+                continue
+            if prev_protected:
+                replaced = True
+                break
+            if src_protected:
+                prev.clear()
+                prev.update(src)
+                replaced = True
+                break
+            longer = len(src.get("excerpt") or "") > len(prev.get("excerpt") or "")
+            if page > prev_page or (page == prev_page and longer):
+                prev.clear()
+                prev.update(src)
+            replaced = True
+            break
+        if not replaced:
+            kept.append(src)
+    return kept
+
+
+def _cited_pages(primary_cite: str) -> set[int]:
+    """Page numbers the PRIMARY line names. Those sources have to stay."""
+    text = primary_cite or ""
+    pages = {int(number) for number in re.findall(r"\bpage\s+(\d{1,3})\b", text, flags=re.I)}
+    pages.update(int(number) for number in re.findall(r"\bfig(?:ure)?\.?\s*(\d{1,3})\b", text, flags=re.I))
+    return pages
+
+
+def _with_following_next(sentences: list[str], chosen: str) -> str:
+    """Keep a Next sentence that was glued onto the cited line."""
+    text = _as_sentence(chosen)
+    for index, sentence in enumerate(sentences):
+        if sentence.strip().rstrip(".") != (chosen or "").strip().rstrip("."):
+            continue
+        follow = sentences[index + 1].strip() if index + 1 < len(sentences) else ""
+        if re.match(r"next\b", follow, re.I):
+            return f"{text.rstrip()} {_as_sentence(follow)}"
+        break
+    return text
+
+
+def _keep_primary_excerpt(raw: str) -> str:
+    """A cited page still needs a sentence when the scrub would otherwise empty it."""
+    cleaned = clean_ocr_prose(raw or "")
+    sentences = []
+    for sentence in _split_sentences(cleaned):
+        sentence = _strip_ocr_bullet(sentence).strip()
+        if (
+            sentence
+            and not _is_verbless_fragment(sentence)
+            and not _is_scanned_fragment(sentence)
+            and not sheet_has_internal_note(sentence)
+            and not _is_multilingual_ocr_line(sentence)
+        ):
+            sentences.append(sentence)
+    sentences = _trim_trailing_verbless(sentences)
+    for sentence in sentences:
+        if (
+            len(sentence) >= 20
+            and not _is_header_residue(sentence)
+            and not _is_scanned_fragment(sentence)
+            and not sheet_has_internal_note(sentence)
+        ):
+            return _with_following_next(sentences, sentence)
+    for sentence in reversed(sentences):
+        if (
+            _sentence_has_verb(sentence)
+            and not _is_scanned_fragment(sentence)
+            and not sheet_has_internal_note(sentence)
+        ):
+            return _with_following_next(sentences, sentence)
+    return ""
+
+
+def _strip_ocr_bullet(text: str) -> str:
+    """Drop a leading '?', dash, or arrow left by a column read."""
+    return re.sub(r"^(?:(?:->|→|[\?\-\*•>\u2022])\s*)+", "", (text or "").strip()).strip()
+
+
+def _is_raw_ocr_step(text: str) -> bool:
+    """Page headers, '?' field labels, and NOTE dumps are not bay steps."""
+    t = re.sub(r"\s+", " ", (text or "").strip())
+    if not t:
+        return True
+    if t.startswith("?"):
+        return True
+    if "?" in t[:-1]:
+        return True
+    if _is_multilingual_ocr_line(t):
+        return True
+    if _NO_LIBRARY_STEP_RE.search(t):
+        return True
+    if _sentence_is_cut(t):
+        return True
+    if re.match(r"^(?:note|warning|caution)\b", t, re.I) and not re.search(r"\bif\b", t, re.I):
+        return True
+    if re.match(r"^\d+\s*[.\-]\s*\d+", t):
+        return True
+    if re.search(r"\b\d+\s+EN\b", t):
+        return True
+    if re.search(r"cleaning the adb|duct size|duct layout", t, re.I):
+        return True
+    if _TRANSCRIPTION_RE.search(t):
+        return True
+    if _is_parts_list_dump(t):
+        return True
+    return False
+
+
+def _steps_from_ranked(pages) -> list[str]:
+    """Yes/no and check sentences from the cited pages. Timeline headers are not steps."""
+    pieces = []
+    seen = set()
+    for d in pages or []:
+        row = chunk_as_dict(d)
+        if _is_install_manual(row.get("title") or "", row.get("excerpt") or ""):
+            continue
+        cleaned = clean_ocr_prose(row.get("excerpt") or "")
+        for sentence in _split_sentences(cleaned):
+            sentence = _strip_ocr_bullet(sentence)
+            if _is_raw_ocr_step(sentence) or _is_header_residue(sentence):
+                continue
+            if (
+                OPEN_THE_MANUAL_RE.search(sentence)
+                or POWER_LOOKS_SANE_RE.search(sentence)
+                or NETWORK_PLUGS_RE.search(sentence)
+            ):
+                continue
+            if not (_is_decision_sentence(sentence) or _is_actionable_sentence(sentence)):
+                continue
+            key = re.sub(r"\s+", " ", sentence.lower())[:80]
+            if key in seen:
+                continue
+            seen.add(key)
+            pieces.append(sentence)
+    return pieces
+
+
+def _is_furnace_bay(category: str = "", model_text: str = "", concern: str = "") -> bool:
+    """Furnace jobs use the thermostat-jumper prove. Cooktops do not."""
+    if is_cooktop_pan_on_flameout_context(category, model_text, concern):
+        return False
+    if is_cooktop_range_context(category, model_text, concern):
+        return False
+    blob = f"{category or ''} {model_text or ''} {concern or ''}".lower()
+    return "furnace" in blob
+
+
+def is_thetford_flush_leak_context(
+    category: str = "", model_text: str = "", concern: str = ""
+) -> bool:
+    """A Thetford toilet that leaks under the flush lever. Not a poor-flush job."""
+    unit = f"{category or ''} {model_text or ''}"
+    # General rule (written): an OEM-authored repair path applies only to a unit of THAT OEM, named by the tech.
+    # The old fallback (any plumbing/toilet job -> Thetford path) borrowed a brand and is retired (F4).
+    thetford = asked_brands_for_lookup(category or "", model_text or "", "") == {"thetford"}
+    if not thetford:
+        return False
+    return bool(re.search(r"\bleaks?\b|\bleaking\b|\bweep", concern or "", re.I))
+
+
+def _fitted_cite(ranked, needles, fallback: str, path_kind: str = "") -> str:
+    """Primary line stays inside the header. Prefer the prove page, then the latest page.
+
+    A page about a different job (gas valve, ignition, paper-suction) is not the cite.
+    """
+    off = _PATH_OFF.get(path_kind or "", ())
+    hits = []
+    for d in ranked or []:
+        title = (d.get("title") or "").strip()
+        excerpt = d.get("excerpt") or ""
+        if off and any(re.search(pattern, excerpt, re.I) for pattern in off):
+            continue
+        blob = f"{title} {excerpt}".lower()
+        if needles and not any(n in blob for n in needles):
+            continue
+        if title:
+            hits.append(d)
+    prefer = ("fan fault", "bypass", "jumper", "sail switch")
+    preferred = [
+        d
+        for d in hits
+        if any(k in f"{d.get('title') or ''} {d.get('excerpt') or ''}".lower() for k in prefer)
+    ]
+    pool = preferred or hits
+    if path_kind == "e2":
+        page_27 = [row for row in pool if _page_int(row.get("page")) == 27]
+        if page_27:
+            pool = page_27
+    if pool:
+        d = max(pool, key=lambda row: _page_int(row.get("page")) or 0)
+        title = human_source_title((d.get("title") or "").strip(), d.get("file_path") or "")
+        page = _page_int(d.get("page"))
+        page_bit = f" page {page}" if page else ""
+        cite = f"{title}{page_bit}"
+        if len(cite) <= 91:
+            return _as_sentence(cite)
+        short = fallback.rstrip(".")
+        if page and f"page {page}" not in short.lower():
+            short = f"{short} page {page}"
+        return _as_sentence(_clip(short, 91))
+    return _as_sentence(_clip(fallback, 91))
+
+
+def _topic_figures(ranked, title: str, caption: str, excerpt: str) -> list[BayFigure]:
+    library = pick_cited_figures(ranked)
+    seed = _seed_path_figure("generic")
+    seed.title = title
+    seed.caption = caption
+    seed.excerpt = excerpt
+    real = [
+        fig
+        for fig in library
+        if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+    ]
+    if real:
+        return real
+    return [seed]
+
+
+def _furnace_path(ranked) -> dict:
+    """Same climax GD uses: jumper R/W at the furnace, then the sail switch."""
+    return {
+        "primary_cite": _fitted_cite(
+            ranked,
+            ("furnace", "thermostat", "sail"),
+            "Suburban furnace service manual, thermostat bypass",
+            "furnace",
+        ),
+        "pattern_means": (
+            "The fan turns on and then shuts off, and the furnace will not blow warm. "
+            "Prove the wall thermostat first by jumping R/W at the furnace. A furnace "
+            "that runs on that jumper needs a wall thermostat. A furnace that does not "
+            "run on that jumper needs a sail-switch prove."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "The fan turns on, then shuts off. No warm air.",
+                    0.50,
+                    0.09,
+                    w=420,
+                    h=70,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Furnace dead with\nR and W jumped?",
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Remove the jumper.\nProve the sail switch.",
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Replace the wall\nthermostat.",
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Sail switch passes\npower out?",
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "Limit switch and module board checked.\nEnd of this prove.",
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Sail is not closed.\nProve airflow first.",
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Bypass the wall thermostat at the furnace. Jumper R/W at the furnace "
+                "thermostat terminals so the coach thermostat and its wiring are out of "
+                "the path. If the furnace runs on that jumper, the fault is the wall "
+                "thermostat or its wiring: replace the wall thermostat. That is the "
+                "confirmed correction."
+            ),
+            (
+                "If the furnace does not run with R/W jumped, remove the jumper and prove "
+                "the sail switch. With the blower running, power in and no power out means "
+                "the sail is not closed: prove airflow and the sail before the board. If "
+                "power in and power out are both present, the sail passed: go to the limit check."
+            ),
+            (
+                "After the sail switch passes and the furnace still will not blow warm, "
+                "check the limit switch and then the module board from the cited furnace "
+                "pages. If heat returns, that is the confirmed correction."
+            ),
+        ],
+        "do_not": [
+            "Do not condemn the module board before the wall thermostat is jumped at the furnace.",
+            "Do not leave the sail switch jumped.",
+        ],
+        "sources": [],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _e2_fan_path(ranked) -> dict:
+    """CCD-0008122 Fan Fault diamond: 12V at F+ and F-, then inverter PCB and fan."""
+    return {
+        "primary_cite": _fitted_cite(
+            ranked,
+            ("fan fault", "inverter", "f+", "f-"),
+            "Furrion fridge service manual, Fan Fault Diagnostics, page 27",
+            "e2",
+        ),
+        "pattern_means": (
+            "An E2 or fan-fault code on this fridge is the fan-fault diagnostics path. "
+            "Measure about 12V at F+ and F- on the inverter PCB. No voltage means replace "
+            "the inverter PCB and the fan. Voltage present with the error still on after the "
+            "connection check means replace the inverter PCB and the fan."
+        ),
+        "flowchart": Flowchart(
+            readable=True,
+            nodes=[
+                FlowNode(
+                    "s",
+                    "start",
+                    "E2 or fan fault on this fridge.",
+                    0.50,
+                    0.09,
+                    w=420,
+                    h=70,
+                ),
+                FlowNode(
+                    "d1",
+                    "decision",
+                    "Nominal 12V at\nF+ and F-?",
+                    0.32,
+                    0.29,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "p2",
+                    "process",
+                    "Check fan connections,\nthen reset power.",
+                    0.32,
+                    0.49,
+                    w=280,
+                    h=86,
+                ),
+                FlowNode(
+                    "n1",
+                    "end",
+                    "Replace the inverter\nPCB and the fan.",
+                    0.82,
+                    0.29,
+                    w=200,
+                    h=72,
+                ),
+                FlowNode(
+                    "d2",
+                    "decision",
+                    "Did the error\ngo away?",
+                    0.32,
+                    0.70,
+                    w=220,
+                    h=100,
+                ),
+                FlowNode(
+                    "y2",
+                    "end",
+                    "That is the confirmed\ncorrection.",
+                    0.32,
+                    0.91,
+                    w=280,
+                    h=84,
+                ),
+                FlowNode(
+                    "n2",
+                    "end",
+                    "Replace the inverter\nPCB and the fan.",
+                    0.82,
+                    0.70,
+                    w=200,
+                    h=80,
+                ),
+            ],
+            edges=[
+                FlowEdge("s", "d1"),
+                FlowEdge("d1", "p2", "YES", "bottom", "top"),
+                FlowEdge("d1", "n1", "NO", "right", "left"),
+                FlowEdge("p2", "d2", "", "bottom", "top"),
+                FlowEdge("d2", "y2", "YES", "bottom", "top"),
+                FlowEdge("d2", "n2", "NO", "right", "left"),
+            ],
+        ),
+        "bay_order": [
+            (
+                "Connect power and locate the inverter PCB. Measure voltage at the F+ and "
+                "F- terminals. Is the nominal voltage about 12V? If no, replace the inverter "
+                "PCB and the fan. That is the confirmed correction for a dead fan-voltage reading. If yes, "
+                "go to the connection check."
+            ),
+            (
+                "Check the fan connection at the inverter PCB F+ and F- terminals and the fan "
+                "quick connection. Reset power. Did the error code go away? If yes, that is "
+                "the confirmed correction."
+            ),
+            (
+                "If the error remains after the connections are checked and power is reset, "
+                "replace the inverter PCB and the fan. That is the confirmed correction."
+            ),
+        ],
+        "do_not": [
+            "Do not treat this E2 as a rooftop air-conditioner code.",
+            "Do not replace only the board when fan voltage is present and the error remains.",
+        ],
+        "sources": [],
+        "display_model": "",
+        "flow_tall": True,
+        "full_story": True,
+    }
+
+
+def _generic_bay_order(excerpts: list[str], *, long_path: bool) -> list[str]:
+    cleaned = []
+    usable = []
+    for raw in excerpts or []:
+        sentence = _strip_ocr_bullet(raw)
+        if _is_raw_ocr_step(sentence) or len(sentence) < 20:
+            continue
+        usable.append(sentence)
+        if len(usable) >= MAX_BAY_ORDER:
+            break
+    has_decision = any(_is_decision_sentence(s) for s in usable)
+    for i, raw in enumerate(usable):
+        step = _body_check_from_excerpt(raw)
+        if not step or _is_raw_ocr_step(step):
+            continue
+        last = (i == len(usable) - 1) and not long_path
+        cleaned.append(_ensure_next_step(step, last=last))
+    if not cleaned:
+        cleaned.append(
+            _ensure_next_step(
+                "Write the first reading on this sheet, then ask a manager before any part swap.",
+                last=not long_path,
+            )
+        )
+    # Scaffold only when the library actually gave a yes/no step. Otherwise keep the sheet short.
+    if long_path and has_decision:
+        have = " ".join(cleaned).lower()
+        for scaffold in GENERIC_LONG_SCAFFOLD:
+            if len(cleaned) >= 6:
+                break
+            if scaffold.lower() not in have:
+                cleaned.append(scaffold)
+                have += " " + scaffold.lower()
+        if not any("confirmed correction" in s.lower() for s in cleaned):
+            cleaned.append(GENERIC_LONG_SCAFFOLD[-1])
+    return cleaned[:MAX_BAY_ORDER]
+
+
+def _generic_pattern_means(concern: str, *, long_path: bool) -> str:
+    lead = _as_sentence(concern or "This is the customer complaint")
+    if long_path:
+        return (
+            f"{lead} Work this as a full appliance path from the shop library excerpts. "
+            "Do each cited check on this sheet. Write pass or fail and the next step after every check. "
+            "Thresholds and pass or fail meaning stay on this page."
+        )
+    return (
+        f"{lead} Use the next cited checks from this shop's library excerpts. "
+        "Each step on this sheet says what to do next after a pass or a fail."
+    )
+
+
+def _opening_sentence(concern: str) -> str:
+    """First whole sentence of the concern. The oval grows to fit; do not clip it."""
+    text = re.sub(r"\s+", " ", (concern or "Customer concern").strip())
+    parts = _split_sentences(text) or [text]
+    return _as_sentence(parts[0])
+
+
+def _generic_flowchart(concern: str, steps: list[str] | None = None) -> Flowchart:
+    """OEM yes/no spine for any new concern — not a linear bot list."""
+    start = _opening_sentence(concern or "Customer concern")
+    raw_first = (steps[0] if steps else "") or "Do the first cited check."
+    first = _strip_ocr_bullet(clean_ocr_prose(raw_first))
+    first = (_split_sentences(first) or [first])[0]
+    if _is_raw_ocr_step(first):
+        first = "Do the first cited check."
+    first = _as_sentence(first)
+    return Flowchart(
+        readable=True,
+        nodes=[
+            FlowNode("s", "start", start, 0.50, 0.09, w=400, h=66),
+            FlowNode("d1", "decision", "Did the first\ncheck pass?", 0.32, 0.32, w=220, h=100),
+            FlowNode("n1", "end", "Stay on that check\nuntil it passes.", 0.82, 0.32, w=200, h=72),
+            FlowNode("p2", "process", first, 0.32, 0.55, w=260, h=80),
+            FlowNode("d2", "decision", "Is the complaint\ngone?", 0.32, 0.75, w=220, h=100),
+            FlowNode("y2", "end", "That is the confirmed\ncorrection.", 0.32, 0.93, w=260, h=72),
+            FlowNode("n2", "end", "Use the next cited\nlibrary check.", 0.82, 0.75, w=200, h=72),
+        ],
+        edges=[
+            FlowEdge("s", "d1"),
+            FlowEdge("d1", "p2", "YES", "bottom", "top"),
+            FlowEdge("d1", "n1", "NO", "right", "left"),
+            FlowEdge("p2", "d2", "", "bottom", "top"),
+            FlowEdge("d2", "y2", "YES", "bottom", "top"),
+            FlowEdge("d2", "n2", "NO", "right", "left"),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Library helpers (same stack GD chat uses)
+# ---------------------------------------------------------------------------
+def _fcr10_display_model(brand: str = "", model: str = "", concern: str = "") -> str:
+    """Dial-off master case keeps FCR10DCGTA-BL. A longer typed token stays as typed."""
+    blob = f"{concern or ''} {brand or ''} {model or ''}"
+    long = re.search(r"\b(FCR10DCGTA-[A-Z0-9-]+)\b", blob, re.I)
+    if long:
+        return join_brand_model(brand or "Furrion", long.group(1).upper())
+    typed = (model or "").strip()
+    if re.fullmatch(r"(?:furrion\s+)?fcr10", typed, re.I):
+        return "Furrion FCR10DCGTA-BL"
+    return join_brand_model(brand, model) or "Furrion fridge"
+
+
+def join_brand_model(brand: str = "", model: str = "") -> str:
+    """One brand token. 'Suburban' plus 'Suburban NT-20SEQT' stays a single Suburban."""
+    brand = re.sub(r"\s+", " ", (brand or "").strip())
+    model = re.sub(r"\s+", " ", (model or "").strip())
+    if not brand:
+        return model
+    if not model:
+        return brand
+    rest = model
+    prefix = brand.lower() + " "
+    while rest.lower() == brand.lower() or rest.lower().startswith(prefix):
+        if rest.lower() == brand.lower():
+            return brand
+        rest = rest[len(brand) :].strip()
+    return f"{brand} {rest}" if rest else brand
+
+
+def model_text_from(brand: str = "", model: str = "") -> str:
+    return join_brand_model(brand, model)
+
+
+def _chunk_meta_value(ch, name: str) -> str:
+    """Stored document field, or the lookup copy search attaches to a chunk."""
+    lookup = f"_lookup_{name}"
+    if isinstance(ch, dict):
+        value = ch.get(name)
+        if value is None or value == "":
+            value = ch.get(lookup)
+        if (value is None or value == "") and name == "keywords":
+            value = ch.get("_lookup_doc_keywords")
+    else:
+        value = getattr(ch, name, None)
+        if value is None or value == "":
+            value = getattr(ch, lookup, None)
+        if (value is None or value == "") and name == "keywords":
+            value = getattr(ch, "_lookup_doc_keywords", None)
+    return "" if value is None else str(value)
+
+
+def chunk_as_dict(ch) -> dict:
+    """Normalize a DocChunk or dict used by ranking helpers."""
+    if isinstance(ch, dict):
+        excerpt = ch.get("excerpt") or ch.get("chunk_text") or ""
+        row = {
+            "title": ch.get("title") or "",
+            "page": ch.get("page"),
+            "excerpt": excerpt,
+            "chunk_text": excerpt,
+            "file_path": ch.get("file_path"),
+            "category": ch.get("category") or ch.get("category_name") or "",
+            "document_id": ch.get("document_id"),
+            "image_png": ch.get("image_png"),
+            "figures": list(ch.get("figures") or []),
+            "figure_label": ch.get("figure_label") or "",
+        }
+    else:
+        excerpt = getattr(ch, "chunk_text", "") or getattr(ch, "excerpt", "") or ""
+        row = {
+            "title": getattr(ch, "title", "") or "",
+            "page": getattr(ch, "page", None),
+            "excerpt": excerpt,
+            "chunk_text": excerpt,
+            "file_path": getattr(ch, "file_path", None),
+            "category": getattr(ch, "category", "") or getattr(ch, "category_name", "") or "",
+            "document_id": getattr(ch, "document_id", None),
+            "image_png": getattr(ch, "image_png", None),
+            "figures": list(getattr(ch, "figures", None) or []),
+            "figure_label": getattr(ch, "figure_label", "") or "",
+        }
+    for name in ("keywords", "brand", "models", "clean_title", "product_line", "doc_number"):
+        row[name] = _chunk_meta_value(ch, name)
+    return row
+
+
+def rewrite_bay_search_symptom(
+    category_name: str = "",
+    model_text: str = "",
+    concern: str = "",
+) -> str:
+    """Same search-boost chain GD chat uses (Document Library only — no live web)."""
+    symptom = (concern or "").strip()
+    if not symptom:
+        return symptom
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom):
+        symptom = dial_off_run_search_symptom(category_name, model_text, symptom)
+        if DIAL_OFF_RUN_SEARCH_BOOST not in symptom:
+            symptom = f"{symptom} {DIAL_OFF_RUN_SEARCH_BOOST}".strip()
+        return symptom
+    ice = is_fridge_ice_moisture_context(category_name, model_text, symptom)
+    if ice:
+        symptom = ice_moisture_search_symptom(category_name, model_text, symptom)
+        if ICE_MOISTURE_SEARCH_BOOST not in symptom:
+            symptom = f"{symptom} {ICE_MOISTURE_SEARCH_BOOST}".strip()
+    symptom = level_up_search_symptom(category_name, model_text, symptom)
+    if is_firefly_can_path_context(category_name, model_text, symptom):
+        if FIREFLY_CAN_SEARCH_BOOST not in symptom:
+            symptom = f"{symptom} {FIREFLY_CAN_SEARCH_BOOST}".strip()
+    if is_coleman_2111_context(category_name, model_text, symptom):
+        # Do not add the Furrion FACT/FACR boost. That string was becoming the brand.
+        symptom = coleman_search_symptom(category_name, model_text, symptom)
+    else:
+        symptom = ac_search_symptom(category_name, model_text, symptom)
+        if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
+            if FACR_FREEZE_SEARCH_BOOST not in symptom:
+                symptom = f"{symptom} {FACR_FREEZE_SEARCH_BOOST}".strip()
+    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
+        symptom = fcr_e2_search_symptom(category_name, model_text, symptom)
+    if _is_furnace_bay(category_name, model_text, symptom) and "thermostat bypass" not in symptom.lower():
+        symptom = f"{symptom} furnace sail switch thermostat bypass jumper".strip()
+    symptom = water_heater_search_symptom(category_name, model_text, symptom)
+    symptom = cooktop_search_symptom(category_name, model_text, symptom)
+    symptom = bal_tongue_search_symptom(category_name, model_text, symptom)
+    symptom = stabilizer_search_symptom(category_name, model_text, symptom)
+    symptom = ground_control_search_symptom(category_name, model_text, symptom)
+    symptom = dometic_nocoool_search_symptom(category_name, model_text, symptom)
+    return symptom
+
+
+def bay_brand_retrieval(chunks, category_name: str = "", model_text: str = "", concern: str = ""):
+    """
+    Keep library pages for the brand the tech named.
+
+    Returns (pages, brand_miss). brand_miss is true when a brand is known and
+    no retrieved page is that brand. Another brand's pages are never kept.
+    A toilet job does not keep a refrigerator manual. Coleman 2111 also keeps
+    1976-536 / Peacemaker / wall-thermostat pages.
+    """
+    pages = [chunk_as_dict(ch) for ch in (chunks or [])]
+    asked = set(asked_brands_for_lookup(category_name, model_text, concern))
+    toilet = is_toilet_job(category_name, model_text, concern)
+    # F4: no brand is ever assumed (the old "toilet job -> Thetford" default borrowed a brand the tech never named).
+    coleman_job = is_coleman_2111_context(category_name, model_text, concern)
+    if not asked:
+        return pages, False
+    matched, other, plain = [], [], []
+    for d in pages:
+        models = (d.get("models") or "").strip()
+        if models and not model_list_allows(models, model_text or ""):
+            continue
+        title = d.get("title") or ""
+        keywords = d.get("keywords") or ""
+        excerpt = d.get("excerpt") or ""
+        file_path = d.get("file_path") or ""
+        brand = d.get("brand") or ""
+        clean_title = d.get("clean_title") or ""
+        product_line = d.get("product_line") or ""
+        doc_number = d.get("doc_number") or ""
+        extra = " ".join(part for part in (models, clean_title, product_line, doc_number) if part)
+        name = library_filename_words(file_path)
+        declared = canonical_shop_brands(brand)
+        canon = canonical_shop_brands(title, keywords, name, extra)
+        coleman_text = is_coleman_library_text(f"{title} {keywords} {excerpt} {name} {extra}")
+        if declared and not (asked & declared):
+            other.append(d)
+            continue
+        if chunk_matches_asked_brand(
+            title,
+            keywords,
+            excerpt,
+            asked,
+            coleman_job=coleman_job,
+            file_path=file_path,
+            brand=brand,
+            models=models,
+            clean_title=clean_title,
+            product_line=product_line,
+            doc_number=doc_number,
+        ):
+            matched.append(d)
+        elif canon or (coleman_text and not coleman_job):
+            other.append(d)
+        else:
+            plain.append(d)
+    if matched:
+        return matched, False
+    if "thetford" in asked or toilet:
+        return [], True
+    if other and not plain:
+        return [], True
+    if not pages and not _bay_product_lock(category_name, model_text, concern):
+        return [], True
+    return plain, False
+
+
+def _bay_product_lock(category_name: str = "", model_text: str = "", concern: str = "") -> bool:
+    """True when a code-owned sheet still applies with an empty library."""
+    return any(
+        (
+            is_fcr_dial_off_compressor_run_context(category_name, model_text, concern),
+            is_fridge_ice_moisture_context(category_name, model_text, concern),
+            is_facr_rooftop_freeze_context(category_name, model_text, concern),
+            is_firefly_can_path_context(category_name, model_text, concern),
+            is_bal_soft_touch_tongue_only_context(category_name, model_text, concern),
+            is_coleman_2111_context(category_name, model_text, concern),
+            is_fcr_e2_fan_fault_context(category_name, model_text, concern),
+            _is_furnace_bay(category_name, model_text, concern),
+            is_ground_control_context(category_name, model_text, concern),
+            is_dometic_ceiling_sheet_context(category_name, model_text, concern),
+            is_fact12_freeze_code_context(category_name, model_text, concern),
+            is_girard_petit_tube_context(category_name, model_text, concern),
+            is_stabilizer_override_pin_context(category_name, model_text, concern),
+            is_cooktop_tip_sheet_context(category_name, model_text, concern),
+            is_level_up_lead_jack_drift_context(category_name, model_text, concern),
+        )
+    )
+
+
+_RANK_STOP = {"with", "that", "this", "from", "when", "have", "will", "does", "dont", "won't", "wont", "unit", "customer",
+              "reports", "check", "checked", "after", "before", "there", "their", "about", "into", "only", "still", "just"}
+
+
+def rank_pages_for_concern(pages, model_text: str = "", concern: str = "", limit: int = 8) -> list:
+    """ONE page ranker inside an already-selected manual (replaces brand/page-keyed rankers, F4).
+
+    Score = 3 x the unit's model/part numbers on the page + complaint words on the page + 2 for a troubleshooting-table page.
+    A page that names a brand the tech did not name drops to the bottom. Ties keep manual page order.
+    """
+    import legacy_selector as _go  # until FIX-PLAN phase 6 moves Bay onto the page-finder
+
+    unit = _go.identify_unit([], concern or "", "", model_text or "")
+    keys = _go.model_keys(unit)
+    words = {w for w in re.findall(r"[a-z]{4,}", (concern or "").lower()) if w not in _RANK_STOP}
+    brand = unit.get("brand") or ""
+
+    def score(page):
+        d = page if isinstance(page, dict) else chunk_as_dict(page)
+        blob = f"{d.get('title') or ''} {d.get('excerpt') or d.get('chunk_text') or ''}".lower()
+        toks = _go._field_tokens(blob)
+        s = 3 * sum(1 for k in keys if _go._key_in(k, toks, "model"))
+        s += sum(1 for w in words if w in blob)
+        if re.search(r"troubleshoot|symptom|possible cause|probable cause|remedy|corrective action", blob):
+            s += 2
+        other = _go.detect_brand(blob)
+        if brand and other and other != brand:
+            s -= 100
+        return s
+
+    indexed = list(enumerate(pages or []))
+    indexed.sort(key=lambda x: (-score(x[1]), x[0]))
+    return [p for _, p in indexed][:limit]
+
+
+def rank_bay_chunks(
+    chunks,
+    category_name: str = "",
+    model_text: str = "",
+    concern: str = "",
+    limit: int = 8,
+) -> list:
+    """Apply the same product ranking GD uses, after the brand lock."""
+    pages, _brand_miss = bay_brand_retrieval(chunks, category_name, model_text, concern)
+    pages = filter_chunks_for_unit(pages, category_name, model_text, concern)
+    query = f"{model_text or ''} {concern or ''}".strip()
+    if is_ground_control_context(category_name, model_text, concern):
+        return rank_chunks_for_ground_control(pages, query, limit=limit)
+    if is_dometic_b57915_nocoool_context(category_name, model_text, concern):
+        return rank_chunks_for_dometic_nocoool(pages, query, limit=limit)
+    if is_coleman_2111_context(category_name, model_text, concern):
+        return rank_pages_for_concern(pages, model_text, concern, limit)
+    if is_fcr_dial_off_compressor_run_context(category_name, model_text, concern):
+        ranked = rank_chunks_for_dial_off_run(pages, query, limit=limit)
+        return [
+            ch
+            for ch in ranked
+            if _page_int(chunk_as_dict(ch).get("page")) not in DIAL_OFF_DROP_PAGES
+        ]
+    if is_fridge_ice_moisture_context(category_name, model_text, concern):
+        return rank_chunks_for_ice_moisture(pages, query, limit=limit)
+    if is_firefly_can_path_context(category_name, model_text, concern) or is_level_up_advantage_context(
+        category_name, model_text, concern
+    ):
+        return rank_chunks_for_level_up(pages, query, limit=limit)
+    if is_fcr_e2_fan_fault_context(category_name, model_text, concern):
+        return rank_chunks_for_fcr_fan_fault(pages, query, limit=limit)
+    if is_air_conditioning_context(category_name, model_text, concern):
+        return rank_chunks_for_ac(pages, query, limit=limit)
+    if is_water_heater_context(category_name, model_text, concern):
+        return rank_chunks_for_water_heater(pages, query, limit=limit)
+    if is_cooktop_pan_on_flameout_context(category_name, model_text, concern):
+        return rank_chunks_for_cooktop_pan_on(pages, query, limit=limit)
+    if is_bal_soft_touch_tongue_only_context(category_name, model_text, concern):
+        return rank_chunks_for_bal_tongue(pages, query, limit=limit)
+    if is_stabilizer_override_pin_context(category_name, model_text, concern):
+        return rank_chunks_for_stabilizer_override(pages, query, limit=limit)
+    if is_thetford_flush_leak_context(category_name, model_text, concern):
+        return rank_pages_for_concern(pages, model_text, concern, limit)
+    return pages[:limit]
+
+
+def _page_int(value):
+    try:
+        n = int(value)
+        return n if n > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def pick_cited_figures(chunks, limit: int = 4) -> list[BayFigure]:
+    """Figures from retrieved library pages (Fig. / diagram language), not the live web."""
+    out = []
+    seen = set()
+    for ch in chunks or []:
+        d = chunk_as_dict(ch)
+        excerpt = d.get("excerpt") or ""
+        title = (d.get("title") or "Shop library").strip()
+        page = _page_int(d.get("page"))
+        key = (title.lower(), page)
+        if key in seen:
+            continue
+        if _is_brochure_text_companion(title, excerpt, d.get("file_path") or ""):
+            continue
+        fig_hit = FIG_RE.search(excerpt) or page_has_figure_or_terminal_layout(excerpt)
+        if not fig_hit:
+            continue
+        seen.add(key)
+        cap = fig_hit.group(0) if hasattr(fig_hit, "group") else "Library figure"
+        out.append(
+            BayFigure(
+                title=title,
+                page=page,
+                caption=cap,
+                excerpt=excerpt[:500],
+                image_png=d.get("image_png"),
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _png_bytes(image) -> bytes:
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _figure_font(size: int = 18):
+    from PIL import ImageFont
+
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default()
+    except Exception:
+        return None
+
+
+_SEED_CACHE: dict[str, bytes] = {}
+
+
+def _seed_figure_png(kind: str) -> bytes:
+    """Ship ice-pattern / data-plate schematics so HIT sheets are not figure-empty."""
+    cached = _SEED_CACHE.get(kind)
+    if cached is not None:
+        return cached
+    png = _draw_seed_figure_png(kind)
+    _SEED_CACHE[kind] = png
+    return png
+
+
+def _draw_seed_figure_png(kind: str) -> bytes:
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (900, 520), (248, 250, 252))
+    draw = ImageDraw.Draw(img)
+    title_f = _figure_font(22)
+    body_f = _figure_font(18)
+    small_f = _figure_font(16)
+    draw.rectangle((10, 10, 889, 509), outline=(1, 20, 124), width=4)
+    if kind == "ice":
+        draw.rectangle((70, 50, 400, 470), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.rectangle((82, 250, 388, 458), fill=(186, 214, 240))
+        for y in range(262, 450, 16):
+            draw.line((92, y, 378, y + 6), fill=(70, 120, 175), width=3)
+        draw.line((70, 250, 400, 250), fill=(200, 40, 40), width=4)
+        draw.text((82, 80), "TOP  clear", fill=(18, 18, 36), font=body_f)
+        draw.text((82, 270), "FROST from mid-down", fill=(1, 20, 124), font=body_f)
+        draw.text((430, 60), "Fig. 36  Rear-wall frost pattern", fill=(1, 20, 124), font=title_f)
+        draw.text((430, 120), "A light sheet on the back wall", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 150), "alone can be normal cycling.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 210), "Heavy frost starting halfway", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 240), "down is the Ice and Moisture", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 270), "pattern. Stay on that section.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 340), "Furrion fridge service manual", fill=(18, 18, 36), font=small_f)
+        draw.text((430, 370), "Ice and Moisture section", fill=(18, 18, 36), font=small_f)
+    elif kind == "facr":
+        draw.rectangle((80, 60, 400, 190), outline=(18, 18, 36), width=4, fill=(230, 236, 245))
+        draw.rectangle((110, 190, 370, 250), outline=(18, 18, 36), width=3, fill=(210, 220, 230))
+        draw.polygon([(240, 250), (225, 360), (255, 360)], fill=(80, 80, 90))
+        draw.ellipse((210, 360, 270, 400), outline=(1, 20, 124), width=3)
+        draw.text((430, 60), "Rooftop assembly / base pan", fill=(1, 20, 124), font=title_f)
+        draw.text((430, 110), "Inspect the evaporator pan", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 145), "and the condensate drain.", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 200), "If the drain is restricted or", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 235), "the pan is iced, clear it,", fill=(18, 18, 36), font=body_f)
+        draw.text((430, 270), "then retest cooling.", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 430), "Drain path", fill=(18, 18, 36), font=small_f)
+    elif kind == "generic":
+        draw.rectangle((70, 70, 420, 420), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.text((90, 110), "Cited library figure", fill=(1, 20, 124), font=title_f)
+        draw.text((90, 180), "Do the next cited check", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 220), "on this sheet. Thresholds", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 260), "and pass / fail stay here.", fill=(18, 18, 36), font=body_f)
+        draw.text((90, 330), "Names, not part numbers.", fill=(18, 18, 36), font=small_f)
+    else:
+        draw.rectangle((70, 80, 420, 360), outline=(18, 18, 36), width=4, fill=(255, 255, 255))
+        draw.rectangle((90, 100, 400, 160), fill=(1, 20, 124))
+        draw.text((104, 118), "Level Up Advantage controller", fill=(255, 255, 255), font=title_f)
+        draw.rectangle((100, 210, 200, 270), outline=(18, 18, 36), width=3, fill=(230, 230, 230))
+        draw.rectangle((110, 220, 190, 260), fill=(40, 40, 40))
+        draw.rectangle((250, 210, 350, 270), outline=(18, 18, 36), width=3, fill=(250, 250, 250))
+        draw.line((300, 270, 300, 370), fill=(180, 40, 40), width=6)
+        draw.text((100, 284), "CAN  rubber-boot", fill=(18, 18, 36), font=small_f)
+        draw.text((108, 310), "TERMINATOR IN", fill=(1, 20, 124), font=body_f)
+        draw.text((250, 284), "CAN  Firefly cable", fill=(18, 18, 36), font=small_f)
+        draw.text((258, 310), "UNPLUG ONLY", fill=(200, 30, 40), font=body_f)
+        draw.text((450, 60), "Two ports labeled CAN", fill=(1, 20, 124), font=title_f)
+        draw.text((450, 110), "Leave the rubber-boot", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 145), "terminator plugged in.", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 180), "Unplug only the CAN cable", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 215), "to Firefly / OneControl.", fill=(18, 18, 36), font=body_f)
+        draw.text((450, 270), "POWER CONNECTOR", fill=(1, 20, 124), font=body_f)
+        draw.text((450, 305), "Red versus Green ground.", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 335), "Want solid 12V+.", fill=(18, 18, 36), font=small_f)
+        draw.text((450, 380), "Shop PN 807662 (Sources only)", fill=(90, 90, 90), font=small_f)
+    return _png_bytes(img)
+
+
+def load_oem_figure_png(name: str) -> bytes:
+    """Real library-page art from the OEM manuals. Never a drawn cartoon."""
+    return (OEM_FIGURE_DIR / name).read_bytes()
+
+
+# Full manual pages are not figures. These boxes are the cited drawing on that page.
+_OEM_FIGURE_CROP = {
+    # The whole drainage-openings row, including the diagram. Not the cut
+    # neighbors ("blower is defective" above, "seals are damaged" below).
+    # Full drainage row: "Water enters the vehicle" through "openings are clogged".
+    # Drainage row, both rules. "vehicle" ends near y=834. The partial line at
+    # 816 does not cross that cell. The next full-width rule is y=872.
+    "ccd7990-p7.png": (36, 732, 1066, 880),
+    "ccd8666-p10.png": (28, 520, 728, 824),
+}
+MAX_SHEET_PAGES = 3
+MAX_FIGURES_PER_SHEET = 2
+FACT12_MISLABEL_CITE = "Indexed file is the FACR08 8K book, not the FACT12 model manual."
+
+
+def _cropped_oem_png(name: str) -> bytes:
+    raw = load_oem_figure_png(name)
+    box = _OEM_FIGURE_CROP.get(name)
+    if not box:
+        return raw
+    from PIL import Image
+
+    image = Image.open(BytesIO(raw)).convert("RGB")
+    cropped = image.crop(box)
+    if name == "ccd7990-p7.png":
+        # The next row's vertical rules start just under this row's rule. Blank them.
+        gray = cropped.convert("L")
+        width, height = gray.size
+        px = gray.load()
+        rule = None
+        for y in range(height - 1, -1, -1):
+            dark = sum(1 for x in range(0, width, 2) if px[x, y] < 80)
+            if dark > width / 4:
+                rule = y
+                break
+        if rule is not None and rule < height - 1:
+            draw = cropped.load()
+            for y in range(rule + 1, height):
+                for x in range(width):
+                    draw[x, y] = (255, 255, 255)
+    return _png_bytes(cropped)
+
+
+def _close_cut_figure(image):
+    """Drop a white strip of stray rules under a grey frame.
+
+    The live sheet paints whatever this returns. A small pre-crop used to skip
+    the page crop and keep a frame whose bottom was already cut off.
+    """
+    width, height = image.size
+    if width < 40 or height < 40:
+        return image
+    px = image.convert("L").load()
+
+    def _grey(y: int) -> int:
+        return sum(
+            1
+            for x in range(0, width, 2)
+            if 140 <= px[x, y] <= 230
+        )
+
+    def _dark(y: int) -> int:
+        return sum(1 for x in range(0, width, 2) if px[x, y] < 80)
+
+    wide = [y for y in range(height) if _grey(y) > width / 8]
+    if not wide:
+        return image
+    last = wide[-1]
+    if last > height - 8:
+        return image
+    # A closed frame ends in white padding. A cut frame has a near-empty
+    # gap and then a full-width rule that is not part of the drawing.
+    gap = False
+    rule = None
+    for y in range(last + 1, height):
+        if _dark(y) > width / 4 and gap:
+            rule = y
+            break
+        if _dark(y) < 12 and _grey(y) < 8:
+            gap = True
+    if rule is None:
+        return image
+    pad = 12
+    return image.crop((0, 0, width, min(height, last + 1 + pad)))
+
+
+def crop_page_png_to_figure(png: bytes) -> bytes:
+    """Crop a rendered manual page down to a figure. Empty means keep the full page off the sheet."""
+    if not png:
+        return b""
+    try:
+        from PIL import Image
+    except Exception:
+        return b""
+    image = Image.open(BytesIO(png)).convert("RGB")
+    closed = _close_cut_figure(image)
+    if closed.size != image.size:
+        return _png_bytes(closed)
+    width, height = image.size
+    if max(width, height) < 900 or height < width * 1.15:
+        return png
+    box = _figure_band_box(image)
+    if not box:
+        return b""
+    x0, y0, x1, y1 = box
+    if (y1 - y0) > height * 0.72 and (x1 - x0) > width * 0.72:
+        return b""
+    return _png_bytes(image.crop((x0, y0, x1, y1)))
+
+
+def _content_spans(row: list[float], *, gap_ink: float = 0.012, min_gap: int = 12) -> list[list[int]]:
+    """Ink bands split only on a real whitespace gap, so a crop never cuts a row."""
+    spans = []
+    y = 0
+    height = len(row)
+    while y < height:
+        if row[y] < gap_ink:
+            y += 1
+            continue
+        start = y
+        while y < height and row[y] >= gap_ink:
+            y += 1
+        if spans and start - spans[-1][1] < min_gap:
+            spans[-1][1] = y
+        else:
+            spans.append([start, y])
+    return spans
+
+
+def _figure_band_box(image) -> tuple[int, int, int, int] | None:
+    """A full figure region. Thin strips and mid-row cuts stay off the sheet."""
+    gray = image.convert("L")
+    width, height = gray.size
+    px = gray.load()
+    row = []
+    for y in range(height):
+        ink = 0
+        total = 0
+        for x in range(0, width, 3):
+            total += 1
+            if px[x, y] < 170:
+                ink += 1
+        row.append(ink / total if total else 0)
+    spans = _content_spans(row)
+    if not spans:
+        return None
+    scored = []
+    for start, end in spans:
+        band_h = end - start
+        if band_h < 24:
+            continue
+        seg = row[start:end]
+        avg = sum(seg) / len(seg)
+        var = sum((v - avg) ** 2 for v in seg) / len(seg)
+        scored.append((var * 8.0 + min(band_h / height, 0.45), start, end))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    _score, start, end = scored[0]
+    # A short band is part of the figure above or below it. Grow to the next gap.
+    thin = (end - start) < max(width * 0.22, height * 0.18)
+    if thin:
+        for _score, other_s, other_e in scored[1:]:
+            gap = min(abs(other_s - end), abs(start - other_e))
+            if gap > 48:
+                continue
+            start = min(start, other_s)
+            end = max(end, other_e)
+            if (end - start) >= max(width * 0.22, height * 0.18):
+                break
+    if (end - start) > height * 0.70:
+        return None
+    if (end - start) < max(80, width * 0.16):
+        return None
+    pad = 22
+    x0, y0, x1, y1 = 8, max(0, start - pad), width - 8, min(height, end + pad)
+    # A light grey cabinet frame is fainter than the ink threshold. Grow to include it,
+    # and drop a stray rule that is only a dark column in the right margin.
+    gray = image.convert("L")
+    px = gray.load()
+    def _row_has_frame(y: int) -> bool:
+        if y < 0 or y >= height:
+            return False
+        mid = sum(1 for x in range(0, width, 3) if 80 <= px[x, y] <= 210)
+        return mid > width / 30
+    while y1 < height - 1 and _row_has_frame(y1):
+        y1 += 1
+    while y0 > 0 and _row_has_frame(y0 - 1):
+        y0 -= 1
+    # Trim a lone vertical rule in an otherwise white right margin.
+    while x1 - x0 > 40:
+        column = [px[x1 - 1, y] for y in range(y0, y1, 3)]
+        dark = sum(1 for value in column if value < 80)
+        white = sum(1 for value in column if value > 230)
+        if dark and white > len(column) * 0.7:
+            x1 -= 1
+            continue
+        break
+    return (x0, y0, x1, y1)
+
+
+def _oem_library_figures(kind: str) -> list[BayFigure]:
+    if kind == "ice":
+        return [
+            BayFigure(
+                title=FURRION_8122_TITLE,
+                page=36,
+                caption="Fig. 36 rear-wall frost pattern, views A and B",
+                excerpt="Ice and Moisture. Figure 36 shows the rear-wall frost pattern.",
+                image_png=load_oem_figure_png("ccd8122-fig36.png"),
+            ),
+        ]
+    if kind == "facr":
+        return [
+            BayFigure(
+                title=FACR_7990_TITLE,
+                page=7,
+                caption="CCD-0007990 page 7. Clean the drainage openings.",
+                excerpt="Water enters the vehicle. Condensation water drainage openings are clogged.",
+                image_png=_cropped_oem_png("ccd7990-p7.png"),
+            ),
+        ]
+    return []
+
+
+_GENERIC_SEED_PNG = b""
+
+
+def _generic_seed_png() -> bytes:
+    global _GENERIC_SEED_PNG
+    if not _GENERIC_SEED_PNG:
+        _GENERIC_SEED_PNG = _seed_figure_png("generic")
+    return _GENERIC_SEED_PNG
+
+
+def _png_is_generated_sketch(png: bytes) -> bool:
+    """A drawn stand-in is not an OEM manual figure."""
+    if not png:
+        return False
+    return any(png == _seed_figure_png(kind) for kind in ("generic", "ice", "facr", "firefly"))
+
+
+def figure_is_placeholder(fig: BayFigure) -> bool:
+    """A drawn sketch is not a manual figure, even when a library caption was pasted on it."""
+    if "cited library figure" in (fig.caption or "").lower():
+        return True
+    return _png_is_generated_sketch(fig.image_png or b"")
+
+
+def _real_library_figures(ranked) -> list[BayFigure]:
+    """Library figures that already carry real page art. Sketches do not count."""
+    return [
+        fig
+        for fig in pick_cited_figures(ranked)
+        if fig.image_png and not _png_is_generated_sketch(fig.image_png)
+    ]
+
+
+def _seed_path_figure(kind: str) -> BayFigure:
+    if kind == "ice":
+        return BayFigure(
+            title=FURRION_8122_TITLE,
+            page=36,
+            caption="Fig. 36 rear-wall frost pattern",
+            excerpt="Ice and Moisture. Figure 36 shows the rear-wall frost pattern.",
+            image_png=_seed_figure_png("ice"),
+        )
+    if kind == "facr":
+        return BayFigure(
+            title=FACR_7990_TITLE,
+            page=None,
+            caption="Rooftop assembly, base pan, and drain",
+            excerpt="Use this book for the rooftop assembly, condensate drain, and base pan.",
+            image_png=_seed_figure_png("facr"),
+        )
+    if kind == "dial_off":
+        return BayFigure(
+            title=FURRION_8122_TITLE,
+            page=43,
+            caption="Spark-Free Thermostat replacement, page 43",
+            excerpt=(
+                "Spark-Free Thermostat part G 2021128850. "
+                "Open C and T with no jumper."
+            ),
+            image_png=_seed_figure_png("generic"),
+        )
+    if kind == "bal_tongue":
+        return BayFigure(
+            title="BAL SS 5.1 Stabilizing System INS.STA.001",
+            page=None,
+            caption="Soft-touch panel tongue jack output wire and tongue pigtail",
+            excerpt=(
+                "Check for 12V on the tongue jack output wire at the panel. "
+                "No 12V means user panel 20300427. Voltage present means repair the pigtail."
+            ),
+            image_png=_seed_figure_png("generic"),
+        )
+    if kind == "generic":
+        return BayFigure(
+            title="Shop Document Library",
+            page=None,
+            caption="Cited library figure",
+            excerpt="Do the next cited check on this sheet.",
+            image_png=_seed_figure_png("generic"),
+        )
+    return BayFigure(
+        title=FIREFLY_PATH_TITLE,
+        page=None,
+        caption="Level Up Advantage controller — two ports labeled CAN",
+        excerpt="Leave the rubber-boot terminator in. Unplug the Firefly CAN cable only.",
+        image_png=_seed_figure_png("firefly"),
+    )
+
+
+def _png_size(png: bytes) -> tuple[int, int]:
+    if not png:
+        return (0, 0)
+    try:
+        from PIL import Image
+    except Exception:
+        return (0, 0)
+    image = Image.open(BytesIO(png))
+    return image.size
+
+
+def _png_is_thumbnail(png: bytes) -> bool:
+    """A tiny page render is not a figure a tech can read."""
+    width, height = _png_size(png)
+    if width < 1 or height < 1:
+        return True
+    return max(width, height) < 300
+
+
+def _png_is_text_block(png: bytes) -> bool:
+    """A paragraph of body text is not a diagram. A one-row drawing is not this."""
+    width, height = _png_size(png)
+    if height < 90 or height > 420 or width < 180:
+        return False
+    try:
+        from PIL import Image
+    except Exception:
+        return False
+    image = Image.open(BytesIO(png)).convert("L")
+    px = image.load()
+    row_ink = []
+    for y in range(height):
+        ink = 0
+        samples = 0
+        for x in range(0, width, 2):
+            samples += 1
+            if px[x, y] < 180:
+                ink += 1
+        row_ink.append(ink / samples if samples else 0.0)
+    bands = []
+    y = 0
+    while y < height:
+        if row_ink[y] < 0.04:
+            y += 1
+            continue
+        start = y
+        while y < height and row_ink[y] >= 0.04:
+            y += 1
+        bands.append(y - start)
+    if len(bands) < 5 or max(bands) > 26:
+        return False
+    # A paragraph's lines are about the same height. A one-row drawing mixes
+    # hairline rules with taller shapes, so it is not a text block.
+    ordered = sorted(bands)
+    median = ordered[len(ordered) // 2]
+    if max(bands) >= 12 and max(bands) > median * 3:
+        return False
+    return True
+
+
+def _figure_is_illegible(fig: BayFigure, png: bytes) -> bool:
+    """Thumbnails, text blocks, and Brochure-TEXT pages stay off the sheet."""
+    if _is_brochure_text_companion(fig.title, f"{fig.caption} {fig.excerpt}"):
+        return True
+    if _png_is_thumbnail(png) or _png_is_text_block(png):
+        return True
+    return False
+
+
+def _figure_is_plenum(fig: BayFigure) -> bool:
+    blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+    return "6799-730" in blob or "plenum" in blob
+
+
+def _figure_is_fan_or_board(fig: BayFigure) -> bool:
+    blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+    return any(token in blob for token in ("fan", "control board", "9-pin", "9 pin", "capacitor"))
+
+
+def _coleman_figures(ranked) -> list[BayFigure]:
+    """Coleman pages only. The sheet figure is the fan or the board, not the plenum."""
+    library = []
+    for fig in pick_cited_figures(ranked):
+        blob = f"{fig.title} {fig.caption} {fig.excerpt}".lower()
+        if "furrion" in blob or "dometic" in blob or "ccd-0008666" in blob or "ccd-0007990" in blob:
+            continue
+        if _figure_is_plenum(fig):
+            continue
+        library.append(fig)
+    fan_board = [fig for fig in library if _figure_is_fan_or_board(fig)]
+    if fan_board:
+        library = fan_board
+    if library:
+        return library
+    seed = _seed_path_figure("generic")
+    seed.title = "Coleman-Mach 12VDC wall-thermostat rooftop service manual"
+    seed.caption = "9-pin Fan High: pin 5 black, pin 9 white common"
+    seed.excerpt = "Prove Fan High, then the Peacemaker bypass, then the fan run capacitor."
+    return [seed]
+
+
 def _brand_miss_figure(brand: str = "", model: str = "", concern: str = "") -> BayFigure:
     model_text = model_text_from(brand, model)
     who = library_miss_brand_label("", model_text, concern) or (brand or "").strip() or "this brand"
