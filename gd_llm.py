@@ -20,10 +20,9 @@ import threading
 # rv_techtrack reloads this file when the stamp is not the app version.
 MODULE_REVISION = "v4.19.65"
 
-# Guided Diagnostics ask turns. A lower token cap and a low xAI reasoning
-# effort keep a shop turn from sitting on a long reasoning pass.
-GD_ASK_MAX_TOKENS = 420
-GD_ASK_REASONING_EFFORT = "low"
+# Guided Diagnostics ask turns: no token cap and no reasoning-effort setting (None = the provider's own defaults).
+GD_ASK_MAX_TOKENS = None
+GD_ASK_REASONING_EFFORT = None
 
 PROVIDER_XAI = "xai"
 PROVIDER_GROQ = "groq"
@@ -329,7 +328,7 @@ def _completion_text(
     model: str,
     messages,
     temperature: float,
-    max_tokens: int,
+    max_tokens: int | None,
     extra_body: dict | None = None,
 ) -> str:
     def _call():
@@ -337,8 +336,9 @@ def _completion_text(
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         if extra_body:
             kwargs["extra_body"] = extra_body
         response = client.chat.completions.create(**kwargs)
@@ -360,7 +360,7 @@ def _raise_provider_errors(errors: list[str]) -> None:
 def complete_chat(
     messages,
     temperature: float = 0.2,
-    max_tokens: int = 1400,
+    max_tokens: int | None = 1400,
     *,
     secret_fn=None,
     client_factory=None,

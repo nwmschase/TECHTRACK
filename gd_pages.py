@@ -1,27 +1,21 @@
 """Page-finder interface for Guided Diagnostics (branch fresh-core).
 
-GD never searches or ranks pages itself. It asks a page-finder for:
+The page-finder is the library search tool. GD asks it for:
   pick_manual(category, model_text, complaint, code) -> Picked   which manual(s), plus the entry pages
   entry_pages(picked)                                -> [Page]    entry page(s) + best supporting pages
   toc_pages(picked)                                  -> [Page]    the picked manuals' table-of-contents pages
-  fetch_part(part, picked)                           -> [Page]    pages that test / replace / show one part
+  fetch_part(part, picked)                           -> [Page]    best matching pages for a part, fault code, symptom or label words
 
 The real finder is pagefinder/search.py in this repo (from the fresh-library worker's search.py; brands and categories
 now come from the app library data). Its index is built from the app library by pagefinder/build_index.py.
 LibraryPageFinder adapts it. StubPageFinder is for offline tests.
 
-Page budget: only whole pages are sent, at most PAGE_BUDGET_PAGES pages and PAGE_BUDGET_CHARS characters
-per turn. Pages that do not fit are NOT silently lost: their doc + page labels are listed to the brain
-as "pages not shown", so it can ask for one by name.
+Every page found is handed over whole, with its doc number, revision and page notes. There is no page or character budget.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, asdict
-
-PAGE_BUDGET_PAGES = 8
-PAGE_BUDGET_CHARS = 40_000
-TOC_BUDGET_CHARS = 6_000
 
 
 @dataclass
@@ -37,6 +31,16 @@ class Page:
     url: str = ""
     note: str = ""           # reviewed page note (pagefinder/doc_fixes.tsv), e.g. a misprinted page; shown with the page
     topics: str = ""         # reviewed page-topic labels (doc_fixes page_topics), e.g. 'cable sizing and voltage drop'
+    doc_number: str = ""     # the library doc's number (library pages)
+    revision: str = ""       # the doc's revision date (library pages) or the revision / Last-Modified read from the web document
+
+    @property
+    def host(self) -> str:
+        from urllib.parse import urlparse
+        try:
+            return (urlparse(self.url or "").hostname or "").lower()
+        except Exception:
+            return ""
 
     @property
     def key(self):
@@ -50,7 +54,7 @@ class Page:
 
     @staticmethod
     def from_dict(d: dict) -> "Page":
-        return Page(**{k: d.get(k) for k in Page.__dataclass_fields__ if k in d})
+        return Page(**{k: d[k] for k in Page.__dataclass_fields__ if k in d and d[k] is not None})
 
 
 @dataclass
@@ -67,15 +71,15 @@ class Picked:
         return bool(self.manuals)
 
 
-def apply_budget(pages, max_pages=PAGE_BUDGET_PAGES, max_chars=PAGE_BUDGET_CHARS):
-    """Keep pages in the given priority order until the budget is used. Returns (kept, not_shown).
-    Exact duplicates (same doc + sheet) are merged; nothing else is dropped without being listed."""
+def apply_budget(pages, max_pages=None, max_chars=None):
+    """Merge exact duplicates (same doc + sheet), keeping the given priority order. Returns (kept, not_shown).
+    max_pages / max_chars are off (None) unless a caller sets them; with them off, not_shown is empty."""
     kept, not_shown, seen, used = [], [], set(), 0
     for p in pages:
         if p.key in seen:
             continue
         seen.add(p.key)
-        if len(kept) < max_pages and used + len(p.text or "") <= max_chars:
+        if (max_pages is None or len(kept) < max_pages) and (max_chars is None or used + len(p.text or "") <= max_chars):
             kept.append(p)
             used += len(p.text or "")
         else:
@@ -128,8 +132,7 @@ class LibraryPageFinder:
     app_db: the app's library DB; its documents table is the single source of truth for titles, brands, categories
             and models (docs deleted in the app leave the finder; docs added after the index build are read from the
             app's own page chunks). Default: TT_APP_DB.
-    meaning=False switches the embedding half off for the process (BM25 on whole words only; see search.MEANING_ON).
-    R4 (approved): fetch_part only hands over pages of the picked manuals' maker(s)."""
+    meaning=False switches the embedding half off for the process (BM25 on whole words only; see search.MEANING_ON)."""
 
     def __init__(self, index_dir=None, meaning=True, app_db=None):
         from pagefinder import search as _search
@@ -147,7 +150,8 @@ class LibraryPageFinder:
     def _page(self, p: dict, kind: str) -> Page:
         return Page(doc_id=p["doc_id"], title=p["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
                     sheet=int(p["pdf_sheet"]), text=p.get("text") or "", kind=kind, reason=p.get("reason", ""),
-                    note=p.get("note") or "", topics=p.get("topics") or "")
+                    note=p.get("note") or "", topics=p.get("topics") or "",
+                    doc_number=p.get("doc_number") or "", revision=p.get("revision_date") or "")
 
     def pick_manual(self, category, model_text, complaint="", code=None) -> Picked:
         r = self.search.search(unit=category or None, model=model_text or None, complaint=complaint or "", code=code or None)
@@ -159,12 +163,12 @@ class LibraryPageFinder:
     def entry_pages(self, picked: Picked):
         return list(picked.pages)
 
-    def toc_pages(self, picked: Picked, max_chars=TOC_BUDGET_CHARS):
+    def toc_pages(self, picked: Picked, max_chars=None):
         lib = self.lib
         out, used = [], 0
         for m in picked.manuals:
             for p in lib.pages(m["doc_id"]):
-                if p.get("is_toc") and used + len(p["text"]) <= max_chars:
+                if p.get("is_toc") and (max_chars is None or used + len(p["text"]) <= max_chars):
                     out.append(Page(doc_id=m["doc_id"], title=m["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
                                     sheet=int(p["pdf_sheet"]), text=p["text"], kind="toc", reason="table of contents"))
                     used += len(p["text"])
@@ -172,10 +176,6 @@ class LibraryPageFinder:
 
     def fetch_part(self, part, picked: Picked):
         res = self.search.fetch_by_part(part, {"manuals": picked.manuals})
-        brands = {(m.get("brand") or "").lower() for m in picked.manuals if m.get("brand")}
-        if brands:   # R4 brand lock: never another maker's manual for this unit
-            docs = self.lib.docs
-            res = [p for p in res if (docs.get(p["doc_id"], {}).get("brand") or "").lower() in brands]
         return [self._page(p, "part") for p in res]
 
     def doc_title(self, doc_id) -> str:

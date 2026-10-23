@@ -11622,8 +11622,8 @@ def complete_chat_with_payload_retry(call, messages, temperature: float = 0.2, m
     """
     attempts = (
         (list(messages or []), max_tokens, 0),
-        (shrink_ai_messages(messages, level=1), min(max_tokens, 700), 1),
-        (shrink_ai_messages(messages, level=2), min(max_tokens, 480), 2),
+        (shrink_ai_messages(messages, level=1), None if max_tokens is None else min(max_tokens, 700), 1),
+        (shrink_ai_messages(messages, level=2), None if max_tokens is None else min(max_tokens, 480), 2),
     )
     last = None
     for payload, tokens, _level in attempts:
