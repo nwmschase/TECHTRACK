@@ -5188,9 +5188,20 @@ def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, m
 GD_OFFICIAL_METHOD = True
 GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
 REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
-# Test hooks: replay tests set these to stay offline. None = live xAI.
+# Test hooks: replay tests set these to stay offline. None = live xAI chat / the real web lookup tool (gd_official).
 _gd_official_chat = None
 _gd_official_web = None
+_gd_web_tool_fn = None
+
+
+def _gd_web_tool():
+    """The web lookup tool Grok can call at any point (gd_official.make_web_fn). Built once per process."""
+    global _gd_web_tool_fn
+    if _gd_web_tool_fn is None:
+        import gd_official
+
+        _gd_web_tool_fn = gd_official.make_web_fn(secret_fn=_secret)
+    return _gd_web_tool_fn
 
 
 _gd_finder = None  # test hook: a gd_pages finder (e.g. StubPageFinder). None = the fresh library's page-finder.
@@ -5233,7 +5244,8 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         result = gd_turn.run_turn(
             user_msg, category_name, model_text, history,
             finder=_gd_page_finder(), chat_fn=chat_fn, store=pin_store,
-            usage_fn=gd_llm.last_usage, web_fn=_gd_official_web, log_path=GD_USAGE_LOG,
+            usage_fn=gd_llm.last_usage, web_fn=(_gd_official_web if _gd_official_web is not None else _gd_web_tool()),
+            log_path=GD_USAGE_LOG,
         )
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.

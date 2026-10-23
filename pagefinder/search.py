@@ -209,6 +209,7 @@ class Library:
                 d['product_line'] = (a.get('product_line') or '').strip()
                 d['unit_type'] = (a.get('category') or '').strip()
                 d['doc_number'] = (a.get('doc_number') or '').strip()
+                d['revision_date'] = (a.get('revision_date') or '').strip()
                 have = {nmodel(m) for m in json.loads(d['models'] or '[]')}
                 extra = [m for m in B.split_models(a.get('models')) if nmodel(m) not in have]
                 if extra: d['models'] = json.dumps(json.loads(d['models'] or '[]') + extra)
@@ -523,7 +524,8 @@ def _out(lib, p, score, reason):
     note = _fixes.page_fix(p['doc_id'], d.get('file_path'), p['pdf_sheet']).get('page_note', '')
     return dict(doc_id=p['doc_id'], title=shown_title(d), pdf_sheet=p['pdf_sheet'], printed_page=p['printed_page'], marks=_marks(p),
                 score=round(score, 3), reason=reason, codes=sorted(p['codes']), chars=len(p['text']), text=p['text'],
-                source_type=d.get('source_type') or _fixes.OEM, note=note, topics=p.get('topics') or '')
+                source_type=d.get('source_type') or _fixes.OEM, note=note, topics=p.get('topics') or '',
+                doc_number=d.get('doc_number') or '', revision_date=d.get('revision_date') or '')
 
 def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, k_max=5, n_entry=2, lib=None):
     """Pick the manual(s), the entry page(s) and the best supporting pages. No reasoning: the brain reads them."""
