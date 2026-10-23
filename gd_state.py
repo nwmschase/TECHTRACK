@@ -5,16 +5,16 @@ The code only cuts that block off the reply, checks the field types, and stores 
 The code never reads the tech's words or the brain's prose to decide anything: no regex on prose.
 
 Fields (all optional in each update; missing = unchanged):
-  complaint_verified  "yes" | "no" | "not_asked"     the tech's answer to the one verify question
+  complaint_verified  "yes" | "no" | "not_asked"     whether the tech has seen the complaint happen (their answer)
   complaint_quote     str     the tech's own words for that answer
   complaint_actual    str     when the tech said "no, it's actually X": X
   facts               [{item, value, quote}]  readings / observations the tech gave (upsert by item)
   fault_code          str     a code the tech reported (the finder re-picks pages for it)
   pending_test        str     the test the brain is waiting on ("" when none)
   part_working        str     the part currently being tested or worked on
-  next_part_to_fetch  str     a part whose manual pages the brain wants next ("" when none)
-  web_lookup          str     a web search the brain wants when the library has nothing ("" when none)
-  order_part          str     a part the brain tells the tech to order / replace this turn ("" when none; R3 check)
+  next_part_to_fetch  str     text for a library search: a part, fault code, symptom or label words ("" when none)
+  web_lookup          str     text for a web lookup: a URL, words, or both ("" when none)
+  order_part          str     a part the brain tells the tech to order / replace this turn ("" when none)
   cause               str     the brain's current diagnosis, with its doc + page
   repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words
   cited               [{doc_id, page}]   pages the brain cited this turn
