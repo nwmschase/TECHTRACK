@@ -1,4 +1,4 @@
-"""Offline picker sweep for the NEW manual picker (pagefinder pick_manual, used by GD and Bay PDF) on an app DB copy.
+"""Offline picker sweep for the NEW manual picker (pagefinder pick_manual; backburnered, no live caller since grok-search) on an app DB copy.
 
 Same queries and same scoring as techtrack-validation/library-dialin/work/selector_sweep_fixedq.py so the numbers line up
 with the main b1e363d baseline:

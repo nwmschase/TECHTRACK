@@ -7,6 +7,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import gd_sim_fresh as sim  # noqa: E402
 from gd_pages import Page, StubPageFinder  # noqa: E402
@@ -67,7 +68,34 @@ class TestSimHarness(unittest.TestCase):
         self.assertEqual(v["harness_ending"], "capped")
         self.assertFalse(v["pass_eligible"])
         self.assertTrue(v["judge_error"])
-        self.assertEqual(v["invented_numbers"], ["800-555-1212", "99887766"])
+        # pages count as shown when Grok opened them (grok-search); this text-only fake opened none, so all three are listed
+        self.assertEqual(v["invented_numbers"], ["574-825-4600", "800-555-1212", "99887766"])
+
+    def test_respond_hook_runs_tools_and_counts_shown_pages(self):
+        """grok-search: the sim drives GD through the new reply hook (items, tools, tool_choice); a number on a page
+        Grok opened with read_pages counts as shown, a number on no opened page is listed."""
+        from test_fresh_core import FakeRespond
+        st = "<state>{\"summary\": \"s\"}</state>"
+        gd = FakeRespond([[("search_pages", {"words": "fan test"})], [("read_pages", {"doc_id": "L1", "pages": ["29"]})],
+                          "Fan part 2021128850 [Acme p.29]; or 99887766.\n" + st])
+        finder = StubPageFinder(manuals=[{"doc_id": "L1", "title": "Acme"}],
+                                pages=[Page("L1", "Acme", "29", 29, "fan test part 2021128850", "entry")])
+        v, hist, store = sim.run_case(CASE, "Refrigerators", "Acme X1", finder=finder, max_turns=1, gd_respond=gd,
+                                      gd_chat=lambda m, t, e: self.fail("old hook used"),
+                                      tech_chat=lambda m: "ok", referee_chat=lambda m: "{}", judge_chat=lambda m: "{}")
+        self.assertEqual(len(gd.seen), 3)
+        self.assertTrue(gd.seen[0][1])                       # tools were offered
+        self.assertEqual(v["invented_numbers"], ["99887766"])
+        self.assertEqual(v["gd_turns"], 1)
+
+    def test_run_case_needs_a_reply_hook(self):
+        with self.assertRaises(ValueError):
+            sim.run_case(CASE, "Refrigerators", "Acme X1", finder=StubPageFinder(), tech_chat=lambda m: "ok",
+                         referee_chat=lambda m: "{}", judge_chat=lambda m: "{}")
+
+    def test_cost_uses_billed_ticks(self):
+        self.assertAlmostEqual(sim.cost({"cost_in_usd_ticks": 37756000}), 0.0037756)
+        self.assertEqual(sim.cost({"cost_usd": 0.12, "prompt_tokens": 10**9}), 0.12)
 
     def test_cli_refuses_without_ok(self):
         sys.argv = ["x", "--case", "RC12", "--out", "/tmp/x", "--max-usd", "1"]

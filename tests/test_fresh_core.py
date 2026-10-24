@@ -48,6 +48,28 @@ class FakeChat:
         return self.replies.pop(0)
 
 
+class FakeRespond:
+    """Scripted Grok on the tool path: each script entry is a reply string (final) or a list of (tool name, args)
+    function calls. Records every input list it was sent."""
+    def __init__(self, script):
+        self.script, self.seen, self.n = list(script), [], 0
+
+    def __call__(self, items, tools, tool_choice=None):
+        self.seen.append((list(items), tools, tool_choice))
+        step = self.script.pop(0)
+        if isinstance(step, str):
+            return {"text": step}
+        calls = []
+        for name, args in step:
+            self.n += 1
+            calls.append({"call_id": f"c{self.n}", "name": name, "arguments": json.dumps(args)})
+        return {"text": "", "calls": calls}
+
+
+def outputs(items):
+    return [json.loads(i["output"]) for i in items if isinstance(i, dict) and i.get("type") == "function_call_output"]
+
+
 class TestPromptAssembly(unittest.TestCase):
     def test_contents_and_order(self):
         st = gd_state.merge(gd_state.new_state(), {"facts": [{"item": "fan volts", "value": "10.4 V", "quote": "10.4 at the fan"}],
@@ -56,17 +78,17 @@ class TestPromptAssembly(unittest.TestCase):
         for i in range(10):
             hist += [{"role": "user", "content": f"tech {i}"}, {"role": "assistant", "content": f"gd {i}"}]
         f = finder()
-        picked = f.pick_manual("Refrigerators", "Acme X1", "freezes")
         msgs = gd_prompt.build_messages(user_msg="now what", history=hist, category="Refrigerators", model_text="Acme X1",
-                                        picked=picked, toc=f.toc_pages(picked), pages=picked.pages, state=st)
+                                        pages=f._pages, web_sources=[{"url": "https://www.acme.com/m.pdf"}],
+                                        searches=[{"tool": "search_pages", "args": '{"words": "E2"}'}], state=st)
         sys_txt, ctx = msgs[0]["content"], msgs[1]["content"]
         # system text = the primer + the state-block format, nothing else
         self.assertEqual(sys_txt, gd_prompt.PRIMER + "\n\n" + gd_prompt.STATE_FORMAT)
         self.assertNotIn("RULE 1", sys_txt)
         self.assertIn("<state>", sys_txt)
         # context: unit, manual, toc, pages with doc + page labels, state, summary - in that order
-        order = ["UNIT (as the tech typed it)", "MANUALS PICKED", "=== TABLE OF CONTENTS ===", "=== SELECTED PAGES ===",
-                 "[Acme Fridge Service Manual (L1), p.25]", "CASE STATE SO FAR", "RUNNING SUMMARY"]
+        order = ["UNIT (as the tech typed it)", "=== PAGES READ EARLIER IN THIS JOB ===", "[Acme Fridge Service Manual (L1), p.25]",
+                 "WEB SOURCES USED EARLIER", "LOOKUPS RUN EARLIER", "CASE STATE SO FAR", "RUNNING SUMMARY"]
         idx = [ctx.index(o) for o in order]
         self.assertEqual(idx, sorted(idx))
         self.assertIn("10.4 V", ctx)
@@ -77,11 +99,11 @@ class TestPromptAssembly(unittest.TestCase):
         self.assertEqual(body[0]["content"], "tech 0")
         self.assertEqual(body[-1], {"role": "user", "content": "now what"})
 
-    def test_nothing_found_is_stated_as_a_fact(self):
-        ctx = gd_prompt.context_block(category="Leveling", model_text="?", picked=gd_pages.Picked(), toc=[], pages=[],
-                                      state=gd_state.new_state())
-        self.assertIn("MANUALS PICKED BY THE PAGE FINDER: none", ctx)
+    def test_no_manual_is_picked_for_grok(self):
+        ctx = gd_prompt.context_block(category="Leveling", model_text="?", pages=[], state=gd_state.new_state())
+        self.assertNotIn("MANUALS PICKED", ctx)
         self.assertNotIn("none found for this unit", ctx)
+        self.assertNotIn("PAGES READ EARLIER", ctx)   # nothing read yet: no empty block
 
 
 BANNED = [
@@ -124,7 +146,11 @@ class TestNoBannedLeftovers(unittest.TestCase):
         for name, pat in BANNED:
             self.assertIsNone(re.search(pat, gd), f"{name} found in the app's GD path")
         self.assertIsNone(re.search(r"unity_gate\s*=\s*st\.selectbox", src), "Unity selector still in the app")
-        self.assertIn("gd_official", gd)  # the web tool is wired in the GD path (no longer a None stub)
+        self.assertIn("gd_llm.respond(", gd)        # Grok's own call carries the library tools + built-in web search
+        self.assertNotIn("_gd_web_tool()", gd)      # the app-side web search is retired from the GD path
+        # the Bay PDF path is gone (cleanup 2026-10-24): the backburnered finder has no caller anywhere in the app
+        for name in ("pick_manual", "fetch_part", "entry_pages", "toc_pages"):
+            self.assertNotIn(name, src, f"{name} called from the app")
 
     def test_core_never_regex_reads_prose(self):
         for f in ("gd_turn.py", "gd_state.py", "gd_story.py"):
@@ -171,63 +197,60 @@ class TestStateRoundTrip(unittest.TestCase):
 
 
 class TestTurnFlowAndRetrieval(unittest.TestCase):
-    def test_first_turn_picks_pages_and_stores_state(self):
+    def test_first_turn_no_pick_grok_searches_and_state_is_stored(self):
         f, store = finder(), {}
-        chat = FakeChat(["Did you see it freeze yourself?\n" + block(summary="start", cited=[])])
-        r = gd_turn.run_turn("freezes contents, E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
-        self.assertEqual(f.calls[0], ("pick_manual", "Refrigerators", "Acme X1", "freezes contents, E2", None))
+        chat = FakeRespond([[("search_pages", {"words": "E2 freezer fan"})], "Did you see it freeze yourself?\n" + block(summary="start", cited=[])])
+        r = gd_turn.run_turn("freezes contents, E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, log_path="")
+        self.assertEqual(f.calls, [])                  # the app's finder picks nothing
         self.assertEqual(r["reply"], "Did you see it freeze yourself?")
-        self.assertEqual(r["mode"], "walk")
-        self.assertIsNone(chat.seen[0][2])  # no reasoning-effort setting is passed
-        self.assertIn("p.25", r["pages_used"][0])
-        self.assertEqual(store["gd_case"]["state"]["summary"], "start")
-
-    def test_part_request_fetches_pages_and_redoes_once(self):
-        f, store = finder(), {}
-        chat = FakeChat([block(next_part_to_fetch="freezer fan motor", summary="a"),
-                         "Test the fan at F+ F- [Acme, p.29]\n" + block(next_part_to_fetch="freezer fan motor", summary="b")])
-        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
-        self.assertIn(("fetch_part", "freezer fan motor"), f.calls)
         self.assertEqual(r["calls"], 2)
-        second_ctx = chat.seen[1][0][1]["content"]
-        self.assertIn("Freezer fan motor test", second_ctx)
-        self.assertIn("p.29", r["pages_used"][0])  # newest part pages first
-        # next turn: same part is cached, no refetch, one call
-        chat2 = FakeChat(["ok\n" + block(summary="c")])
-        r2 = gd_turn.run_turn("10.4 V at the fan", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store)
-        self.assertEqual(r2["calls"], 1)
-        self.assertEqual([c for c in f.calls if c[0] == "fetch_part"], [("fetch_part", "freezer fan motor")])
+        hits = outputs(chat.seen[1][0])[0]["hits"]
+        self.assertEqual(hits[0]["page"], "25")        # the E2 chart page matches best
+        self.assertEqual(store["gd_case"]["state"]["summary"], "start")
+        self.assertEqual(r["mode"], "no_manual")       # searched, nothing opened yet
 
-    def test_fault_code_in_state_repicks_pages_with_code(self):
+    def test_pages_read_carry_to_later_turns_and_cited_get_titles(self):
         f, store = finder(), {}
-        gd_turn.run_turn("not cooling", "Refrigerators", "Acme X1", [], finder=f, store=store,
-                         chat_fn=FakeChat(["?\n" + block(fault_code="E2", summary="x")]))
-        gd_turn.run_turn("it shows E2", "Refrigerators", "Acme X1", [], finder=f, store=store,
-                         chat_fn=FakeChat(["ok\n" + block(summary="y")]))
-        picks = [c for c in f.calls if c[0] == "pick_manual"]
-        self.assertEqual([p[4] for p in picks], [None, "E2"])
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["29"]})],
+                            "Test the fan at F+ F-\n" + block(cited=[{"doc_id": "L1", "page": "29"}], summary="b")])
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, log_path="")
+        self.assertEqual(r["mode"], "walk")
+        self.assertEqual(r["cited"][0]["title"], "Acme Fridge Service Manual")
+        self.assertEqual(r["cited"][0]["sheet"], 29)
+        self.assertIn("p.29", r["pages_used"][0])
+        chat2 = FakeChat(["ok\n" + block(summary="c")])
+        r2 = gd_turn.run_turn("10.4 V at the fan", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store, log_path="")
+        self.assertEqual(r2["calls"], 1)
+        self.assertIn("Freezer fan motor test", chat2.seen[0][0][1]["content"])   # page read last turn comes along
 
-    def test_no_manual_and_web_not_wired(self):
+    def test_unit_change_clears_pages_read(self):
+        f, store = finder(), {}
+        gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, store=store, log_path="",
+                         respond_fn=FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["29"]})], "ok\n" + block(summary="a")]))
+        chat = FakeChat(["ok\n" + block(summary="b")])
+        gd_turn.run_turn("E2", "Refrigerators", "Acme X2", [], finder=f, store=store, chat_fn=chat, log_path="")
+        self.assertNotIn("Freezer fan motor test", chat.seen[0][0][1]["content"])
+
+    def test_no_library_hits_and_no_web(self):
         f, store = StubPageFinder(), {}
-        chat = FakeChat([block(web_lookup="Brinkley Z3100 front jack bracket", summary="a"), "I don't know.\n" + block(summary="b")])
-        r = gd_turn.run_turn("front jack", "Leveling", "Brinkley Model Z", [], finder=f, chat_fn=chat, store=store, web_fn=None)
+        chat = FakeChat(["I don't know.\n" + block(web_lookup="Brinkley Z3100 front jack bracket", summary="b")])
+        r = gd_turn.run_turn("front jack", "Leveling", "Brinkley Model Z", [], finder=f, chat_fn=chat, store=store, log_path="")
         self.assertEqual(r["mode"], "no_manual")
-        self.assertEqual(r["calls"], 1)  # nothing new arrived, so no redo
-        self.assertIn("MANUALS PICKED BY THE PAGE FINDER: none", chat.seen[0][0][1]["content"])
+        self.assertEqual(r["calls"], 1)   # the web_lookup field is a record; the app runs no search for it
 
     def test_reply_is_returned_unchanged(self):
         f, store = finder(), {}
         text = "Replace the control board [Acme, p.31]. Then run it and tell me what it does."
-        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=f, store=store,
+        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=f, store=store, log_path="",
                              chat_fn=FakeChat([text + "\n" + block(summary="s")]))
         self.assertEqual(r["reply"], text)
 
     def test_closed_comes_from_state_only(self):
         f, store = finder(), {}
         r = gd_turn.run_turn("it works now after I re-aimed the sensor", "Refrigerators", "Acme X1", [], finder=f, store=store,
-                             chat_fn=FakeChat(["Run it once more to confirm.\n" + block(summary="s")]))
-        self.assertEqual(r["mode"], "walk")  # the code does not read 'it works now'
-        r = gd_turn.run_turn("yes it cools", "Refrigerators", "Acme X1", [], finder=f, store=store,
+                             chat_fn=FakeChat(["Run it once more to confirm.\n" + block(summary="s")]), log_path="")
+        self.assertNotEqual(r["mode"], "closed")  # the code does not read 'it works now'
+        r = gd_turn.run_turn("yes it cools", "Refrigerators", "Acme X1", [], finder=f, store=store, log_path="",
                              chat_fn=FakeChat(["Job closed.\n" + block(closed=True, repair={"done": True, "verified": True,
                                                                                            "what": "re-aimed sensor", "quote": "yes it cools"}, summary="s")]))
         self.assertEqual(r["mode"], "closed")
@@ -242,13 +265,13 @@ class TestPageBudget(unittest.TestCase):
         self.assertEqual([p.sheet for p in kept], [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(not_shown, [])
 
-    def test_turn_sends_every_page(self):
+    def test_turn_sends_every_page_read(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
-        chat = FakeChat(["ok\n" + block(summary="s")])
-        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, chat_fn=chat, store={})
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "sheets": list(range(1, 12))})], "ok\n" + block(summary="s")])
+        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, respond_fn=chat, store={}, log_path="")
         self.assertEqual(len(r["pages_used"]), 11)
         self.assertEqual(r["not_shown"], [])
-        self.assertNotIn("NOT SHOWN", chat.seen[0][0][1]["content"])
+        self.assertEqual(len(outputs(chat.seen[1][0])[0]["pages"]), 11)   # MAX_PAGES_READ_PER_TURN is off by default
 
 
 INDEX = os.environ.get("TT_PAGEFINDER_DIR", str(ROOT / "pagefinder" / "index"))
@@ -402,11 +425,16 @@ class TestRealLibraryWiring(unittest.TestCase):
         self.assertIn("batch_size=EMBED_BATCH", (ROOT / "pagefinder" / "search.py").read_text())
 
     def test_full_turn_on_real_library(self):
-        chat = FakeChat(["Did you see it happen?\n" + block(summary="s")])
+        chat = FakeRespond([[("find_documents", {"brand": "Suburban", "model": "SW6DE", "unit_type": "Water Heaters"})],
+                            [("search_pages", {"words": "gas valve", "brand": "Suburban", "unit_type": "Water Heaters"})],
+                            "Did you see it happen?\n" + block(summary="s")])
         r = gd_turn.run_turn("gas clicks but never lights", "Water Heaters", "Suburban SW6DE water heater", [], finder=self.f,
-                             chat_fn=chat, store={})
-        self.assertEqual(r["mode"], "walk")
-        self.assertTrue(r["pages_used"])
+                             respond_fn=chat, store={}, log_path="")
+        docs = outputs(chat.seen[1][0])[0]["documents"]
+        self.assertTrue(docs and all(d["brand"] == "Suburban" for d in docs))
+        hits = outputs(chat.seen[2][0])[1]["hits"]
+        self.assertTrue(hits and all(h["brand"] == "Suburban" for h in hits))
+        self.assertEqual(r["calls"], 3)
 
 
 if __name__ == "__main__":

@@ -164,8 +164,14 @@ class TestRealLibrary(unittest.TestCase):
         shop_pages = [x for x in p.pages if x.doc_id == "L218"]
         self.assertTrue(shop_pages)
         self.assertTrue(all(x.label().startswith("SHOP SHEET (not maker manual): ") for x in shop_pages))
-        ctx = gd_prompt.context_block(category="Leveling", model_text="Level Up 807662", picked=p, toc=[], pages=p.pages,
-                                      state={})
+        # branch grok-search: Grok opens pages itself; the label reaches it through the tools and the pages-read-earlier block
+        import gd_tools
+        tools = gd_tools.LibraryTools.for_finder(self.f)
+        out, objs, err = tools.call("read_pages", {"doc_id": "L218", "sheets": [1]})
+        self.assertFalse(err)
+        self.assertTrue(json.loads(out)["document"]["title"].startswith("SHOP SHEET (not maker manual): "))
+        self.assertEqual(json.loads(out)["document"]["source_type"], "shop_sheet")
+        ctx = gd_prompt.context_block(category="Leveling", model_text="Level Up 807662", pages=objs, state={})
         self.assertIn("SHOP SHEET (not maker manual): Level Up Advantage 807662", ctx)
         self.assertTrue(self.f.doc_title("L218").startswith("SHOP SHEET (not maker manual)"))
         self.assertTrue(self.f.doc_title("L1").startswith("MAKER INTERNAL FLOW, UNPUBLISHED"))
@@ -199,10 +205,15 @@ class TestRealLibrary(unittest.TestCase):
         self.assertIn("L247", [m["doc_id"] for m in p.manuals])
 
     def test_doc_note_reaches_prompt(self):
-        p = Picked(manuals=[{"doc_id": "L804", "title": "Brinkley Model Z", "note": self.lib.docs["L804"]["doc_note"]}])
-        ctx = gd_prompt.context_block(category="ID & Reference", model_text="Brinkley Z", picked=p, toc=[], pages=[],
-                                      state={})
-        self.assertIn("[note: Owner's manual (care, operation, safety). It has no repair procedure", ctx)
+        # branch grok-search: the doc note reaches Grok on the document card of find_documents / read_pages
+        import gd_tools
+        tools = gd_tools.LibraryTools.for_finder(self.f)
+        out, _, err = tools.call("read_pages", {"doc_id": "L804", "sheets": [1]})
+        self.assertFalse(err)
+        self.assertTrue(json.loads(out)["document"]["doc_note"].startswith(
+            "Owner's manual (care, operation, safety). It has no repair procedure"))
+        found = json.loads(tools.call("find_documents", {"brand": self.lib.docs["L804"]["brand"], "words": "Model Z"})[0])
+        self.assertIn("doc_note", next(c for c in found["documents"] if c["doc_id"] == "L804"))
 
     def test_fault_codes_stay_brand_locked(self):
         """E3 / E5 mean different things per maker (Furrion E5 = air pressure/exhaust, Girard E5 = blower): code search

@@ -17,7 +17,7 @@ import gd_prompt  # noqa: E402
 import gd_state  # noqa: E402
 import gd_turn  # noqa: E402
 from gd_pages import Page, StubPageFinder  # noqa: E402
-from test_fresh_core import FakeChat, block, finder, page, MAN  # noqa: E402
+from test_fresh_core import FakeChat, FakeRespond, block, finder, outputs, page, MAN  # noqa: E402
 
 RULE_WORDS = [r"\bRULE \d", r"\bmust\b", r"\bnever\b", r"\bonly\b", r"\balways\b", r"\bdon't\b", r"\bdo not\b", r"\bdo NOT\b",
               r"say so", r"say you don't know", r"no info", r"manufacturer sites only", r"not available in this build",
@@ -37,9 +37,8 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
     def test_system_text_is_primer_plus_state_format_only(self):
         self.assertEqual(gd_prompt.SYSTEM, gd_prompt.PRIMER + "\n\n" + gd_prompt.STATE_FORMAT)
         f = finder()
-        picked = f.pick_manual("Refrigerators", "Acme X1", "freezes")
-        msgs = gd_prompt.build_messages(user_msg="hi", history=[], category="Refrigerators", model_text="Acme X1", picked=picked,
-                                        toc=[], pages=picked.pages, state=gd_state.new_state())
+        msgs = gd_prompt.build_messages(user_msg="hi", history=[], category="Refrigerators", model_text="Acme X1",
+                                        pages=f._pages, state=gd_state.new_state())
         self.assertEqual([m["role"] for m in msgs], ["system", "system", "user"])
         self.assertEqual(msgs[0]["content"], gd_prompt.SYSTEM)
         self.assertFalse(hasattr(gd_prompt, "RULES") or hasattr(gd_prompt, "GUIDANCE") or hasattr(gd_prompt, "HISTORY_TURNS"))
@@ -53,10 +52,8 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
         hist = []
         for i in range(10):
             hist += [{"role": "user", "content": f"tech {i}"}, {"role": "assistant", "content": f"gd {i}"}]
-        f = finder()
-        picked = f.pick_manual("Refrigerators", "Acme X1", "x")
-        msgs = gd_prompt.build_messages(user_msg="now", history=hist, category="", model_text="", picked=picked, toc=[],
-                                        pages=picked.pages, state=gd_state.new_state())
+        msgs = gd_prompt.build_messages(user_msg="now", history=hist, category="", model_text="", pages=finder()._pages,
+                                        state=gd_state.new_state())
         self.assertEqual(len(msgs), 2 + 20 + 1)
 
 
@@ -124,21 +121,24 @@ class TestNoCaps(unittest.TestCase):
 
     def test_turn_sends_every_page_and_no_token_or_effort_limit(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
-        chat = FakeChat(["ok\n" + block(summary="s")])
-        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, chat_fn=chat, store={})
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": [str(i) for i in range(1, 12)]})], "ok\n" + block(summary="s")])
+        r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, respond_fn=chat, store={}, log_path="")
         self.assertEqual(len(r["pages_used"]), 11)
         self.assertEqual(r["not_shown"], [])
-        self.assertEqual(chat.seen[0][1:], (None, None))     # max_tokens and reasoning effort left to the provider
+        self.assertEqual([s[2] for s in chat.seen], [None, None])   # no tool_choice set; no token or effort setting exists
+        import inspect, gd_llm
+        src = inspect.getsource(gd_llm.respond)
+        self.assertNotIn("max_output_tokens", src)
+        self.assertNotIn("reasoning", src.split("kwargs = ")[1].split("\n")[0])
 
     def test_rounds_repeat_until_nothing_new_is_asked(self):
         f, store = finder(), {}
         f._parts["wiring"] = [page(sheet=31, kind="part", text="wiring page")]
-        chat = FakeChat([block(next_part_to_fetch="freezer fan motor", summary="a"),
-                         block(next_part_to_fetch="wiring", summary="b"),
-                         "Done [Acme, p.31]\n" + block(next_part_to_fetch="wiring", summary="c")])
-        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
+        chat = FakeRespond([[("search_pages", {"words": "freezer fan motor"})], [("read_pages", {"doc_id": "L1", "pages": ["31"]})],
+                            "Done\n" + block(next_part_to_fetch="wiring", summary="c")])
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, log_path="")
         self.assertEqual(r["calls"], 3)       # more than the old single extra round
-        self.assertIn("wiring page", chat.seen[2][0][1]["content"])
+        self.assertIn("wiring page", outputs(chat.seen[2][0])[1]["pages"][0]["text"])
 
 
 class TestSafetyCeiling(unittest.TestCase):
@@ -146,12 +146,13 @@ class TestSafetyCeiling(unittest.TestCase):
         f, store = finder(), {}
         for i in range(10):
             f._parts[f"part{i}"] = [page(sheet=40 + i, kind="part", text=f"page {i}")]
-        chat = FakeChat([block(next_part_to_fetch=f"part{i}", summary=str(i)) for i in range(10)])
-        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
+        chat = FakeRespond([[("search_pages", {"words": f"page {i}"})] for i in range(10)])
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, log_path="")
         self.assertEqual(r["calls"], gd_turn.SAFETY_CEILING_CALLS)
         self.assertTrue(any("safety ceiling" in p for p in r["problems"]))
-        for msgs, *_ in chat.seen:                              # the brain never sees the ceiling
-            self.assertNotIn("ceiling", " ".join(m["content"] for m in msgs))
+        self.assertEqual([s[2] for s in chat.seen][-1], "none")   # the last allowed call goes out with tools off
+        for items, *_ in chat.seen:                              # the brain never sees the ceiling
+            self.assertNotIn("ceiling", json.dumps(items))
 
 
 class FakeResp:
@@ -185,11 +186,15 @@ def _pdf_bytes(pages):
 
 
 class TestWebTool(unittest.TestCase):
-    def test_web_fn_is_wired_in_the_app_and_is_a_real_callable(self):
+    def test_app_side_web_search_is_retired_from_the_gd_path(self):
+        # Grok searches the web itself (xAI built-in web_search in its own call, Chase 2026-10-24); gd_official's fetch
+        # stays for open_web_document, its make_web_fn / xai_search are no longer wired into GD.
         src = (ROOT / "rv_techtrack.py").read_text()
-        self.assertIn("_gd_web_tool()", src)
-        self.assertIn("gd_official.make_web_fn(secret_fn=_secret)", src)
-        self.assertTrue(callable(gd_official.make_web_fn(secret_fn=lambda k: None)))
+        self.assertNotIn("_gd_web_tool()", src)
+        self.assertNotIn("gd_official.make_web_fn(secret_fn=_secret)", src)
+        import gd_tools
+        self.assertIn({"type": "web_search"}, gd_tools.TOOL_SPECS)
+        self.assertTrue(callable(gd_official.fetch_pages))
 
     def test_html_page_from_any_host_comes_back_with_url_host_and_revision(self):
         http = FakeHttp({"https://www.irv2.com/forums/t1": FakeResp(
@@ -240,7 +245,7 @@ class TestWebTool(unittest.TestCase):
         self.assertEqual(calls[0][1]["tools"], [{"type": "web_search"}])        # no allowed_domains filter
         self.assertEqual(pages[0].host, "www.dometic.com")
 
-    def test_turn_gives_the_brain_web_pages_from_any_site_with_source_lines(self):
+    def test_web_documents_from_any_site_come_back_with_source_lines(self):
         f, store = finder(), {}
         web_pages = [Page(doc_id="web:irv2.com/t", title="forum thread", page="1", sheet=1, text="FORUM TEXT", kind="web", source="web",
                           url="https://www.irv2.com/forum/t", revision="Last-Modified 2022"),
@@ -248,18 +253,24 @@ class TestWebTool(unittest.TestCase):
                           url="https://www.dometic.com/m.pdf", revision="Rev 04/12/23")]
         calls = []
 
-        def web(q):
-            calls.append(q)
+        def fetch(url, words):
+            calls.append((url, words))
             return web_pages
-        chat = FakeChat([block(web_lookup="acme fan spec", summary="a"), "ok [forum]\n" + block(summary="b")])
-        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store, web_fn=web)
-        ctx = chat.seen[1][0][1]["content"]
-        self.assertEqual(calls, ["acme fan spec"])
-        self.assertIn("FORUM TEXT", ctx)
-        self.assertIn("MAKER TEXT", ctx)
+        chat = FakeRespond([[("open_web_document", {"url": "https://www.dometic.com/m.pdf", "words": "fan spec"})],
+                            "ok [forum]\n" + block(summary="b")])
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, web_fetch=fetch, log_path="")
+        out = outputs(chat.seen[1][0])[0]
+        self.assertEqual(calls, [("https://www.dometic.com/m.pdf", "fan spec")])
+        self.assertEqual([p["text"] for p in out["pages"]], ["FORUM TEXT", "MAKER TEXT"])
+        self.assertEqual(out["pages"][0]["host"], "www.irv2.com")
+        self.assertEqual(out["pages"][1]["revision"], "Rev 04/12/23")
+        self.assertEqual(r["calls"], 2)
+        # next turn: the web pages read come along with their source lines
+        chat2 = FakeChat(["ok\n" + block(summary="c")])
+        gd_turn.run_turn("next", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store, log_path="")
+        ctx = chat2.seen[0][0][1]["content"]
         self.assertIn("source https://www.irv2.com/forum/t (host www.irv2.com)", ctx)
         self.assertIn("revision Rev 04/12/23", ctx)
-        self.assertEqual(r["calls"], 2)
 
     def test_web_error_and_empty_result_are_reported_as_facts_not_rules(self):
         f, store = finder(), {}
@@ -287,13 +298,13 @@ class TestLabelsAndHelpersKept(unittest.TestCase):
         for want in ("PAGE TOPICS: diagram / drawing: wiring", "PAGE NOTE (reviewed): DOC DEFECT: value is 12 V", "doc no. CCD-1", "revision 2024-01-01"):
             self.assertIn(want, txt)
 
-    def test_search_part_pages_are_not_filtered_by_maker(self):
-        # the stub returns whatever the search found; the turn hands all of it over (the old R4 filter lived in the adapter)
-        other = Page(doc_id="L9", title="Other Maker Service Sheet", page="2", sheet=2, text="OTHER MAKER", kind="part")
-        f = StubPageFinder(manuals=MAN, pages=[page(sheet=25, kind="entry")], parts={"fan": [other]})
-        chat = FakeChat([block(next_part_to_fetch="fan", summary="a"), "ok\n" + block(summary="b")])
-        gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store={})
-        self.assertIn("OTHER MAKER", chat.seen[1][0][1]["content"])
+    def test_search_pages_are_not_filtered_by_maker(self):
+        # search_pages hands back every matching page, each labeled with its own doc (no R4 filter, no tier boost)
+        other = Page(doc_id="L9", title="Other Maker Service Sheet", page="2", sheet=2, text="OTHER MAKER fan test", kind="part")
+        f = StubPageFinder(manuals=MAN, pages=[page(sheet=25, kind="entry", text="fan chart")], parts={"fan": [other]})
+        chat = FakeRespond([[("search_pages", {"words": "fan"})], "ok\n" + block(summary="b")])
+        gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store={}, log_path="")
+        self.assertIn("L9", [h["doc_id"] for h in outputs(chat.seen[1][0])[0]["hits"]])
 
 
 @unittest.skipUnless(os.environ.get("TT_LIVE_PUBLIC_FETCH") == "1", "set TT_LIVE_PUBLIC_FETCH=1 for the one real public-PDF fetch (plain HTTP, free)")

@@ -3054,20 +3054,13 @@ def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_
 GD_OFFICIAL_METHOD = True
 GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
 REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
-# Test hooks: replay tests set these to stay offline. None = live xAI chat / the real web lookup tool (gd_official).
+# Test hooks: replay tests set these to stay offline. None = live xAI call with the library tools + built-in web search.
+# _gd_official_chat(messages, max_tokens, effort) -> str is a text-only fake; _gd_official_respond(items, tools, tool_choice)
+# -> gd_llm.respond()-shaped dict is a fake that can make tool calls.
 _gd_official_chat = None
-_gd_official_web = None
-_gd_web_tool_fn = None
-
-
-def _gd_web_tool():
-    """The web lookup tool Grok can call at any point (gd_official.make_web_fn). Built once per process."""
-    global _gd_web_tool_fn
-    if _gd_web_tool_fn is None:
-        import gd_official
-
-        _gd_web_tool_fn = gd_official.make_web_fn(secret_fn=_secret)
-    return _gd_web_tool_fn
+_gd_official_respond = None
+# Grok searches the internet itself with xAI's built-in web_search inside its own call (Chase 2026-10-24); the app-side
+# gd_official search is retired from the GD path. open_web_document still fetches a URL Grok found (plain HTTP, free).
 
 
 _gd_finder = None  # test hook: a gd_pages finder (e.g. StubPageFinder). None = the fresh library's page-finder.
@@ -3098,20 +3091,18 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         except Exception:
             pin_store = {}
 
-    def chat_fn(messages, max_tokens, effort):
+    def respond_fn(items, tools, tool_choice=None):
+        if _gd_official_respond is not None:
+            return _gd_official_respond(items, tools, tool_choice)
         if _gd_official_chat is not None:
-            return _gd_official_chat(messages, max_tokens, effort)
-        return gd_llm.complete_chat(
-            messages, temperature=0.2, max_tokens=max_tokens, secret_fn=_secret,
-            reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI],
-        )
+            return _gd_official_chat(items, None, None)
+        return gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=_secret)
 
     try:
         result = gd_turn.run_turn(
             user_msg, category_name, model_text, history,
-            finder=_gd_page_finder(), chat_fn=chat_fn, store=pin_store,
-            usage_fn=gd_llm.last_usage, web_fn=(_gd_official_web if _gd_official_web is not None else _gd_web_tool()),
-            log_path=GD_USAGE_LOG,
+            finder=_gd_page_finder(), respond_fn=respond_fn, store=pin_store,
+            log_path=GD_USAGE_LOG or None,   # None = gd_turn.DEFAULT_LOG_PATH (GD_TURN_LOG or the temp dir)
         )
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.

@@ -11,6 +11,10 @@ What changed from the old harness (scripts/gd_rc_sim.py, deleted; see FIX-PLAN.m
   * The judge returns a fixed JSON record (ending type, fix reached vs the case fix, parts condemned, verify asked once,
     every step cited). A run that hits the turn cap is "capped", never a pass.
   * A deterministic check lists every part number / phone number GD wrote that is not on a page it was shown.
+  * Branch grok-search: GD replies through gd_llm.respond (xAI Responses API, our library tools + built-in web search),
+    so GD's library and web lookups happen inside Grok's own calls (up to gd_turn.SAFETY_CEILING_CALLS per turn).
+    Cost is the billed usage.cost_in_usd_ticks; the dollar cap is checked between turns. Each case also writes
+    <case>-turns.jsonl (gd_turn's per-turn log with triggers) to --out.
 """
 from __future__ import annotations
 
@@ -79,8 +83,15 @@ def invented_numbers(replies, shown_text):
     return sorted({n for r in replies for n in pat.findall(r or "") if n not in seen})
 
 
+USD_PER_TICK = 1e-10   # xAI usage.cost_in_usd_ticks: 1 USD = 1e10 ticks (https://docs.x.ai/developers/cost-tracking)
+
+
 def cost(usage):
     u = usage or {}
+    if u.get("cost_usd") is not None:          # run_turn's summed billed cost (server-side web search included)
+        return float(u["cost_usd"])
+    if u.get("cost_in_usd_ticks"):             # one xAI call's billed cost
+        return u["cost_in_usd_ticks"] * USD_PER_TICK
     cached = u.get("cached_tokens", 0) or 0
     return ((u.get("prompt_tokens", 0) - cached) * PRICE_PER_M["input"] + cached * PRICE_PER_M["cached"]
             + (u.get("completion_tokens", 0) + (u.get("reasoning_tokens", 0) or 0)) * PRICE_PER_M["output"]) / 1e6
@@ -96,21 +107,28 @@ def _json(text):
         return None
 
 
-def run_case(case_text, category, model, *, finder, gd_chat, tech_chat, referee_chat, judge_chat,
-             max_turns=14, max_usd=1.0, usage_fn=None, spent_fn=None):
-    """One simulated session. All four chat functions are injected (fakes in tests).
-    spent_fn() -> dollars spent so far on ALL calls (GD + tech + referee + judge); without it only GD cost is counted."""
+def run_case(case_text, category, model, *, finder, tech_chat, referee_chat, judge_chat, gd_respond=None, gd_chat=None,
+             max_turns=14, max_usd=1.0, usage_fn=None, spent_fn=None, log_path=""):
+    """One simulated session. All chat functions are injected (fakes in tests).
+    gd_respond(items, tools, tool_choice) is the GD reply hook (branch grok-search): Grok searches the library and the web
+    with tools in its own call (gd_llm.respond). gd_chat(messages, max_tokens, effort) is the old text-only hook, kept for
+    the offline fakes; gd_respond wins when both are given.
+    spent_fn() -> dollars spent so far on ALL calls (GD + tech + referee + judge); without it only GD cost is counted.
+    log_path: the per-turn JSONL log (gd_turn), "" = off."""
+    if gd_respond is None and gd_chat is None:
+        raise ValueError("run_case needs gd_respond (or the old gd_chat)")
     notes, key = split_case(case_text)
     store, history, spent, gd_replies, shown = {}, [], 0.0, [], []
     tech_hist = [{"role": "system", "content": TECH_SYS + notes}, {"role": "user", "content": "GD: Describe the complaint."}]
     msg = tech_chat(tech_hist).strip()
     ending = "capped"
     for _ in range(max_turns):
-        r = gd_turn.run_turn(msg, category, model, history, finder=finder, chat_fn=gd_chat, store=store, usage_fn=usage_fn)
+        r = gd_turn.run_turn(msg, category, model, history, finder=finder, store=store, usage_fn=usage_fn,
+                             respond_fn=gd_respond, chat_fn=None if gd_respond else gd_chat, log_path=log_path)
         spent = spent_fn() if spent_fn else spent + cost(r.get("usage"))
         history += [{"role": "user", "content": msg}, {"role": "assistant", "content": r["reply"]}]
         gd_replies.append(r["reply"])
-        shown.append(json.dumps(store["gd_case"].get("picked") or {}) + json.dumps(store["gd_case"].get("part_pages") or {}))
+        shown.append(json.dumps(store["gd_case"].get("read") or {}))
         if r["mode"] == "closed":
             ending = "closed"
             break
@@ -155,11 +173,16 @@ def main():
                                    reasoning_effort=effort, providers=[gd_llm.PROVIDER_XAI])
         total["usd"] += cost(gd_llm.last_usage())
         return out
+    def gd_respond(items, tools, tool_choice):
+        got = gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=os.environ.get)
+        total["usd"] += cost(gd_llm.last_usage())
+        return got
     case_text = open([os.path.join(RC_DIR, f) for f in os.listdir(RC_DIR) if f.startswith(a.case + "-") and f.endswith(".md")][0]).read()
     category, model = UNITS[a.case]
     verdict, history, store = run_case(case_text, category, model, finder=gd_pages.LibraryPageFinder(),
-                                       gd_chat=chat, tech_chat=chat, referee_chat=chat, judge_chat=chat,
-                                       max_usd=a.max_usd, usage_fn=gd_llm.last_usage, spent_fn=lambda: total["usd"])
+                                       gd_respond=gd_respond, tech_chat=chat, referee_chat=chat, judge_chat=chat,
+                                       max_usd=a.max_usd, spent_fn=lambda: total["usd"],
+                                       log_path=os.path.join(a.out, f"{a.case}-turns.jsonl"))
     os.makedirs(a.out, exist_ok=True)
     json.dump({"verdict": verdict, "history": history, "state": store["gd_case"]["state"]},
               open(os.path.join(a.out, f"{a.case}.json"), "w"), indent=1, default=str)

@@ -11,6 +11,11 @@ now come from the app library data). Its index is built from the app library by 
 LibraryPageFinder adapts it. StubPageFinder is for offline tests.
 
 Every page found is handed over whole, with its doc number, revision and page notes. There is no page or character budget.
+
+Branch grok-search (Chase 2026-10-22 / 2026-10-24): Guided Diagnostics no longer calls pick_manual / fetch_part. Grok finds the
+documents and pages itself with gd_tools (over this finder's library, finder.lib). The Bay PDF path is gone (cleanup
+2026-10-24), so pick_manual / fetch_part / entry_pages / toc_pages have no live caller: they are the backburnered finder, kept
+for the library tests and the offline scripts (scripts/picker_sweep.py). The app uses only LibraryPageFinder(...).lib.
 """
 from __future__ import annotations
 
