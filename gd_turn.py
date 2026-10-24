@@ -40,9 +40,15 @@ STORE_KEY = "gd_case"
 # turn that asks for a new, different search every round from running up cost. Not part of the prompt.
 SAFETY_CEILING_CALLS = 6
 # Pages-per-turn backstop (Chase 2026-10-24 concern: Grok reading a whole manual and running up cost). App-side, logged,
-# never shown to Grok, same pattern as SAFETY_CEILING_CALLS. None = off: Chase has not approved a number yet.
-# When set, read_pages / open_web_document hand back at most this many pages in one turn; the rest are left out and logged.
-MAX_PAGES_READ_PER_TURN = None
+# never shown to Grok and not in the primer, same pattern as SAFETY_CEILING_CALLS. ON at 30 (Chase 2026-10-24 2:51 PM).
+# read_pages / open_web_document hand back at most this many pages in one turn; the rest are left out quietly and logged
+# (PAGE_BACKSTOP_HIT). None turns it off.
+# Why 30: a library page is about 3,000 characters (six-row check median 3,061), so 30 pages is about 90,000 characters,
+# roughly 23,000 input tokens (~4 chars/token), about $0.03 at grok-4.3's $1.25/M input for one call. Pages read are re-sent
+# on every later call of the turn and in later turns, so 30 bounds the worst turn near 6 calls x 23k = ~140k input tokens
+# (~$0.17 uncached). A normal job reads 2-8 pages; 30 is three full reads at gd_tools.READ_MAX_PAGES (10), with room to
+# read past a wrong manual, so a real job never meets it.
+MAX_PAGES_READ_PER_TURN = 30
 # Turn log (Chase 2026-10-24, "log triggers galore"): one JSON line per turn, app-side, never shown to Grok. run_turn writes
 # to log_path; log_path=None (the default) means GD_TURN_LOG from the environment, else this file in the temp dir.
 DEFAULT_LOG_PATH = os.environ.get("GD_TURN_LOG") or os.path.join(tempfile.gettempdir(), "techtrack-gd-turns.jsonl")
@@ -51,6 +57,7 @@ CASE_LOG_KEEP = 30            # turn records kept in the case (store) for the ap
 # Trigger names (each logged as {"trigger": NAME, ...} in the turn record's "triggers" list, as they happen).
 T_SAFETY_CEILING = "SAFETY_CEILING_HIT"            # the last allowed call was made with tools off / Grok still asked for tools
 T_PAGE_BACKSTOP = "PAGE_BACKSTOP_HIT"              # MAX_PAGES_READ_PER_TURN left pages out (only when it is set)
+T_PAGE_RANGE_LIMIT = "PAGE_RANGE_LIMIT_HIT"        # one read_pages request asked for more than gd_tools.READ_MAX_PAGES
 T_OTHER_BRAND = "OTHER_BRAND_PAGE_READ"            # Grok opened a page of a doc whose maker is not the maker the tech typed
 T_WEB_BEFORE_LIBRARY = "WEB_BEFORE_LIBRARY_SEARCH"  # a web search / web document this turn before any library tool this turn
 T_REPEAT = "REPEATED_SEARCH"                       # the same tool with the same arguments ran earlier in this job
@@ -61,13 +68,21 @@ T_FORUM = "FORUM_SOURCE_USED"                      # a web source on a forum hos
 T_STATE_MISSING = "STATE_BLOCK_MISSING"
 T_STATE_BROKEN = "STATE_BLOCK_BROKEN"
 T_STORY = "STORY_WRITTEN"                          # the state block carried a technician story this turn
-TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_OTHER_BRAND, T_WEB_BEFORE_LIBRARY, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
+TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_WEB_BEFORE_LIBRARY, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
             T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_STORY)
 FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community", "facebook", "groups.", "quora", "boards.")
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
 USD_PER_TICK = 1e-10
 
 CEILING_REPLY = "I ran out of lookups for this message. Send it again and I will pick up from what I found."
+
+
+def _read_limit():
+    try:
+        import gd_tools
+        return gd_tools.READ_MAX_PAGES
+    except Exception:
+        return None
 
 
 def new_case(category, model_text, complaint):
@@ -259,6 +274,11 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             else:
                 out, pages, err = library.call(c["name"], c["arguments"], max_pages=room)
                 dropped = list(getattr(library, "last_dropped", []) or [])
+            read_info = dict(getattr(library, "last_read", {}) or {}) if library is not None else {}
+            if read_info.get("range_cut"):
+                # Grok is told in the tool result which pages are left for another read; logged here.
+                trig(T_PAGE_RANGE_LIMIT, tool=c["name"], requested=read_info.get("requested"),
+                     limit=_read_limit(), not_opened=read_info["range_cut"])
             secs = round(time.time() - tt, 3)
             if dropped:
                 # App-side backstop only: never shown to Grok; logged for the cost review.
@@ -284,6 +304,13 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                     trig(T_OTHER_BRAND, doc_id=p.doc_id, page=p.page, doc_brand=brand, unit_brands=sorted(unit_brands))
             rec = {"tool": c["name"], "args": c["arguments"], "call": calls, "seconds": secs, "chars": len(out),
                    "pages": len(pages), "page_chars": sum(len(p.text or "") for p in pages), "opened": [p.label() for p in pages]}
+            if read_info:
+                rec["pages_requested"] = read_info.get("requested", 0)
+                rec["pages_served"] = len(pages)
+                if read_info.get("range_cut"):
+                    rec["range_cut"] = read_info["range_cut"]
+                if read_info.get("not_found"):
+                    rec["pages_not_found"] = read_info["not_found"]
             if dropped:
                 rec["left_out"] = dropped
             if err:
@@ -322,6 +349,12 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     usage["tool_calls_by_name"] = {n: sum(1 for t in lib_calls if t["tool"] == n) for n in sorted({t["tool"] for t in lib_calls})}
     usage["tool_chars_returned"] = sum(t.get("chars", 0) for t in lib_calls)
     usage["pages_opened"] = len(turn_pages)
+    reads = [t for t in lib_calls if "pages_requested" in t]
+    usage["pages_requested"] = sum(t["pages_requested"] for t in reads)
+    usage["pages_served"] = sum(t["pages_served"] for t in reads)
+    usage["pages_range_cut"] = sum(len(t.get("range_cut") or []) for t in reads)
+    usage["pages_backstop_left_out"] = sum(len(t.get("left_out") or []) for t in lib_calls)
+    usage["pages_backstop"] = MAX_PAGES_READ_PER_TURN
     usage["page_chars_opened"] = sum(len(p.text or "") for p in turn_pages)
     usage["web_search_calls"] = sum(1 for t in tool_log if t.get("side") == "xai")
     if usage.get("cost_in_usd_ticks"):
@@ -331,7 +364,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     mode = "closed" if case["state"].get("closed") else ("walk" if lib_read else ("web" if case["web_sources"] else "no_manual"))
     ctx = sum(len(m.get("content") or "") for m in msgs)
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "turn": case["turns"], "unit": dict(case["unit"]), "mode": mode,
-           "model_calls": calls, "rounds": rounds, "context_chars": ctx, "tool_calls": tool_log, "pages_opened": opened,
+           "model_calls": calls, "rounds": rounds, "pages_requested": usage["pages_requested"],
+           "pages_served": usage["pages_served"], "pages_backstop": MAX_PAGES_READ_PER_TURN, "context_chars": ctx, "tool_calls": tool_log, "pages_opened": opened,
            "web": web_log, "triggers": triggers, "problems": problems, "usage": usage,
            "tokens_in": usage.get("prompt_tokens", 0), "tokens_out": usage.get("completion_tokens", 0),
            "cost_usd": usage.get("cost_usd"), "cited": cited, "pages_used": [p.label() for p in _read_pages(case)],

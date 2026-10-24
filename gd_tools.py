@@ -34,7 +34,11 @@ from gd_pages import Page
 SNIPPET_CHARS = 320
 TOC_PAGE_CHARS = 2000
 LABEL_CHARS = 240          # page-topic labels shown with a search hit or an outline row (read_pages gives them whole)      # a contents page is titles; a longer one is cut here (read_pages opens it whole)
-RANGE_MAX_PAGES = 10       # a page range in read_pages ('29-31') expands up to this many pages; a longer one is not expanded
+# One read_pages request opens up to this many pages (Chase 2026-10-24: keep it). Pages asked for past it are not opened;
+# the result tells Grok which ones, so it can ask again in another read. The primer states this number.
+READ_MAX_PAGES = 10
+RANGE_MAX_PAGES = READ_MAX_PAGES   # older name
+RANGE_EXPAND_MAX = 2000    # a range is expanded into page labels up to this span (guards '1-999999'); longer is taken as typed
 # No tool returns a whole document's text: find_documents / table_of_contents / search_pages return titles, labels and
 # short snippets; read_pages and open_web_document return the pages asked for (Chase 2026-10-24).
 DEFAULT_HITS = 8
@@ -72,7 +76,8 @@ FUNCTION_SPECS = [
     {"type": "function", "name": "read_pages",
      "description": "Open whole pages of one document: full text, page topics and picture labels, page notes (DOC DEFECT, "
                     "MISPRINTED PAGE, NEEDS OCR), the document number, revision and document note. pages are printed page "
-                    "numbers as the manual prints them; sheets are PDF sheet numbers.",
+                    "numbers as the manual prints them; sheets are PDF sheet numbers. One read opens up to 10 pages; when more are "
+                    "asked for, the result names the pages left for another read.",
      "parameters": {"type": "object", "properties": {
          "doc_id": {"type": "string"},
          "pages": {"type": "array", "items": {"type": "string"}, "description": "Printed pages, e.g. [\"27\", \"29-31\"]"},
@@ -128,13 +133,30 @@ def _cut(text, n):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + " ..."
 
 
+def _spans(labels):
+    """['1','2','3','7','A-1'] -> '1-3, 7, A-1' (runs of whole numbers joined)."""
+    out, run = [], []
+    def flush():
+        if run:
+            out.append(run[0] if len(run) == 1 else f"{run[0]}-{run[-1]}")
+            run.clear()
+    for x in labels:
+        if run and x.isdigit() and run[-1].isdigit() and int(x) == int(run[-1]) + 1:
+            run.append(x)
+        else:
+            flush()
+            run.append(x)
+    flush()
+    return ", ".join(out)
+
+
 def _page_list(spec):
     """['27', '29-31', 5] -> ['27', '29', '30', '31', '5'] (as strings)."""
     out = []
     for x in spec or []:
         s = str(x).strip()
         m = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", s)
-        if m and 0 <= int(m.group(2)) - int(m.group(1)) < RANGE_MAX_PAGES:
+        if m and 0 <= int(m.group(2)) - int(m.group(1)) < RANGE_EXPAND_MAX:
             out += [str(i) for i in range(int(m.group(1)), int(m.group(2)) + 1)]
         elif s:
             out += [t for t in re.split(r"\s*,\s*", s) if t]
@@ -154,6 +176,7 @@ class LibraryTools:
         self.lib = lib
         self.keywords = dict(keywords or {})
         self.web_fetch = web_fetch            # (url, words) -> [Page]; default gd_official.fetch_pages (plain HTTP)
+        self.last_read = {}
         self._label_tf = None
         self.last_dropped = []
 
@@ -355,8 +378,10 @@ class LibraryTools:
 
     # -- read_pages
     def read_pages(self, doc_id, pages=None, sheets=None, max_pages=None):
-        """Returns (result dict for Grok, [gd_pages.Page] read). max_pages: the app-side backstop (gd_turn
-        MAX_PAGES_READ_PER_TURN); pages past it are left out of the result and listed in self.last_dropped."""
+        """Returns (result dict for Grok, [gd_pages.Page] read).
+        One request opens up to READ_MAX_PAGES pages, in the order asked; the result says plainly which pages were left for
+        another read ("limit"). max_pages: the app-side backstop (gd_turn MAX_PAGES_READ_PER_TURN, never shown to Grok);
+        pages past it are left out quietly and listed in self.last_dropped. self.last_read records requested / served."""
         d = self.lib.docs.get(str(doc_id))
         if not d:
             return {"error": f"no document {doc_id} in the library"}, []
@@ -377,11 +402,17 @@ class LibraryTools:
                 want.append(by_sheet[int(s)])
             except (KeyError, ValueError, TypeError):
                 missing.append(f"sheet {s}")
-        seen, out, objs = set(), [], []
+        seen, uniq, out, objs = set(), [], [], []
         for p in want:
-            if p["pdf_sheet"] in seen:
-                continue
-            seen.add(p["pdf_sheet"])
+            if p["pdf_sheet"] not in seen:
+                seen.add(p["pdf_sheet"])
+                uniq.append(p)
+        lab = lambda p: str(p.get("printed_page") or p["pdf_sheet"])
+        cut = uniq[READ_MAX_PAGES:]
+        uniq = uniq[:READ_MAX_PAGES]
+        self.last_read = {"requested": len(uniq) + len(cut), "served": 0, "range_cut": [lab(p) for p in cut],
+                          "not_found": len(missing)}
+        for p in uniq:
             if max_pages is not None and len(out) >= max_pages:
                 self.last_dropped.append(f"{d['doc_id']} sheet {p['pdf_sheet']}")
                 continue
@@ -397,7 +428,13 @@ class LibraryTools:
             objs.append(Page(doc_id=d["doc_id"], title=self._title(d), page=r["page"], sheet=r["sheet"], text=r["text"], kind="read",
                              reason="read by Grok", note=note, topics=p.get("topics") or "", doc_number=d.get("doc_number") or "",
                              revision=d.get("revision_date") or ""))
+        self.last_read["served"] = len(out)
         res = {"document": self._doc_card(d), "pages": out}
+        if cut:
+            n = len(uniq) + len(cut)
+            res["limit"] = (f"pages {_spans([lab(p) for p in uniq])} of the {n} requested are here; one read opens up to "
+                            f"{READ_MAX_PAGES} pages. Ask again for the rest: {_spans([lab(p) for p in cut])}")
+            res["not_opened_yet"] = [lab(p) for p in cut]
         if missing:
             printed = sorted({str(p.get("printed_page")) for p in rows if p.get("printed_page") not in (None, "")}, key=lambda v: (len(v), v))
             res["not_found"] = missing
@@ -418,6 +455,8 @@ class LibraryTools:
             got = list(fetch(url, words or "") or [])
         except Exception as exc:
             return {"error": f"could not fetch {url}: {exc}"}, []
+        self.last_read = {"requested": len(got), "served": min(len(got), max_pages) if max_pages is not None else len(got),
+                          "range_cut": [], "not_found": 0}
         if max_pages is not None and len(got) > max_pages:
             self.last_dropped += [f"{url} page {p.page}" for p in got[max_pages:]]
             got = got[:max_pages]
@@ -432,6 +471,7 @@ class LibraryTools:
         """Run one function call. Returns (output text for Grok, [Page] read, error or ''). max_pages: pages this call may
         still return under the app-side backstop (None = off); what it left out is in self.last_dropped."""
         self.last_dropped = []
+        self.last_read = {}
         try:
             args = json.loads(arguments) if isinstance(arguments, str) else dict(arguments or {})
             if not isinstance(args, dict):

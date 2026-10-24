@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import gd_llm  # noqa: E402
+import gd_prompt  # noqa: E402
 import gd_tools  # noqa: E402
 import gd_turn  # noqa: E402
 from gd_pages import Page, StubPageFinder  # noqa: E402
@@ -229,9 +230,9 @@ class TestToolsReturnPagesNotManuals(unittest.TestCase):
     def test_read_pages_returns_the_pages_asked_for(self):
         res, pages = self.t.read_pages("L1", pages=["29"])
         self.assertEqual([p["page"] for p in res["pages"]], ["29"])
-        res, pages = self.t.read_pages("L1", pages=["1-40"])     # a long range is not expanded into a whole manual
+        res, pages = self.t.read_pages("L1", pages=["1-999999"])  # a silly range is taken as typed, not expanded
         self.assertEqual(pages, [])
-        self.assertEqual(res["not_found"], ["page 1-40"])
+        self.assertEqual(res["not_found"], ["page 1-999999"])
         res, pages = self.t.read_pages("L1", pages=["29-30"])
         self.assertEqual([p.page for p in pages], ["29", "30"])
 
@@ -245,11 +246,39 @@ class TestToolsReturnPagesNotManuals(unittest.TestCase):
 
 
 class TestPagesBackstop(unittest.TestCase):
-    def tearDown(self):
-        gd_turn.MAX_PAGES_READ_PER_TURN = None
+    def setUp(self):
+        self.was = gd_turn.MAX_PAGES_READ_PER_TURN
 
-    def test_off_by_default(self):
-        self.assertIsNone(gd_turn.MAX_PAGES_READ_PER_TURN)
+    def tearDown(self):
+        gd_turn.MAX_PAGES_READ_PER_TURN = self.was
+
+    def test_on_at_30_and_quiet(self):
+        """Chase 2026-10-24 2:51 PM: backstop ON; about 3,000 chars a page -> 30 pages ~ 90k chars a turn. Not in the
+        primer, the state format or any tool description."""
+        self.assertEqual(gd_turn.MAX_PAGES_READ_PER_TURN, 30)
+        shown = gd_prompt.SYSTEM + json.dumps(gd_tools.TOOL_SPECS)
+        self.assertNotIn("30 pages", shown)
+        self.assertNotIn("backstop", shown.lower())
+        self.assertNotIn("per turn", shown.lower())
+
+    def test_backstop_cuts_quietly_at_30_and_logs_requested_vs_served(self):
+        big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, text=f"page {i} " * 50) for i in range(1, 41)])
+        script = [[("read_pages", {"doc_id": "L1", "sheets": list(range(k, k + 10))})] for k in (1, 11, 21, 31)]
+        chat = FakeRespond(script + ["ok\n" + block(summary="s")])
+        log = os.path.join(tempfile.mkdtemp(), "t.jsonl")
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=big, respond_fn=chat, store={}, log_path=log)
+        self.assertEqual(r["usage"]["pages_opened"], 30)
+        self.assertEqual(r["usage"]["pages_requested"], 40)
+        self.assertEqual(r["usage"]["pages_served"], 30)
+        self.assertEqual(r["usage"]["pages_backstop_left_out"], 10)
+        self.assertEqual(outputs(chat.seen[4][0])[3]["pages"], [])
+        self.assertNotIn("limit", outputs(chat.seen[4][0])[3])          # the backstop says nothing to Grok
+        self.assertIn(gd_turn.T_PAGE_BACKSTOP, names(r))
+        self.assertNotIn(gd_turn.T_PAGE_RANGE_LIMIT, names(r))
+        rec = json.loads(open(log).read().splitlines()[-1])
+        self.assertEqual((rec["pages_requested"], rec["pages_served"], rec["pages_backstop"]), (40, 30, 30))
+        self.assertEqual([t["pages_requested"] for t in rec["tool_calls"]], [10, 10, 10, 10])
+        self.assertEqual([t["pages_served"] for t in rec["tool_calls"]], [10, 10, 10, 0])
 
     def test_when_set_pages_past_it_are_left_out_logged_and_not_shown(self):
         gd_turn.MAX_PAGES_READ_PER_TURN = 2
@@ -378,3 +407,52 @@ class TestSixFollowUpsOnTheRealLibrary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReadLimitPerRequest(unittest.TestCase):
+    """Chase 2026-10-24 2:51 PM: keep the 10-pages-per-read limit; Grok is told plainly what was left for another read."""
+
+    def setUp(self):
+        self.big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, text=f"page {i}") for i in range(1, 31)])
+        self.t = gd_tools.LibraryTools.for_finder(self.big)
+
+    def test_number_in_code_matches_primer(self):
+        self.assertEqual(gd_tools.READ_MAX_PAGES, 10)
+        self.assertIn(f"One read opens up to {gd_tools.READ_MAX_PAGES} pages.", gd_prompt.PRIMER)
+        self.assertIn("up to 10 pages", [t for t in gd_tools.FUNCTION_SPECS if t["name"] == "read_pages"][0]["description"])
+
+    def test_cut_to_the_limit_says_so(self):
+        res, pages = self.t.read_pages("L1", sheets=list(range(1, 26)))
+        self.assertEqual([p.sheet for p in pages], list(range(1, 11)))
+        self.assertEqual(res["limit"], "pages 1-10 of the 25 requested are here; one read opens up to 10 pages. "
+                                       "Ask again for the rest: 11-25")
+        self.assertEqual(res["not_opened_yet"], [str(i) for i in range(11, 26)])
+        self.assertEqual(self.t.last_read, {"requested": 25, "served": 10, "range_cut": [str(i) for i in range(11, 26)],
+                                            "not_found": 0})
+
+    def test_a_range_is_expanded_and_cut(self):
+        res, pages = self.t.read_pages("L1", pages=["1-25"])
+        self.assertEqual(len(pages), 10)
+        self.assertIn("Ask again for the rest: 11-25", res["limit"])
+
+    def test_ten_or_fewer_has_no_note(self):
+        res, pages = self.t.read_pages("L1", pages=["1-10"])
+        self.assertEqual(len(pages), 10)
+        self.assertNotIn("limit", res)
+
+    def test_trigger_and_log(self):
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["1-25"]})],
+                            [("read_pages", {"doc_id": "L1", "pages": ["11-20"]})], "ok\n" + block(summary="s")])
+        log = os.path.join(tempfile.mkdtemp(), "t.jsonl")
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=self.big, respond_fn=chat, store={}, log_path=log)
+        hits = [t for t in r["triggers"] if t["trigger"] == gd_turn.T_PAGE_RANGE_LIMIT]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual((hits[0]["requested"], hits[0]["limit"], len(hits[0]["not_opened"])), (25, 10, 15))
+        self.assertIn("Ask again for the rest", outputs(chat.seen[1][0])[0]["limit"])
+        rec = json.loads(open(log).read().splitlines()[-1])
+        self.assertEqual(rec["tool_calls"][0]["pages_requested"], 25)
+        self.assertEqual(rec["tool_calls"][0]["pages_served"], 10)
+        self.assertEqual(len(rec["tool_calls"][0]["range_cut"]), 15)
+        self.assertEqual((rec["pages_requested"], rec["pages_served"]), (35, 20))
+        self.assertEqual(r["usage"]["pages_range_cut"], 15)
+        self.assertNotIn("PAGE_RANGE_LIMIT", json.dumps(chat.seen[-1][0]))   # the trigger name is log-only

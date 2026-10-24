@@ -267,11 +267,16 @@ class TestPageBudget(unittest.TestCase):
 
     def test_turn_sends_every_page_read(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
-        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "sheets": list(range(1, 12))})], "ok\n" + block(summary="s")])
+        # one read opens up to gd_tools.READ_MAX_PAGES (10); Grok asks for the 11th in a second read
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "sheets": list(range(1, 12))})],
+                            [("read_pages", {"doc_id": "L1", "sheets": [11]})], "ok\n" + block(summary="s")])
         r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, respond_fn=chat, store={}, log_path="")
         self.assertEqual(len(r["pages_used"]), 11)
         self.assertEqual(r["not_shown"], [])
-        self.assertEqual(len(outputs(chat.seen[1][0])[0]["pages"]), 11)   # MAX_PAGES_READ_PER_TURN is off by default
+        first = outputs(chat.seen[1][0])[0]
+        self.assertEqual(len(first["pages"]), 10)
+        self.assertEqual(first["not_opened_yet"], ["11"])
+        self.assertEqual(len(outputs(chat.seen[2][0])[1]["pages"]), 1)   # 11 pages is well under MAX_PAGES_READ_PER_TURN (30)
 
 
 INDEX = os.environ.get("TT_PAGEFINDER_DIR", str(ROOT / "pagefinder" / "index"))

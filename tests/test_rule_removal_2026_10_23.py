@@ -121,11 +121,12 @@ class TestNoCaps(unittest.TestCase):
 
     def test_turn_sends_every_page_and_no_token_or_effort_limit(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
-        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": [str(i) for i in range(1, 12)]})], "ok\n" + block(summary="s")])
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": [str(i) for i in range(1, 11)]})],
+                            [("read_pages", {"doc_id": "L1", "pages": ["11"]})], "ok\n" + block(summary="s")])
         r = gd_turn.run_turn("x", "Refrigerators", "Acme X1", [], finder=big, respond_fn=chat, store={}, log_path="")
         self.assertEqual(len(r["pages_used"]), 11)
         self.assertEqual(r["not_shown"], [])
-        self.assertEqual([s[2] for s in chat.seen], [None, None])   # no tool_choice set; no token or effort setting exists
+        self.assertEqual([s[2] for s in chat.seen], [None, None, None])   # no tool_choice set; no token or effort setting exists
         import inspect, gd_llm
         src = inspect.getsource(gd_llm.respond)
         self.assertNotIn("max_output_tokens", src)
