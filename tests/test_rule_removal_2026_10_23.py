@@ -161,6 +161,19 @@ class TestNoCaps(unittest.TestCase):
         self.assertIn("wiring page", chat.seen[2][0][1]["content"])
 
 
+class TestSafetyCeiling(unittest.TestCase):
+    def test_turn_stops_at_the_ceiling_when_every_round_asks_for_something_new(self):
+        f, store = finder(), {}
+        for i in range(10):
+            f._parts[f"part{i}"] = [page(sheet=40 + i, kind="part", text=f"page {i}")]
+        chat = FakeChat([block(next_part_to_fetch=f"part{i}", summary=str(i)) for i in range(10)])
+        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat, store=store)
+        self.assertEqual(r["calls"], gd_turn.SAFETY_CEILING_CALLS)
+        self.assertTrue(any("safety ceiling" in p for p in r["problems"]))
+        for msgs, *_ in chat.seen:                              # the brain never sees the ceiling
+            self.assertNotIn("ceiling", " ".join(m["content"] for m in msgs))
+
+
 class FakeResp:
     def __init__(self, content=b"", text="", url="", headers=None):
         self.content, self.text, self.url, self.headers = content, text, url, headers or {}

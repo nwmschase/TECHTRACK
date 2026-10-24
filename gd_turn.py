@@ -45,6 +45,11 @@ def new_case(category, model_text, complaint):
             "state": gd_state.new_state(), "turns": 0, "problems": [], "notes_next": []}
 
 
+# Backstop on model calls in one turn (Chase 2026-10-24, "lets try it"). A normal job never reaches it; it only keeps a
+# turn that asks for a new, different search every round from running up cost. Not part of the prompt.
+SAFETY_CEILING_CALLS = 6
+
+
 def _ensure_pages(case, finder, web_fn, notes):
     """Bring the case's pages up to date with the unit and the stored state. Returns the Picked."""
     st = case["state"]
@@ -141,6 +146,11 @@ def run_turn(user_msg, category, model_text, history, *, finder, chat_fn, store,
         part, query = (update.get("next_part_to_fetch") or "").strip(), (update.get("web_lookup") or "").strip()
         new_pages = (bool(part) and _fetch_part(case, finder, picked, part)) | (bool(query) and _web(case, web_fn, query, notes))
         if not new_pages:
+            break
+        if calls >= SAFETY_CEILING_CALLS:
+            # App-side backstop only (Chase 2026-10-24): never shown to the brain. Ends a turn that keeps asking for
+            # something new every round, and logs it so the case can be looked at.
+            problems.append(f"safety ceiling: turn stopped after {calls} calls while still asking for new pages")
             break
     update = dict(update)
     if update:
