@@ -1,4 +1,4 @@
-"""Case state for Guided Diagnostics (branch fresh-core).
+"""Case state for Guided Diagnostics (branch grok-search).
 
 The brain (the LLM) ends every reply with one small JSON block between <state> and </state>.
 The code only cuts that block off the reply, checks the field types, and stores it.
@@ -6,11 +6,11 @@ The code never reads the tech's words or the brain's prose to decide anything: n
 
 Fields (all optional in each update; missing = unchanged):
   facts               [{item, value, quote}]  readings / observations the tech gave (upsert by item)
-  fault_code          str     a code the tech reported (the finder re-picks pages for it)
+  fault_code          str     a code the tech reported
   pending_test        str     the test the brain is waiting on ("" when none)
   part_working        str     the part currently being tested or worked on
-  next_part_to_fetch  str     text for a library search: a part, fault code, symptom or label words ("" when none)
-  web_lookup          str     text for a web lookup: a URL, words, or both ("" when none)
+  next_part_to_fetch  str     the words of Grok's latest library search (a record; Grok runs searches with the tools)
+  web_lookup          str     the words of Grok's latest internet search (a record; the search runs in Grok's own call)
   order_part          str     a part the brain tells the tech to order / replace this turn ("" when none)
   cause               str     the brain's current diagnosis, with its doc + page
   repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words

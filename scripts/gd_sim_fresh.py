@@ -110,7 +110,7 @@ def run_case(case_text, category, model, *, finder, gd_chat, tech_chat, referee_
         spent = spent_fn() if spent_fn else spent + cost(r.get("usage"))
         history += [{"role": "user", "content": msg}, {"role": "assistant", "content": r["reply"]}]
         gd_replies.append(r["reply"])
-        shown.append(json.dumps(store["gd_case"].get("picked") or {}) + json.dumps(store["gd_case"].get("part_pages") or {}))
+        shown.append(json.dumps(store["gd_case"].get("read") or {}))
         if r["mode"] == "closed":
             ending = "closed"
             break

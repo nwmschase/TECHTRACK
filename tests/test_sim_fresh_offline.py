@@ -67,7 +67,8 @@ class TestSimHarness(unittest.TestCase):
         self.assertEqual(v["harness_ending"], "capped")
         self.assertFalse(v["pass_eligible"])
         self.assertTrue(v["judge_error"])
-        self.assertEqual(v["invented_numbers"], ["800-555-1212", "99887766"])
+        # pages count as shown when Grok opened them (grok-search); this text-only fake opened none, so all three are listed
+        self.assertEqual(v["invented_numbers"], ["574-825-4600", "800-555-1212", "99887766"])
 
     def test_cli_refuses_without_ok(self):
         sys.argv = ["x", "--case", "RC12", "--out", "/tmp/x", "--max-usd", "1"]

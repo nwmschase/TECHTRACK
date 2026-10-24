@@ -459,3 +459,107 @@ def complete_chat(
     if not errors:
         raise LLMProviderError(NO_KEY_MESSAGE) from None
     _raise_provider_errors(errors)
+
+
+# ---------------- Guided Diagnostics with tools (branch grok-search, Chase 2026-10-24) ----------------
+# Grok gets our client-side library tools (function tools, run in gd_tools) and xAI's built-in web search (server-side,
+# runs inside the same call) in ONE request, on the xAI Responses API. Shapes from the official docs (read 2026-10-24):
+#   https://docs.x.ai/developers/tools/advanced-usage   "Mixing Server-Side and Client-Side Tools"
+#   https://docs.x.ai/developers/tools/function-calling  function tool shape, function_call / function_call_output items
+#   https://docs.x.ai/developers/tools/web-search        {"type": "web_search"}
+#   https://docs.x.ai/developers/tools/citations         url_citation annotations; include=["no_inline_citations"]
+#   https://docs.x.ai/developers/rest-api-reference/inference/responses   usage fields (cost_in_usd_ticks, ...)
+# Built-in web search runs on xAI's servers inside the call; a function call pauses the call and comes back here. The
+# turn loop (gd_turn) runs the function, appends a function_call_output item and calls again with the whole input list
+# (the "encrypted content" pattern: include reasoning.encrypted_content and send response.output back in).
+# Chat Completions (complete_chat above) stays for the story, the plate photos and the Groq fallback.
+
+# A call with server-side web searches can run longer than a plain chat call; one bounded attempt, no retries.
+TOOL_REQUEST_TIMEOUT_SEC = 240.0
+# Inline [[N]](url) links are left out of the reply text so they cannot land inside the JSON state block; the sources
+# still come back as url_citation annotations (docs: citations page).
+RESPONSES_INCLUDE = ["reasoning.encrypted_content", "no_inline_citations"]
+
+
+def _dump(item) -> dict:
+    if isinstance(item, dict):
+        return dict(item)
+    for name in ("model_dump", "dict"):
+        fn = getattr(item, name, None)
+        if callable(fn):
+            try:
+                return fn(exclude_none=True)
+            except TypeError:
+                return fn()
+    return dict(getattr(item, "__dict__", {}) or {})
+
+
+def parse_response(response) -> dict:
+    """Responses API result -> {text, calls, output, web_sources, server_tools, usage, id}.
+    calls: [{call_id, name, arguments}] (client-side function calls to run here)
+    output: the response's output items as dicts, to send back in the next call's input
+    web_sources: [{url, title}] from url_citation annotations
+    server_tools: [{type, action}] for the server-side web_search_call items (what Grok searched)."""
+    data = _dump(response)
+    out = [_dump(i) for i in (data.get("output") or [])]
+    text, calls, web, server = "", [], [], []
+    for item in out:
+        t = item.get("type")
+        if t == "function_call":
+            calls.append({"call_id": item.get("call_id") or item.get("id") or "", "name": item.get("name") or "",
+                          "arguments": item.get("arguments") or "{}"})
+        elif t == "message":
+            for c in item.get("content") or []:
+                if c.get("type") in ("output_text", "text"):
+                    text += c.get("text") or ""
+                for a in c.get("annotations") or []:
+                    if a.get("type") == "url_citation" and a.get("url"):
+                        web.append({"url": a["url"], "title": a.get("title") or ""})
+        elif t and t.endswith("_call"):
+            server.append({"type": t, "action": item.get("action") or {}, "status": item.get("status") or ""})
+    u = data.get("usage") or {}
+    ind, outd = u.get("input_tokens_details") or {}, u.get("output_tokens_details") or {}
+    usage = {"model": data.get("model") or "", "prompt_tokens": int(u.get("input_tokens") or 0),
+             "completion_tokens": int(u.get("output_tokens") or 0), "cached_tokens": int(ind.get("cached_tokens") or 0),
+             "reasoning_tokens": int(outd.get("reasoning_tokens") or 0),
+             "server_side_tools": int(u.get("num_server_side_tools_used") or 0), "sources": int(u.get("num_sources_used") or 0)}
+    if u.get("cost_in_usd_ticks") is not None:
+        usage["cost_in_usd_ticks"] = int(u.get("cost_in_usd_ticks") or 0)
+    seen = set()
+    web = [w for w in web if not (w["url"] in seen or seen.add(w["url"]))]
+    return {"text": text.strip(), "calls": calls, "output": out, "web_sources": web, "server_tools": server, "usage": usage,
+            "id": data.get("id") or ""}
+
+
+def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_factory=None, model=None,
+            temperature: float = 0.2) -> dict:
+    """One Grok call on the xAI Responses API with our function tools + built-in web search. Returns parse_response().
+    No token cap and no reasoning-effort setting (the provider's defaults). xAI only: Groq has no built-in web search."""
+    global _last_provider, _last_usage
+    key = _lookup("XAI_API_KEY", secret_fn)
+    if not key:
+        raise LLMProviderError(NO_KEY_MESSAGE)
+    redact = [key]
+    base_url = _lookup("XAI_BASE_URL", secret_fn) or DEFAULT_XAI_BASE_URL
+    model = model or _lookup("XAI_MODEL", secret_fn) or DEFAULT_XAI_MODEL
+    factory = client_factory or default_client_factory
+    try:
+        client = factory(PROVIDER_XAI, api_key=key, base_url=base_url)
+    except Exception as exc:
+        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}") from None
+    kwargs = {"model": model, "input": list(input_items), "tools": list(tools or []), "temperature": temperature,
+              "include": list(RESPONSES_INCLUDE)}
+    if tool_choice:
+        kwargs["tool_choice"] = tool_choice
+
+    def _call():
+        return client.responses.create(**kwargs)
+    try:
+        response = _run_with_deadline(_call, float(TOOL_REQUEST_TIMEOUT_SEC) + float(DEADLINE_SLACK_SEC))
+    except LLMTimeoutError:
+        raise LLMProviderError(f"xAI: timed out after {int(TOOL_REQUEST_TIMEOUT_SEC)}s. " + TIMEOUT_RETRY_SENTENCE) from None
+    except Exception as exc:
+        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}") from None
+    got = parse_response(response)
+    _last_provider, _last_usage = PROVIDER_XAI, dict(got["usage"])
+    return got
