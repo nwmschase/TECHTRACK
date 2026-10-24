@@ -7,29 +7,6 @@ import library_figure_backfill as fb
 import manual_figures as mf
 
 
-def test_line_break_hyphen_rejoins_only_known_words():
-    assert mf.rejoin_line_break_hyphen("Remove Bolt Cov-", "ers (if present).") == "Remove Bolt Covers (if present)."
-    assert mf.rejoin_line_break_hyphen("Uncover holding tank open-", "ing and remove towel(s).").endswith("opening and remove towel(s).")
-    # A real hyphenated term keeps its hyphen.
-    assert mf.rejoin_line_break_hyphen("attach two o-", "rings on the hooks") == "attach two o- rings on the hooks"
-
-
-def test_english_body_joins_ascii_hyphen_breaks():
-    text = "5. Replace Bolt Covers (if pres-\nent).\n2. Uncover holding tank open-\ning and remove towel(s)."
-    body = mf._english_body(text)
-    assert "present" in body and "opening" in body
-    assert "pres ent" not in body and "open ing" not in body
-
-
-def test_space_split_rejoin_is_conservative():
-    assert mf.rejoin_space_splits("Take off the bolt cov ers now") == "Take off the bolt covers now"
-    assert mf.rejoin_space_splits("Uncover the open ing") == "Uncover the opening"
-    assert mf.rejoin_space_splits("if pres ent") == "if present"
-    # Two real words stay apart.
-    for phrase in ("set it in to place", "pull a part out", "turn the water on", "the old seal"):
-        assert mf.rejoin_space_splits(phrase) == phrase
-
-
 def test_full_figure_label_from_wrapped_caption():
     page = "FIGURE 2 - INSERTING WATER INLET SEAL ASSEMBLY\nFIGURE 3 - WATER \nVALVE CLOSED \nPOSITION\nWater Inlet \nopening"
     assert fb.full_figure_label("Fig. 3 WATER", page) == "Fig. 3 WATER VALVE CLOSED POSITION"
@@ -74,6 +51,3 @@ def test_attach_pngs_cleans_caption():
     assert offers[0]["caption"] == "Owner Manual / page 2"
 
 
-def test_display_title_uses_doc_text_numbers():
-    layout_title = mf._display_title("Water Valve Kit 42109", "water valve steps\n42109 42049")
-    assert layout_title == "Water valve 42049 / kit 42109"

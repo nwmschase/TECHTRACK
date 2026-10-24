@@ -175,7 +175,7 @@ class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
         import ast
 
         names = set(APP_NAMES) | {"gd_pages", "gd_turn", "gd_state", "gd_prompt", "gd_story", "legacy_selector",
-                                  "library_bulk_import", "oem_domains", "bay_profile_lines"}
+                                  "library_bulk_import", "oem_domains"}
         graph = {}
         for n in names:
             f = ROOT / f"{n}.py"

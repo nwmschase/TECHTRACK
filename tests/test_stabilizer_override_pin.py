@@ -2,13 +2,8 @@
 import unittest
 
 from gd_library_coach import (
-    PSX1_PRODUCT_LOCK,
-    PSX1_SEARCH_BOOST,
     is_level_up_advantage_context,
     is_stabilizer_override_pin_context,
-    rank_chunks_for_stabilizer_override,
-    score_stabilizer_override_chunk,
-    stabilizer_search_symptom,
 )
 
 WO_MODEL = "Lippert PSX1 front stabilizer"
@@ -91,43 +86,6 @@ class TestStabilizerDetect(unittest.TestCase):
             is_stabilizer_override_pin_context(
                 "Leveling", "front stabilizer jack", "power extend works"
             )
-        )
-
-
-class TestStabilizerQueryRewrite(unittest.TestCase):
-    def test_boost_prefers_complete_assembly_and_psx1(self):
-        q = stabilizer_search_symptom("Leveling", WO_MODEL, WO_COMPLAINT)
-        low = q.lower()
-        self.assertIn("psx1", low)
-        self.assertIn("ccd-0007345", low)
-        self.assertIn("complete", low)
-        self.assertIn("assembly", low)
-        self.assertIn("complete assembly", PSX1_SEARCH_BOOST.lower())
-
-    def test_non_stab_unchanged(self):
-        raw = "Manual Mode flashes then returns home"
-        self.assertEqual(
-            stabilizer_search_symptom("Leveling", "807662", raw), raw
-        )
-
-
-class TestStabilizerRanking(unittest.TestCase):
-    def test_complete_assembly_outranks_coupler_and_override_usage(self):
-        query = f"{WO_MODEL} {WO_COMPLAINT}"
-        ranked = rank_chunks_for_stabilizer_override(LIBRARY, query, limit=5)
-        titles_pages = [(r["title"], r["page"]) for r in ranked]
-        self.assertIn(("Lippert PSX1 CCD-0007345", 4), titles_pages[:2])
-        self.assertGreater(
-            score_stabilizer_override_chunk(PSX1_ASSEMBLY, query),
-            score_stabilizer_override_chunk(COUPLER_ONLY, query),
-        )
-        self.assertGreater(
-            score_stabilizer_override_chunk(PSX1_ASSEMBLY, query),
-            score_stabilizer_override_chunk(PSX1_OVERRIDE_USAGE, query),
-        )
-        self.assertGreater(
-            score_stabilizer_override_chunk(PSX1_ASSEMBLY, query),
-            score_stabilizer_override_chunk(LEVEL_UP, query),
         )
 
 

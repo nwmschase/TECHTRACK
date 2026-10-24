@@ -83,18 +83,6 @@ class TestNoRuleStringsLeft(unittest.TestCase):
         self.assertFalse((ROOT / "oem_domains.py").exists())
 
 
-    def test_legacy_prompt_constants_are_empty(self):
-        import gd_library_coach as g
-        for n in ("OPEN_LIBRARY_COACH_RULE", "SHOP_LANGUAGE_RULE", "FIGURE_PAGE_HONESTY", "LEVEL_UP_PRODUCT_LOCK", "AC_PRODUCT_LOCK",
-                  "WATER_HEATER_PRODUCT_LOCK", "FCR_E2_FAN_FAULT_PRODUCT_LOCK", "COOKTOP_PRODUCT_LOCK", "PSX1_PRODUCT_LOCK",
-                  "ICE_MOISTURE_PRODUCT_LOCK", "FACR_FREEZE_ASSEMBLY_LOCK", "COLEMAN_MOTOR_BOARD_LOCK", "BAL_TONGUE_PRODUCT_LOCK",
-                  "DIAL_OFF_RUN_PRODUCT_LOCK", "LEVEL_UP_CAN_PRODUCT_LOCK", "DIAL_OFF_RUN_PRODUCT_LOCK"):
-            self.assertEqual(getattr(g, n), "", n)
-        src = (ROOT / "rv_techtrack.py").read_text()
-        for n in ("FURNACE_OEM_ORDER", "FRIDGE_OEM_ORDER", "DIAG_LED_HONESTY", "UNITY_OEM_ORDER", "ASK_TECHTRACK_SYSTEM"):
-            self.assertRegex(src, rf'(?m)^{n} = ""')
-        self.assertNotIn("HARD RULES", src)
-
     def test_no_dead_end_and_no_gate_in_the_turn(self):
         # no web tool wired, a lookup asked for: no 'not available' note reaches the brain, and no extra call is made
         f, store = StubPageFinder(), {}

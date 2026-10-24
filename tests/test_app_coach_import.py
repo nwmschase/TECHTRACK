@@ -38,15 +38,9 @@ class TestCoachModuleLoads(unittest.TestCase):
         spec.loader.exec_module(mod)
         for name in (
             "AC_HINT_TITLES",
-            "AC_PRODUCT_LOCK",
-            "FCR_E2_FAN_FAULT_PRODUCT_LOCK",
-            "ac_search_symptom",
-            "drop_unity_chunks_for_ac",
-            "fcr_e2_search_symptom",
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
             "is_water_heater_context",
-            "WATER_HEATER_PRODUCT_LOCK",
             "DEFAULT_LIBRARY_CATEGORIES",
             "AIR_CONDITIONING_CATEGORY",
             "REFRIGERATORS_CATEGORY",
@@ -55,24 +49,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "gd_category_select_options",
             "library_category_picker_names",
             "is_cooktop_pan_on_flameout_context",
-            "COOKTOP_PRODUCT_LOCK",
             "is_stabilizer_override_pin_context",
-            "PSX1_PRODUCT_LOCK",
-            "ICE_MOISTURE_PRODUCT_LOCK",
-            "DIAL_OFF_RUN_PRODUCT_LOCK",
-            "trim_coach_history",
             "complete_chat_with_payload_retry",
             "is_facr_rooftop_freeze_context",
             "FACR_FREEZE_SEARCH_BOOST",
-            "is_firefly_can_path_context",
-            "FIREFLY_CAN_SEARCH_BOOST",
-            "is_level_up_manual_can_conflict_context",
-            "LEVEL_UP_CAN_PRODUCT_LOCK",
             "is_bal_soft_touch_tongue_only_context",
-            "BAL_TONGUE_PRODUCT_LOCK",
-            "FACR_FREEZE_ASSEMBLY_LOCK",
             "is_coleman_2111_context",
-            "COLEMAN_MOTOR_BOARD_LOCK",
         ):
             self.assertTrue(hasattr(mod, name), name)
         self.assertTrue(
@@ -84,34 +66,17 @@ class TestCoachModuleLoads(unittest.TestCase):
     def test_rv_techtrack_binds_only_existing_coach_names(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         names = _names_assigned_from_gdc(src)
-        self.assertIn("AC_PRODUCT_LOCK", names)
-        self.assertIn("is_fcr_e2_fan_fault_context", names)
-        self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
-        self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
-        self.assertIn("DEFAULT_LIBRARY_CATEGORIES", names)
-        self.assertIn("AIR_CONDITIONING_CATEGORY", names)
-        self.assertIn("REFRIGERATORS_CATEGORY", names)
-        self.assertIn("WATER_HEATERS_CATEGORY", names)
-        self.assertIn("RANGE_COOKTOPS_CATEGORY", names)
-        self.assertIn("gd_category_select_options", names)
-        self.assertIn("library_category_picker_names", names)
-        self.assertIn("COOKTOP_PRODUCT_LOCK", names)
-        self.assertIn("is_cooktop_pan_on_flameout_context", names)
-        self.assertIn("PSX1_PRODUCT_LOCK", names)
-        self.assertIn("is_stabilizer_override_pin_context", names)
-        self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", names)
-        self.assertIn("DIAL_OFF_RUN_PRODUCT_LOCK", names)
-        self.assertIn("complete_chat_with_payload_retry", names)
-        self.assertIn("trim_coach_history", names)
-        self.assertIn("is_facr_rooftop_freeze_context", names)
-        self.assertIn("is_firefly_can_path_context", names)
-        self.assertIn("FIREFLY_CAN_SEARCH_BOOST", names)
-        self.assertIn("FACR_FREEZE_SEARCH_BOOST", names)
-        self.assertIn("is_level_up_manual_can_conflict_context", names)
-        self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", names)
-        self.assertIn("is_bal_soft_touch_tongue_only_context", names)
-        self.assertIn("is_coleman_2111_context", names)
-        self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", names)
+        # 2026-10-24: unused aliases were dropped; these are the ones rv still reads.
+        for name in (
+            "DEFAULT_LIBRARY_CATEGORIES",
+            "gd_category_select_options",
+            "library_category_picker_names",
+            "complete_chat_with_payload_retry",
+            "wants_library_page_shown",
+            "pick_diagram_page_numbers",
+            "is_water_heater_context",
+        ):
+            self.assertIn(name, names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -134,11 +99,11 @@ class TestCoachModuleLoads(unittest.TestCase):
             lines.append(f"{name} = _gdc.{name}")
         ns = {"_gdc": coach}
         exec(compile("\n".join(lines), "reexport", "exec"), ns)
-        self.assertEqual(ns["AIR_CONDITIONING_CATEGORY"], "Air Conditioning")
-        self.assertEqual(ns["WATER_HEATERS_CATEGORY"], "Water Heaters")
-        self.assertEqual(ns["RANGE_COOKTOPS_CATEGORY"], "Range & Cooktops")
-        self.assertEqual(ns["REFRIGERATORS_CATEGORY"], "Refrigerators")
-        self.assertIn(ns["AIR_CONDITIONING_CATEGORY"], ns["DEFAULT_LIBRARY_CATEGORIES"])
+        self.assertEqual(coach.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
+        self.assertEqual(coach.WATER_HEATERS_CATEGORY, "Water Heaters")
+        self.assertEqual(coach.RANGE_COOKTOPS_CATEGORY, "Range & Cooktops")
+        self.assertEqual(coach.REFRIGERATORS_CATEGORY, "Refrigerators")
+        self.assertIn(coach.AIR_CONDITIONING_CATEGORY, ns["DEFAULT_LIBRARY_CATEGORIES"])
         self.assertTrue(callable(ns["gd_category_select_options"]))
         self.assertTrue(callable(ns["library_category_picker_names"]))
 
@@ -164,7 +129,6 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
         self.assertTrue(hasattr(loaded, "is_facr_rooftop_freeze_context"))
-        self.assertTrue(hasattr(loaded, "is_firefly_can_path_context"))
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
@@ -210,7 +174,17 @@ class TestCoachModuleLoads(unittest.TestCase):
         )
         coach = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(coach)
-        missing = [n for n in imported if not hasattr(coach, n)]
+        # rv_techtrackpr4 is an archived v4.12.0 copy that nothing runs. Its old
+        # imports (OPEN_LIBRARY_COACH_RULE, hard_tree_yields_to_coach,
+        # pick_working_vision_model, tech_wants_open_coach) were dead code and
+        # were removed from the coach on 2026-10-24.
+        retired = {
+            "OPEN_LIBRARY_COACH_RULE",
+            "hard_tree_yields_to_coach",
+            "pick_working_vision_model",
+            "tech_wants_open_coach",
+        }
+        missing = [n for n in imported if not hasattr(coach, n) and n not in retired]
         self.assertEqual(missing, [])
 
 

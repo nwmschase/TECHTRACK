@@ -6,9 +6,6 @@ from pathlib import Path
 from PIL import Image
 
 import manual_figures as mf
-from gd_library_coach import (
-    GROUND_CONTROL_LEVEL_LINE,
-)
 import library_figure_backfill as fb
 
 CAT = "Plumbing / Toilets"

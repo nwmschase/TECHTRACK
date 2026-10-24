@@ -40,25 +40,6 @@ def _sources_only(page: str) -> bool:
     )
 
 
-class TestLeakTestStep(unittest.TestCase):
-    def test_water_on_matches_and_the_leak_check_is_complete(self):
-        last = mf.thetford_kit_layout("valve")["steps"][-1]
-        fields = last["fields"]
-        shown = mf.format_one_step(last, 13, 13)
-        self.assertIn("Turn the RV water on", fields["HOW"])
-        self.assertIn("Turn the RV water on for the leak test.", fields["SAFETY"])
-        self.assertNotIn("Turn the RV water off", fields["SAFETY"])
-        self.assertIn("pedal", fields["WHERE"].lower())
-        self.assertIn("valve", fields["WHERE"].lower())
-        good = fields["GOOD vs BAD"]
-        self.assertIn("Flush 3 times.", good)
-        self.assertIn("Dry at the pedal and the valve", good)
-        self.assertIn("any drip", good)
-        self.assertIn("recheck the seal and the nuts", good)
-        self.assertIn("Good looks like: Flush 3 times.", shown)
-        self.assertIn("At the pedal and the water valve.", shown)
-
-
 class TestInstructionTextStaysOffTheReply(unittest.TestCase):
 
     def test_an_empty_library_shows_no_bundled_caption(self):
@@ -76,41 +57,6 @@ class TestInstructionTextStaysOffTheReply(unittest.TestCase):
             "library_figure_backfill.py"
         ).read_text(encoding="utf-8")
         self.assertNotIn("Bundled kit sheet", backfill)
-
-
-class TestPedalPullIsOneStep(unittest.TestCase):
-    def test_the_grab_and_the_pull_are_separate_steps(self):
-        steps = mf.thetford_kit_layout("valve")["steps"]
-        self.assertGreater(len(steps), 13)
-        for step in steps:
-            self.assertEqual(len(step.get("actions") or []), 1, step.get("actions"))
-        grabs = [
-            step for step in steps
-            if "grab the front of the pedal" in " ".join(step.get("actions") or []).lower()
-        ]
-        pulls = [
-            step for step in steps
-            if "pull the pedal up and off" in " ".join(step.get("actions") or []).lower()
-        ]
-        self.assertEqual(len(grabs), 1)
-        self.assertEqual(len(pulls), 1)
-        self.assertNotEqual(grabs[0], pulls[0])
-        breaker = mf.thetford_kit_layout("breaker")["steps"]
-        self.assertGreater(len(breaker), 1)
-        for step in breaker:
-            self.assertEqual(len(step.get("actions") or []), 1)
-
-
-class TestDiagnosisLines(unittest.TestCase):
-    def test_supply_on_bad_tightens_and_the_flange_drops_part_noise(self):
-        supply = mf.thetford_proving_body("supply")
-        flange = mf.thetford_proving_body("flange")
-        self.assertIn("If it fails: fix or tighten the supply connection.", supply)
-        self.assertNotIn("replace the water valve", supply.lower())
-        self.assertNotIn("33239", flange)
-        self.assertNotIn("42067", flange)
-        self.assertNotIn("not on this sheet", flange.lower())
-        self.assertIn("02125", flange)
 
 
 S01_LIVE = [

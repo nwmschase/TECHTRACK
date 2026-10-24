@@ -197,15 +197,10 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_cooktop_pan_on_flameout_context",
     "is_stabilizer_override_pin_context",
     "is_facr_rooftop_freeze_context",
-    "is_firefly_can_path_context",
-    "is_level_up_manual_can_conflict_context",
     "is_bal_soft_touch_tongue_only_context",
-    "SHOP_LANGUAGE_RULE",
     "is_coleman_2111_context",
     "asked_brands_for_lookup",
     "chunk_matches_asked_brand",
-    "is_ground_control_context",
-    "DOMETIC_NOCOOL_CONFIRM_FAN",
     "COACH_REVISION",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
@@ -380,120 +375,28 @@ _gdc = _reload_stale_app_modules(APP_VERSION)
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
 AC_HINT_TITLES = _gdc.AC_HINT_TITLES
-AC_PRODUCT_LOCK = _gdc.AC_PRODUCT_LOCK
-FACR_FREEZE_HINT_TITLES = _gdc.FACR_FREEZE_HINT_TITLES
-FACR_FREEZE_SEARCH_BOOST = _gdc.FACR_FREEZE_SEARCH_BOOST
-FIREFLY_CAN_SEARCH_BOOST = _gdc.FIREFLY_CAN_SEARCH_BOOST
-COOKTOP_HINT_TITLES = _gdc.COOKTOP_HINT_TITLES
-COOKTOP_PRODUCT_LOCK = _gdc.COOKTOP_PRODUCT_LOCK
-COOKTOP_SEARCH_BOOST = _gdc.COOKTOP_SEARCH_BOOST
-FCR_E2_FAN_FAULT_PRODUCT_LOCK = _gdc.FCR_E2_FAN_FAULT_PRODUCT_LOCK
-FAN_FAULT_SEARCH_BOOST = _gdc.FAN_FAULT_SEARCH_BOOST
-FURRION_FCR_ICE_MOISTURE_PAGES = _gdc.FURRION_FCR_ICE_MOISTURE_PAGES
-ICE_MOISTURE_PRODUCT_LOCK = _gdc.ICE_MOISTURE_PRODUCT_LOCK
-ICE_MOISTURE_SEARCH_BOOST = _gdc.ICE_MOISTURE_SEARCH_BOOST
-FURRION_FCR_DIAL_OFF_RUN_PAGES = _gdc.FURRION_FCR_DIAL_OFF_RUN_PAGES
-DIAL_OFF_RUN_PRODUCT_LOCK = _gdc.DIAL_OFF_RUN_PRODUCT_LOCK
-DIAL_OFF_RUN_SEARCH_BOOST = _gdc.DIAL_OFF_RUN_SEARCH_BOOST
-FIGURE_PAGE_HONESTY = _gdc.FIGURE_PAGE_HONESTY
-FIGURE_QUERY_TERMS = _gdc.FIGURE_QUERY_TERMS
 FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
-FURRION_FCR_FAN_FAULT_PAGES = _gdc.FURRION_FCR_FAN_FAULT_PAGES
 HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
 LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
-LEVEL_UP_CAN_PRODUCT_LOCK = _gdc.LEVEL_UP_CAN_PRODUCT_LOCK
-LEVEL_UP_CAN_SEARCH_BOOST = _gdc.LEVEL_UP_CAN_SEARCH_BOOST
-LEVEL_UP_PRODUCT_LOCK = _gdc.LEVEL_UP_PRODUCT_LOCK
-OPEN_LIBRARY_COACH_RULE = _gdc.OPEN_LIBRARY_COACH_RULE
-PSX1_HINT_TITLES = _gdc.PSX1_HINT_TITLES
-PSX1_PRODUCT_LOCK = _gdc.PSX1_PRODUCT_LOCK
-PSX1_SEARCH_BOOST = _gdc.PSX1_SEARCH_BOOST
 WATER_HEATER_HINT_TITLES = _gdc.WATER_HEATER_HINT_TITLES
-WATER_HEATER_PRODUCT_LOCK = _gdc.WATER_HEATER_PRODUCT_LOCK
-AIR_CONDITIONING_CATEGORY = _gdc.AIR_CONDITIONING_CATEGORY
 DEFAULT_LIBRARY_CATEGORIES = _gdc.DEFAULT_LIBRARY_CATEGORIES
-RANGE_COOKTOPS_CATEGORY = _gdc.RANGE_COOKTOPS_CATEGORY
-REFRIGERATORS_CATEGORY = _gdc.REFRIGERATORS_CATEGORY
-WATER_HEATERS_CATEGORY = _gdc.WATER_HEATERS_CATEGORY
-PLUMBING_TOILETS_CATEGORY = _gdc.PLUMBING_TOILETS_CATEGORY
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
-ac_search_symptom = _gdc.ac_search_symptom
-is_facr_freeze_library_title = _gdc.is_facr_freeze_library_title
-is_facr_rooftop_freeze_context = _gdc.is_facr_rooftop_freeze_context
-is_firefly_can_path_context = _gdc.is_firefly_can_path_context
-is_dometic_only_rooftop_ac = _gdc.is_dometic_only_rooftop_ac
-cooktop_search_symptom = _gdc.cooktop_search_symptom
-coach_library_search_boost = _gdc.coach_library_search_boost
-SHOP_LANGUAGE_RULE = _gdc.SHOP_LANGUAGE_RULE
-is_coleman_2111_context = _gdc.is_coleman_2111_context
-coleman_search_symptom = _gdc.coleman_search_symptom
-COLEMAN_MOTOR_BOARD_LOCK = _gdc.COLEMAN_MOTOR_BOARD_LOCK
-COLEMAN_2111_SEARCH_BOOST = _gdc.COLEMAN_2111_SEARCH_BOOST
-is_bal_soft_touch_tongue_only_context = _gdc.is_bal_soft_touch_tongue_only_context
-bal_tongue_search_symptom = _gdc.bal_tongue_search_symptom
-BAL_TONGUE_PRODUCT_LOCK = _gdc.BAL_TONGUE_PRODUCT_LOCK
-BAL_TONGUE_SEARCH_BOOST = _gdc.BAL_TONGUE_SEARCH_BOOST
-facr_proves_complete = _gdc.facr_proves_complete
-FACR_FREEZE_ASSEMBLY_LOCK = _gdc.FACR_FREEZE_ASSEMBLY_LOCK
-drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
-drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
-drop_unity_chunks_for_water_heater = _gdc.drop_unity_chunks_for_water_heater
-fcr_e2_search_symptom = _gdc.fcr_e2_search_symptom
-figure_library_search_boost = _gdc.figure_library_search_boost
 figure_render_honesty_note = _gdc.figure_render_honesty_note
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
 is_air_conditioning_context = _gdc.is_air_conditioning_context
-is_cooktop_pan_on_flameout_context = _gdc.is_cooktop_pan_on_flameout_context
-is_cooktop_range_context = _gdc.is_cooktop_range_context
-is_fcr_e2_fan_fault_context = _gdc.is_fcr_e2_fan_fault_context
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
-is_level_up_manual_can_conflict_context = _gdc.is_level_up_manual_can_conflict_context
-is_level_up_manual_dump_context = _gdc.is_level_up_manual_dump_context
-is_stabilizer_override_pin_context = _gdc.is_stabilizer_override_pin_context
 is_unity_board_manual = _gdc.is_unity_board_manual
 is_water_heater_context = _gdc.is_water_heater_context
 is_water_heater_library_title = _gdc.is_water_heater_library_title
-level_up_search_symptom = _gdc.level_up_search_symptom
 page_has_figure_or_terminal_layout = _gdc.page_has_figure_or_terminal_layout
 page_is_text_only_notes = _gdc.page_is_text_only_notes
 pick_diagram_page_numbers = _gdc.pick_diagram_page_numbers
-pick_working_vision_model = _gdc.pick_working_vision_model
-powered_not_cooling = _gdc.powered_not_cooling
-rank_chunks_for_ac = _gdc.rank_chunks_for_ac
-rank_chunks_for_cooktop_pan_on = _gdc.rank_chunks_for_cooktop_pan_on
-rank_chunks_for_fcr_fan_fault = _gdc.rank_chunks_for_fcr_fan_fault
-rank_chunks_for_figure_ask = _gdc.rank_chunks_for_figure_ask
-rank_chunks_for_ice_moisture = _gdc.rank_chunks_for_ice_moisture
-rank_chunks_for_dial_off_run = _gdc.rank_chunks_for_dial_off_run
-rank_chunks_for_level_up = _gdc.rank_chunks_for_level_up
-rank_chunks_for_level_up_can = _gdc.rank_chunks_for_level_up_can
-rank_chunks_for_stabilizer_override = _gdc.rank_chunks_for_stabilizer_override
-rank_chunks_for_water_heater = _gdc.rank_chunks_for_water_heater
-reply_reasks_stated_facts = _gdc.reply_reasks_stated_facts
-score_ac_product = _gdc.score_ac_product
-score_cooktop_pan_on_chunk = _gdc.score_cooktop_pan_on_chunk
-score_fcr_fan_fault_chunk = _gdc.score_fcr_fan_fault_chunk
-score_figure_page = _gdc.score_figure_page
-score_ice_moisture_chunk = _gdc.score_ice_moisture_chunk
-score_dial_off_run_chunk = _gdc.score_dial_off_run_chunk
-score_level_up_can_chunk = _gdc.score_level_up_can_chunk
-score_level_up_product = _gdc.score_level_up_product
-score_stabilizer_override_chunk = _gdc.score_stabilizer_override_chunk
-score_water_heater_product = _gdc.score_water_heater_product
-skip_unity_for_level_up = _gdc.skip_unity_for_level_up
-stabilizer_search_symptom = _gdc.stabilizer_search_symptom
-water_heater_search_symptom = _gdc.water_heater_search_symptom
-strip_path_complete_trap = _gdc.strip_path_complete_trap
-compact_manual_context = _gdc.compact_manual_context
 complete_chat_with_payload_retry = _gdc.complete_chat_with_payload_retry
-is_ai_request_too_large = _gdc.is_ai_request_too_large
-trim_coach_history = _gdc.trim_coach_history
 wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
-wants_library_figures = _gdc.wants_library_figures
 wants_library_page_shown = _gdc.wants_library_page_shown
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
@@ -1777,35 +1680,6 @@ Write the document now."""
         return f"Error contacting AI: {e}\n\nConcern: {concern}\nNotes: {tech_notes}"
 
 
-def story_from_diagnostic_job(job: "DiagnosticJob") -> str:
-    """Merge concern + diagnostic plan context + findings into warranty story."""
-    notes_parts = []
-    if job.model_text:
-        notes_parts.append(f"Model/System: {job.model_text}")
-    if job.category_name:
-        notes_parts.append(f"Category: {job.category_name}")
-    if job.findings:
-        notes_parts.append("Technician findings and work performed:\n" + job.findings)
-    try:
-        steps = json.loads(job.step_log or "[]")
-        if steps:
-            lines = []
-            for s in steps:
-                line = f"- {s.get('test','')}: {s.get('result','')}"
-                if s.get("notes"):
-                    line += f" ({s.get('notes')})"
-                lines.append(line)
-            notes_parts.append("Diagnostic step log:\n" + "\n".join(lines))
-    except Exception:
-        pass
-    if job.plan_text:
-        notes_parts.append(
-            "NOT PERFORMED unless also listed above - this was only the suggested test plan, do not copy it into CORRECTION:\n"
-            + (job.plan_text or "")[:800]
-        )
-    tech_notes = "\n\n".join(notes_parts).strip()
-    return improve_tech_story(job.concern or "", tech_notes)
-
 # ---------------- PDF INDEXING ----------------
 def extract_pdf_pages(file_bytes: bytes):
     if not PYPDF_AVAILABLE:
@@ -1888,32 +1762,6 @@ def _store_pdf_assets(doc: Document, file_bytes: bytes):
     )
     session.commit()
     return indexed
-
-
-def backfill_missing_page_assets() -> int:
-    """Render page images for the Thetford Style II docs and the two Furrion FACR manuals.
-
-    Other library manuals are not queued.
-    """
-    import library_figure_backfill as fb
-
-    ids = [int(doc["id"]) for doc in fb.case_backfill_documents(session)]
-    job_id = fb.ensure_job(session, ids)
-    if not job_id:
-        return 0
-    done = 0
-    while True:
-        result = fb.process_backfill_batch(
-            session,
-            job_id,
-            download_pdf=_download_library_pdf,
-            upload_png=r2_put_bytes,
-            batch_size=2,
-        )
-        done += int(result.get("done") or 0)
-        if result.get("busy") or result.get("status") == "complete" or not result.get("processed"):
-            break
-    return done
 
 
 def index_document_from_bytes(doc: Document, file_bytes: bytes):
@@ -2005,46 +1853,6 @@ PROCEDURE_TOPIC_TERMS = [
 SHOP_BRANDS = tuple(_gdc.SHOP_BRAND_TOKENS)
 
 
-def named_brands(*texts: str) -> list:
-    return _gdc.named_shop_brands(*texts)
-
-
-def chunk_brands(ch) -> list:
-    return named_brands(ch.title or "", ch.keywords or "")
-
-
-def build_sources_payload(chunks) -> tuple:
-    """Build human text + JSON list of unique document/page sources with excerpts."""
-    sources_lines = []
-    payload = []
-    seen = set()
-    for ch in chunks:
-        doc = session.query(Document).get(ch.document_id)
-        file_path = doc.file_path if doc else None
-        key = (ch.document_id, ch.page)
-        sources_lines.append(f"- {ch.title} (page {ch.page})")
-        if key in seen:
-            continue
-        seen.add(key)
-        payload.append({
-            "document_id": ch.document_id,
-            "title": ch.title,
-            "page": ch.page,
-            "file_path": file_path,
-            "file_type": (doc.file_type if doc else "pdf") or "pdf",
-            "excerpt": (ch.chunk_text or "")[:1800],
-        })
-    by_key = {(p["document_id"], p["page"]): p for p in payload}
-    for ch in chunks:
-        k = (ch.document_id, ch.page)
-        if k in by_key:
-            ex = by_key[k].get("excerpt") or ""
-            more = ch.chunk_text or ""
-            if more and more not in ex:
-                by_key[k]["excerpt"] = (ex + "\n\n" + more)[:2500]
-    return "\n".join(sources_lines), json.dumps(payload)
-
-
 def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
     """Return PNG bytes for a 1-based page number, or None."""
     if not PYMUPDF_AVAILABLE:
@@ -2120,16 +1928,6 @@ def parse_cited_pages_from_text(assistant_text: str) -> list:
     for m in PAGE_OF_MANUAL_RE.finditer(assistant_text or ""):
         _add(m.group(2), m.group(1))
     return out
-
-
-def strip_fake_markdown_images(text: str) -> str:
-    """Remove invented markdown/HTML images from coach replies. Real pages use st.image only."""
-    if not text:
-        return text
-    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
-    text = re.sub(r"<img\b[^>]*>", "", text, flags=re.I)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
 
 def _titles_compatible(cited_title: str, source_title: str) -> bool:
@@ -2363,18 +2161,6 @@ def resolve_water_heater_document_seed():
         if best is None:
             best = row
     return best
-
-
-def store_ask_sources(chunks):
-    if not chunks:
-        return
-    _text, payload = build_sources_payload(chunks)
-    try:
-        data = json.loads(payload) if payload else []
-    except Exception:
-        data = []
-    if isinstance(data, list) and data:
-        merge_ask_source_ledger(data)
 
 
 def parse_figure_requests(user_msg: str) -> list:
@@ -2829,33 +2615,6 @@ def render_library_page_image(src: dict, key_suffix: str):
     return False
 
 
-def load_job_sources(job: DiagnosticJob) -> list:
-    if not getattr(job, "sources_json", None):
-        return []
-    try:
-        data = json.loads(job.sources_json)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-# ---------------- FURNACE OEM ORDER (always-on coach rule) ----------------
-def is_furnace_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
-    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
-        return False
-    if is_cooktop_range_context(category_name, model_text, symptom):
-        return False
-    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
-    return "furnace" in blob
-
-
-def furnace_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    symptom = (symptom or "").strip()
-    if is_furnace_context(category_name, model_text, symptom):
-        return f"{symptom} furnace sail switch thermostat bypass airflow limit".strip()
-    return symptom
-
-
 FURNACE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 
@@ -3216,117 +2975,10 @@ PROCEDURE_TREES = {
 }
 
 
-def _norm_flow_text(s: str) -> str:
-    t = (s or "").lower().strip()
-    t = t.replace("—", "-").replace("–", "-")
-    t = re.sub(r"\s+", " ", t)
-    return t
-
-
-def flow_matches_fcr_model(category_name: str = "", model_text: str = "") -> bool:
-    blob = _norm_flow_text(f"{category_name or ''} {model_text or ''}")
-    if "ccd-0008122" in blob or "ccd0008122" in blob:
-        return True
-    if re.search(r"\bfcr0?8\b", blob) or re.search(r"\bfcr10\b", blob):
-        return True
-    if "fcr10dcgta" in blob.replace(" ", "") or "fcr08dcgta" in blob.replace(" ", ""):
-        return True
-    if "furrion" in blob and ("fcr" in blob or "fridge" in blob or "refriger" in blob):
-        # Prefer hard tree only when FCR family / CCD is clear enough
-        if "fcr" in blob:
-            return True
-    return False
-
-
-def find_matching_procedure(category_name: str = "", model_text: str = ""):
-    """Return procedure dict if a hard tree matches category+model, else None."""
-    if flow_matches_fcr_model(category_name, model_text):
-        return PROCEDURE_FURRION_FCR_CCD_0008122
-    cat = _norm_flow_text(category_name)
-    model = _norm_flow_text(model_text)
-    if any(c in cat for c in ("refriger", "fridge")) and (
-        "fcr" in model or "ccd-0008122" in model or "ccd0008122" in model
-    ):
-        return PROCEDURE_FURRION_FCR_CCD_0008122
-    return None
-
-
 def get_procedure_node(procedure: dict, node_id: str):
     if not procedure:
         return None
     return (procedure.get("nodes") or {}).get(node_id)
-
-
-def format_gate_reply(node: dict, preface: str = "") -> str:
-    """Shop language for the current gate + 📖 Source from the node (prompt verbatim)."""
-    if not node:
-        return "No active diagnostic gate."
-    prompt = (node.get("prompt") or "").strip()
-    title = (node.get("source_title") or "").strip()
-    page = node.get("source_page")
-    parts = []
-    if preface:
-        parts.append(preface.strip())
-        parts.append("")
-    parts.append(prompt)
-    if title and page is not None:
-        parts.append("")
-        parts.append(f"📖 Source: {title} - page {page}")
-    return "\n".join(parts).strip()
-
-
-def select_start_node_id(procedure: dict, user_msg: str, history: list = None) -> str:
-    """
-    Start node from tech free text. Does not invent tests — only picks an entry gate.
-    no power / dead → fuse. Fuse replaced + light on + not cooling → dial (post-power path).
-    Fan-fault flash → F+/F− path only.
-    """
-    blob = _norm_flow_text(user_msg)
-    prior = " ".join(
-        (m.get("content") or "") for m in (history or []) if m.get("role") == "user"
-    )
-    blob = _norm_flow_text(f"{prior} {user_msg}")
-
-    # Flash / fan fault code path (only place F+/F− volts belong)
-    if re.search(r"\b(2\s*flash|flash\s*2|fan fault|fan.?fault)\b", blob):
-        return "fan_fault_f_terminal_volts"
-
-    fuse_done = bool(
-        re.search(
-            r"\b(fuse\s+(?:is\s+|was\s+)?(?:blown\s+)?replaced|replaced\s+(?:the\s+)?fuse|"
-            r"new\s+fuse|fuse\s+(?:was\s+)?blown\s+replac\w*|fuse\s+blown.*replac\w*)\b",
-            blob,
-        )
-        or ("fuse" in blob and "blown" in blob and "replac" in blob)
-        or ("fuse" in blob and "replac" in blob)
-    )
-    light_on = bool(
-        re.search(r"\b(light\s+on|cavity light|interior light|has power|powered|power.?on)\b", blob)
-    )
-    not_cooling = bool(
-        re.search(
-            r"\b(not\s+cool(?:ing)?|no\s+cool(?:ing)?|won'?t\s+cool|wont\s+cool|not\s+cold|warm|insufficient\s+temp|no\s+cold)\b",
-            blob,
-        )
-    )
-    no_power = bool(
-        re.search(
-            r"\b(no power|dead|no light|won'?t turn on|wont turn on|blank|no juice|completely dead)\b",
-            blob,
-        )
-    )
-
-    if fuse_done and (light_on or not no_power) and not_cooling:
-        return "dial_on_4_5"
-    if fuse_done and light_on and not not_cooling:
-        return "cavity_light_after_fuse"
-    if no_power and not (fuse_done and light_on):
-        return "fuse_front_vent"
-    if not_cooling and not no_power:
-        return "dial_on_4_5"
-    if light_on and not_cooling:
-        return "dial_on_4_5"
-    return "fuse_front_vent"
 
 
 # Ordered alias lists: first matching key wins for ambiguous text.
@@ -3363,192 +3015,6 @@ _ANSWER_ALIAS_GROUPS = [
 ]
 
 
-def map_tech_text_to_answer(node: dict, tech_text: str):
-    """
-    Map free text to ONE allowed edge key for the CURRENT node.
-    Returns (answer_key, None) or (None, reason) if unmapped — caller must re-ask, not advance.
-    """
-    if not node:
-        return None, "no_node"
-    edges = node.get("edges") or {}
-    if not edges:
-        return None, "end_node"
-    raw = _norm_flow_text(tech_text)
-    if not raw:
-        return None, "empty"
-
-    allowed = list(edges.keys())
-
-    # Exact / startswith key
-    for key in allowed:
-        if raw == key or raw.startswith(key + " ") or raw.endswith(" " + key):
-            return key, None
-
-    nid = node.get("id") or ""
-
-    # Operating diamond: resolve negation BEFORE alias groups (alias "operating" would
-    # falsely match "…or operating" inside "does not seem to be cooling or operating").
-    if nid == "is_operating_diamond":
-        no_hits = (
-            "not operat", "isn't operat", "isnt operat", "not running", "isn't running", "isnt running",
-            "compressor not", "no compressor", "compressor dead", "not working", "isn't working",
-            "no amp", "0 amp", "0a", "silent", "no hum", "not getting power to compressor",
-            "does not seem to be cooling or operating", "not cooling or operating",
-            "cooling or operating",  # only when preceded by does not / not — checked below
-        )
-        if re.search(r"\b(does\s+not|doesn't|doesnt|not)\b.{0,40}\b(operat|running|working)\b", raw):
-            if "no" in edges:
-                return "no", None
-        if any(h in raw for h in no_hits[:14]):
-            if "no" in edges:
-                return "no", None
-
-    # Alias groups that intersect allowed edges (preserve group priority).
-    # Skip a positive phrase if it sits inside a negation ("not running", "no light").
-    def _phrase_hit(phrase: str, text: str) -> bool:
-        if phrase not in text:
-            return False
-        # Word-ish boundaries
-        if not re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", text):
-            return False
-        # Negation immediately before phrase
-        if re.search(r"\b(?:not|no|never|isn't|isnt|wasn't|wasnt|ain't|aint)\s+" + re.escape(phrase), text):
-            return False
-        # Broader: any "does not / doesn't / not" earlier in the same clause-ish window
-        if re.search(r"\b(?:does\s+not|doesn't|doesnt|not|no|never)\b.{0,48}" + re.escape(phrase), text):
-            return False
-        return True
-
-    for key, phrases in _ANSWER_ALIAS_GROUPS:
-        if key not in edges:
-            continue
-        for p in phrases:
-            if _phrase_hit(p, raw):
-                return key, None
-
-    # Node-specific heuristics
-    if nid in ("cavity_light_after_fuse",):
-        if ("light" in raw or "power" in raw) and any(
-            w in raw for w in ("not cool", "no cool", "warm", "not cold")
-        ):
-            if "light_on_not_cooling" in edges:
-                return "light_on_not_cooling", None
-            if "yes" in edges:
-                return "yes", None
-        if "light" in raw and "on" in raw and "cool" in raw and "not" not in raw:
-            if "light_on_cooling" in edges:
-                return "light_on_cooling", None
-        if any(w in raw for w in ("no light", "still dead", "dark", "no power")):
-            if "no" in edges:
-                return "no", None
-
-    if nid == "fuse_front_vent":
-        if "replac" in raw or ("blown" in raw and "replac" in raw):
-            if "replaced" in edges:
-                return "replaced", None
-        if "blown" in raw:
-            if "blown" in edges:
-                return "blown", None
-        if any(w in raw for w in ("good", "ok", "fine", "intact", "not blown")):
-            if "good" in edges:
-                return "good", None
-
-    if nid == "paper_test":
-        if any(w in raw for w in ("no movement", "no paper", "doesn't move", "does not move", "fail", "no suck", "no blow")):
-            if "fail" in edges:
-                return "fail", None
-            if "no" in edges:
-                return "no", None
-        if any(w in raw for w in ("suck", "blow", "moves", "pass", "airflow ok")):
-            if "pass" in edges:
-                return "pass", None
-            if "yes" in edges:
-                return "yes", None
-
-    if nid == "is_operating_diamond":
-        # SM: "operating" = compressor working/running (may still not be cold). Cold-only answers need compressor yes/no.
-        no_hits = (
-            "not operat", "isn't operat", "isnt operat", "not running", "isn't running", "isnt running",
-            "compressor not", "no compressor", "compressor dead", "not working", "isn't working",
-            "no amp", "0 amp", "0a", "silent", "no hum", "not getting power to compressor",
-            "does not seem to be cooling or operating", "not cooling or operating",
-        )
-        if any(h in raw for h in no_hits) or re.search(
-            r"\b(dead|no\s+run|won't\s+run|will\s+not\s+run)\b", raw
-        ):
-            if "no" in edges:
-                return "no", None
-        # Plain "not cold / not cooling" alone is NOT a compressor answer — leave unmapped (re-ask).
-        if re.search(r"\b(operat|compressor\s+running|running|amps?\s*>\s*1|greater\s+than\s*1|>\s*1\s*a)\b", raw) and not re.search(
-            r"\b(not|no|isn't|isnt|won't|wont)\b", raw
-        ):
-            if "yes" in edges:
-                return "yes", None
-
-    if nid in ("battery_under_load", "set_dial_then_battery", "power_continuity_voltage"):
-        m = re.search(r"(\d+(?:\.\d+)?)\s*v", raw)
-        if m:
-            try:
-                volts = float(m.group(1))
-                if nid == "battery_under_load":
-                    if volts >= 10.5 and "yes" in edges:
-                        return "yes", None
-                    if volts < 10.5 and "no" in edges:
-                        return "no", None
-                if nid == "power_continuity_voltage":
-                    if 12.0 <= volts <= 15.0 and "yes" in edges:
-                        return "yes", None
-                    if (volts < 12.0 or volts > 15.0) and "no" in edges:
-                        return "no", None
-            except ValueError:
-                pass
-
-    if nid == "not_cooling_current":
-        m = re.search(r"(\d+(?:\.\d+)?)\s*a", raw)
-        if m:
-            try:
-                amps = float(m.group(1))
-                if amps < 3.0 and "yes" in edges:
-                    return "yes", None
-                if amps >= 3.0 and "no" in edges:
-                    return "no", None
-            except ValueError:
-                pass
-        if "<3" in raw or "less than 3" in raw:
-            if "yes" in edges:
-                return "yes", None
-        if ">3" in raw or "over 3" in raw or "greater than 3" in raw:
-            if "no" in edges:
-                return "no", None
-
-    # Soft yes/no — leading token or whole-message affirmation/negation
-    lead = raw.split(",", 1)[0].strip()
-    if lead in ("yes", "y", "yeah", "yep", "pass", "ok", "good") or raw in ("yes", "y", "yeah", "yep", "pass", "ok", "good"):
-        if "yes" in edges:
-            return "yes", None
-        if "pass" in edges:
-            return "pass", None
-    if lead in ("no", "n", "nope", "fail", "failed") or raw in ("no", "n", "nope", "fail", "failed"):
-        if "no" in edges:
-            return "no", None
-        if "fail" in edges:
-            return "fail", None
-
-    return None, "unmapped"
-
-
-def advance_flow(procedure: dict, node_id: str, answer_key: str):
-    """Advance ONLY via tree edges. Returns (next_node_id, next_node) or (None, None)."""
-    node = get_procedure_node(procedure, node_id)
-    if not node:
-        return None, None
-    edges = node.get("edges") or {}
-    nxt = edges.get(answer_key)
-    if not nxt:
-        return None, None
-    return nxt, get_procedure_node(procedure, nxt)
-
-
 def binary_button_labels(node: dict):
     """Optional Pass/Fail or Yes/No labels when node is binary."""
     if not node or (node.get("type") or "") != "binary":
@@ -3559,133 +3025,6 @@ def binary_button_labels(node: dict):
     if "yes" in edges and "no" in edges:
         return ("Yes", "yes", "No", "no")
     return None
-
-
-def engine_turn(ask_flow: dict, user_msg: str, category_name: str = "", model_text: str = "", chat_history: list = None):
-    """
-    One Guided Diagnostics engine turn.
-    Returns dict:
-      used_engine, reply, ask_flow, reask, node (current after turn)
-    If no matching tree: used_engine=False (caller uses AI path with page-lock rule).
-    """
-    procedure = find_matching_procedure(category_name, model_text)
-    if not procedure:
-        return {
-            "used_engine": False,
-            "reply": None,
-            "ask_flow": ask_flow,
-            "reask": False,
-            "node": None,
-        }
-
-    flow = dict(ask_flow or {})
-    hist = list(flow.get("history") or [])
-    node_id = flow.get("node_id")
-    proc_id = procedure["id"]
-
-    # New / mismatched procedure → pick start from this message
-    if flow.get("procedure_id") != proc_id or not node_id:
-        node_id = select_start_node_id(procedure, user_msg, chat_history)
-        # If the start message already encodes fuse-replaced+light+not cooling,
-        # land on dial without requiring a prior answer.
-        node = get_procedure_node(procedure, node_id)
-        flow = {
-            "procedure_id": proc_id,
-            "node_id": node_id,
-            "history": hist,
-        }
-        # Opening turn: present the start gate (do not consume message as an answer
-        # unless we jumped into post-power because message already answered prior gates).
-        start_id = node_id
-        # When entry is dial_on_4_5 because message already reported fuse+light+not cooling,
-        # present dial gate (message was entry selection, not dial answer).
-        reply = format_gate_reply(node)
-        return {
-            "used_engine": True,
-            "reply": reply,
-            "ask_flow": flow,
-            "reask": False,
-            "node": node,
-            "opened": True,
-            "start_id": start_id,
-        }
-
-    node = get_procedure_node(procedure, node_id)
-    if not node:
-        node_id = select_start_node_id(procedure, user_msg, chat_history)
-        node = get_procedure_node(procedure, node_id)
-        flow = {"procedure_id": proc_id, "node_id": node_id, "history": hist}
-        return {
-            "used_engine": True,
-            "reply": format_gate_reply(node),
-            "ask_flow": flow,
-            "reask": False,
-            "node": node,
-        }
-
-    if (node.get("type") or "") == "end" or not (node.get("edges") or {}):
-        return {
-            "used_engine": False,
-            "reply": None,
-            "ask_flow": flow,
-            "reask": False,
-            "node": node,
-            "yielded_to_coach": True,
-        }
-
-    answer, reason = map_tech_text_to_answer(node, user_msg)
-    if not answer:
-        # Unmapped → re-ask CURRENT gate. Do NOT advance. Do NOT invent a new test.
-        edges_keys = ", ".join((node.get("edges") or {}).keys())
-        if (node.get("id") or "") == "is_operating_diamond":
-            reask_preface = (
-                "Cold alone is not this gate. "
-                "Is the compressor running (or draw greater than 1 amp)? "
-                f"Answer {edges_keys} only — I will not skip ahead."
-            )
-        else:
-            reask_preface = (
-                "I need a result that matches this gate "
-                f"({edges_keys}). "
-                "Report only this check — I will not skip ahead."
-            )
-        return {
-            "used_engine": True,
-            "reply": format_gate_reply(node, preface=reask_preface),
-            "ask_flow": flow,
-            "reask": True,
-            "node": node,
-            "unmapped_reason": reason,
-        }
-
-    next_id, next_node = advance_flow(procedure, node_id, answer)
-    if not next_id or not next_node:
-        return {
-            "used_engine": True,
-            "reply": format_gate_reply(
-                node,
-                preface="That result does not match an edge on this gate. Re-report for this check only.",
-            ),
-            "ask_flow": flow,
-            "reask": True,
-            "node": node,
-        }
-
-    hist.append({"node_id": node_id, "result": answer})
-    flow = {
-        "procedure_id": proc_id,
-        "node_id": next_id,
-        "history": hist,
-    }
-    return {
-        "used_engine": True,
-        "reply": format_gate_reply(next_node),
-        "ask_flow": flow,
-        "reask": False,
-        "node": next_node,
-        "advanced_from": node_id,
-        "answer": answer,
-    }
 
 
 def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_text: str):
@@ -3709,75 +3048,6 @@ def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_
         except Exception:
             pass
     return [item for item in offers if item.get("png")]
-
-
-def _append_stored_figure_offer(reply: str, user_msg: str, category_name: str, model_text: str) -> str:
-    """On a physical step, or when the tech asks, name the cropped figure.
-
-    An empty library leaves the reply exactly as the shop line wrote it.
-    """
-    import library_figure_backfill as fb
-    import manual_figures as mf
-
-    physical = bool(re.search(
-        r"\b(check|tighten|replace|inspect|remove|install|measure|read the)\b",
-        reply or "",
-        re.I,
-    ))
-    asked = mf.wants_manual_image(user_msg) or wants_library_page_shown(user_msg)
-    if not physical and not asked:
-        return reply
-    # A cached figure-bank module from before this deploy has no gate. Skip the
-    # figure instead of raising AttributeError on the reply.
-    fits = getattr(fb, "fits_case", None)
-    if fits is None:
-        return reply
-    chosen = [
-        item
-        for item in _stored_figure_matches(reply, user_msg, category_name, model_text)
-        if fits(item, category_name, model_text, user_msg, reply)
-    ]
-    if not chosen:
-        return reply
-    limit = 3 if asked else 1
-    extra = []
-    first = chosen[0]
-    if first.get("document_id"):
-        try:
-            chunk_text = "\n".join(
-                (row.chunk_text or "")
-                for row in session.query(DocChunk).filter_by(
-                    document_id=first["document_id"], page=first["page"]
-                ).all()
-            )
-        except Exception:
-            chunk_text = ""
-        how_for = getattr(fb, "procedure_how", None)
-        detail = ""
-        if how_for is not None:
-            detail = how_for(
-                first,
-                chunk_text,
-                first.get("title") or "",
-                first.get("page"),
-                category_name,
-                model_text,
-                user_msg,
-                reply,
-            )
-        if (
-            detail
-            and detail not in (reply or "")
-            and not re.match(r"how\s*\(", detail.strip(), re.I)
-            and not re.search(r"\bnot stated\b", detail, re.I)
-        ):
-            extra.append(detail)
-    for item in chosen[:limit]:
-        if item["caption"] not in (reply or ""):
-            extra.append(item["caption"])
-    if not extra:
-        return reply
-    return ((reply or "").rstrip() + "\n\n" + "\n".join(extra)).strip()
 
 
 # ---------------- GD OFFICIAL METHOD (Chase approved 2026-10-16) ----------------
@@ -3894,26 +3164,6 @@ def guided_diagnostics_reply(
 ASK_TECHTRACK_SYSTEM = ""  # removed 2026-10-23 (Chase order): the Ask prompt is now the primer (gd_prompt.PRIMER); original in drafts/REMOVED-RULES-2026-10-23
 
 
-def _ask_chat_transcript(history: list) -> str:
-    lines = []
-    for m in history or []:
-        role = (m.get("role") or "user").strip()
-        content = (m.get("content") or "").strip()
-        if not content:
-            continue
-        label = "Tech" if role == "user" else "Guided Diagnostics"
-        lines.append(f"{label}: {content}")
-    return "\n\n".join(lines)
-
-
-def _doc_file_available(doc) -> bool:
-    """A library doc counts only if its indexed text exists (chunks) - a doc with no reachable content is skipped by the selector."""
-    try:
-        return session.query(DocChunk.id).filter(DocChunk.document_id == doc["id"]).first() is not None
-    except Exception:
-        return True
-
-
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
     # Rule 10: on the official GD path the story comes from the session's recorded facts only.
     if GD_OFFICIAL_METHOD:
@@ -3985,22 +3235,6 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
         )
     # Status from tech lines only so coach "replace the overload" cannot flip OPEN/complete.
     return improve_tech_story(first_user, "\n\n".join(notes_parts), status_text=tech_blob)
-
-
-def load_step_log(job: DiagnosticJob) -> list:
-    if not job.step_log:
-        return []
-    try:
-        data = json.loads(job.step_log)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-
-def save_step_log(job: DiagnosticJob, steps: list):
-    job.step_log = json.dumps(steps)
-    job.updated_date = datetime.now()
-    session.commit()
 
 
 def seed_data():

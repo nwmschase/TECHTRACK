@@ -2,14 +2,8 @@
 import unittest
 
 from gd_library_coach import (
-    FAN_FAULT_SEARCH_BOOST,
-    FCR_E2_FAN_FAULT_PRODUCT_LOCK,
-    FURRION_FCR_FAN_FAULT_PAGES,
-    fcr_e2_search_symptom,
     is_air_conditioning_context,
     is_fcr_e2_fan_fault_context,
-    rank_chunks_for_fcr_fan_fault,
-    score_fcr_fan_fault_chunk,
 )
 
 FURRION = "Furrion FCR08/FCR10 SM CCD-0008122"
@@ -102,42 +96,6 @@ class TestFcrE2Detect(unittest.TestCase):
                 "Furrion FCR10",
                 "found fuse blown and replaced, fridge light comes on, fridge is not cooling",
             )
-        )
-
-
-class TestFcrE2QueryRewrite(unittest.TestCase):
-    def test_boost_prefers_fan_fault_and_fan_replacement(self):
-        q = fcr_e2_search_symptom("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        low = q.lower()
-        self.assertIn("fan fault", low)
-        self.assertIn("fan replacement", low)
-        self.assertIn("f+", low)
-        self.assertNotIn("unity", low)
-        self.assertIn("fan replacement", FAN_FAULT_SEARCH_BOOST.lower())
-
-    def test_non_e2_fridge_unchanged(self):
-        raw = "fridge not cooling cavity light on"
-        self.assertEqual(fcr_e2_search_symptom("Refrigerators", "FCR10", raw), raw)
-
-
-class TestFcrE2Ranking(unittest.TestCase):
-    def test_fan_pages_outrank_board_only_and_spec(self):
-        query = f"{WO_MODEL} {WO_COMPLAINT} {WO_READINGS}"
-        ranked = rank_chunks_for_fcr_fan_fault(LIBRARY, query, limit=4)
-        pages = [int(r["page"]) for r in ranked]
-        self.assertIn(27, pages[:2])
-        self.assertTrue(any(p in FURRION_FCR_FAN_FAULT_PAGES for p in pages[:2]))
-        self.assertGreater(
-            score_fcr_fan_fault_chunk(FAN_FAULT_DIAG, query),
-            score_fcr_fan_fault_chunk(BOARD_ONLY_RR, query),
-        )
-        self.assertGreater(
-            score_fcr_fan_fault_chunk(FAN_REPLACEMENT, query),
-            score_fcr_fan_fault_chunk(FAN_FAULT_CURRENT_SPEC, query),
-        )
-        self.assertGreater(
-            score_fcr_fan_fault_chunk(FAN_FAULT_DIAG, query),
-            score_fcr_fan_fault_chunk(AC_E2, query),
         )
 
 

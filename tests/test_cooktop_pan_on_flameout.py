@@ -2,15 +2,10 @@
 import unittest
 
 from gd_library_coach import (
-    COOKTOP_PRODUCT_LOCK,
-    COOKTOP_SEARCH_BOOST,
-    cooktop_search_symptom,
     is_cooktop_pan_on_flameout_context,
     is_cooktop_range_context,
     is_fcr_e2_fan_fault_context,
     is_water_heater_context,
-    rank_chunks_for_cooktop_pan_on,
-    score_cooktop_pan_on_chunk,
 )
 
 WO_MODEL = "Suburban cooktop"
@@ -85,38 +80,6 @@ class TestCooktopDetect(unittest.TestCase):
         )
         self.assertFalse(is_fcr_e2_fan_fault_context("", WO_MODEL, WO_COMPLAINT))
         self.assertFalse(is_water_heater_context("", WO_MODEL, WO_COMPLAINT))
-
-
-class TestCooktopQueryRewrite(unittest.TestCase):
-    def test_boost_prefers_tip_pan_and_suburban_range(self):
-        q = cooktop_search_symptom("", WO_MODEL, WO_COMPLAINT)
-        low = q.lower()
-        self.assertIn("tip", low)
-        self.assertIn("position", low)
-        self.assertIn("cookware", low)
-        self.assertIn("thermocouple", low)
-        self.assertIn("suburban", low)
-        self.assertIn("tip position", COOKTOP_SEARCH_BOOST.lower())
-
-    def test_non_cooktop_unchanged(self):
-        raw = "furnace won't light sail switch"
-        self.assertEqual(cooktop_search_symptom("Furnaces", "Suburban SF-42", raw), raw)
-
-
-class TestCooktopRanking(unittest.TestCase):
-    def test_range_cooktop_outranks_furnace_and_igniter(self):
-        query = f"{WO_MODEL} {WO_COMPLAINT}"
-        ranked = rank_chunks_for_cooktop_pan_on(LIBRARY, query, limit=4)
-        titles = [r["title"] for r in ranked]
-        self.assertEqual(titles[0], "Suburban Range/Cooktops SM")
-        self.assertGreater(
-            score_cooktop_pan_on_chunk(SUBURBAN_RANGE, query),
-            score_cooktop_pan_on_chunk(FURNACE_SAIL, query),
-        )
-        self.assertGreater(
-            score_cooktop_pan_on_chunk(SUBURBAN_RANGE, query),
-            score_cooktop_pan_on_chunk(IGNITER_FIRST, query),
-        )
 
 
 if __name__ == "__main__":

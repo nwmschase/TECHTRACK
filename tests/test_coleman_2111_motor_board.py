@@ -4,8 +4,6 @@ import unittest
 
 from gd_library_coach import (
     is_coleman_2111_context,
-    reply_authorizes_coleman_full_assembly,
-    reply_names_coleman_motor_board_only,
 )
 
 COMPLAINT = (

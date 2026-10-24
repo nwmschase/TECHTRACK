@@ -1,4 +1,4 @@
-"""Established profiles v1.0: Thetford and S01 PDF and GD outputs."""
+"""Established profiles: the GD profile doc and GD transcript checks (the Bay PDF profile is retired)."""
 import sys
 import unittest
 from pathlib import Path
@@ -26,14 +26,15 @@ class TestProfileDocs(unittest.TestCase):
     def test_profiles_are_short_descriptions_after_the_2026_10_23_order(self):
         readme = (ROOT / "docs" / "profiles" / "README.md").read_text(encoding="utf-8")
         guided = (ROOT / "docs" / "profiles" / "GD-PROFILE.md").read_text(encoding="utf-8")
-        pdf = (ROOT / "docs" / "profiles" / "PDF-PROFILE.md").read_text(encoding="utf-8")
-        for name, text in (("GD-PROFILE", guided), ("PDF-PROFILE", pdf)):
-            self.assertIn("Version 2.0", text, name)
-            self.assertIn("Chase", text, name)
-            self.assertLess(len(text.split()), 400, name)          # a short statement, not a rule list
-            self.assertNotIn("Performance scorecard", text, name)
-            self.assertNotIn("automatic overall FAIL", text, name)
-        self.assertIn("REMOVED-RULES-2026-10-23", guided + pdf + readme)
+        self.assertIn("Version 2.0", guided)
+        self.assertIn("Chase", guided)
+        self.assertLess(len(guided.split()), 400)          # a short statement, not a rule list
+        self.assertNotIn("Performance scorecard", guided)
+        self.assertNotIn("automatic overall FAIL", guided)
+        self.assertIn("REMOVED-RULES-2026-10-23", guided + readme)
+        # The Bay PDF builder is retired (Chase 2026-10-24): GD-PROFILE.md is the only profile.
+        self.assertEqual(sorted(p.name for p in (ROOT / "docs" / "profiles").glob("*-PROFILE.md")), ["GD-PROFILE.md"])
+        self.assertFalse((ROOT / "docs" / "profiles" / "PDF-PAST-FAILS.md").exists())
         log = (ROOT / "docs" / "profiles" / "PROFILE-CHANGE-LOG.md").read_text(encoding="utf-8")
         self.assertIn("| 2026-10-11 10:42 AM | GD + PDF | 1.2 |", log)      # earlier rows kept as history
         self.assertIn("| 2026-10-16 9:40 PM | PDF | 1.5 |", log)
@@ -43,31 +44,6 @@ class TestProfileDocs(unittest.TestCase):
 
 class TestGdProfile(unittest.TestCase):
 
-    def test_s01_chat_matches_the_profile(self):
-        proving = mf.facr_proving_layout()["steps"]
-        repair = mf.facr_rr_layout()["steps"]
-        answers = (
-            "Water is leaking inside while the unit runs.",
-            "The ceiling is dry.",
-            "The unit is running in COOL.",
-            "The breaker is off.",
-        )
-        steps = [proving[0], proving[1], proving[3], repair[0]]
-        turns = []
-        for answer, step, number in zip(answers, steps, range(1, 5)):
-            turns.append((answer, mf.strip_html_comments(mf.format_chat_turn(step, number, len(steps)))))
-        rules = profile_check.check_transcript(_transcript(turns))
-        self.assertEqual(_failures(rules), [], "\n".join(profile_check.format_report(rules).splitlines()))
-
-    def test_a_photo_is_not_asked_on_every_proving_step(self):
-        lines = [mf.thetford_proving_line(key) for key in ("supply", "vacuum", "valve", "flange")]
-        asked = [line for line in lines if mf.PHOTO_VISUAL in line]
-        self.assertLess(len(asked), len(lines))
-        # v4.19.59: the valve check now looks for a weep (Leader: diagnosis is a check, not "Pull the pedal off").
-        # A visible weep is where a photo helps, so it asks exactly once.
-        self.assertEqual(mf.thetford_proving_line("valve").count(mf.PHOTO_VISUAL), 1)
-        self.assertNotIn(mf.PHOTO_VISUAL, mf.thetford_proving_line("vacuum"))
-        self.assertIn("Tell me what you see.", mf.thetford_proving_line("vacuum"))
 
     def test_the_checker_rejects_a_form_and_an_unasked_figure(self):
         form = _transcript([

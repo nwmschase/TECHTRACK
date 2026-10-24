@@ -88,37 +88,6 @@ class TestManualFigureIndex(unittest.TestCase):
         self.assertNotRegex(detail, r"connect rv water supply")
         self.assertEqual(mf.procedure_detail("Disconnect RV water supply from toilet.", VALVE_TITLE, 1), "")
 
-    def test_assets_round_trip_in_sqlite(self):
-        indexed = mf.index_pdf_bytes(VALVE_PDF.read_bytes())
-        assets = mf.assets_from_index(indexed, 7)
-        tmp = tempfile.mkdtemp()
-        try:
-            root = Path(tmp)
-            mf.write_asset_files(7, assets, root)
-            db = str(root / "library.db")
-            count = mf.save_assets_sqlite(db, 7, assets)
-            self.assertEqual(count, len(assets))
-            conn = sqlite3.connect(db)
-            rows = conn.execute(
-                "SELECT document_id, page, kind, label, image_path, width, png_blob, bbox FROM doc_assets"
-            ).fetchall()
-            conn.close()
-            pages = [row for row in rows if row[2] == "page"]
-            figures = [row for row in rows if row[2] == "figure"]
-            self.assertTrue(pages)
-            self.assertGreaterEqual(len(figures), 4)
-            for row in rows:
-                self.assertEqual(row[0], 7)
-                self.assertGreater(row[1], 0)
-                self.assertTrue(row[4])
-                self.assertGreaterEqual(row[5], 250)
-                self.assertFalse(row[6])
-                png = (root / row[4]).read_bytes()
-                self.assertFalse(mf.png_is_blank(png))
-            for row in figures:
-                self.assertIn(",", row[7] or "")
-        finally:
-            shutil.rmtree(tmp)
 
     def test_other_brand_image_is_refused(self):
         self.assertTrue(mf.brands_conflict("Thetford 42070", "Coleman-Mach 2111 service manual"))

@@ -2,10 +2,7 @@
 import unittest
 
 from gd_library_coach import (
-    FIGURE_PAGE_HONESTY,
-    FIGURE_SEARCH_BOOST,
     FURRION_FCR_BOARD_FIGURE_PAGES,
-    figure_library_search_boost,
     page_has_figure_or_terminal_layout,
     page_is_text_only_notes,
     pick_diagram_page_numbers,
@@ -96,19 +93,6 @@ class TestBoardFigureAskDetect(unittest.TestCase):
     def test_plain_result_is_not_a_board_figure_ask(self):
         self.assertFalse(wants_board_or_terminal_figure("paper moved left suck right blow"))
         self.assertFalse(wants_board_or_terminal_figure("fuse blown and replaced"))
-
-
-class TestFigureQueryRewrite(unittest.TestCase):
-    def test_boost_has_figure_terms_not_quick_notes(self):
-        boost = figure_library_search_boost("show me the page with output terminals labeled")
-        self.assertEqual(boost, FIGURE_SEARCH_BOOST)
-        low = boost.lower()
-        self.assertIn("fig", low)
-        self.assertIn("inverter", low)
-        self.assertIn("pcb", low)
-        self.assertIn("wiring", low)
-        self.assertNotIn("nominal voltage", low)
-        self.assertNotIn("quick notes", low)
 
 
 class TestPageLayoutGuard(unittest.TestCase):

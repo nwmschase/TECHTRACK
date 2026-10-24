@@ -11,7 +11,6 @@ Chase product (2026-09-12):
 """
 from __future__ import annotations
 
-import contextvars
 import re
 
 # Product path: hard tree is never exclusive GD chat.
@@ -64,11 +63,6 @@ def gd_category_select_options(existing_names=None):
         ]
     return ["(any)"] + names
 
-# Groq retired llama-4-scout on 2026-07-17 (404 / no access).
-# Current Groq vision: https://console.groq.com/docs/vision
-# Plate photos go through gd_llm (xAI grok-4.6 first, then this Groq list).
-# Do not put llama-4-scout back on the default list.
-DEAD_GROQ_SCOUT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_GROQ_VISION_MODELS = (
     "qwen/qwen3.6-27b",
     "qwen/qwen3.8-27b",
@@ -95,27 +89,6 @@ FIGURE_HINTS = (
     "show me the diagram", "show me the drawing", "show me the figure/page",
 )
 
-COACH_REQUEST_PHRASES = (
-    "go back", "need to test", "test the compressor", "test compressor",
-    "go to compressor", "compressor section", "show me",
-    "what does", "what is", "what are", "how do i", "how do you",
-    "how do we", "clarify", "clarification", "explain", "wait,",
-    "instead", "different symptom", "another branch", "another path",
-    "change direction", "pivot", "never mind", "hold on",
-    "i'm confused", "im confused", "why is", "why do",
-    "can you", "could you", "please explain",
-    "after the paper", "rather than", "i want to", "let me",
-    "new symptom", "different issue", "different test",
-    "not that", "wrong path", "other check",
-)
-
-# Everyday shop words for tech-facing GD replies and Bay sheets.
-# The ban names the jargon once so the model is told not to say it.
-SHOP_LANGUAGE_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-OPEN_LIBRARY_COACH_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-OPEN_LIBRARY_COACH_RULE = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Board / terminal / PCB figure asks (Chase live: "show me labeled output terminals").
 BOARD_FIGURE_ASK_HINTS = (
@@ -127,16 +100,6 @@ BOARD_FIGURE_ASK_HINTS = (
     "d/+", "silkscreen",
 )
 
-# Search rewrite: pull figure pages, not Quick Notes / Nominal voltage.
-FIGURE_SEARCH_BOOST = (
-    "Fig. figure inverter PCB wiring diagram housing labels "
-    "F+ F- terminal labels board layout pinout"
-)
-FIGURE_QUERY_TERMS = (
-    "fig", "figure", "inverter", "pcb", "wiring", "diagram",
-    "housing", "labels", "terminal", "terminals", "board",
-    "layout", "pinout",
-)
 
 # CCD-0008122 shop SM pages that actually show board / terminal figures.
 # ~11 wiring, ~16–17 Fig. 2–4 inverter + D/+, ~27 Fig. 21 F+/F−, ~45–46 Fig. 68–69 housing.
@@ -146,7 +109,6 @@ FURRION_FCR_TEXT_ONLY_PAGES = (13,)  # Troubleshooting Instructions / Quick Note
 FIG_CAPTION_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 F_PLUS_MINUS_RE = re.compile(r"\bf\s*[+\-–−]", re.I)
 
-FIGURE_PAGE_HONESTY = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Lippert Level Up Advantage hydraulic leveling controller (807662 / 25499 / 24999).
 # NOT Ground Control electric. NOT OneControl Unity M-Series awning/slide reversing.
@@ -160,24 +122,7 @@ LEVEL_UP_DOC_MARKERS = (
     "level-up", "level up", "levelup",
     "electronic leveling troubleshooting",
 )
-LEVEL_UP_SEARCH_BOOST = (
-    "Level-Up Level Up Advantage 807662 25499 24999 OCTP "
-    "TI-005 Electronic Leveling Troubleshooting Guide "
-    "QR-092 Level-Up OCTP wiring QR-059 touch pad LCD "
-    "hydraulic leveling controller Manual Mode"
-)
-# Manual Mode dump works + Auto works → Firefly isolate / rubber-boot plug (not Unity).
-# Search tokens only — not printed on the bay sheet.
-FIREFLY_CAN_SEARCH_BOOST = (
-    "Firefly isolate can isolate terminator rubber-boot plug left in "
-    "Firefly cable network plugs USB firmware 574-825-4600 interim 4 GB "
-    "Manual Mode flashes home Auto Level works"
-)
 
-LEVEL_UP_FIGURE_SEARCH_BOOST = (
-    "Level-Up OCTP TI-005 QR-092 touch pad LCD wiring diagram "
-    "hydraulic leveling controller 807662 Fig. figure"
-)
 # Thin title hints (no invented page numbers) — same idea as Furrion board-figure pages.
 LEVEL_UP_ADVANTAGE_HINT_TITLES = (
     "TI-005 Electronic Leveling Troubleshooting Guide",
@@ -185,15 +130,7 @@ LEVEL_UP_ADVANTAGE_HINT_TITLES = (
     "QR-092 Level-Up OCTP wiring",
     "QR-059 ID guide",
 )
-LEVEL_UP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
-# Level Up Manual Mode flash-home while Auto Level still works — Firefly/OneControl
-# CAN isolate. Narrow shop path only. Not a Firefly encyclopedia. Not Unity SM.
-LEVEL_UP_CAN_SEARCH_BOOST = (
-    "Manual Mode flash home Auto Level Firefly terminator "
-    "rubber boot network plugs Firefly cable isolate Level Up controller USB firmware"
-)
-LEVEL_UP_CAN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Rooftop Air Conditioning (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915 / Brisk, ADB).
 # NOT Lippert OneControl Unity M-Series awning/slide reversing — unless the tech
@@ -250,88 +187,15 @@ FACR_FREEZE_FIGURE_SEARCH_BOOST = (
     "CCD-0007990 Furrion Rooftop HVAC Troubleshooting "
     "CCD-0008666 Furrion Chill FACR rooftop AC Fig. figure"
 )
-FACR_FREEZE_HINT_TITLES = (
-    "CCD-0007990",
-    "Furrion Rooftop HVAC Troubleshooting & Service Manual",
-    "CCD-0008666",
-    "Furrion Chill FACR",
-)
-AC_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 # Girard GSWH-2 tankless water heater (CCD-0009390). Not fridge FCR E2, not rooftop AC E2.
 # Live library: Water Heaters / Girard GSWH-2 Troubleshooting Manual, 109 chunks.
 # Do not invent blink LEDs or OEM page numbers.
 WATER_HEATER_MODELS = ("gswh-2", "gswh2", "gswh 2")
-WATER_HEATER_DOC_MARKERS = (
-    "gswh",
-    "ccd-0009390",
-    "ccd0009390",
-    "girard",
-    "petit tube",
-    "tankless water",
-    "water heater",
-    "water-heater",
-)
-WATER_HEATER_SEARCH_BOOST = (
-    "Girard GSWH-2 GSWH2 CCD-0009390 E8 Petit Tube "
-    "air pressure switch tankless water heater troubleshooting"
-)
-WATER_HEATER_FIGURE_SEARCH_BOOST = (
-    "Girard GSWH-2 CCD-0009390 Petit Tube air pressure switch "
-    "water heater wiring diagram Fig. figure"
-)
 WATER_HEATER_HINT_TITLES = (
     "Girard GSWH-2 Troubleshooting Manual",
     "CCD-0009390",
     "GSWH-2",
-)
-WATER_HEATER_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-# Furrion FCR08/FCR10 fridge E2 / 2-flash / Fan Fault Current (CCD-0008122).
-# Pages already encoded from the shop SM in this repo (figure fixture + leftover tree).
-# Do not invent other page numbers.
-FURRION_FCR_FAN_FAULT_PAGES = (27, 33)
-FAN_FAULT_SEARCH_BOOST = (
-    "Error Code Fan Fault Diagnostics Fan Fault Current "
-    "F+ F- Fan Replacement inverter PCB and fan "
-    "freezer evaporator fan airflow"
-)
-FCR_E2_FAN_FAULT_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-# Suburban Range / Cooktops — pan-on flame-out (thermocouple tip geometry).
-# Do not invent OEM voltages or page numbers. Title bias only.
-COOKTOP_HINT_TITLES = (
-    "Suburban Range/Cooktops SM",
-    "Suburban Range Cooktops",
-)
-COOKTOP_SEARCH_BOOST = (
-    "Suburban Range Cooktops cooktop burner thermocouple flame sensor "
-    "tip position cookware pan-on flame stays on tip"
-)
-COOKTOP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-# Lippert PSX1 front stabilizer — broken/seized override roll pin.
-# CCD-0007345 p.7 is override USAGE, not the end fix for a destroyed pin.
-PSX1_HINT_TITLES = (
-    "Lippert PSX1 CCD-0007345",
-    "rear stabilizer owner",
-)
-PSX1_SEARCH_BOOST = (
-    "Lippert PSX1 CCD-0007345 front stabilizer jack "
-    "manual crank override roll pin complete assembly"
-)
-PSX1_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-# Furrion FCR / Arctic fridge rear-wall ice / frost / moisture (CCD-0008122 p.36 / Fig.36).
-# Shop SM page already in the library. Do not invent other OEM pages.
-FURRION_FCR_ICE_MOISTURE_PAGES = (36,)
-ICE_MOISTURE_SEARCH_BOOST = (
-    "Ice and Moisture Ice or Moisture in the Fridge "
-    "rear wall back wall frost gasket Fig. 36 figure 36"
-)
-ICE_MOISTURE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-ICE_MONTH_CLOSE = (
-    "If ice or moisture persists after drying and waiting 1 month, replace the unit."
 )
 
 
@@ -375,36 +239,6 @@ def is_furrion_ccd_0008122(text: str) -> bool:
     return "ccd-0008122" in t or "ccd0008122" in t or (
         "furrion" in t and ("fcr08" in t or "fcr10" in t) and " sm" in f" {t} "
     )
-
-
-def figure_library_search_boost(user_msg: str) -> str:
-    """
-    Extra library search terms for figure / terminal / PCB asks.
-    Does NOT include Nominal voltage / Quick Notes.
-    """
-    if wants_board_or_terminal_figure(user_msg):
-        extra = FIGURE_SEARCH_BOOST
-        if is_level_up_advantage_context("", "", user_msg):
-            extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
-        if is_air_conditioning_context("", "", user_msg):
-            extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
-            if is_facr_rooftop_freeze_context("", "", user_msg):
-                extra = f"{FACR_FREEZE_FIGURE_SEARCH_BOOST} {extra}"
-        if is_water_heater_context("", "", user_msg):
-            extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
-        return extra
-    if wants_library_figures(user_msg):
-        extra = "Fig. figure illustration diagram drawing"
-        if is_level_up_advantage_context("", "", user_msg):
-            extra = f"{LEVEL_UP_FIGURE_SEARCH_BOOST} {extra}"
-        if is_air_conditioning_context("", "", user_msg):
-            extra = f"{AC_FIGURE_SEARCH_BOOST} {extra}"
-            if is_facr_rooftop_freeze_context("", "", user_msg):
-                extra = f"{FACR_FREEZE_FIGURE_SEARCH_BOOST} {extra}"
-        if is_water_heater_context("", "", user_msg):
-            extra = f"{WATER_HEATER_FIGURE_SEARCH_BOOST} {extra}"
-        return extra
-    return ""
 
 
 def _blob(*texts: str) -> str:
@@ -525,15 +359,6 @@ def is_level_up_advantage_context(
     return False
 
 
-def skip_unity_for_level_up(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """Coach-only: do not inject Unity Electrical search for a Level Up Advantage job."""
-    return is_level_up_advantage_context(category_name, model_text, symptom)
-
-
 def _has_manual_mode_dump_marker(blob: str) -> bool:
     """Manual Mode flashes / dumps / won't stay / returns to home on a Level Up pad."""
     t = _norm(blob)
@@ -576,130 +401,6 @@ def _has_manual_mode_dump_marker(blob: str) -> bool:
         or "flash then home" in t
     )
     return bool(manual and dump)
-
-
-def _has_auto_level_fail(blob: str) -> bool:
-    t = _norm(blob)
-    if not t:
-        return False
-    return bool(
-        re.search(
-            r"\bauto(?:\s+level)?\b.{0,40}\b("
-            r"won'?t|will\s+not|wont|doesn'?t|does\s+not|failed|fails|not\s+work"
-            r")\b",
-            t,
-        )
-        or re.search(
-            r"\b("
-            r"won'?t|will\s+not|wont|doesn'?t|does\s+not|failed|fails|not\s+work"
-            r")\b.{0,40}\bauto(?:\s+level)?\b",
-            t,
-        )
-    )
-
-
-def _has_auto_or_other_pad_works(blob: str) -> bool:
-    """Auto Level or other pad functions still work."""
-    t = _norm(blob)
-    if not t or _has_auto_level_fail(t):
-        return False
-    if re.search(
-        r"\bauto(?:\s+level)?\b.{0,40}\b(works?|working|ok|okay|fine|good|still)\b",
-        t,
-    ):
-        return True
-    if re.search(
-        r"\b(works?|working|ok|okay|fine|good|still)\b.{0,40}\bauto(?:\s+level)?\b",
-        t,
-    ):
-        return True
-    if re.search(
-        r"\b(other|everything else|other pad|other functions?|other leveling)\b"
-        r".{0,40}\b(works?|working|ok|fine|good)\b",
-        t,
-    ):
-        return True
-    if "auto level still work" in t or "auto still work" in t:
-        return True
-    return False
-
-
-def is_level_up_manual_dump_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """Level Up / 807662 Manual Mode flash-then-home. Fridge / AC / cooktop / stab lose."""
-    if is_air_conditioning_context(category_name, model_text, symptom):
-        return False
-    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
-        return False
-    if is_water_heater_context(category_name, model_text, symptom):
-        return False
-    if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
-        return False
-    if is_stabilizer_override_pin_context(category_name, model_text, symptom):
-        return False
-    if not is_level_up_advantage_context(category_name, model_text, symptom):
-        return False
-    return _has_manual_mode_dump_marker(_blob(category_name, model_text, symptom))
-
-
-def is_level_up_manual_can_conflict_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """
-    Manual Mode dumps to home AND Auto Level / other pad functions still work.
-    This is the Firefly/OneControl CAN-isolate pathway — not board/LCD first.
-    """
-    if not is_level_up_manual_dump_context(category_name, model_text, symptom):
-        return False
-    blob = _blob(category_name, model_text, symptom)
-    if _has_auto_level_fail(blob):
-        return False
-    return _has_auto_or_other_pad_works(blob)
-
-
-def is_firefly_can_path_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """Bay procedure + coach: Firefly CAN isolate path for Level-Up Manual Mode."""
-    if is_level_up_manual_can_conflict_context(category_name, model_text, symptom):
-        return True
-    blob = _blob(category_name, model_text, symptom)
-    if not blob:
-        return False
-    if any(
-        k in blob
-        for k in (
-            "fridge", "refriger", "reefer", "fcr0", "fcr1",
-            "facr", "rooftop", "air condition",
-            "water heat", "gswh", "cooktop", "range & cook",
-        )
-    ):
-        return False
-    dump = bool(re.search(r"\bdump", blob))
-    auto_works = bool(
-        re.search(r"\bauto(?:\s+level|\s+mode)?\s+works\b", blob)
-        or re.search(r"\bauto\b.{0,24}\bworks\b", blob)
-    )
-    manual_mode = "manual mode" in blob
-    firefly = "firefly" in blob
-    if firefly and (manual_mode or dump or "terminator" in blob or "can" in blob):
-        return True
-    if dump and auto_works:
-        return True
-    if manual_mode and dump and re.search(r"\bauto\b", blob):
-        return True
-    if is_level_up_advantage_context(category_name, model_text, symptom) and (
-        (dump and auto_works) or (manual_mode and auto_works)
-    ):
-        return True
-    return False
 
 
 def _compact_ccd(text: str) -> str:
@@ -756,31 +457,6 @@ def named_appliance_family(model_text: str = "", symptom: str = "") -> str:
     if any(k in blob for k in ("343633", "ground control", "soft-touch", "stabilizer", "psx1")):
         return "leveling"
     return ""
-
-
-def category_conflicts_with_model(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """True when the dropdown names a different appliance than the model."""
-    family = named_appliance_family(model_text, symptom)
-    cat = _norm(category_name)
-    if not family or not cat or cat in ("(any)", "any"):
-        return False
-    if family == "ac":
-        return "air condition" not in cat and cat not in ("a/c", "ac", "hvac")
-    if family == "water_heater":
-        return "water" not in cat
-    if family == "furnace":
-        return "furnace" not in cat
-    if family == "cooktop":
-        return "cook" not in cat and "range" not in cat
-    if family == "fridge":
-        return "fridge" not in cat and "refriger" not in cat
-    if family == "leveling":
-        return "level" not in cat and "stabil" not in cat and "jack" not in cat
-    return False
 
 
 def is_air_conditioning_context(
@@ -936,396 +612,13 @@ def is_facr_freeze_library_title(title: str) -> bool:
     return False
 
 
-def is_dometic_only_rooftop_ac(title: str) -> bool:
-    """Dometic Brisk / Penguin / B57915 rooftop books — not Furrion FACR 7990/8666."""
-    t = _norm(title)
-    if not t or is_facr_freeze_library_title(t):
-        return False
-    if "furrion" in t or FACR_MODEL_RE.search(t) or "facr" in t:
-        return False
-    return any(k in t for k in ("dometic", "brisk", "b57915", "penguin"))
-
-
-def ac_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward FACT / FACR / Brisk / ADB rooftop AC. Never add Unity terms."""
-    symptom = (symptom or "").strip()
-    if not is_air_conditioning_context(category_name, model_text, symptom):
-        return symptom
-    extra = AC_SEARCH_BOOST
-    if is_facr_rooftop_freeze_context(category_name, model_text, symptom):
-        extra = f"{extra} {FACR_FREEZE_SEARCH_BOOST}"
-    return f"{symptom} {extra}".strip()
-
-
-def level_up_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward Level-Up / OCTP / TI docs. Never add Unity terms."""
-    symptom = (symptom or "").strip()
-    extras = []
-    if is_level_up_advantage_context(category_name, model_text, symptom):
-        extras.append(LEVEL_UP_SEARCH_BOOST)
-    if is_firefly_can_path_context(category_name, model_text, symptom):
-        extras.append(FIREFLY_CAN_SEARCH_BOOST)
-    if is_level_up_manual_can_conflict_context(category_name, model_text, symptom):
-        extras.append(LEVEL_UP_CAN_SEARCH_BOOST)
-    if not extras:
-        return symptom
-    return f"{symptom} {' '.join(extras)}".strip()
-
-
-def score_level_up_product(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = Level-Up / OCTP / TI leveling doc for 807662 Manual Mode.
-    Unity M-Series awning/slide reversing must lose. Ground Control electric is weaker.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    score = 0
-    if is_level_up_library_title(title) or is_level_up_library_title(t):
-        score += 22
-    if any(p in t or p in q for p in LEVEL_UP_PARTS):
-        score += 12
-    if "octp" in t:
-        score += 14
-    if "ti-005" in t or "ti 005" in t or "electronic leveling troubleshooting" in t:
-        score += 16
-    if "qr-092" in t or "qr 092" in t:
-        score += 12
-    if "qr-059" in t or "qr 059" in t:
-        score += 8
-    if "ti-170" in t or "ti 170" in t:
-        score += 10
-    if "leveling" in cat:
-        score += 8
-    if "hydraulic" in t and "level" in t:
-        score += 8
-    if any(k in t for k in ("touch pad", "touchpad", "manual mode", "lcd")):
-        score += 4
-    if any(k in t for k in ("can isolate", "terminator", "firefly", "120 ohm", "120ohm")):
-        score += 10
-    if any(k in q for k in ("dump", "auto works", "terminator", "firefly")):
-        if any(k in t for k in ("can", "terminator", "firefly", "isolate")):
-            score += 8
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 36
-    if "awning" in t and "slide" in t:
-        score -= 18
-    if "reversing" in t and any(k in t for k in ("awning", "unity", "slide")):
-        score -= 18
-    if "electrical" in cat and is_unity_board_manual(t):
-        score -= 8
-    if is_ground_control_manual(t) and is_level_up_advantage_context("", "", q or query):
-        score -= 10
-    return score
-
-
-def rank_chunks_for_level_up(chunks, query: str, limit: int = 8) -> list:
-    """Prefer Level-Up / OCTP / TI pages; drop Unity board SM when a Level-Up hit exists."""
-    scored = [(score_level_up_product(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    has_level_up = any(
-        sc > 0 and is_level_up_library_title(_page_title(ch) or _page_text_blob(ch))
-        for sc, ch in scored
-    )
-    out = []
-    for sc, ch in scored:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            if has_level_up or sc < 0:
-                continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    if out:
-        return out
-    return [
-        ch for sc, ch in scored[:limit]
-        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
-    ]
-
-
-def drop_unity_chunks_for_level_up(chunks) -> list:
-    """Never keep Unity awning/slide reversing excerpts as the Level Up controller manual."""
-    kept = []
-    for ch in chunks or []:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            continue
-        kept.append(ch)
-    return kept
-
-
-def score_level_up_can_chunk(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = CAN isolate / terminator / Firefly Manual Mode notes.
-    Board/LCD swap-first pages lose when Auto Level still works.
-    """
-    score = score_level_up_product(page, query, category)
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    if "terminator" in t:
-        score += 16
-    if "firefly" in t:
-        score += 14
-    if "wired can" in t or "coach can" in t or "firefly cable" in t or "rubber boot" in t:
-        score += 12
-    if "can isolate" in t and "no can isolate" not in t:
-        score += 8
-    if "manual mode" in t and any(k in t for k in ("flash", "home", "dump")):
-        score += 10
-    if "auto level" in t:
-        score += 6
-    if re.search(r"\b(replace|swap).{0,30}(807662|controller|lcd)\b", t):
-        if "terminator" not in t and "firefly" not in t:
-            score -= 20
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 10
-    return score
-
-
-def rank_chunks_for_level_up_can(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer CAN isolate / Firefly writeup over board/LCD swap-first pages."""
-    scored = [(score_level_up_can_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for _sc, ch in scored:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def score_ac_product(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = Furrion/Dometic rooftop AC / ADB / Brisk / FACT / FACR doc.
-    Unity M-Series awning/slide reversing must lose on AC jobs.
-    FACR freeze / condensate / base-pan prefers CCD-0007990 + CCD-0008666
-    over Dometic-only rooftop books.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    score = 0
-    if is_ac_library_title(title) or is_ac_library_title(t):
-        score += 22
-    if any(m in t or m in q for m in AC_MODELS) or re.search(r"\bfact\d", t) or re.search(r"\bfact\d", q):
-        score += 12
-    if FACR_MODEL_RE.search(t) or FACR_MODEL_RE.search(q):
-        score += 12
-    if "brisk" in t or "b57915" in t:
-        score += 12
-    if "air condition" in t or "rooftop" in t or "hvac" in t:
-        score += 10
-    if re.search(r"\badb\b", t) or "air distribution" in t:
-        score += 8
-    if "air condition" in cat:
-        score += 8
-    if any(k in t for k in ("e2", "e3", "no cool", "not cool")):
-        score += 4
-    compact = _compact_ccd(t)
-    if "ccd0007990" in compact or "ccd0008666" in compact:
-        score += 10
-    if is_facr_freeze_library_title(title) or is_facr_freeze_library_title(t):
-        score += 8
-    if is_facr_rooftop_freeze_context("", "", q or query):
-        if is_facr_freeze_library_title(title) or is_facr_freeze_library_title(t):
-            score += 16
-        if any(
-            k in t
-            for k in (
-                "freeze", "ice", "frost", "condensate", "base pan",
-                "icing", "melt leak", "suction",
-            )
-        ):
-            score += 6
-        if is_dometic_only_rooftop_ac(title) or is_dometic_only_rooftop_ac(t):
-            score -= 22
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 36
-    if "awning" in t and "slide" in t:
-        score -= 18
-    if "reversing" in t and any(k in t for k in ("awning", "unity", "slide")):
-        score -= 18
-    if "electrical" in cat and is_unity_board_manual(t):
-        score -= 8
-    if any(k in t for k in ("refriger", "fridge", "furnace")) and "air condition" not in t:
-        score -= 8
-    return score
-
-
-def _chunk_has_ccd(page, ccd_compact: str) -> bool:
-    blob = _compact_ccd(f"{_page_title(page)} {_page_text_blob(page)}")
-    return ccd_compact in blob
-
-
-def _ensure_facr_freeze_pair(out: list, scored: list, limit: int) -> list:
-    """Keep both CCD-0007990 and CCD-0008666 in FACR freeze ranking when present."""
-    missing = []
-    for needle in ("ccd0007990", "ccd0008666"):
-        if any(_chunk_has_ccd(ch, needle) for ch in out):
-            continue
-        for _sc, ch in scored:
-            if _chunk_has_ccd(ch, needle):
-                missing.append(ch)
-                break
-    if not missing:
-        return out
-    merged = list(missing) + list(out)
-    seen = set()
-    deduped = []
-    for ch in merged:
-        key = (_page_title(ch), _page_number(ch), _page_text_blob(ch)[:40])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(ch)
-        if len(deduped) >= limit:
-            break
-    return deduped
-
-
-def rank_chunks_for_ac(chunks, query: str, limit: int = 8) -> list:
-    """Prefer rooftop AC / FACT / FACR / Brisk / ADB pages; drop Unity board SM when an AC hit exists."""
-    scored = [(score_ac_product(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    has_ac = any(
-        sc > 0 and is_ac_library_title(_page_title(ch) or _page_text_blob(ch))
-        for sc, ch in scored
-    )
-    facr_freeze = is_facr_rooftop_freeze_context("", "", query)
-    has_facr_docs = any(
-        is_facr_freeze_library_title(_page_title(ch) or _page_text_blob(ch))
-        for _sc, ch in scored
-    )
-    out = []
-    for sc, ch in scored:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            if has_ac or sc < 0:
-                continue
-        if facr_freeze and has_facr_docs and (
-            is_dometic_only_rooftop_ac(title) or is_dometic_only_rooftop_ac(blob)
-        ):
-            continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    if facr_freeze:
-        out = _ensure_facr_freeze_pair(out, scored, limit)
-    if out:
-        return out
-    return [
-        ch for sc, ch in scored[:limit]
-        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
-    ]
-
-
-def drop_unity_chunks_for_ac(chunks) -> list:
-    """Never keep Unity awning/slide reversing excerpts as the rooftop AC manual."""
-    kept = []
-    for ch in chunks or []:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            continue
-        kept.append(ch)
-    return kept
-
-
 # FACR freeze + interior leak: once drain / fan-filter / freeze sensor are proved,
 # the coach must finish on rooftop assembly R&R (CCD-0007990). Do not stall.
 FACR_ASSEMBLY_SEARCH_BOOST = (
     "CCD-0007990 rooftop assembly condensate R&R replace rooftop assembly"
 )
-FACR_FREEZE_ASSEMBLY_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-def facr_reported_assembly_rr_line(facts: dict | None = None) -> str:
-    """Rooftop R&R card. Name nozzles only when the tech reported them open."""
-    facts = facts or {}
-    if facts.get("facr_nozzle") == "open":
-        proved = (
-            "Drain, pan and slope, filter and fan, nozzles, and the freeze sensor are reported good. "
-        )
-    else:
-        proved = (
-            "Drain, pan and slope, filter and fan, and the freeze sensor are reported good. "
-        )
-    return (
-        proved
-        + "The freeze or interior leak remains. "
-        "Authorize rooftop assembly R&R on the CCD-0007990 condensate and assembly path. "
-        "Replace the rooftop assembly.\n"
-        "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-    )
 
 
-FACR_REPORTED_ASSEMBLY_RR_LINE = facr_reported_assembly_rr_line()
-
-
-def facr_proves_complete(facts: dict | None) -> bool:
-    facts = facts or {}
-    return (
-        facts.get("facr_drain") == "clear"
-        and facts.get("facr_fan_filter") == "ok"
-        and facts.get("facr_freeze_sensor") == "good"
-    )
-
-
-def facr_sensor_proved(facts: dict | None) -> bool:
-    facts = facts or {}
-    return facts.get("facr_freeze_sensor") == "good" or facts.get("facr_sensor_reading") == "reported"
-
-
-def facr_terminal_path_complete(facts: dict | None) -> bool:
-    """
-    Drain, pan/slope, filter/fan, suction, sensor, thermostat,
-    nozzles, ambient, and refrigerant pressure are all reported good.
-    """
-    facts = facts or {}
-    needed = (
-        ("facr_drain", "clear"),
-        ("facr_pan_slope", "ok"),
-        ("facr_fan_filter", "ok"),
-        ("facr_suction", "clear"),
-        ("facr_thermostat", "good"),
-        ("facr_nozzle", "open"),
-        ("facr_ambient", "ok"),
-        ("facr_pressure", "ok"),
-    )
-    if any(facts.get(key) != val for key, val in needed):
-        return False
-    return facr_sensor_proved(facts)
-
-
-# Coleman-Mach 2111-0001: Fan High dead + Peacemaker fan locked + run cap OK
-# authorizes fan motor + control board only. Compose from shop library titles.
-# Do not invent a 2111-0001 bulletin or a page number.
-COLEMAN_2111_SEARCH_BOOST = (
-    "Coleman-Mach 2111-0001 12VDC wall thermostat rooftop service manual "
-    "1976-536 1976-603 fan high pin 5 black pin 9 white "
-    "Peacemaker control box bypass "
-    "1976-695 mechanical controls fan motor run capacitor"
-)
-COLEMAN_MOTOR_BOARD_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 _COLEMAN_2111_RE = re.compile(r"\b2111[\s-]*0001\b", re.I)
 
 
@@ -1339,15 +632,6 @@ def is_coleman_2111_context(
         return False
     blob = _blob(category_name, model_text, symptom)
     return bool(blob and _COLEMAN_2111_RE.search(blob))
-
-
-def coleman_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    symptom = (symptom or "").strip()
-    if not is_coleman_2111_context(category_name, model_text, symptom):
-        return symptom
-    if COLEMAN_2111_SEARCH_BOOST in symptom:
-        return symptom
-    return f"{symptom} {COLEMAN_2111_SEARCH_BOOST}".strip()
 
 
 # Same brand list Guided Diagnostics uses to keep a named unit on its own manuals.
@@ -1533,178 +817,7 @@ def model_list_allows(models, query: str) -> bool:
     return listed_models_match(models, query)
 
 
-def is_ground_control_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """
-    Lippert Ground Control electric leveling (including 343633).
-    Hydraulic Level Up 807662 is a different product.
-    """
-    blob = _blob(category_name, model_text, symptom)
-    if not blob:
-        return False
-    if any(p in blob for p in LEVEL_UP_PARTS) and "343633" not in blob and not is_ground_control_manual(blob):
-        return False
-    if "343633" in blob:
-        return True
-    if is_ground_control_manual(blob) and not any(p in blob for p in LEVEL_UP_PARTS):
-        return True
-    return False
-
-
-def reply_names_fact12_freeze_resecure(reply: str) -> bool:
-    t = _norm(reply)
-    return "resecure" in t and "freeze sensor" in t
-
-
-GROUND_CONTROL_SEARCH_BOOST = (
-    "Lippert Ground Control electric leveling manual level zero-point calibration 343633"
-)
-GROUND_CONTROL_LEVEL_LINE = (
-    "Auto-level that lifts the driver side is a zero-point calibration on Lippert Ground Control.\n"
-    "1. Do a manual level, then set zero point.\n"
-    "2. Confirm the controller, jack, and touch pad plugs are seated.\n"
-    "3. In manual mode, run the jacks until the trailer is level. Put a level in the center and level front to back, then side to side.\n"
-    "4. Turn the touch pad off.\n"
-    "5. With the touch pad off, press and release FRONT five times, then press and release REAR five times.\n"
-    "6. The display reads ZERO POINT CALIBRATION, ENTER to set, Power to exit. Press ENTER.\n"
-    "7. The display reads Zero point stability check, then Zero point set successfully.\n"
-    "8. That stored position is the level state, and the touch pad turns off.\n"
-    "Zero-point calibration is the repair.\n"
-    "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
-    "(Ground Control TT/2.0/3.0)"
-)
-DOMETIC_NOCOOL_OPEN = (
-    "The fan is running and the air is not cold.\n"
-    "Do the Peacemaker bypass at the rooftop unit and report whether it cools.\n"
-    "📖 Source: Dometic diagnostic service manual 3311071"
-)
-DOMETIC_NOCOOL_CONFIRM_FAN = (
-    "Dometic B57915 turns on and will not blow cold.\n"
-    "Confirm the fan runs, then do the Peacemaker bypass at the rooftop unit "
-    "and report whether it cools.\n"
-    "📖 Source: Dometic diagnostic service manual 3311071"
-)
-DOMETIC_NOCOOL_STEER = DOMETIC_NOCOOL_OPEN
-# Shared with the Bay PDF. E8 is the air-pressure switch. The sensing tube is at the blower.
-GIRARD_PETIT_ALIGN_LINE = (
-    "E8 is the air pressure switch. The sensing tube is at the blower. "
-    "Look through the exhaust vent, confirm the tube is connected at the blower and the switch, "
-    "and report what you find.\n"
-    "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
-)
-
-
-def ground_control_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    symptom = (symptom or "").strip()
-    if not is_ground_control_context(category_name, model_text, symptom):
-        return symptom
-    if GROUND_CONTROL_SEARCH_BOOST in symptom:
-        return symptom
-    return f"{symptom} {GROUND_CONTROL_SEARCH_BOOST}".strip()
-
-
-def reply_names_ground_control_calibration(reply: str) -> bool:
-    t = _norm(reply)
-    manual = "manual level" in t
-    zero = "zero-point" in t or "zero point" in t
-    return bool(manual and zero)
-
-
-def dometic_nocoool_open_line(facts: dict | None = None) -> str:
-    """Fan already running starts at the Peacemaker. Otherwise confirm the fan first."""
-    if (facts or {}).get("dometic_fan") == "runs":
-        return DOMETIC_NOCOOL_OPEN
-    return DOMETIC_NOCOOL_CONFIRM_FAN
-
-
-def _repair_stands_said(history: list = None) -> bool:
-    return "repair stands" in _prior_assistant_text(history).lower()
-
-
-def _prior_assistant_text(history: list = None) -> str:
-    return " ".join(
-        message.get("content") or ""
-        for message in history or []
-        if (message.get("role") or "") == "assistant"
-    )
-
-
-_GUARD_FIRED: contextvars.ContextVar = contextvars.ContextVar("tt_guard_fired", default="")
-_SUPPLY_PAGE_ART: contextvars.ContextVar = contextvars.ContextVar("tt_supply_page_art", default=False)
-
-
-def last_guard_name() -> str:
-    """The guard that replaced the draft on the last avoid_duplicate_reply call."""
-    return _GUARD_FIRED.get() or ""
-
-
-def note_supply_page_art(has_art: bool):
-    """The supply show-me uses the page image when 42088 page 3 has one."""
-    return _SUPPLY_PAGE_ART.set(bool(has_art))
-
-
-def reset_supply_page_art(token) -> None:
-    _SUPPLY_PAGE_ART.reset(token)
-
-
 import manual_figures as _manual_figures
-
-THETFORD_CITE_42088 = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
-
-
-def reply_loops_furnace_12v(reply: str) -> bool:
-    if "replace the wall thermostat" in _norm(reply):
-        return False
-    return bool(re.search(r"\b12\s*v(?:dc)?\b", reply or "", re.I))
-
-
-def _history_asked_furnace_12v(history: list = None) -> bool:
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if reply_loops_furnace_12v(message.get("content") or ""):
-            return True
-    return False
-
-
-def reply_names_coleman_motor_board_only(reply: str) -> bool:
-    """True when the reply authorizes fan motor + control board and not the whole unit."""
-    t = _norm(reply)
-    if not t:
-        return False
-    motor = "fan motor" in t or ("motor" in t and "board" in t)
-    board = "control board" in t or ("board" in t and "motor" in t)
-    only = bool(re.search(r"\bonly\b|not the full|do not replace the full", t))
-    auth = bool(re.search(r"\b(?:authoriz\w*|r&r|replace)\b", t))
-    return bool(motor and board and only and auth)
-
-
-def reply_authorizes_coleman_full_assembly(reply: str) -> bool:
-    """True when a sentence authorizes the full 2111-0001 assembly."""
-    text = reply or ""
-    for part in re.split(r"(?<=[.!?])\s+|\n+", text):
-        if not part.strip():
-            continue
-        if not re.search(
-            r"\b(?:full|complete|entire)\b.{0,48}\b(?:2111[\s-]*0001|assembly|rooftop)\b",
-            part,
-            re.I,
-        ):
-            continue
-        if re.search(
-            r"\b(?:do not|don't|dont|not)\b.{0,40}\b(?:replace|r\s*&\s*r|authoriz)",
-            part,
-            re.I,
-        ):
-            continue
-        if re.match(r"\s*(?:do not|don't|dont)\b", part, re.I):
-            continue
-        if re.search(r"\b(?:replace|r\s*&\s*r|authoriz)", part, re.I):
-            return True
-    return False
 
 
 def _fridge_blob_not_water_heater(blob: str) -> bool:
@@ -1772,96 +885,6 @@ def is_water_heater_library_title(title: str) -> bool:
     return False
 
 
-def water_heater_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward Girard GSWH-2 / E8 / Petit Tube. Never add Unity terms."""
-    symptom = (symptom or "").strip()
-    if not is_water_heater_context(category_name, model_text, symptom):
-        return symptom
-    return f"{symptom} {WATER_HEATER_SEARCH_BOOST}".strip()
-
-
-def score_water_heater_product(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = Girard GSWH-2 / CCD-0009390 / Water Heaters / E8 / Petit Tube / air pressure.
-    Unity M-Series and Furrion FCR fridge E2 pages must lose.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    score = 0
-    if is_water_heater_library_title(title) or is_water_heater_library_title(t):
-        score += 22
-    if any(m in t or m in q for m in WATER_HEATER_MODELS) or "gswh" in t or "gswh" in q:
-        score += 14
-    if "ccd-0009390" in t or "ccd0009390" in t or "ccd-0009390" in q:
-        score += 14
-    if "girard" in t or "girard" in q:
-        score += 10
-    if "water heat" in cat:
-        score += 8
-    if "water heater" in t or "tankless" in t:
-        score += 8
-    if re.search(r"\be\s*8\b", t) or re.search(r"\be\s*8\b", q):
-        score += 12
-    if "petit tube" in t or "petit-tube" in t or "petit tube" in q:
-        score += 12
-    if "air pressure" in t or "pressure switch" in t:
-        score += 10
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 36
-    if "awning" in t and "slide" in t:
-        score -= 18
-    if "ccd-0008122" in t or "ccd0008122" in t or is_furrion_ccd_0008122(title):
-        score -= 20
-    if any(k in t for k in ("refriger", "fridge", "furnace", "air condition")) and "water heater" not in t:
-        score -= 8
-    return score
-
-
-def rank_chunks_for_water_heater(chunks, query: str, limit: int = 8) -> list:
-    """Prefer Girard GSWH-2 / Water Heaters pages; drop Unity board SM when a WH hit exists."""
-    scored = [(score_water_heater_product(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    has_wh = any(
-        sc > 0 and is_water_heater_library_title(_page_title(ch) or _page_text_blob(ch))
-        for sc, ch in scored
-    )
-    out = []
-    for sc, ch in scored:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            if has_wh or sc < 0:
-                continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    if out:
-        return out
-    return [
-        ch for sc, ch in scored[:limit]
-        if sc >= 0 and not is_unity_board_manual(_page_title(ch))
-    ]
-
-
-def drop_unity_chunks_for_water_heater(chunks) -> list:
-    """Never keep Unity awning/slide reversing excerpts as the water heater manual."""
-    kept = []
-    for ch in chunks or []:
-        title = _page_title(ch)
-        blob = _page_text_blob(ch)
-        if is_unity_board_manual(title) or is_unity_board_manual(blob):
-            continue
-        kept.append(ch)
-    return kept
-
-
 def _has_fcr_e2_fan_fault_marker(blob: str) -> bool:
     """E2 / 2-flash / Fan Fault Current / freezer-fan readings — fridge wording only."""
     t = _norm(blob)
@@ -1908,114 +931,6 @@ def is_fcr_e2_fan_fault_context(
     if not fridge:
         return False
     return _has_fcr_e2_fan_fault_marker(blob)
-
-
-def fcr_e2_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward Fan Fault Diagnostics + Fan Replacement."""
-    symptom = (symptom or "").strip()
-    if not is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
-        return symptom
-    return f"{symptom} {FAN_FAULT_SEARCH_BOOST}".strip()
-
-
-def score_fcr_fan_fault_chunk(page, query: str = "") -> int:
-    """
-    Higher = Fan Fault Diagnostics / Fan Replacement on CCD-0008122.
-    Spec-only Fan Fault Current and board-only R&R lose to fan pages.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    page_no = _page_number(page)
-    score = 0
-    if "fan fault" in t:
-        score += 16
-    if "fan fault diagnostics" in t or ("error code" in t and "fan" in t):
-        score += 10
-    if "fan replacement" in t:
-        score += 18
-    if any(
-        k in t
-        for k in (
-            "inverter pcb and fan",
-            "inverter pcb and the fan",
-            "board and fan",
-            "replace the inverter pcb and fan",
-        )
-    ):
-        score += 16
-    if F_PLUS_MINUS_RE.search(raw):
-        score += 8
-    if "evaporator fan" in t or ("freezer" in t and "fan" in t):
-        score += 8
-    if "airflow" in t and "fan" in t:
-        score += 4
-    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
-        score += 6
-    if page_no in FURRION_FCR_FAN_FAULT_PAGES:
-        score += 15
-    if "fan fault current" in t and "replacement" not in t and "diagnostics" not in t:
-        score -= 6
-    board_rr = any(
-        k in t
-        for k in (
-            "inverter pcb replacement",
-            "driver board",
-            "replace the inverter",
-            "compressor inverter pcb replacement",
-        )
-    )
-    if board_rr and "fan" not in t:
-        score -= 12
-    if any(k in t for k in ("rooftop", "air condition", "fact12", "facr", "brisk", "b57915")):
-        score -= 16
-    q = _norm(query)
-    if q and any(k in q for k in ("e2", "fan fault", "2 flash", "freezer")):
-        if "fan" in t:
-            score += 4
-    return score
-
-
-def rank_chunks_for_fcr_fan_fault(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer Fan Fault Diagnostics + Fan Replacement over board-only R&R."""
-    scored = [(score_fcr_fan_fault_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for _sc, ch in scored:
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def is_cooktop_library_title(title: str) -> bool:
-    """Catalog titles that are Suburban Range / Cooktops — not furnace-only, not Unity."""
-    t = _norm(title)
-    if not t or is_unity_board_manual(t):
-        return False
-    if "furnace" in t and "cooktop" not in t and "range" not in t:
-        return False
-    if "suburban" in t and any(k in t for k in ("range", "cooktop", "cook top")):
-        return True
-    if "range" in t and "cooktop" in t:
-        return True
-    if "range/cooktop" in t or "range & cooktop" in t or "ranges & cooktops" in t:
-        return True
-    return False
-
-
-def is_stabilizer_library_title(title: str) -> bool:
-    """PSX1 / stabilizer jack / rear stabilizer owner — not Level-Up hydraulic, not Unity."""
-    t = _norm(title)
-    if not t or is_unity_board_manual(t) or is_level_up_library_title(t):
-        return False
-    if "psx1" in t or "ccd-0007345" in t or "ccd0007345" in t:
-        return True
-    if "stabilizer" in t and any(k in t for k in ("jack", "owner", "psx", "lippert")):
-        return True
-    if "rear stabilizer" in t:
-        return True
-    return False
 
 
 def _is_cooktop_range_blob(blob: str) -> bool:
@@ -2097,69 +1012,6 @@ def is_cooktop_pan_on_flameout_context(
     return _has_pan_on_flameout_marker(blob)
 
 
-def cooktop_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward Suburban Range/Cooktops + tip/pan."""
-    symptom = (symptom or "").strip()
-    if not is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
-        return symptom
-    return f"{symptom} {COOKTOP_SEARCH_BOOST}".strip()
-
-
-def score_cooktop_pan_on_chunk(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = Suburban Range/Cooktops + thermocouple tip / pan-on geometry.
-    Furnace sail-switch / draft / igniter-first pages lose.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    score = 0
-    if is_cooktop_library_title(title) or is_cooktop_library_title(t):
-        score += 22
-    if "suburban" in t and any(k in t for k in ("range", "cooktop")):
-        score += 12
-    if "cooktop" in t or "cook top" in t:
-        score += 10
-    if re.search(r"\brange", cat) or "cooktop" in cat:
-        score += 8
-    if "thermocouple" in t or "flame sensor" in t or "flame-sensor" in t:
-        score += 10
-    if any(k in t for k in ("tip", "position", "geometry")):
-        score += 12
-    if any(k in t for k in ("pan", "cookware", "pan-on", "pan on")):
-        score += 12
-    if q and any(k in q for k in ("pan", "cookware", "thermocouple", "tip")):
-        if "thermocouple" in t or "tip" in t:
-            score += 4
-    if "sail switch" in t or ("furnace" in t and "cooktop" not in t and "range" not in t):
-        score -= 16
-    if "draft" in t and "cooktop" not in t:
-        score -= 8
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 20
-    if any(k in t for k in ("refriger", "fridge", "air condition", "gswh")) and "cooktop" not in t:
-        score -= 10
-    return score
-
-
-def rank_chunks_for_cooktop_pan_on(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer Suburban Range/Cooktops tip/pan pages over furnace / igniter-first."""
-    scored = [(score_cooktop_pan_on_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for _sc, ch in scored:
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out
-
-
 def _is_stabilizer_blob(blob: str) -> bool:
     t = _norm(blob)
     if not t:
@@ -2203,12 +1055,6 @@ def _has_override_pin_marker(blob: str) -> bool:
     return False
 
 
-BAL_TONGUE_DOC = "INS.STA.001"
-BAL_TONGUE_SEARCH_BOOST = (
-    "BAL Soft-Touch SS 5.1 INS.STA.001 20300427 soft-touch user panel "
-    "tongue jack output wire pigtail panel-to-motor"
-)
-BAL_TONGUE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 _BAL_FAMILY_RE = re.compile(
     r"\b(bal|norco|soft[\s-]*touch|ss\s*5\.1|ss5\.1|20300427|ins\.?\s*sta\.?\s*001)\b",
     re.I,
@@ -2268,15 +1114,6 @@ def is_bal_soft_touch_tongue_only_context(
     return bool(stabs_ok or lights_ok or only)
 
 
-def bal_tongue_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    symptom = (symptom or "").strip()
-    if not is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom):
-        return symptom
-    if BAL_TONGUE_SEARCH_BOOST in symptom:
-        return symptom
-    return f"{symptom} {BAL_TONGUE_SEARCH_BOOST}".strip()
-
-
 def is_stabilizer_override_pin_context(
     category_name: str = "",
     model_text: str = "",
@@ -2301,241 +1138,6 @@ def is_stabilizer_override_pin_context(
     if any(p in blob for p in LEVEL_UP_PARTS) or "octp" in blob or re.search(r"\blevel[\s-]*up\b", blob):
         return False
     return _has_override_pin_marker(blob)
-
-
-def stabilizer_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    """Rewrite the library query toward PSX1 / complete jack assembly."""
-    symptom = (symptom or "").strip()
-    if not is_stabilizer_override_pin_context(category_name, model_text, symptom):
-        return symptom
-    return f"{symptom} {PSX1_SEARCH_BOOST}".strip()
-
-
-def score_stabilizer_override_chunk(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = PSX1 / stabilizer jack / complete assembly.
-    Coupler-only and override-usage-only pages lose to assembly R&R.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    score = 0
-    if is_stabilizer_library_title(title) or is_stabilizer_library_title(t):
-        score += 22
-    if "psx1" in t or "ccd-0007345" in t or "ccd0007345" in t:
-        score += 14
-    if "stabilizer" in t and "jack" in t:
-        score += 12
-    if "leveling" in cat and "stabilizer" in t:
-        score += 6
-    if "complete" in t and "assembly" in t:
-        score += 16
-    if "roll pin" in t or "override" in t:
-        score += 6
-    if q and any(k in q for k in ("psx1", "stabilizer", "roll pin", "override")):
-        if "stabilizer" in t or "psx1" in t:
-            score += 4
-    if re.search(r"\bcoupler\b", t) and "assembly" not in t:
-        score -= 10
-    if "override usage" in t or ("how to use" in t and "override" in t):
-        score -= 8
-    if is_level_up_library_title(title) or is_level_up_library_title(t):
-        score -= 20
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 20
-    return score
-
-
-def rank_chunks_for_stabilizer_override(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer PSX1 / complete jack assembly over coupler-only or override-usage-only."""
-    scored = [(score_stabilizer_override_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for _sc, ch in scored:
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def score_ice_moisture_chunk(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = CCD-0008122 Ice and Moisture / Ice or Moisture in the Fridge p.36 / Fig.36.
-    Fuse / 12V / no-power inverter pages lose.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    cat = _norm(category)
-    if isinstance(page, dict):
-        cat = cat or _norm(str(page.get("category") or page.get("category_name") or ""))
-    else:
-        cat = cat or _norm(str(getattr(page, "category", "") or getattr(page, "category_name", "") or ""))
-    page_no = _page_number(page)
-    score = 0
-    if "ice and moisture" in t or "ice or moisture" in t:
-        score += 22
-    if "moisture in the fridge" in t or "moisture in fridge" in t:
-        score += 16
-    if any(k in t for k in ("rear wall", "back wall", "frost", "icing")):
-        score += 12
-    if "gasket" in t or "door seal" in t:
-        score += 10
-    if "dial" in t and "max" in t:
-        score += 6
-    if page_no in FURRION_FCR_ICE_MOISTURE_PAGES:
-        score += 18
-    if "fig. 36" in t or "fig 36" in t or "figure 36" in t:
-        score += 12
-    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
-        score += 6
-    if "refriger" in cat or "fridge" in cat:
-        score += 4
-    if q and any(k in q for k in ("ice", "frost", "moisture", "rear wall", "gasket")):
-        if any(k in t for k in ("ice", "moisture", "frost", "gasket")):
-            score += 4
-    fuse_or_power = any(
-        k in t
-        for k in (
-            "15a",
-            "15 a",
-            "front vent",
-            "fuse location",
-            "no power",
-            "inverter pcb",
-            "12v inverter",
-        )
-    )
-    ice_page = any(k in t for k in ("ice and moisture", "ice or moisture", "moisture in the fridge"))
-    if fuse_or_power and not ice_page:
-        score -= 16
-    if "fuse" in t and not ice_page:
-        score -= 10
-    if "fan fault" in t or "fan replacement" in t:
-        score -= 8
-    if is_unity_board_manual(title) or is_unity_board_manual(t):
-        score -= 20
-    return score
-
-
-def rank_chunks_for_ice_moisture(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer Ice and Moisture p.36 / Fig.36 over fuse / 12V no-power pages."""
-    scored = [(score_ice_moisture_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for _sc, ch in scored:
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out
-
-
-def _ice_has_month_close(reply: str) -> bool:
-    t = _norm(reply)
-    return "1 month" in t and "replace the unit" in t
-
-
-# Furrion Arctic FCR08/FCR10 — dial/control OFF, compressor still running / overcooling.
-# Locked climax cites: open C (blue) / T (black) — inverse of the p.31 jumper —
-# then, if the compressor stops, R&R part G 2021128850 on p.43–45.
-# Locked cites for this prove are p.31 and p.43–45 only.
-FURRION_FCR_DIAL_OFF_RUN_PAGES = (31, 43, 44, 45)
-FCR_DIAL_OFF_RUN_RETAIL = "C-FCR10DCGTA-007"
-
-
-DIAL_OFF_RUN_SEARCH_BOOST = (
-    "Spark-Free Thermostat temperature controller Thermostat Replacement "
-    "flag terminals C blue T black probe seated Fig. 24 Fig. 25 "
-    "part 2021128850 Repair Section 2"
-)
-DIAL_OFF_RUN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-def score_dial_off_run_chunk(page, query: str = "", category: str = "") -> int:
-    """
-    Higher = CCD-0008122 thermostat operation p.31 and Thermostat Replacement p.43–45.
-    Pages 18, 19, 20, and 34 lose.
-    """
-    raw = _page_text_blob(page)
-    title = _page_title(page)
-    t = _norm(f"{title} {raw}")
-    q = _norm(query)
-    page_no = _page_number(page)
-    score = 0
-    if "thermostat replacement" in t or "spark-free" in t or "spark free" in t:
-        score += 22
-    if "2021128850" in t or "c-fcr10dcgta-007" in t:
-        score += 18
-    if "flag terminal" in t or ("c (blue)" in t and "t (black)" in t):
-        score += 16
-    if "probe" in t and ("seat" in t or "seated" in t or "installed" in t):
-        score += 10
-    if page_no in FURRION_FCR_DIAL_OFF_RUN_PAGES:
-        score += 18
-    if page_no == 31:
-        score += 6
-    if page_no in (43, 44, 45):
-        score += 8
-    if "fig. 24" in t or "fig 24" in t or "fig. 25" in t or "fig 25" in t:
-        score += 8
-    if any(k in t for k in ("fig. 57", "fig 57", "fig. 59", "fig. 67", "fig 67")):
-        score += 8
-    if is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(t):
-        score += 6
-    if q and any(k in q for k in ("thermostat", "2021128850", "overcool", "dial off")):
-        if "thermostat" in t:
-            score += 4
-    # Pages 18, 19, 20, and 34 belong to other trees. Always drop them here.
-    if page_no in (18, 19, 20, 34):
-        score -= 28
-    elif any(
-        k in t
-        for k in (
-            "fuse location",
-            "front vent",
-            "15a",
-            "15 a",
-            "diagnostic led",
-            "coolant leak",
-            "running constantly",
-        )
-    ) and page_no not in FURRION_FCR_DIAL_OFF_RUN_PAGES:
-        score -= 16
-    if "fan fault" in t or "fan replacement" in t:
-        score -= 8
-    if "ice and moisture" in t or "ice or moisture" in t:
-        score -= 6
-    return score
-
-
-def rank_chunks_for_dial_off_run(chunks, query: str = "", limit: int = 8) -> list:
-    """Prefer thermostat p.31 and R&R p.43–45. Drop pages 18, 19, 20, and 34."""
-    scored = [(score_dial_off_run_chunk(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    thermo = [
-        ch
-        for sc, ch in scored
-        if sc > 0 and (
-            _page_number(ch) in FURRION_FCR_DIAL_OFF_RUN_PAGES
-            or "thermostat" in _norm(_page_text_blob(ch))
-        )
-    ]
-    out = []
-    for _sc, ch in scored:
-        page_no = _page_number(ch)
-        if thermo and page_no in (18, 19, 20, 34):
-            continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out or [ch for _sc, ch in scored[:limit]]
 
 
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
@@ -2742,157 +1344,8 @@ def pick_diagram_page_numbers(candidates, query: str, manual_title: str = "") ->
     return pages[:3]
 
 
-def tech_wants_open_coach(user_msg: str) -> bool:
-    """True when the tech is asking a question, pivoting, or requesting figures."""
-    raw = (user_msg or "").strip()
-    if not raw:
-        return False
-    if wants_library_figures(raw):
-        return True
-    if "?" in raw:
-        return True
-    t = _norm(raw)
-    return any(p in t for p in COACH_REQUEST_PHRASES)
-
-
-def hard_tree_yields_to_coach(user_msg: str, node: dict | None = None) -> bool:
-    """
-    Exclusive hard-tree chat is off. If someone re-enables it, still yield on
-    questions / pivots / figures / end leaves so the cage cannot trap the tech.
-    """
-    if not HARD_TREE_EXCLUSIVE_CHAT:
-        return True
-    if tech_wants_open_coach(user_msg):
-        return True
-    if not node:
-        return False
-    ntype = (node.get("type") or "").strip().lower()
-    edges = node.get("edges") or {}
-    if ntype == "end" or not edges:
-        return True
-    return False
-
-
-def coach_library_search_boost(facts: dict) -> str:
-    """
-    Extra library search terms from stated facts.
-    Does not encode the wrong Furrion hard-tree path.
-    E2 / Fan Fault Current steers to Fan Fault Diagnostics + Fan Replacement,
-    not compressor-only or board-only R&R.
-    """
-    if not facts:
-        return ""
-    parts = []
-    fan_fault = bool(facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"))
-    ice_moisture = facts.get("ice_moisture") == "rear_wall"
-    dial_off_run = facts.get("dial_off_run") == "overcool"
-    if fan_fault:
-        parts.append(FAN_FAULT_SEARCH_BOOST)
-    elif dial_off_run:
-        parts.append(DIAL_OFF_RUN_SEARCH_BOOST)
-    elif ice_moisture:
-        parts.append(ICE_MOISTURE_SEARCH_BOOST)
-    elif facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
-        parts.append("not cooling inoperable compressor section 2 powered")
-    if (
-        (facts.get("compressor") == "not_running" or facts.get("pivot") == "compressor")
-        and not fan_fault
-        and not ice_moisture
-        and not dial_off_run
-    ):
-        parts.append("inoperable compressor compressor diagnostics")
-    if facts.get("dial") == "on_4_5" and not fan_fault and not ice_moisture and not dial_off_run:
-        parts.append("thermostat dial not cooling")
-    if facts.get("pan_on_flameout"):
-        parts.append(COOKTOP_SEARCH_BOOST)
-    if facts.get("bal_tongue") == "only_dead":
-        parts.append(BAL_TONGUE_SEARCH_BOOST)
-    elif facts.get("override_pin") == "broken_or_seized":
-        parts.append(PSX1_SEARCH_BOOST)
-    if facr_terminal_path_complete(facts) or facr_proves_complete(facts):
-        parts.append(FACR_ASSEMBLY_SEARCH_BOOST)
-    if facts.get("coleman_2111"):
-        parts.append(COLEMAN_2111_SEARCH_BOOST)
-    if (
-        facts.get("can_isolate")
-        or (
-            facts.get("manual_dump") == "reported"
-            and facts.get("auto_level") == "works"
-        )
-    ):
-        parts.append(LEVEL_UP_CAN_SEARCH_BOOST)
-    return " ".join(parts).strip()
-
-
-def powered_not_cooling(facts: dict) -> bool:
-    return bool(facts.get("light") == "on" and facts.get("cooling") == "not_cooling")
-
-
-def reply_reasks_stated_facts(reply: str, facts: dict) -> list:
-    """Fact keys the coach just re-asked. Empty means the turn is clean."""
-    if not reply or not facts:
-        return []
-    t = _norm(reply)
-    hits = []
-    if facts.get("light") in ("on", "off"):
-        if re.search(
-            r"does the (?:refrigerator |fridge )?(?:cavity |interior )?light come on"
-            r"|is the (?:cavity |interior )?light on"
-            r"|also say if it is cooling",
-            t,
-        ):
-            hits.append("light")
-    if facts.get("cooling") in ("not_cooling", "cooling"):
-        if re.search(
-            r"also say if it is cooling"
-            r"|say if it is cooling or not cooling"
-            r"|is (?:the )?(?:fridge|refrigerator|it) cooling\b"
-            r"|does it (?:seem to )?cool",
-            t,
-        ):
-            hits.append("cooling")
-    if facts.get("fuse") in ("replaced", "blown", "good"):
-        if re.search(
-            r"report fuse result|visually check the fuse|is the fuse (?:blown|good)|pull the front vent cover",
-            t,
-        ):
-            hits.append("fuse")
-    if facts.get("auto_level") == "works":
-        if re.search(r"does auto level (?:still )?work|is auto level working", t):
-            hits.append("auto_level")
-    if facts.get("can_isolate") in ("stays", "still_dumps"):
-        if re.search(
-            r"unplug (?:only )?(?:the )?wired coach can|"
-            r"unplug that cable only|two network plugs|retry manual mode",
-            t,
-        ):
-            if "reconnect" not in t:
-                hits.append("can_isolate")
-    return hits
-
-
-def strip_path_complete_trap(text: str) -> str:
-    """Remove leftover cage captions if a model echoes them."""
-    if not text:
-        return text
-    text = re.sub(
-        r"this path is complete\.?\s*start a new chat for another symptom branch\.?",
-        "",
-        text,
-        flags=re.I,
-    )
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
-
-
-# Coach turns re-send the full system prompt, manual excerpts, and every prior
-# assistant reply. Groq/xAI answer that with HTTP 413 "request too large".
-# Trim history and compact citations on every GD turn, then retry a 413 with
-# a smaller payload so the session can still reach a part climax.
-COACH_HISTORY_MAX_MESSAGES = 6
-COACH_HISTORY_ASSISTANT_CAP = 480
 COACH_EXCERPT_CHAR_CAP = 700
 COACH_CONTEXT_CHAR_CAP = 4200
-COACH_SYSTEM_CHAR_CAP = 16000
 _PAYLOAD_TOO_LARGE_RE = re.compile(
     r"("
     r"\b413\b|"
@@ -2938,46 +1391,6 @@ def _compact_coach_text(text: str, cap: int) -> str:
     if len(compact) > cap:
         compact = compact[: max(0, cap - 1)].rstrip() + "…"
     return compact
-
-
-def trim_coach_history(
-    history: list | None,
-    max_messages: int = COACH_HISTORY_MAX_MESSAGES,
-    assistant_cap: int = COACH_HISTORY_ASSISTANT_CAP,
-) -> list:
-    """
-    Keep the original complaint plus the newest turns.
-    Compact assistant citations so prior coach essays do not bloat the next call.
-    """
-    msgs = []
-    for m in history or []:
-        role = (m.get("role") or "").strip()
-        content = (m.get("content") or "").strip()
-        if role in ("user", "assistant") and content:
-            msgs.append({"role": role, "content": content})
-    if not msgs:
-        return []
-    if len(msgs) > max_messages:
-        tail_n = max(1, max_messages - 1)
-        tail = msgs[-tail_n:]
-        if msgs[0] not in tail:
-            first = {"role": msgs[0]["role"], "content": msgs[0]["content"]}
-            if len(first["content"]) > 700:
-                first["content"] = first["content"][:699].rstrip() + "…"
-            msgs = [first] + tail
-        else:
-            msgs = msgs[-max_messages:]
-    out = []
-    last_asst = max((i for i, m in enumerate(msgs) if m["role"] == "assistant"), default=-1)
-    for i, m in enumerate(msgs):
-        content = m["content"]
-        if m["role"] == "assistant":
-            cap = assistant_cap if i == last_asst else min(assistant_cap, 480)
-            content = _compact_coach_text(content, cap)
-        elif len(content) > 1600:
-            content = content[:1599].rstrip() + "…"
-        out.append({"role": m["role"], "content": content})
-    return out
 
 
 def compact_manual_context(
@@ -3098,28 +1511,6 @@ def complete_chat_with_payload_retry(call, messages, temperature: float = 0.2, m
 
 def _clean_model_id(name: str) -> str:
     return (name or "").strip()
-
-
-def pick_working_vision_model(candidates, call_model):
-    """
-    Try vision models in order so a retired id (llama-4-scout 404)
-    falls through to qwen/qwen3.6-27b instead of aborting the plate read.
-    call_model(model_id) -> raw text (empty string counts as miss).
-    Returns (model_id, raw, errors).
-    """
-    errors = []
-    for model in candidates or []:
-        mid = _clean_model_id(model)
-        if not mid:
-            continue
-        try:
-            raw = (call_model(mid) or "").strip()
-            if raw:
-                return mid, raw, errors
-            errors.append(f"{mid}: empty vision response")
-        except Exception as e:
-            errors.append(f"{mid}: {e}")
-    return None, "", errors
 
 
 def groq_vision_model_candidates(preferred: str = "") -> list:

@@ -1,5 +1,5 @@
 # TechTrack established profiles
-GD-PROFILE.md and PDF-PROFILE.md are short descriptive statements since 2026-10-23 (Chase removed all profile rules; originals in drafts/REMOVED-RULES-2026-10-23). Every change is recorded in PROFILE-CHANGE-LOG.md.
+GD-PROFILE.md is a short descriptive statement since 2026-10-23 (Chase removed all profile rules; originals in drafts/REMOVED-RULES-2026-10-23). Every change is recorded in PROFILE-CHANGE-LOG.md. PDF-PROFILE.md and PDF-PAST-FAILS.md were deleted on 2026-10-24 with the retired Bay PDF builder (copies in drafts/REMOVED-RULES-2026-10-23).
 
 ## Rules for Leader and TT
 1. Before ANY TechTrack change (a feature, fix, definition, or behavior), check it against the profiles.

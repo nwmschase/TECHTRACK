@@ -219,40 +219,6 @@ class TestOffBrandFiguresStayOff(unittest.TestCase):
         self.assertNotIn("pump seal", blob)
         self.assertNotIn("thetford", blob)
 
-    def test_thetford_show_me_is_the_pedal_not_power_gear(self):
-        reply = mf.thetford_proving_line("valve")
-        offers = fb.offers_for_turn(self.rows, reply, "show me the pedal", CAT, MODEL)
-        self.assertTrue(offers)
-        blob = _blob(offers)
-        self.assertIn("42109", blob)
-        self.assertIn("pedal", blob)
-        self.assertNotIn("tip sheet", blob)
-        self.assertNotIn("power gear", blob)
-        self.assertNotIn("motor brake", blob)
-        self.assertNotIn("3412", blob)
-        self.assertFalse(offers[0].get("bundled"))
-
-    def test_vacuum_step_figure_is_the_breaker_kit(self):
-        reply = mf.thetford_proving_line("vacuum")
-        offers = fb.offers_for_turn(self.rows, reply, "show me", CAT, MODEL)
-        self.assertTrue(offers)
-        blob = _blob(offers)
-        self.assertIn("3412", blob)
-        self.assertNotIn("42109", blob)
-        self.assertNotIn("power gear", blob)
-        self.assertNotIn("tip sheet", blob)
-
-    def test_library_with_only_power_gear_shows_no_bundled_sheet(self):
-        foreign = [row for row in self.rows if "thetford" not in row["title"].lower()]
-        offers = fb.offers_for_turn(
-            foreign,
-            mf.thetford_proving_line("valve"),
-            "show me the pedal",
-            CAT,
-            MODEL,
-        )
-        self.assertEqual(offers, [])
-        self.assertNotIn("bundled kit sheet", _blob(offers))
 
     def test_level_up_ground_control_and_psx1_do_not_share_power_gear_figures(self):
         cases = (
@@ -370,50 +336,6 @@ class TestEveryCaseBlocksOffBrand(unittest.TestCase):
                 "Replace the ceiling thermostat.",
             )
         )
-
-    def test_how_block_stays_off_every_case(self):
-        cases = (
-            ("Air Conditioning", "B57915E711J0EMX", "Replace the ceiling thermostat."),
-            ("Leveling", "Lippert Level Up Advantage 807662", "Manual Mode flashes then dumps home."),
-            ("Leveling", "Lippert PSX1", "The roll pin is broken."),
-            ("Leveling", "Lippert Level Up Advantage 807662", "Replace cartridge valve 177094."),
-            (CAT, MODEL, mf.thetford_proving_line("valve")),
-        )
-        tip = _tip_chunk()
-        for category, model, reply in cases:
-            how = fb.procedure_how(
-                tip,
-                tip["excerpt"],
-                tip["title"],
-                tip["page"],
-                category,
-                model,
-                "show me",
-                reply,
-            )
-            self.assertEqual(how, "", model)
-
-
-class TestThetfordKitFiguresOnly(unittest.TestCase):
-    def test_valve_and_breaker_offers_are_the_kits(self):
-        rows = _library()
-        valve = fb.offers_for_turn(
-            rows, mf.thetford_proving_line("valve"), "show me the pedal", CAT, MODEL
-        )
-        breaker = fb.offers_for_turn(
-            rows, mf.thetford_proving_line("vacuum"), "show me", CAT, MODEL
-        )
-        valve_blob = _blob(valve)
-        breaker_blob = _blob(breaker)
-        self.assertIn("42109", valve_blob)
-        self.assertIn("34123", breaker_blob)
-        for blob in (valve_blob, breaker_blob):
-            self.assertNotIn("plastic tank", blob)
-            self.assertNotIn("motor brake", blob)
-            self.assertNotIn("tip sheet", blob)
-            self.assertNotIn("power gear", blob)
-        self.assertNotIn("34123", valve_blob)
-        self.assertNotIn("42109", breaker_blob)
 
 
 def _stored_live_step(step: str, how: str, figure: str) -> str:

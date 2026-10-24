@@ -2,7 +2,6 @@
 import unittest
 
 from gd_library_coach import (
-    BAL_TONGUE_SEARCH_BOOST,
     is_bal_soft_touch_tongue_only_context,
     is_stabilizer_override_pin_context,
 )

@@ -2,21 +2,11 @@
 import unittest
 
 from gd_library_coach import (
-    FIREFLY_CAN_SEARCH_BOOST,
-    LEVEL_UP_PRODUCT_LOCK,
-    LEVEL_UP_SEARCH_BOOST,
-    is_firefly_can_path_context,
-    drop_unity_chunks_for_level_up,
-    figure_library_search_boost,
     figure_render_honesty_note,
     is_ground_control_manual,
     is_level_up_advantage_context,
     is_level_up_library_title,
     is_unity_board_manual,
-    level_up_search_symptom,
-    rank_chunks_for_level_up,
-    score_level_up_product,
-    skip_unity_for_level_up,
 )
 
 CHASE_MODEL = (
@@ -75,11 +65,6 @@ LIBRARY = [UNITY, TI005, QR092, QR059, TI170, GROUND]
 
 
 class TestLevelUpDetect(unittest.TestCase):
-    def test_chase_bay_job(self):
-        self.assertTrue(
-            is_level_up_advantage_context("Leveling", CHASE_MODEL, CHASE_CONCERN)
-        )
-        self.assertTrue(skip_unity_for_level_up("Leveling", CHASE_MODEL, CHASE_CONCERN))
 
     def test_part_numbers_and_octp(self):
         self.assertTrue(is_level_up_advantage_context("", "807662", "won't dump"))
@@ -97,78 +82,9 @@ class TestLevelUpDetect(unittest.TestCase):
             is_level_up_advantage_context("Refrigerators", "Furrion FCR10", "not cooling")
         )
 
-    def test_manual_mode_dump_auto_works_is_firefly_can(self):
-        concern = "Manual Mode dump works. Auto works."
-        self.assertTrue(is_firefly_can_path_context("Leveling", "807662", concern))
-        q = level_up_search_symptom("Leveling", "807662", concern)
-        self.assertIn("terminator", q.lower())
-        self.assertIn("can isolate", FIREFLY_CAN_SEARCH_BOOST.lower())
-        self.assertIn("firefly cable", FIREFLY_CAN_SEARCH_BOOST.lower())
-        self.assertFalse(
-            is_firefly_can_path_context("Refrigerators", "Furrion FCR10", "not cooling")
-        )
-
-
-class TestLevelUpQueryRewrite(unittest.TestCase):
-    def test_boost_prefers_level_up_not_unity(self):
-        q = level_up_search_symptom("Leveling", CHASE_MODEL, CHASE_CONCERN)
-        low = q.lower()
-        self.assertIn("807662", low)
-        self.assertIn("ti-005", low)
-        self.assertIn("octp", low)
-        self.assertIn("qr-092", low)
-        self.assertIn("level-up", low)
-        self.assertNotIn("unity", low)
-        self.assertNotIn("x270", low)
-        self.assertNotIn("onecontrol", low)
-        self.assertNotIn("awning", low)
-        self.assertIn("level up", LEVEL_UP_SEARCH_BOOST.lower())
-
-    def test_non_level_up_unchanged(self):
-        raw = "fridge not cooling cavity light on"
-        self.assertEqual(level_up_search_symptom("Refrigerators", "FCR10", raw), raw)
-
-    def test_figure_boost_adds_level_up_terms(self):
-        boost = figure_library_search_boost(
-            "show the Level Up Advantage 807662 LCD wiring diagram"
-        )
-        low = boost.lower()
-        self.assertIn("ti-005", low)
-        self.assertIn("octp", low)
-        self.assertNotIn("unity", low)
-
 
 class TestLevelUpRanking(unittest.TestCase):
-    def test_manual_mode_prefers_ti_and_octp_over_unity(self):
-        ranked = rank_chunks_for_level_up(LIBRARY, CHASE_QUERY, limit=4)
-        titles = [r["title"] for r in ranked]
-        self.assertIn(TI005["title"], titles)
-        self.assertTrue(any("OCTP" in t or "TI-005" in t or "TI-170" in t or "QR-059" in t for t in titles))
-        self.assertNotIn(UNITY["title"], titles)
-        self.assertGreater(
-            score_level_up_product(TI005, CHASE_QUERY),
-            score_level_up_product(UNITY, CHASE_QUERY),
-        )
-        self.assertGreater(
-            score_level_up_product(QR092, CHASE_QUERY),
-            score_level_up_product(UNITY, CHASE_QUERY),
-        )
 
-    def test_lcd_wiring_prefers_qr092_over_unity(self):
-        ranked = rank_chunks_for_level_up(LIBRARY, "Level Up Advantage 807662 LCD wiring", limit=3)
-        titles = [r["title"] for r in ranked]
-        self.assertIn(QR092["title"], titles)
-        self.assertNotIn(UNITY["title"], titles)
-
-    def test_unity_dropped_even_if_only_competitor_when_level_up_exists(self):
-        kept = drop_unity_chunks_for_level_up([UNITY, TI005])
-        self.assertEqual([k["title"] for k in kept], [TI005["title"]])
-
-    def test_ground_control_loses_to_hydraulic_level_up(self):
-        self.assertGreater(
-            score_level_up_product(TI005, CHASE_QUERY),
-            score_level_up_product(GROUND, CHASE_QUERY),
-        )
 
     def test_title_helpers(self):
         self.assertTrue(is_level_up_library_title(TI005["title"]))
