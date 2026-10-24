@@ -3,7 +3,6 @@ import io
 
 from PIL import Image, ImageDraw
 
-import bay_procedure as bp
 import library_figure_backfill as fb
 import manual_figures as mf
 
@@ -73,22 +72,6 @@ def test_attach_pngs_cleans_caption():
     offers = [{"png": b"x", "caption": "Owner Manual / page 2 / page"}]
     fb.attach_pngs(None, offers)
     assert offers[0]["caption"] == "Owner Manual / page 2"
-
-
-def test_dedupe_source_rows_same_quote():
-    rows = [
-        {"title": "Manual A", "page": 3, "excerpt": "Check the supply line."},
-        {"title": "Manual A", "page": 6, "excerpt": "Check the  supply line."},
-        {"title": "Manual A", "page": 7, "excerpt": "Different quote."},
-        {"title": "Manual B", "page": 1, "excerpt": "Check the supply line."},
-    ]
-    kept = bp._dedupe_source_rows(rows)
-    assert [(r["title"], r["page"]) for r in kept] == [("Manual A", 3), ("Manual A", 7), ("Manual B", 1)]
-
-
-def test_doc_part_numbers_from_file_name():
-    assert bp._doc_part_numbers({"file_path": "documents/13_2026_42109_SK_WaterValve_Res_42049C-1.pdf"}).split() == ["42109", "42049"]
-    assert bp._doc_part_numbers({"file_path": "docs/GDS.JACKS.002.pdf"}) == ""
 
 
 def test_display_title_uses_doc_text_numbers():

@@ -164,14 +164,6 @@ class TestWorkerFixes(unittest.TestCase):
             self.assertIn("NEEDS OCR", d[k]["doc_note"])
         self.assertIn("L724", [m["doc_id"] for m in self.f.pick_manual("Leveling", "Bigfoot", "general maintenance lubrication").manuals])
 
-    def test_bay_chunks_drop_excluded_pages_and_retired_docs(self):
-        import bay_procedure as bp
-        f241 = self.lib.docs["L241"]["file_path"]; f403 = "documents/" + DF.load()[403]["file"]
-        out = bp.apply_library_doc_fixes([{"document_id": 241, "file_path": f241, "page": 27, "title": "t", "excerpt": "x" * 60},
-                                          {"document_id": 241, "file_path": f241, "page": 26, "title": "t", "excerpt": "x" * 60},
-                                          {"document_id": 403, "file_path": f403, "page": 2, "title": "t", "excerpt": "x" * 60}])
-        self.assertEqual([(c["document_id"], c["page"]) for c in out], [(241, 26)])
-
 
 if __name__ == "__main__":
     unittest.main()

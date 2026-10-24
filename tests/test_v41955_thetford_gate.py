@@ -6,7 +6,6 @@ from sqlalchemy import text
 
 import library_figure_backfill as fb
 import manual_figures as mf
-from gd_library_coach import strip_leaked_prompt
 from tests.test_library_figures import FigureCase
 from tests.test_v41943_brand_figure_gate import TINY
 
@@ -101,47 +100,6 @@ class TestSpecificBadLooks(unittest.TestCase):
 
 
 class TestCitedPageImage(unittest.TestCase):
-    def test_a_cited_page_without_a_figure_shows_that_page(self):
-        reply = (
-            mf.thetford_proving_line("supply")
-            + "\n\nThe cited page has no diagram."
-        )
-        rows = [
-            {
-                "id": 1,
-                "document_id": 9,
-                "kind": "figure",
-                "title": "Thetford Style II OM Permanent RV Toilet 42088",
-                "brand": "Thetford",
-                "page": 7,
-                "label": "parts",
-                "caption": "Korean parts page",
-                "png": TINY,
-                "image_path": "docs/9/p7-figure.png",
-            },
-            {
-                "id": 2,
-                "document_id": 9,
-                "kind": "page",
-                "title": "Thetford Style II OM Permanent RV Toilet 42088",
-                "brand": "Thetford",
-                "page": 3,
-                "label": "page",
-                "caption": "Thetford Style II OM Permanent RV Toilet 42088, page 3",
-                "png": b"",
-                "image_path": "docs/9/p3.png",
-            },
-        ]
-        offers = fb.offers_for_turn(
-            rows, reply, "show me", "Plumbing / Toilets", "Style II 42070"
-        )
-        self.assertTrue(offers)
-        self.assertTrue(all(int(item["page"]) == 3 for item in offers))
-        self.assertEqual(offers[0]["kind"], "page")
-        self.assertEqual(offers[0]["image_path"], "docs/9/p3.png")
-        cleaned = strip_leaked_prompt(reply)
-        self.assertNotIn("no diagram", cleaned.lower())
-        self.assertIn("supply", cleaned.lower())
 
     def test_a_figure_on_the_cited_page_still_wins(self):
         reply = mf.thetford_proving_line("valve")
@@ -303,110 +261,6 @@ class TestGenericBadIsOmitted(unittest.TestCase):
         )
         self.assertFalse(any(line.startswith("Bad looks like") for line in shop))
         self.assertTrue(any(line.startswith("Good looks like") for line in shop))
-
-
-class TestFigureUnderTheStep(unittest.TestCase):
-    def _assert_figures(self, proc, name):
-        from bay_procedure import (
-            MARGIN,
-            _CONTENT_W,
-            _FIGURE_WIDTH,
-            layout_problems,
-            render_bay_procedure_pdf,
-        )
-
-        trace = []
-        render_bay_procedure_pdf(proc, trace=trace)
-        self.assertEqual(layout_problems(trace), [], name)
-        images = [mark for mark in trace if mark.kind == "image"]
-        self.assertGreaterEqual(len(images), 1, name)
-        center = MARGIN + _CONTENT_W / 2.0
-        widths = []
-        for image in images:
-            width = image.x1 - image.x0
-            widths.append(width)
-            self.assertGreaterEqual(width, _FIGURE_WIDTH - 1.0, (name, width))
-            self.assertLess(image.x0, MARGIN + _CONTENT_W * 0.5, name)
-            self.assertAlmostEqual((image.x0 + image.x1) / 2.0, center, delta=2.0, msg=name)
-            captions = [
-                cap
-                for cap in trace
-                if cap.role == "caption"
-                and cap.page == image.page
-                and cap.x0 >= image.x0 - 2
-                and cap.y1 <= image.y0 + 2
-                and cap.y0 >= image.y0 - 36
-            ]
-            self.assertTrue(captions, (name, image.page))
-            above = [
-                text
-                for text in trace
-                if text.kind == "text"
-                and text.page == image.page
-                and text.y0 >= image.y1 - 2
-                and text.text.startswith("Step ")
-            ]
-            self.assertTrue(above, (name, image.page))
-        self.assertAlmostEqual(min(widths), max(widths), delta=1.0, msg=name)
-
-    def test_thetford_and_s01_use_one_large_centered_width(self):
-        from tests.test_s01_facr_standard import _sheet
-        from tests.test_step_format import _thetford
-
-        self._assert_figures(_thetford(), "thetford")
-        self._assert_figures(_sheet(), "s01")
-
-    def test_a_short_page_keeps_the_step_with_its_figure(self):
-        import io
-
-        from PIL import Image
-
-        from bay_procedure import MARGIN, _CONTENT_W, _FIGURE_WIDTH, _SheetFlow, _paint_repair_procedure
-
-        image = Image.new("RGB", (400, 280), (20, 40, 80))
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        pages = []
-        flow = _SheetFlow(pages, "Repair procedure")
-        flow.y = flow.floor + 70
-        _paint_repair_procedure(
-            flow,
-            {
-                "heading": "REPAIR PROCEDURE",
-                "title": "Pedal",
-                "steps": [
-                    {
-                        "text": "Pull the pedal off.",
-                        "section": "removal",
-                        "fields": {
-                            "WHERE": "At the pedal.",
-                            "HOW": "Pull the pedal off.",
-                            "GOOD vs BAD": "Good: The pedal is off. Bad: The pedal stays on.",
-                            "NEXT": "On good: Install the new seal.",
-                        },
-                        "figure": {
-                            "png": buf.getvalue(),
-                            "label": "Fig. 1 PEDAL REMOVED",
-                            "title": "42109",
-                            "page": 1,
-                        },
-                    }
-                ],
-            },
-        )
-        self.assertGreater(len(pages), 1)
-        self.assertFalse(pages[0].images)
-        later = pages[-1]
-        self.assertEqual(len(later.images), 1)
-        drawn = later.images[0]
-        headings = [item for item in later.texts if str(item.text).startswith("Step ")]
-        self.assertTrue(headings)
-        self.assertGreater(headings[0].y, drawn.y + drawn.h)
-        self.assertGreaterEqual(drawn.w, _FIGURE_WIDTH - 1.0)
-        self.assertAlmostEqual(drawn.x + drawn.w / 2.0, MARGIN + _CONTENT_W / 2.0, delta=2.0)
-        captions = [item for item in later.texts if item.role == "caption"]
-        self.assertTrue(captions)
-        self.assertLess(captions[0].y, drawn.y)
 
 
 _LABEL_ORDER = (
@@ -586,66 +440,6 @@ class TestGdFigureSelection(unittest.TestCase):
             fb.gd_figures_under_step(broken, "Source: Thetford 42109, page 1", "yes", "Plumbing / Toilets", "42070"),
             [],
         )
-
-
-class TestRepairBranches(unittest.TestCase):
-    def test_thetford_sheet_branches_into_each_repair(self):
-        from bay_procedure import (
-            _FIGURE_WIDTH,
-            MARGIN,
-            _CONTENT_W,
-            compile_bay_procedure,
-            compose_sheet,
-            layout_problems,
-            render_bay_procedure_pdf,
-        )
-
-        proc = compile_bay_procedure(
-            concern="Thetford 42070 leaks under the flush lever",
-            brand="Thetford",
-            model="42070",
-            category="Plumbing / Toilets",
-            chunks=[
-                {
-                    "title": "Thetford Style II OM Permanent RV Toilet 42088",
-                    "page": 3,
-                    "excerpt": "Check the water supply line connection.",
-                }
-            ],
-        )
-        titles = [procedure.get("title") or "" for procedure in proc.procedures]
-        blob = " ".join(titles)
-        self.assertIn("Supply connection", blob)
-        self.assertRegex(blob, r"3412")
-        self.assertIn("42109", blob)
-        self.assertIn("Flange", blob)
-        self.assertGreaterEqual(len(proc.procedures), 4)
-        for procedure in proc.procedures:
-            steps = procedure.get("steps") or []
-            self.assertGreaterEqual(len(steps), 2, procedure.get("title"))
-            self.assertTrue((steps[-1].get("text") or "").lower().startswith("confirm "), procedure.get("title"))
-            self.assertEqual(procedure.get("heading"), "REPAIR BRANCH")
-            for step in steps:
-                self.assertLessEqual(mf._word_count(step.get("text") or ""), 15, step.get("text"))
-                self.assertEqual(len(mf.step_action_lines(step)), 1, step.get("text"))
-        self.assertTrue(any(node.kind == "decision" for node in proc.flowchart.nodes))
-        pages = compose_sheet(proc)
-        self.assertFalse(pages[0].images)
-        trace = []
-        render_bay_procedure_pdf(proc, trace=trace)
-        self.assertEqual(layout_problems(trace), [])
-        images = [mark for mark in trace if mark.kind == "image"]
-        self.assertGreaterEqual(len(images), 4)
-        for image in images:
-            self.assertGreaterEqual(image.x1 - image.x0, _FIGURE_WIDTH - 1.0)
-            self.assertAlmostEqual((image.x0 + image.x1) / 2.0, MARGIN + _CONTENT_W / 2.0, delta=2.0)
-        captions = [mark for mark in trace if mark.role == "caption"]
-        for image in images:
-            under = [
-                cap for cap in captions
-                if cap.page == image.page and cap.y1 <= image.y0 + 2 and cap.y0 >= image.y0 - 36
-            ]
-            self.assertTrue(under, image)
 
 
 if __name__ == "__main__":

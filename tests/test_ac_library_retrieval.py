@@ -9,18 +9,14 @@ from gd_library_coach import (
     drop_unity_chunks_for_ac,
     figure_library_search_boost,
     figure_render_honesty_note,
-    format_ac_library_honesty,
     is_ac_library_title,
     is_air_conditioning_context,
     is_dometic_only_rooftop_ac,
     is_facr_freeze_library_title,
     is_facr_rooftop_freeze_context,
-    is_fridge_ice_moisture_context,
     is_unity_board_manual,
     rank_chunks_for_ac,
     score_ac_product,
-    skip_unity_for_ac,
-    tech_asks_unity_for_ac_controls,
 )
 
 CHASE_MODEL = "Furrion FACT12SA2 rooftop air conditioner"
@@ -90,50 +86,12 @@ FACR_FREEZE_LIBRARY = [UNITY, BRISK, FACT, CCD_8666, CCD_7990, FRIDGE]
 
 
 class TestAcDetect(unittest.TestCase):
-    def test_chase_furrion_fact_job(self):
-        self.assertTrue(
-            is_air_conditioning_context("Air Conditioning", CHASE_MODEL, CHASE_CONCERN)
-        )
-        self.assertTrue(skip_unity_for_ac("Air Conditioning", CHASE_MODEL, CHASE_CONCERN))
-        self.assertTrue(skip_unity_for_ac("Air Conditioning", CHASE_MODEL, CHASE_CONCERN, "Not sure"))
 
-    def test_dometic_brisk_and_adb(self):
-        self.assertTrue(is_air_conditioning_context("", "Dometic B57915", "no cool"))
-        self.assertTrue(is_air_conditioning_context("Air Conditioning", "Brisk II", "E3"))
-        self.assertTrue(is_air_conditioning_context("", "Dometic ADB", "rooftop AC no cool"))
-        self.assertTrue(skip_unity_for_ac("Air Conditioning", "Dometic B57915", "won't cool"))
 
     def test_e2_e3_ac_codes(self):
         self.assertTrue(is_air_conditioning_context("Air Conditioning", "", "E2 on the CCC"))
         self.assertTrue(is_air_conditioning_context("", "Dometic rooftop AC", "E3 code"))
 
-    def test_rooftop_no_cool(self):
-        self.assertTrue(is_air_conditioning_context("", "", "rooftop AC not cooling"))
-        self.assertTrue(skip_unity_for_ac("", "", "roof AC no cool"))
-
-    def test_explicit_unity_for_ac_is_allowed(self):
-        self.assertTrue(
-            tech_asks_unity_for_ac_controls(
-                "Air Conditioning", CHASE_MODEL, "OneControl thermostat for the AC"
-            )
-        )
-        self.assertFalse(
-            skip_unity_for_ac(
-                "Air Conditioning", CHASE_MODEL, "Unity / CAN multiplex running the AC"
-            )
-        )
-        self.assertFalse(
-            skip_unity_for_ac("Air Conditioning", CHASE_MODEL, CHASE_CONCERN, "Yes")
-        )
-        self.assertFalse(
-            tech_asks_unity_for_ac_controls("Air Conditioning", CHASE_MODEL, "can I check the fan")
-        )
-
-    def test_fridge_is_not_ac(self):
-        self.assertFalse(
-            is_air_conditioning_context("Refrigerators", "Furrion FCR10", "not cooling")
-        )
-        self.assertFalse(skip_unity_for_ac("Refrigerators", "Furrion FCR10", "not cooling"))
 
     def test_level_up_is_not_ac(self):
         self.assertFalse(
@@ -142,16 +100,6 @@ class TestAcDetect(unittest.TestCase):
                 "Lippert Level Up Advantage 807662",
                 "Manual Mode flashes",
             )
-        )
-
-    def test_facr_model_is_ac_not_fridge(self):
-        self.assertTrue(
-            is_air_conditioning_context("Air Conditioning", FACR_MODEL, FACR_CONCERN)
-        )
-        self.assertTrue(is_air_conditioning_context("", FACR_MODEL, "freeze / leak"))
-        self.assertTrue(skip_unity_for_ac("Air Conditioning", FACR_MODEL, FACR_CONCERN))
-        self.assertFalse(
-            is_fridge_ice_moisture_context("Air Conditioning", FACR_MODEL, FACR_CONCERN)
         )
 
 

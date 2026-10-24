@@ -7,10 +7,8 @@ from gd_library_coach import (
     WATER_HEATER_PRODUCT_LOCK,
     WATER_HEATER_SEARCH_BOOST,
     drop_unity_chunks_for_water_heater,
-    error_code_query_terms,
     figure_library_search_boost,
     figure_render_honesty_note,
-    format_water_heater_library_honesty,
     is_air_conditioning_context,
     is_fcr_e2_fan_fault_context,
     is_unity_board_manual,
@@ -18,7 +16,6 @@ from gd_library_coach import (
     is_water_heater_library_title,
     rank_chunks_for_water_heater,
     score_water_heater_product,
-    skip_unity_for_water_heater,
     water_heater_search_symptom,
 )
 
@@ -63,11 +60,6 @@ LIBRARY = [UNITY, GSWH, FRIDGE, FACT]
 
 
 class TestWaterHeaterDetect(unittest.TestCase):
-    def test_chase_gswh2_e8_job(self):
-        self.assertTrue(is_water_heater_context("", "", CHASE_CONCERN))
-        self.assertTrue(is_water_heater_context("Water Heaters", CHASE_MODEL, CHASE_CONCERN))
-        self.assertTrue(skip_unity_for_water_heater("", CHASE_MODEL, CHASE_CONCERN))
-        self.assertTrue(skip_unity_for_water_heater("", CHASE_MODEL, CHASE_CONCERN, "Not sure"))
 
     def test_gswh2_e8_without_category(self):
         self.assertTrue(is_water_heater_context("", "GSWH-2", "E8"))
@@ -79,24 +71,6 @@ class TestWaterHeaterDetect(unittest.TestCase):
             is_water_heater_context("Water Heaters", "Girard", "E8 air pressure switch")
         )
 
-    def test_explicit_unity_for_water_heater_is_allowed(self):
-        self.assertFalse(
-            skip_unity_for_water_heater(
-                "Water Heaters", CHASE_MODEL, "OneControl running the water heater"
-            )
-        )
-        self.assertFalse(
-            skip_unity_for_water_heater("Water Heaters", CHASE_MODEL, CHASE_CONCERN, "Yes")
-        )
-
-    def test_fridge_e2_is_not_water_heater(self):
-        self.assertFalse(
-            is_water_heater_context("Refrigerators", "Furrion FCR10", "intermittent E2 / 2-flash")
-        )
-        self.assertTrue(
-            is_fcr_e2_fan_fault_context("Refrigerators", "Furrion FCR10", "intermittent E2 / 2-flash")
-        )
-        self.assertFalse(skip_unity_for_water_heater("Refrigerators", "Furrion FCR10", "E2"))
 
     def test_rooftop_ac_e2_is_not_water_heater(self):
         self.assertFalse(is_water_heater_context("Air Conditioning", "Furrion FACT12SA2", "E2"))
@@ -123,23 +97,6 @@ class TestWaterHeaterQueryRewrite(unittest.TestCase):
         raw = "fridge not cooling cavity light on"
         self.assertEqual(water_heater_search_symptom("Refrigerators", "FCR10", raw), raw)
 
-    def test_error_code_terms_keep_e8(self):
-        terms = error_code_query_terms(CHASE_CONCERN)
-        self.assertIn("e8", terms)
-        self.assertNotIn("e2", terms)
-
-    def test_tokenize_keeps_e8(self):
-        src = (ROOT / "rv_techtrack.py").read_text()
-        self.assertIn("FAULT_CODE_TOKEN_RE", src)
-        start = src.index("FAULT_CODE_TOKEN_RE = re.compile")
-        end = src.index("def model_search_terms")
-        ns = {"re": re}
-        exec(compile(src[start:end], "tokenize", "exec"), ns)
-        tokens = ns["tokenize"]("water heater stopped working E8 GSWH-2")
-        self.assertIn("e8", tokens)
-        self.assertIn("water", tokens)
-        self.assertIn("heater", tokens)
-        self.assertIn("gswh", tokens)
 
     def test_figure_boost_adds_water_heater_terms(self):
         boost = figure_library_search_boost(

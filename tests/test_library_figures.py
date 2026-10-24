@@ -9,7 +9,6 @@ from sqlalchemy.orm import sessionmaker
 import library_bulk_import as bulk
 import library_figure_backfill as fb
 import manual_figures as mf
-from bay_procedure import compose_sheet, compile_bay_procedure, layout_problems, render_bay_procedure_pdf
 
 ROOT = Path(__file__).resolve().parents[1]
 VALVE_PDF = ROOT / "tests" / "fixtures" / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf"
@@ -176,65 +175,6 @@ class TestLippertLibraryFigures(FigureCase):
         self.assertNotIn("thetford", blob)
         self.assertNotIn("pedal", blob)
         self.assertNotIn("bundled kit sheet", crop["caption"].lower())
-
-    def test_bay_pdf_paints_the_lippert_library_figure(self):
-        lippert_id = self.add_document(LIPPERT_TITLE, "Lippert", "library/level-up.pdf")
-        self.add_document(THETFORD_TITLE, "Thetford", "library/valve.pdf", page_text="Fig. 1 PEDAL REMOVED")
-        r2 = MemoryR2()
-        fb.store_pdf_figures(
-            self.session, lippert_id, _lippert_pdf(), title=LIPPERT_TITLE, upload_png=r2.upload
-        )
-        self.session.commit()
-        rows = fb.meta_rows(self.session)
-        fb.attach_pngs(
-            self.session, rows, download=r2.download, cache_root=Path(self.tmp.name) / "bay-cache"
-        )
-        chunks = [
-            {
-                "document_id": lippert_id,
-                "title": LIPPERT_TITLE,
-                "page": 1,
-                "excerpt": "Cartridge Valve, item F, part 177094.",
-            }
-        ]
-        packets = fb.figure_packets(
-            rows,
-            chunks,
-            "Lippert Level Up Advantage 807662 cartridge",
-        )
-        self.assertEqual(len(packets), 1)
-        self.assertIn("Lippert", packets[0]["title"])
-        proc = compile_bay_procedure(
-            concern="Level Up front jacks drift. Loose cartridge valve.",
-            brand="Lippert",
-            model="Level Up Advantage 807662",
-            category="Leveling",
-            chunks=[{**chunks[0], "figures": packets[0]["figures"]}],
-        )
-        pictured = [
-            (index, group)
-            for index, group in enumerate(proc.step_figures or [])
-            if group
-        ]
-        self.assertTrue(pictured)
-        slot, group = pictured[0]
-        self.assertIn("177094", proc.bay_order[slot])
-        self.assertIn("CARTRIDGE", (group[0].caption or "").upper())
-        pages = compose_sheet(proc)
-        images = [image for page in pages for image in page.images]
-        self.assertTrue(images)
-        self.assertFalse(mf.png_is_blank(images[0].png))
-        trace = []
-        pdf = render_bay_procedure_pdf(proc, trace=trace)
-        self.assertEqual(layout_problems(trace), [])
-        import pymupdf
-
-        doc = pymupdf.open(stream=pdf, filetype="pdf")
-        text = "\n".join(page.get_text() for page in doc)
-        doc.close()
-        self.assertIn("177094", text)
-        self.assertIn("CARTRIDGE", text.upper())
-        self.assertNotIn("PEDAL REMOVED", text.upper())
 
 
 class TestBackfillJob(FigureCase):

@@ -82,14 +82,6 @@ class TestNoRuleStringsLeft(unittest.TestCase):
                 self.assertIsNone(re.search(pat, s), f"{pat} in {f}")
         self.assertFalse((ROOT / "oem_domains.py").exists())
 
-    def test_tech_facing_library_lines_are_gone(self):
-        import bay_procedure
-        import gd_library_coach as g
-        self.assertEqual(g.library_miss_shop_line("Thetford"), "")
-        sheet = bay_procedure._no_brand_match_path("Thetford", "42070", "leak")
-        text = json.dumps(sheet, default=str).lower()
-        self.assertNotIn("add the", text)
-        self.assertNotIn("document in the shop library", text)
 
     def test_legacy_prompt_constants_are_empty(self):
         import gd_library_coach as g

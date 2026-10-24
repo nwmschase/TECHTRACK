@@ -1,20 +1,10 @@
 """BAL Soft-Touch SS 5.1 tongue-only dead: panel 20300427, not coupler or fuse first."""
 import unittest
 
-from bay_procedure import (
-    compile_bay_procedure,
-    flowchart_boxes_overlap,
-    flowchart_node_rects,
-    procedure_body_text,
-    procedure_plain_text,
-    render_bay_procedure_pdf,
-    rewrite_bay_search_symptom,
-)
 from gd_library_coach import (
     BAL_TONGUE_SEARCH_BOOST,
     is_bal_soft_touch_tongue_only_context,
     is_stabilizer_override_pin_context,
-    rank_chunks_for_bal_tongue,
 )
 
 WO = (
@@ -76,19 +66,6 @@ class TestBalTongueContext(unittest.TestCase):
             "BAL Soft-Touch SS 5.1 all jacks dead. Panel lights are out. Tongue jack dead."
         )
         self.assertFalse(is_bal_soft_touch_tongue_only_context("Leveling", "BAL", all_dead))
-
-
-class TestBalTongueBayAndRank(unittest.TestCase):
-    def test_panel_page_outranks_coupler_and_fuse(self):
-        q = rewrite_bay_search_symptom("Leveling", "BAL SS 5.1", WO)
-        self.assertIn("20300427", q)
-        self.assertIn("ins.sta.001", q.lower())
-        self.assertIn("20300427", BAL_TONGUE_SEARCH_BOOST)
-        ranked = rank_chunks_for_bal_tongue([FUSE_PAGE, COUPLER_PAGE, PANEL_PAGE], q, limit=3)
-        self.assertEqual(ranked[0]["title"], PANEL_PAGE["title"])
-        titles = [row["title"] for row in ranked]
-        self.assertNotIn(COUPLER_PAGE["title"], titles)
-        self.assertNotIn(FUSE_PAGE["title"], titles)
 
 
 if __name__ == "__main__":

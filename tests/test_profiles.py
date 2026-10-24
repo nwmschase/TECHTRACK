@@ -8,23 +8,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import manual_figures as mf
 import profile_check
-from bay_procedure import compile_bay_procedure, render_bay_procedure_pdf
-from gd_library_coach import avoid_duplicate_reply
-from tests.test_s01_facr_standard import _sheet
-from tests.test_thetford_step_template import BREAKER_PDF, VALVE_PDF, _packet
-
-
-def _thetford():
-    return compile_bay_procedure(
-        concern="Thetford 42070 leaks under the flush lever",
-        brand="Thetford",
-        model="42070",
-        category="Plumbing / Toilets",
-        chunks=[
-            _packet("Thetford Water Valve Kit 42109", VALVE_PDF),
-            _packet("Thetford Vacuum Breaker Kit 34123/34122", BREAKER_PDF),
-        ],
-    )
 
 
 def _failures(rules):
@@ -59,29 +42,6 @@ class TestProfileDocs(unittest.TestCase):
 
 
 class TestGdProfile(unittest.TestCase):
-    def test_thetford_chat_matches_the_profile(self):
-        history = []
-        latest = "toilet leaks under the flush lever when flushing"
-        turns = []
-        for _ in range(4):
-            reply = avoid_duplicate_reply(
-                "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
-                history,
-                latest,
-                "Plumbing / Toilets",
-                "Style II 42070",
-            )
-            turns.append((latest, reply))
-            history.append({"role": "user", "content": latest})
-            history.append({"role": "assistant", "content": reply})
-            latest = "Not checked yet"
-        turns.append(("show me", "The manual shows Fig. 1 on the cited page.\n[figure] 42088 page 3\nWhat do you see?"))
-        rules = profile_check.check_transcript(_transcript(turns))
-        self.assertEqual(_failures(rules), [], "\n".join(profile_check.format_report(rules).splitlines()))
-        self.assertFalse(mf.tech_asked_for_manual_figure("Not checked yet"))
-        self.assertTrue(mf.tech_asked_for_manual_figure("show me"))
-        self.assertTrue(mf.tech_asked_for_manual_figure("where is it"))
-        self.assertTrue(mf.tech_asked_for_manual_figure("what does it look like"))
 
     def test_s01_chat_matches_the_profile(self):
         proving = mf.facr_proving_layout()["steps"]
@@ -165,44 +125,6 @@ class TestScorecard(unittest.TestCase):
         self.assertIn("9. FAIL", summary)
         self.assertIn("Automatic FAIL: no.", summary)
 
-    def test_thetford_pdf_scorecard_is_ten_of_ten(self):
-        rules = profile_check.check_pdf_bytes(render_bay_procedure_pdf(_thetford()))
-        self.assertEqual(_failures(rules), [])
-        summary = profile_check.gate_summary(rules)
-        self.assertTrue(summary.startswith("## Bay PDF scorecard"))
-        self.assertIn("2. PASS", summary)
-        self.assertIn("7. PASS", summary)
-        self.assertIn("8. PASS", summary)
-        self.assertIn("Result: 10/10.", summary)
-        self.assertIn("Automatic FAIL: no.", summary)
-        report = profile_check.format_report(rules)
-        self.assertIn("## Bay PDF scorecard", report)
-        self.assertTrue(report.endswith("PASS"))
-
-    def test_an_invented_caption_fails_line_7(self):
-        text = "\n".join([
-            "CONCERN\nleak\nMODEL\n42070\nPRIMARY\nThetford\nDIAGNOSIS\nYES\nNO\n",
-            "REMOVAL\nStep 1: Pull\nDo this:\n1. Pull.\nGood looks like: It is off.\nNext: Stop.",
-            "DO NOT\n- Stop.\nSOURCES\n- Thetford 42088 page 3",
-            "Fig. sketch of a Norcold board",
-        ])
-        sheet = profile_check.check_sheet_text(text)
-        summary = profile_check.gate_summary(sheet + profile_check.grade_pdf(text, sheet))
-        self.assertIn("7. FAIL", summary)
-
-    def test_a_safety_contradiction_fails_line_8(self):
-        text = "\n".join([
-            "REPAIR PROCEDURE",
-            "Step 14: Open the valve",
-            "Safety: Turn the RV water off.",
-            "Do this:",
-            "1. Turn the RV water on.",
-            "Good looks like: Water is on.",
-            "Next: Stop.",
-        ])
-        rules = profile_check.check_sheet_text(text)
-        summary = profile_check.gate_summary(rules + profile_check.grade_pdf(text, rules))
-        self.assertIn("8. FAIL", summary)
 
     def test_a_how_block_fails_the_how_line(self):
         text = _transcript([

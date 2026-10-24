@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 
 import manual_figures as mf
-from gd_library_coach import avoid_duplicate_reply
 from gd_step_photo import (
     DEAD_GROQ_SCOUT_MODEL,
     complete_xai_vision,
@@ -29,17 +28,6 @@ def _procedure_history():
         {"role": "user", "content": "Vacuum breaker is dry. No leak there."},
         {"role": "assistant", "content": "Step 1 of 40.\nPull the pedal up."},
     ]
-
-
-def _turn(latest, review, history=None, draft=""):
-    return avoid_duplicate_reply(
-        draft,
-        history if history is not None else _procedure_history(),
-        latest,
-        CAT,
-        MODEL,
-        photo_review=review,
-    )
 
 
 class TestPhotoSubjects(unittest.TestCase):
@@ -106,88 +94,7 @@ class TestXaiVisionCall(unittest.TestCase):
 
 
 class TestThetfordPhotoTurns(unittest.TestCase):
-    def test_confirm_states_what_it_sees_and_moves_on(self):
-        reply = _turn(
-            "Yes.",
-            {"verdict": "confirm", "sees": "The pedal is off."},
-        )
-        self.assertIn("I see: The pedal is off.", reply)
-        self.assertNotIn("<!--", reply)
-        self.assertTrue(mf.reply_shows_step(reply, 2))
-        self.assertNotRegex(reply, r"(?<!\d)Step 1:")
 
-    def test_mismatch_asks_for_another_and_stays(self):
-        reply = _turn(
-            "Yes.",
-            {"verdict": "mismatch", "sees": "a dry towel on the floor"},
-        )
-        self.assertIn("I see: a dry towel on the floor.", reply)
-        self.assertIn("This photo does not match the finding.", reply)
-        self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertNotIn("<!--", reply)
-        self.assertTrue(mf.reply_shows_step(reply, 1))
-        self.assertNotRegex(reply, r"(?<!\d)Step 2:")
-
-    def test_unclear_does_not_invent_a_scene(self):
-        reply = _turn(
-            "Yes.",
-            {"verdict": "unclear", "sees": "water pouring from the valve"},
-        )
-        self.assertNotIn("water pouring from the valve", reply)
-        self.assertNotIn("I see:", reply)
-        self.assertIn("This photo is not clear enough.", reply)
-        self.assertIn("I will not guess what it shows.", reply)
-        self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertNotIn("<!--", reply)
-        self.assertTrue(mf.reply_shows_step(reply, 1))
-        self.assertNotRegex(reply, r"(?<!\d)Step 2:")
-
-    def test_no_photo_typed_yes_still_moves_on(self):
-        reply = _turn("Photo sent. Yes.", None)
-        self.assertNotIn("<!--", reply)
-        self.assertTrue(mf.reply_shows_step(reply, 2))
-        self.assertNotRegex(reply, r"(?<!\d)Step 1:")
-        self.assertNotIn("I see:", reply)
-
-    def test_a_mismatched_supply_photo_does_not_skip_to_the_vacuum_breaker(self):
-        history = [
-            {"role": "user", "content": "toilet leaks under the flush lever"},
-            {
-                "role": "assistant",
-                "content": "Back of the toilet: check the water supply line connection at the water valve.",
-            },
-        ]
-        reply = _turn(
-            "Supply connection is tight. No leak there.",
-            {"verdict": "mismatch", "sees": "Water is running at the fitting."},
-            history,
-            draft="📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
-        )
-        low = reply.lower()
-        self.assertIn("I see: Water is running at the fitting.", reply)
-        self.assertIn("supply", low)
-        self.assertNotIn("vacuum breaker", low)
-        self.assertIn("Send another photo, or type what you see.", reply)
-        self.assertNotIn("Send a photo of what you see.", reply)
-        self.assertNotIn("A photo is optional.", reply)
-
-    def test_a_confirming_photo_can_close_the_supply_check(self):
-        history = [
-            {"role": "user", "content": "toilet leaks under the flush lever"},
-            {
-                "role": "assistant",
-                "content": "Back of the toilet: check the water supply line connection at the water valve.",
-            },
-        ]
-        reply = _turn(
-            "",
-            {"verdict": "confirm", "sees": "The supply connection is tight."},
-            history,
-            draft="📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3",
-        )
-        self.assertIn("I see: The supply connection is tight.", reply)
-        self.assertIn("vacuum breaker", reply.lower())
-        self.assertIn("only while flushing", reply.lower())
 
     def test_history_keeps_a_confirm_and_drops_a_contradicted_finding(self):
         kept = history_user_text("tight", True, {"verdict": "confirm", "sees": "The supply connection is tight."})

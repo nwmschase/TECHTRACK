@@ -1,48 +1,21 @@
 #!/usr/bin/env python3
-"""Score a Bay PDF or a Guided Diagnostics transcript against the established profiles.
+"""Score a Guided Diagnostics transcript against the established profile.
 
-Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt>
+Usage: python3 scripts/profile_check.py <transcript.txt>
 
-Prints PASS or FAIL for each rule, then the
-v1.2 scorecard. A line a human must judge prints MANUAL. Exit 0 when no rule FAILs.
-A PDF is checked for section order, branch subsections, step line order,
-banned strings, sentence length, figure width, and figure placement.
-A transcript is checked for the chat profile: no label block, no step
-counter, a photo only when it helps, no figure without an ask, and no repeats.
+Prints PASS or FAIL for each rule, then the v1.2 GD scorecard. A line a human
+must judge prints MANUAL. Exit 0 when no rule FAILs. A transcript is checked
+for the chat profile: no label block, no step counter, a photo only when it
+helps, no figure without an ask, and no repeats.
+(The Bay PDF checks were removed with the Bay PDF builder, Chase 2026-10-24.)
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 
-PAGE_W = 612.0
-MARGIN = 36.0
-CONTENT_W = PAGE_W - 2 * MARGIN
-# Profile: about 70-80% of the usable page width. 75% is the sheet width.
-FIG_MIN = 0.70 * CONTENT_W - 1.0
-FIG_MAX = 0.80 * CONTENT_W + 2.0
-# "About 12 words." Locked kit phrases stay under the existing 15-word ceiling.
-WORD_LIMIT = 15
-
-LABEL_ORDER = (
-    "where:",
-    "tools:",
-    "do this:",
-    "good looks like:",
-    "bad looks like:",
-    "next:",
-    "if it fails:",
-)
-REQUIRED_LABELS = ("do this:", "good looks like:", "next:")
-GENERIC_BAD = re.compile(
-    r"^(?:it does not look right|not stated(?: in this sheet)?|unconfirmed|"
-    r"do this step again|the step is not finished|not this:.*)\.?$",
-    re.I,
-)
 BANNED = (
     "not stated in this sheet",
     "not stated",
@@ -57,10 +30,6 @@ BANNED = (
     "<!--",
     "gd-step:",
     "scouring",
-)
-SAFETY_CUE = re.compile(
-    r"water off|supplies off|flammable|gloves|flame|hoist|propane|breaker off|keep people",
-    re.I,
 )
 ASK_RE = re.compile(
     r"show me|show the|where is it|where it is|what does it look like|"
@@ -90,158 +59,8 @@ class Rule:
         return f"{self.status}  {self.name}  {self.detail}".rstrip()
 
 
-def _words(text: str) -> int:
-    return len(re.findall(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)?", text or ""))
-
-
 def _rule(name: str, ok: bool, detail: str = "") -> Rule:
     return Rule(name, bool(ok), detail)
-
-
-def check_sheet_text(text: str) -> list[Rule]:
-    """PDF-profile rules that can be read from the sheet text."""
-    raw = text or ""
-    low = raw.lower()
-    rules = [
-        _section_order(raw),
-        _branch_subsections(raw),
-        _line_order(raw),
-        _banned(low, include_photo=True),
-        _sentence_length(raw),
-        _safety_once(raw),
-        _web_content(raw),
-        _fastener_sequence(raw),
-        _source_doc_quotes(raw),
-        _mid_phrase_gap(raw),
-    ]
-    return rules
-
-
-def _section_order(text: str) -> Rule:
-    def at(pattern: str) -> int:
-        match = re.search(pattern, text)
-        return match.start() if match else -1
-
-    marks = {
-        "concern": at(r"\bCONCERN\b"),
-        "model": at(r"\bMODEL\b"),
-        "primary": at(r"\bPRIMARY\b"),
-        "diagnosis": at(r"\bDIAGNOSIS\b"),
-        "removal": at(r"\bREMOVAL\b"),
-        "do not": at(r"\bDO NOT\b"),
-        "sources": at(r"\bSOURCES\b"),
-    }
-    missing = [name for name, pos in marks.items() if pos < 0]
-    if missing:
-        return _rule("section_order", False, "missing " + ", ".join(missing))
-    order = ["concern", "model", "primary", "diagnosis", "removal", "do not", "sources"]
-    positions = [marks[name] for name in order]
-    if positions != sorted(positions):
-        return _rule("section_order", False, "sections are out of order")
-    head = text[: marks["diagnosis"]]
-    if not re.search(r"\b(?:YES|NO)\b", head):
-        return _rule("section_order", False, "no diagnosis flowchart before the checks")
-    return _rule("section_order", True, "header, flowchart, diagnosis, branches, do not, sources")
-
-
-def _blocks(text: str) -> list[str]:
-    starts = [match.start() for match in re.finditer(r"REPAIR BRANCH|REPAIR PROCEDURE", text)]
-    if not starts:
-        return []
-    ends = starts[1:] + [len(text)]
-    stop = re.search(r"\bDO NOT\b", text)
-    blocks = []
-    for start, end in zip(starts, ends):
-        if stop and start >= stop.start():
-            continue
-        if stop and end > stop.start() > start:
-            end = stop.start()
-        blocks.append(text[start:end])
-    return blocks
-
-
-def _branch_subsections(text: str) -> Rule:
-    blocks = _blocks(text)
-    if not blocks:
-        return _rule("branch_subsections", False, "no repair branch")
-    problems = []
-    for index, block in enumerate(blocks, 1):
-        title = " ".join(block.split()[:6])
-        if "BEFORE YOU START" not in block:
-            problems.append(f"branch {index} ({title}) has no Before you start")
-        else:
-            before = block.split("REMOVAL", 1)[0]
-            if not SAFETY_CUE.search(before):
-                problems.append(f"branch {index} safety note is not in Before you start")
-        if "REMOVAL" not in block or not re.search(r"Step\s+\d+\s*:", block.split("REMOVAL", 1)[-1][:400]):
-            problems.append(f"branch {index} has no numbered Removal steps")
-        if "INSTALLATION" not in block:
-            problems.append(f"branch {index} has no Installation")
-        else:
-            after = block.split("INSTALLATION", 1)[-1][:500]
-            if not re.search(r"Step\s+\d+\s*:", after):
-                problems.append(f"branch {index} Installation is not numbered")
-        confirms = list(re.finditer(r"Step\s+\d+\s*:\s*(?:Confirm|Verify)\b", block, re.I))
-        confirm = confirms[-1] if confirms else None
-        if not confirm:
-            problems.append(f"branch {index} has no confirm / verify step")
-        else:
-            tail = block[confirm.start():]
-            if "Good looks like:" not in tail or "Bad looks like:" not in tail:
-                problems.append(f"branch {index} verify step has no pass/fail")
-    if problems:
-        return _rule("branch_subsections", False, "; ".join(problems[:6]))
-    return _rule("branch_subsections", True, f"{len(blocks)} branches with removal, installation, verify")
-
-
-def _step_chunks(text: str) -> list[str]:
-    parts = re.split(r"(?=Step\s+\d+\s*:)", text)
-    return [part for part in parts if re.match(r"Step\s+\d+\s*:", part)]
-
-
-def _procedure_text(text: str) -> str:
-    """Step-format rules apply to the procedure, not the short diagnosis lead-in."""
-    marks = []
-    for pattern in ("PROVING CHECKS", "REPAIR BRANCH", "REPAIR PROCEDURE"):
-        match = re.search(pattern, text)
-        if match:
-            marks.append(match.start())
-    if not marks:
-        return text
-    return text[min(marks):]
-
-
-def _line_order(text: str) -> Rule:
-    chunks = _step_chunks(_procedure_text(text))
-    if not chunks:
-        return _rule("line_order", False, "no numbered steps")
-    problems = []
-    for chunk in chunks:
-        heading = chunk.splitlines()[0][:80]
-        labels = []
-        for line in chunk.splitlines():
-            low = line.strip().lower()
-            for name in LABEL_ORDER:
-                if low.startswith(name):
-                    labels.append(name)
-                    break
-        if labels != [name for name in LABEL_ORDER if name in labels]:
-            problems.append(f"{heading} labels out of order")
-        missing = [name for name in REQUIRED_LABELS if name not in labels]
-        if missing:
-            problems.append(f"{heading} missing {', '.join(missing)}")
-        for line in chunk.splitlines():
-            if line.strip().lower().startswith("bad looks like:"):
-                value = line.split(":", 1)[-1].strip()
-                if GENERIC_BAD.match(value):
-                    problems.append(f"{heading} generic bad")
-            if re.match(r"\s*\d+\.\s+\d+\.", line):
-                problems.append(f"{heading} stray number")
-        if len(problems) > 8:
-            break
-    if problems:
-        return _rule("line_order", False, "; ".join(problems[:6]))
-    return _rule("line_order", True, f"{len(chunks)} steps in Where / Tools / Do this / Good / Bad / Next order")
 
 
 def _banned(low: str, *, include_photo: bool) -> Rule:
@@ -254,230 +73,6 @@ def _banned(low: str, *, include_photo: bool) -> Rule:
     if hits:
         return _rule("banned_strings", False, ", ".join(hits))
     return _rule("banned_strings", True, "no photo script, unconfirmed, or leaked app text")
-
-
-def _sentence_length(text: str) -> Rule:
-    longest = 0
-    sample = ""
-    for chunk in _step_chunks(_procedure_text(text)):
-        first = chunk.splitlines()[0]
-        title = re.sub(r"^Step\s+\d+\s*:\s*", "", first).strip()
-        count = _words(title)
-        if count > longest:
-            longest, sample = count, title
-        in_do = False
-        for line in chunk.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith("do this:"):
-                in_do = True
-                continue
-            if in_do and re.match(r"\d+\.\s+", stripped):
-                action = re.sub(r"^\d+\.\s+", "", stripped)
-                count = _words(action)
-                if count > longest:
-                    longest, sample = count, action
-                continue
-            if in_do and stripped and not re.match(r"\d+\.\s+", stripped):
-                in_do = False
-    if longest > WORD_LIMIT:
-        return _rule("sentence_length", False, f"{longest} words: {sample}")
-    return _rule(
-        "sentence_length",
-        True,
-        f"longest {longest} words (profile about 12; fail above {WORD_LIMIT})",
-    )
-
-
-def _safety_once(text: str) -> Rule:
-    """Each branch prints a safety sentence once. The same note may open the next branch."""
-    problems = []
-    chunks = _blocks(text) or [text]
-    proving = re.search(r"PROVING CHECKS[\s\S]*?(?=REPAIR BRANCH|REPAIR PROCEDURE|\bDO NOT\b)", text)
-    if proving:
-        chunks = [proving.group(0), *chunks]
-    for index, block in enumerate(chunks, 1):
-        lines = [re.sub(r"\s+", " ", line).strip().lower() for line in re.findall(r"Safety:.*", block)]
-        dupes = sorted({line for line in lines if lines.count(line) > 1})
-        if dupes:
-            problems.append(f"branch {index} repeats {dupes[0][:70]}")
-        if "BEFORE YOU START" in block and "REMOVAL" in block:
-            before = block.split("BEFORE YOU START", 1)[-1].split("REMOVAL", 1)[0].lower()
-            for line in lines:
-                sentence = line.split(":", 1)[-1].strip().rstrip(".")
-                if sentence and sentence in before:
-                    problems.append(f"branch {index} repeats the before-you-start note")
-    if problems:
-        return _rule("safety_once", False, "; ".join(problems[:4]))
-    return _rule("safety_once", True, "each branch gives its safety note once")
-
-
-def _web_content(text: str) -> Rule:
-    if re.search(r"from the web|outside sources", text, re.I):
-        if "OUTSIDE SOURCES" not in text and "Outside sources" not in text:
-            return _rule("web_content", False, "web content is not in an Outside sources section")
-    return _rule("web_content", True, "no web content mixed into the manual steps")
-
-
-def _figure_rules(doc) -> list[Rule]:
-    widths = []
-    placement = []
-    for page_index, page in enumerate(doc, 1):
-        images = page.get_image_info() or []
-        words = page.get_text("words") or []
-        for info in images:
-            box = info.get("bbox") or info.get("bbox")
-            if not box:
-                continue
-            x0, y0, x1, y1 = box
-            width = x1 - x0
-            widths.append(width)
-            if width < FIG_MIN or width > FIG_MAX:
-                placement.append(f"page {page_index} width {width:.0f} outside 70-80%")
-            center = (x0 + x1) / 2.0
-            if abs(center - PAGE_W / 2.0) > 3.0:
-                placement.append(f"page {page_index} figure is not centered")
-            # words are (x0, y0, x1, y1, text, ...) in the same space as the image box
-            step_above = any(
-                str(word[4]).startswith("Step") and word[3] <= y0 + 4
-                for word in words
-            )
-            caption_below = any(
-                word[1] >= y1 - 2 and word[1] <= y1 + 40
-                for word in words
-            )
-            if not step_above:
-                placement.append(f"page {page_index} figure is split from its step")
-            if not caption_below:
-                placement.append(f"page {page_index} caption is not under the figure")
-    if not widths:
-        return [
-            _rule("figure_width", True, "no figure where the manual has none"),
-            _rule("figure_placement", True, "no figure to place"),
-        ]
-    width_ok = not any("width" in item for item in placement)
-    place_ok = not any("width" not in item for item in placement)
-    width_detail = (
-        f"{len(widths)} figures, {min(widths):.0f}-{max(widths):.0f} pt "
-        f"(usable page {CONTENT_W:.0f} pt, 70-80%)"
-    )
-    return [
-        _rule("figure_width", width_ok, width_detail if width_ok else "; ".join(placement[:4])),
-        _rule(
-            "figure_placement",
-            place_ok,
-            "caption under the citing step" if place_ok else "; ".join(
-                item for item in placement if "width" not in item
-            )[:240],
-        ),
-    ]
-
-
-def _quote_key(text: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
-
-
-def source_page_rule(text: str, library: list[dict]) -> Rule:
-    """rev6 (Leader rev5 item 2): each quoted Sources line cites the page its words are on.
-
-    library rows carry title, page and chunk_text from the shop library (read-only).
-    """
-    lines = (text or "").splitlines()
-    try:
-        start = next(i for i, line in enumerate(lines) if line.strip().startswith("SOURCES (SHOP DOCUMENT LIBRARY)"))
-    except StopIteration:
-        return _rule("source_pages", True, "no Sources block")
-    rows = []
-    current = None
-    for line in lines[start + 1:]:
-        m = re.match(r"^\s*-\s+(.+?)\s+page\s+(\d+)\s*$", line)
-        if m:
-            current = {"title": m.group(1), "page": int(m.group(2)), "quote": ""}
-            rows.append(current)
-            continue
-        if current is not None and line.strip() and not line.strip().startswith("-"):
-            if re.match(r"^(?:BAY PROCEDURE|Tacoma RV Center|Sources)", line.strip()):
-                continue
-            current["quote"] = (current["quote"] + " " + line.strip()).strip()
-    wrong = []
-    for row in rows:
-        quote = _quote_key(row["quote"])[:60]
-        if len(quote) < 20:
-            continue
-        numbers = set(re.findall(r"\b\d{5}\b", row["title"]))
-        pages = sorted({
-            int(chunk.get("page") or 0)
-            for chunk in library or []
-            if (not numbers or numbers & set(re.findall(r"\b\d{5}\b", str(chunk.get("title") or ""))))
-            and quote in _quote_key(str(chunk.get("chunk_text") or ""))
-        })
-        if not pages:
-            wrong.append(f"'{row['quote'][:40]}' not found in {row['title'][:40]}")
-        elif row["page"] not in pages:
-            wrong.append(f"{row['title'][:40]} page {row['page']}: quote is on page {pages[0]}")
-    return _rule("source_pages", not wrong, "each quoted source cites the page its words are on" if not wrong else "; ".join(wrong[:3]))
-
-
-def printed_figure_number_rule(doc) -> Rule:
-    """rev6 (Leader rev5 item 3): the tech sees one number per figure.
-
-    A kit's own printed 'FIGURE N' inside the crop must match the sheet caption 'Fig. N'.
-    Reads the image with the tesseract CLI when it is installed; without it the rule is skipped.
-    """
-    import shutil
-    import subprocess
-    import tempfile
-
-    if not shutil.which("tesseract"):
-        return _rule("figure_printed_number", True, "skipped: tesseract not installed")
-    wrong = []
-    for page_index, page in enumerate(doc):
-        captions = re.findall(r"(?m)^\s*Fig\.\s*(\d+)\b", page.get_text())
-        images = sorted(page.get_images(full=True), key=lambda img: min((r.y0 for r in page.get_image_rects(img[0])), default=0))
-        for slot, img in enumerate(images):
-            if slot >= len(captions):
-                break
-            data = doc.extract_image(img[0]).get("image") or b""
-            with tempfile.NamedTemporaryFile(suffix=".png") as handle:
-                handle.write(data)
-                handle.flush()
-                try:
-                    seen = subprocess.run(
-                        ["tesseract", handle.name, "-", "--psm", "11"], capture_output=True, text=True, timeout=60
-                    ).stdout
-                except Exception:
-                    continue
-            printed = re.findall(r"(?i)\bFIGURE\s+(\d+)\b", seen)
-            if any(number != captions[slot] for number in printed):
-                wrong.append(f"p{page_index + 1} Fig. {captions[slot]} shows printed FIGURE {printed[0]}")
-    return _rule("figure_printed_number", not wrong, "one number per figure" if not wrong else "; ".join(wrong[:3]))
-
-
-def library_from_db(db_path) -> list[dict]:
-    import sqlite3
-
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        rows = con.execute(
-            "SELECT d.title, c.page, c.chunk_text FROM doc_chunks c JOIN documents d ON d.id = c.document_id"
-        ).fetchall()
-    finally:
-        con.close()
-    return [{"title": t, "page": p, "chunk_text": x} for t, p, x in rows]
-
-
-def check_pdf_bytes(data: bytes, library: list[dict] | None = None) -> list[Rule]:
-    import pymupdf
-
-    doc = pymupdf.open(stream=data, filetype="pdf")
-    try:
-        text = "\n".join(page.get_text() for page in doc)
-        rules = check_sheet_text(text) + _figure_rules(doc)
-        if library is not None:
-            rules.append(source_page_rule(text, library))
-        rules.append(printed_figure_number_rule(doc))
-        return rules + grade_pdf(text, rules)
-    finally:
-        doc.close()
 
 
 def _pairs(text: str) -> list[tuple[str, str]]:
@@ -772,20 +367,8 @@ def check_transcript(text: str) -> list[Rule]:
     return rules + grade_gd(raw, rules)
 
 
-def _looks_like_sheet(text: str) -> bool:
-    return "BEFORE YOU START" in text or "\nDIAGNOSIS\n" in text or "Do this:" in text
-
-
 def check_path(path: Path) -> list[Rule]:
-    data = path.read_bytes()
-    if data.startswith(b"%PDF") or path.suffix.lower() == ".pdf":
-        return check_pdf_bytes(data)
-    text = data.decode("utf-8", errors="replace")
-    if _looks_like_sheet(text):
-        rules = check_sheet_text(text)
-        rules.append(_rule("figure_width", False, "text extract has no page images; pass the PDF"))
-        rules.append(_rule("figure_placement", False, "text extract has no page images; pass the PDF"))
-        return rules + grade_pdf(text, rules)
+    text = path.read_bytes().decode("utf-8", errors="replace")
     return check_transcript(text)
 
 
@@ -801,20 +384,7 @@ GD_SCORECARD = (
     "Reopen handled neutrally: re-checked earlier steps and readings, then the next likely cause.",
     "None of: leaked app text, off-brand content, filler, cut-off sentences.",
 )
-PDF_SCORECARD = (
-    "Structure complete: header, flowchart, diagnosis, a branch for every possible repair, Do Not list, sources.",
-    "Each branch runs to completion and ends with a confirm step with a clear pass or fail.",
-    "Every step has a bold numbered heading and the same labeled lines in the same order.",
-    "One action per line; sentences of about 12 words or fewer; plain words.",
-    "Bad looks like is specific to the step, or left out.",
-    "Real same-brand manual figure, large (about 70-80% width), centered under the step that cites it, with caption; never split from its step.",
-    "No figure where the manual has none; nothing invented or off-brand.",
-    "Safety stated once per section, and correct (no contradictions).",
-    "None of: PHOTO or yes/no lines, UNCONFIRMED tags, disclaimers, leaked app text, cut-off sentences, stray numbers.",
-    "Web content only in a separate labeled Outside sources section.",
-)
 GD_AUTO_FAIL = {1, 8, 10}
-PDF_AUTO_FAIL = {2, 7, 8, 9}
 _REOPEN_PHRASE = re.compile(
     r"wasn['\u2019]?t the fix|not the(?: actual)? fix|\bcame back\b|\bnot fixed\b",
     re.I,
@@ -845,37 +415,6 @@ def _card(number: int, status: str, line_text: str, detail: str, auto_numbers: s
     )
 
 
-def _step_inspection(text: str) -> dict:
-    """Label order, a generic Bad line, and a stray number, scanned once."""
-    chunks = _step_chunks(_procedure_text(text))
-    order_problems = []
-    generic = []
-    stray = []
-    if not chunks:
-        order_problems.append("no numbered steps")
-    for chunk in chunks:
-        heading = chunk.splitlines()[0][:80]
-        labels = []
-        for line in chunk.splitlines():
-            low = line.strip().lower()
-            for name in LABEL_ORDER:
-                if low.startswith(name):
-                    labels.append(name)
-                    break
-            if low.startswith("bad looks like:"):
-                value = line.split(":", 1)[-1].strip()
-                if GENERIC_BAD.match(value):
-                    generic.append(heading)
-            if re.match(r"\s*\d+\.\s+\d+\.", line):
-                stray.append(heading)
-        if labels != [name for name in LABEL_ORDER if name in labels]:
-            order_problems.append(f"{heading} labels out of order")
-        missing = [name for name in REQUIRED_LABELS if name not in labels]
-        if missing:
-            order_problems.append(f"{heading} missing {', '.join(missing)}")
-    return {"order": order_problems, "generic": generic, "stray": stray}
-
-
 def _gd_web_ok(text: str) -> bool:
     return True   # retired 2026-10-23 (Chase order); was the web-label check
 
@@ -904,9 +443,6 @@ _SAFETY_GD = re.compile(
 _VISUAL_RE = re.compile(
     r"\b(leak|weep|look|see|connection|pedal|dry|wet|crack|flush|valve|breaker)\b",
     re.I,
-)
-_FIG_LABEL_RE = re.compile(
-    r"(?i)^fig\.?\s*\d+\b|\b(?:42109|34122|34123|42088|CCD-\d+|FACT\d*|FACR)\b"
 )
 
 
@@ -982,53 +518,6 @@ def _reopen_neutral(text: str) -> bool:
         if not re.search(r"\b(check|reading|again|next)\b", assistant, re.I):
             return False
     return True
-
-
-def _figure_caption_lines(text: str) -> list[str]:
-    return [line.strip() for line in (text or "").splitlines() if _PF_FIG_LINE.match(line.strip())]
-
-
-def _invented_figure(text: str, rules: dict) -> tuple[str, str]:
-    if not _ok(rules, "banned_strings"):
-        detail = rules["banned_strings"].detail or "invented or off-brand text"
-        return "FAIL", detail
-    captions = _figure_caption_lines(text)
-    blob = "\n".join(captions).lower()
-    low = (text or "").lower()
-    if "bundled kit sheet" in low or any(phrase in blob for phrase in _CAPTION_BAD):
-        return "FAIL", "caption is a sketch or a bundled kit sheet"
-    kind = _case_kind(text)
-    brand_hit = _off_brand(blob, kind) if kind and blob else ""
-    if brand_hit:
-        return "FAIL", f"figure caption names {brand_hit}"
-    bad = [line for line in captions if not _FIG_LABEL_RE.search(line)]
-    if bad:
-        return "FAIL", f"invented figure caption: {bad[0][:80]}"
-    if captions:
-        return "PASS", "figure captions are manual Fig. labels for this case"
-    width = rules.get("figure_width")
-    drawn = bool(width and "figures," in (width.detail or ""))
-    if drawn and _ok(rules, "figure_placement"):
-        return "PASS", "drawn figures are captioned under the citing step"
-    if drawn:
-        return "FAIL", "a drawn figure has no manual Fig. caption"
-    return "PASS", "no figure drawn, and no invented caption"
-
-
-def _safety_status(text: str, rules: dict) -> tuple[str, str]:
-    safety = rules.get("safety_once")
-    if safety and not safety.ok:
-        return "FAIL", safety.detail or "safety note repeated"
-    conflicts = [
-        step.splitlines()[0][:70]
-        for step in _bounded_steps(text or "")
-        if _state_conflict(step)
-    ]
-    if conflicts:
-        return "FAIL", conflicts[0]
-    if safety and safety.ok:
-        return "PASS", "safety is once per section and does not contradict the action"
-    return "MANUAL", "human confirms the safety note is correct"
 
 
 def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
@@ -1117,58 +606,6 @@ def grade_gd(text: str, rules: list[Rule]) -> list[Rule]:
 _CHECK_VERBS = ("check", "look", "listen", "measure", "watch", "test", "confirm", "inspect", "feel")
 
 
-def _all_ok(named, *names) -> bool:
-    return all(_ok(named, name) for name in names if name in named)
-
-
-def _first_fail(named, names, default: str) -> str:
-    for name in names:
-        if name in named and not _ok(named, name):
-            return named[name].detail
-    return default
-
-
-def grade_pdf(text: str, rules: list[Rule]) -> list[Rule]:
-    """v1.2 Bay PDF scorecard.
-
-    Lines 7 and 8 PASS when the sheet shows a real caption and a safety note
-    that does not contradict the action. They FAIL on an invented figure or a
-    contradiction. MANUAL stays when the sheet does not show enough to judge.
-    """
-    named = _named(rules)
-    inspected = _step_inspection(text)
-    banned_ok = _ok(named, "banned_strings")
-    invented_status, invented_detail = _invented_figure(text, named)
-    safety_status, safety_detail = _safety_status(text, named)
-    line_nine = "PASS" if banned_ok and not inspected["stray"] else "FAIL"
-    rows = [
-        (1, "PASS" if _ok(named, "section_order") and _ok(named, "branch_subsections") and _all_ok(named, "source_pages") else "FAIL",
-         _first_fail(named, ("source_pages",), "header, flowchart, diagnosis, branches, do not, sources")),
-        (2, "PASS" if _all_ok(named, "branch_subsections", "next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed") else "FAIL",
-         _first_fail(named, ("next_chain", "double_removal", "secure_after_hose", "reinstalled", "old_part_removed"), "each branch ends on a confirm with a pass and a fail")),
-        (3, "PASS" if not inspected["order"] and _all_ok(named, "where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path") else "FAIL",
-         _first_fail(named, ("where_lines", "profile_labels", "diagnosis_checks", "where_single", "next_single_path"), "numbered headings and the same label order")),
-        (4, "PASS" if _all_ok(named, "sentence_length", "grammar", "good_is_a_look", "do_item_is_action") else "FAIL", _first_fail(named, ("grammar", "good_is_a_look", "do_item_is_action"), "one action per line, about 12 words")),
-        (5, "PASS" if not inspected["generic"] and _all_ok(named, "bad_is_specific") else "FAIL", _first_fail(named, ("bad_is_specific",), "Bad looks like is specific, or left off")),
-        (6, "PASS" if _all_ok(named, "figure_width", "figure_placement", "figure_captions", "figure_printed_number") else "FAIL",
-         _first_fail(named, ("figure_captions", "figure_printed_number"), "figure width, centering, and caption")),
-        (7, invented_status, invented_detail),
-        (8, safety_status if _all_ok(named, "before_conflict", "safety_duplicate") else "FAIL",
-         _first_fail(named, ("before_conflict", "safety_duplicate"), safety_detail)),
-        (9, line_nine, "no photo script, unconfirmed, leaked text, or stray number"),
-        (10, "PASS" if _ok(named, "web_content") else "FAIL", "web content stays in Outside sources"),
-    ]
-    return [_card(number, status, PDF_SCORECARD[number - 1], detail, PDF_AUTO_FAIL) for number, status, detail in rows]
-
-
-_PF_FIG_LINE = re.compile(r"^(?:Figure:|Fig\.)", re.I)
-_PF_STATE = (
-    (re.compile(r"water off", re.I), re.compile(r"water on", re.I)),
-    (re.compile(r"power off", re.I), re.compile(r"power on", re.I)),
-    (re.compile(r"propane off", re.I), re.compile(r"propane on", re.I)),
-    (re.compile(r"breaker off", re.I), re.compile(r"breaker on", re.I)),
-    (re.compile(r"supplies off", re.I), re.compile(r"supplies on", re.I)),
-)
 _THETFORD_OFF = (
     "norcold", "furrion", "dometic", "suburban", "coleman", "happijac",
     "atwood", "girard", "power gear", "lippert",
@@ -1176,7 +613,6 @@ _THETFORD_OFF = (
 _FURRION_OFF = (
     "norcold", "thetford", "dometic", "suburban", "coleman", "happijac", "atwood",
 )
-_CAPTION_BAD = ("bundled kit sheet", "sketch")
 
 
 def _case_kind(text: str) -> str:
@@ -1188,318 +624,7 @@ def _case_kind(text: str) -> str:
     return ""
 
 
-def _bounded_steps(text: str) -> list[str]:
-    """A step ends at the next step or at the next section heading."""
-    parts = re.split(r"(?=Step\s+\d+\s*:)", _procedure_text(text or ""))
-    steps = []
-    for part in parts:
-        if not re.match(r"Step\s+\d+\s*:", part):
-            continue
-        cut = re.split(
-            r"\n(?=(?:REPAIR BRANCH|REPAIR PROCEDURE|BEFORE YOU START|REMOVAL|"
-            r"INSTALLATION|VERIFY|DO NOT|SOURCES|DIAGNOSIS)\b)",
-            part,
-            maxsplit=1,
-        )
-        steps.append(cut[0])
-    return steps
-
-
-def _step_actions(step: str) -> list[str]:
-    actions = []
-    in_do = False
-    for line in step.splitlines():
-        stripped = line.strip()
-        if stripped.lower().startswith("do this:"):
-            in_do = True
-            continue
-        if in_do and re.match(r"\d+\.\s+", stripped):
-            actions.append(re.sub(r"^\d+\.\s+", "", stripped).strip().rstrip(".").lower())
-            continue
-        if in_do and stripped:
-            in_do = False
-    return actions
-
-
-def _fastener_sequence(text: str) -> Rule:
-    """A toilet is not lifted while it is still bolted down, and a removed part goes back.
-
-    The vacuum-breaker sheet used to pull the hose and then lift the toilet,
-    with the bolt covers never taken off and never put back. The flange height
-    check belongs in Removal, after the toilet is off the bolts.
-    """
-    if not re.search(r"\b(42070|42109|34123|34122|thetford)\b", text or "", re.I):
-        return _rule("fastener_sequence", True, "this sheet does not lift a toilet")
-    problems = []
-    for block in _branch_chunks(text or ""):
-        actions = []
-        for step in _bounded_steps(block):
-            actions.extend(_step_actions(step))
-        if not actions:
-            continue
-        lift_at = next((i for i, action in enumerate(actions) if re.search(r"\blift the toilet\b", action)), -1)
-        fastener_at = next(
-            (
-                i
-                for i, action in enumerate(actions)
-                if re.search(r"\btake (?:off )?the (?:bolt covers|nuts)\b|\btake off the bolt covers\b|\bnuts off\b", action)
-            ),
-            -1,
-        )
-        if lift_at >= 0 and (fastener_at < 0 or fastener_at > lift_at):
-            problems.append("the toilet is lifted before the nuts or bolt covers come off")
-        if any(re.search(r"\btake off the bolt covers\b", action) for action in actions) and not any(
-            re.search(r"\bbolt covers back\b|\bput the bolt covers\b", action) for action in actions
-        ):
-            problems.append("the bolt covers come off and are not put back")
-        if any(re.search(r"\btake the nuts off\b|\btake off the nuts\b", action) for action in actions) and not any(
-            re.search(r"\btighten the nuts\b|\bput the nuts\b", action) for action in actions
-        ):
-            problems.append("the nuts come off and are not tightened")
-        if lift_at >= 0 and not any(re.search(r"\bset the toilet\b|\bplace the toilet\b", action) for action in actions):
-            problems.append("the toilet is lifted and not set back")
-        if any(re.search(r"\btake off the old floor seal\b|\btake off the old seal\b", action) for action in actions):
-            if not any(re.search(r"\bfloor seal\b|\bflange seal\b", action) and re.search(r"\bput\b", action) for action in actions):
-                problems.append("the old seal comes off and no seal is put on")
-        if any(re.search(r"\bcover the (?:tank hole|holding tank opening)\b", action) for action in actions) and not any(
-            re.search(r"\btake the towel off\b|\buncover the holding tank\b", action) for action in actions
-        ):
-            problems.append("a towel covers the holding tank opening and is not taken off")
-        if "holding tank" in block.lower() and lift_at >= 0:
-            hose_off = next(
-                (i for i, action in enumerate(actions) if re.search(r"\bwater hose off\b|\bpull the water hose\b", action)),
-                -1,
-            )
-            hose_on = next(
-                (
-                    i
-                    for i, action in enumerate(actions)
-                    if re.search(r"\bwater hose onto\b|\bpush the water hose\b", action)
-                ),
-                -1,
-            )
-            if hose_off < 0 or hose_off > lift_at:
-                problems.append("the flange branch lifts the toilet before the water hose comes off")
-            elif hose_on < 0 or hose_on < lift_at:
-                problems.append("the flange branch does not put the water hose back on")
-        if re.search(r"\bflange\b", block, re.I) and re.search(r"\b7/16\b", block):
-            inst = block.upper().find("\nINSTALLATION")
-            height = block.lower().find("7/16")
-            if inst >= 0 and height > inst:
-                problems.append("the flange height check sits under Installation")
-    if problems:
-        return _rule("fastener_sequence", False, problems[0])
-    return _rule("fastener_sequence", True, "fasteners come off before the toilet is lifted, and removed parts go back")
-
-
-def _source_quote_rows(text: str) -> list[tuple[str, str]]:
-    match = re.search(r"SOURCES \(SHOP DOCUMENT LIBRARY\)(.*)\Z", text or "", re.S)
-    if not match:
-        return []
-    rows = []
-    title = ""
-    quote: list[str] = []
-
-    def flush():
-        if title:
-            rows.append((title, " ".join(quote).strip()))
-
-    for line in match.group(1).splitlines():
-        stripped = line.strip()
-        if not stripped or re.match(r"^(?:UNIT ID|Brand:|Model:|Serial:)", stripped):
-            continue
-        if stripped.startswith("-") and re.search(r"\bpage\s+\d+\b", stripped, re.I):
-            flush()
-            title = stripped
-            quote = []
-            continue
-        if title:
-            quote.append(stripped)
-    flush()
-    return rows
-
-
-def _folded_quote(text: str) -> str:
-    """Manual text with ligatures, soft hyphens, and line breaks folded out."""
-    raw = unicodedata.normalize("NFKC", text or "")
-    raw = raw.replace("\u00ad", "").replace("ﬁ", "fi").replace("ﬂ", "fl")
-    raw = raw.replace("\u2019", "'").replace("\u2018", "'")
-    raw = raw.replace("\u2013", "-").replace("\u2014", "-")
-    return re.sub(r"\s+", " ", raw).strip().casefold()
-
-
 _DOC_CORPUS: dict[str, str | None] = {}
-
-
-def _manual_corpus(doc: str) -> str | None:
-    """Folded text of one bundled manual. None when that file is not here."""
-    if doc in _DOC_CORPUS:
-        return _DOC_CORPUS[doc]
-    root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
-    folded = ""
-    if doc == "42088":
-        path = root / "om42088_pypdf_pages.json"
-        if path.is_file():
-            pages = json.loads(path.read_text(encoding="utf-8"))
-            folded = _folded_quote(" ".join(page.get("text") or "" for page in pages))
-    else:
-        name = {
-            "34123": "34123-34122-VacBrkr-1.pdf",
-            "42109": "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf",
-        }.get(doc, "")
-        path = root / name if name else None
-        if path is not None and path.is_file():
-            try:
-                import pymupdf
-            except Exception:
-                _DOC_CORPUS[doc] = None
-                return None
-            pdf = pymupdf.open(path)
-            try:
-                folded = _folded_quote("\n".join(page.get_text() for page in pdf))
-            finally:
-                pdf.close()
-    _DOC_CORPUS[doc] = folded or None
-    return _DOC_CORPUS[doc]
-
-
-def _source_doc_quotes(text: str) -> Rule:
-    """Each Sources quote is a verbatim sentence from that document."""
-    if not re.search(r"\b42109\b", text or ""):
-        return _rule("source_quotes", True, "no kit source quote on this sheet")
-    found = {}
-    titled = set()
-    for title, quote in _source_quote_rows(text):
-        doc = ""
-        if "42109" in title:
-            doc = "42109"
-        elif re.search(r"\b3412[23]\b", title):
-            doc = "34123"
-        elif "42088" in title:
-            doc = "42088"
-        if not doc:
-            continue
-        titled.add(doc)
-        if quote:
-            found[doc] = quote
-    if "42109" not in found:
-        if "42109" in titled:
-            return _rule("source_quotes", False, "42109 has no quote from the water valve kit")
-        return _rule("source_quotes", True, "the water-valve source has no separate quote")
-    valve = found["42109"].lower()
-    owner = (found.get("42088") or "").lower()
-    if owner and valve == owner:
-        return _rule("source_quotes", False, "42109 repeats the 42088 quote")
-    if re.search(r"supply line|supply connection", valve):
-        return _rule("source_quotes", False, "42109 quote is the owner-manual supply line")
-    if not re.search(r"water valve|pedal|inlet|retainer", valve):
-        return _rule("source_quotes", False, "42109 quote does not come from the water valve kit")
-    missing = []
-    for doc, quote in found.items():
-        corpus = _manual_corpus(doc)
-        if not corpus:
-            missing.append(doc)
-            continue
-        if _folded_quote(quote) not in corpus:
-            return _rule("source_quotes", False, f"{doc} quote is not a verbatim sentence from that document")
-    if missing and len(missing) == len(found):
-        return _rule("source_quotes", True, "source text is not in this checkout")
-    return _rule("source_quotes", True, "each source quote is a verbatim sentence from that document")
-
-
-def _kit_source_sentences() -> list[str]:
-    """English lines from the bundled kit sheets, for the mid-phrase check."""
-    root = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
-    paths = (
-        root / "34123-34122-VacBrkr-1.pdf",
-        root / "42109_SK_WaterValve_StyleII_Res_42049C-1.pdf",
-    )
-    sentences = []
-    try:
-        import pymupdf
-    except Exception:
-        return []
-    for path in paths:
-        if not path.is_file():
-            continue
-        doc = pymupdf.open(path)
-        try:
-            raw = "\n".join(page.get_text() for page in doc)
-        finally:
-            doc.close()
-        raw = raw.replace("\u00ad", "").replace("\u2013", "-").replace("\u2014", "-")
-        # A kit sentence wraps across lines. "Secure back of Shroud" continues
-        # as "with two O-rings - larger" and "on top and smaller on bottom."
-        buf = ""
-        for line in raw.splitlines():
-            line = re.sub(r"\s+", " ", line).strip()
-            if not line:
-                continue
-            starts = bool(re.match(r"^(?:\d+[\.\)]|[a-c]\.)\s+\S", line))
-            if buf and starts:
-                if len(buf) >= 12:
-                    sentences.append(buf)
-                buf = line
-            elif buf:
-                buf = f"{buf} {line}"
-            else:
-                buf = line
-            if re.search(r"[.!?]$", buf):
-                if len(buf) >= 12:
-                    sentences.append(buf)
-                buf = ""
-        if len(buf) >= 12:
-            sentences.append(buf)
-    return sentences
-
-
-def _word_tokens(text: str) -> list[str]:
-    text = (text or "").lower().replace("shroud", "cover").replace("o-ring", "ring")
-    text = text.replace("-", " ")
-    return re.findall(r"[a-z0-9]+", text)
-
-
-def _find_seq(words: list[str], seq: list[str], start: int = 0) -> int:
-    if not seq:
-        return -1
-    limit = len(words) - len(seq) + 1
-    for index in range(start, max(start, limit)):
-        if words[index : index + len(seq)] == seq:
-            return index
-    return -1
-
-
-def _mid_phrase_gap(text: str) -> Rule:
-    """A step that keeps the start and the end of a source sentence, and drops the middle."""
-    if not re.search(r"\b(34123|42109)\b", text or ""):
-        return _rule("mid_phrase", True, "no kit sentence to compare")
-    sentences = _kit_source_sentences()
-    if not sentences:
-        return _rule("mid_phrase", True, "kit source text is not in this checkout")
-    skip = {"the", "a", "of", "and", "on", "to", "in"}
-    for step in _bounded_steps(text or ""):
-        actions = _step_actions(step)
-        if not actions:
-            heading = re.sub(r"^Step\s+\d+\s*:\s*", "", step.splitlines()[0], flags=re.I)
-            actions = [heading]
-        for action in actions:
-            words = _word_tokens(action)
-            if len(words) < 6:
-                continue
-            head, tail = words[:3], words[-3:]
-            for sentence in sentences:
-                source = _word_tokens(sentence)
-                head_at = _find_seq(source, head)
-                if head_at < 0:
-                    continue
-                tail_at = _find_seq(source, tail, head_at + 3)
-                if tail_at < 0:
-                    continue
-                have = set(words)
-                missing = [word for word in source[head_at + 3 : tail_at] if word not in have and word not in skip]
-                if len(missing) >= 3:
-                    return _rule("mid_phrase", False, f"quote drops {' '.join(missing[:6])} from: {action[:70]}")
-    return _rule("mid_phrase", True, "kit quotes keep the source phrase")
 
 
 def _valve_start_bare(pairs: list[tuple[str, str]]) -> bool:
@@ -1527,55 +652,12 @@ def _off_brand(text: str, kind: str) -> str:
     return ""
 
 
-def _state_conflict(step: str) -> str:
-    for off, on in _PF_STATE:
-        if off.search(step) and on.search(step):
-            return f"{off.pattern} and {on.pattern}"
-    return ""
-
-
-def _branch_chunks(text: str) -> list[str]:
-    starts = [match.start() for match in re.finditer(r"REPAIR BRANCH|REPAIR PROCEDURE", text or "")]
-    if not starts:
-        return [text or ""]
-    ends = starts[1:] + [len(text)]
-    return [text[start:end] for start, end in zip(starts, ends)]
-
-
-def _soft_or_cut_figures(doc) -> list[str]:
-    problems = []
-    if doc is None:
-        return problems
-    for index, page in enumerate(doc, 1):
-        for line in page.get_text().splitlines():
-            if re.fullmatch(r"Fig\.?\s*3\s+WATER", line.strip(), re.I):
-                problems.append(f"page {index} Fig. 3 caption is cut off at WATER")
-        for info in page.get_image_info() or []:
-            bbox = info.get("bbox") or ()
-            width = int(info.get("width") or 0)
-            if len(bbox) < 4 or width <= 0:
-                continue
-            shown = float(bbox[2]) - float(bbox[0])
-            if width < 220 and shown > 280:
-                problems.append(f"page {index} figure is {width}px drawn at {shown:.0f}pt")
-            height = int(info.get("height") or 0)
-            if width >= 220 and height > width * 1.35 and shown > 280:
-                problems.append(
-                    f"page {index} figure is {width}x{height}px, so its caption fills the page"
-                )
-    return problems
-
-
 def gate_summary(rules: list[Rule]) -> str:
     """Markdown block for a gate summary. MANUAL lines are not passes."""
     cards = [rule for rule in rules if rule.scorecard]
     if not cards:
         return ""
-    if cards[0].line_text == GD_SCORECARD[0]:
-        kind = "Guided Diagnostics"
-    else:
-        kind = "Bay PDF"
-    lines = [f"## {kind} scorecard"]
+    lines = ["## Guided Diagnostics scorecard"]
     passed = 0
     auto = []
     for rule in cards:
@@ -1607,22 +689,14 @@ def format_report(rules: list[Rule]) -> str:
 
 def main(argv: list[str]) -> int:
     args = list(argv[1:])
-    db = None
-    if "--db" in args:
-        at = args.index("--db")
-        db = Path(args[at + 1]) if at + 1 < len(args) else None
-        del args[at:at + 2]
     if len(args) != 1:
-        print("Usage: python3 scripts/profile_check.py <pdf-or-transcript.txt> [--db library.sqlite]", file=sys.stderr)
+        print("Usage: python3 scripts/profile_check.py <transcript.txt>", file=sys.stderr)
         return 2
     path = Path(args[0])
     if not path.is_file():
         print(f"FAIL  file  {path} is not a file")
         return 1
-    if db is not None and path.suffix.lower() == ".pdf":
-        rules = check_pdf_bytes(path.read_bytes(), library_from_db(db))
-    else:
-        rules = check_path(path)
+    rules = check_path(path)
     print(format_report(rules))
     return 0 if all(rule.ok for rule in rules) else 1
 

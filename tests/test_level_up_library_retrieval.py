@@ -9,7 +9,6 @@ from gd_library_coach import (
     drop_unity_chunks_for_level_up,
     figure_library_search_boost,
     figure_render_honesty_note,
-    format_level_up_library_honesty,
     is_ground_control_manual,
     is_level_up_advantage_context,
     is_level_up_library_title,

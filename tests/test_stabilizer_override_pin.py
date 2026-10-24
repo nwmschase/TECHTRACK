@@ -2,7 +2,6 @@
 import unittest
 
 from gd_library_coach import (
-    PSX1_ASSEMBLY_RR_SHOP_LINE,
     PSX1_PRODUCT_LOCK,
     PSX1_SEARCH_BOOST,
     is_level_up_advantage_context,

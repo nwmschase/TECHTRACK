@@ -45,8 +45,6 @@ class TestCoachModuleLoads(unittest.TestCase):
             "fcr_e2_search_symptom",
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
-            "skip_unity_for_ac",
-            "skip_unity_for_water_heater",
             "is_water_heater_context",
             "WATER_HEATER_PRODUCT_LOCK",
             "DEFAULT_LIBRARY_CATEGORIES",
@@ -60,9 +58,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             "COOKTOP_PRODUCT_LOCK",
             "is_stabilizer_override_pin_context",
             "PSX1_PRODUCT_LOCK",
-            "is_fridge_ice_moisture_context",
             "ICE_MOISTURE_PRODUCT_LOCK",
-            "is_fcr_dial_off_compressor_run_context",
             "DIAL_OFF_RUN_PRODUCT_LOCK",
             "trim_coach_history",
             "complete_chat_with_payload_retry",
@@ -77,13 +73,8 @@ class TestCoachModuleLoads(unittest.TestCase):
             "FACR_FREEZE_ASSEMBLY_LOCK",
             "is_coleman_2111_context",
             "COLEMAN_MOTOR_BOARD_LOCK",
-            "coleman_motor_board_evidence_complete",
-            "lock_spark_free_part_g",
         ):
             self.assertTrue(hasattr(mod, name), name)
-        self.assertTrue(
-            mod.skip_unity_for_ac("Air Conditioning", "Furrion FACT12SA2", "no cool")
-        )
         self.assertTrue(
             mod.is_fcr_e2_fan_fault_context(
                 "Refrigerators", "Furrion FCR10DCGTA", "intermittent E2 / 2-flash"
@@ -93,11 +84,9 @@ class TestCoachModuleLoads(unittest.TestCase):
     def test_rv_techtrack_binds_only_existing_coach_names(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         names = _names_assigned_from_gdc(src)
-        self.assertIn("skip_unity_for_ac", names)
         self.assertIn("AC_PRODUCT_LOCK", names)
         self.assertIn("is_fcr_e2_fan_fault_context", names)
         self.assertIn("FCR_E2_FAN_FAULT_PRODUCT_LOCK", names)
-        self.assertIn("skip_unity_for_water_heater", names)
         self.assertIn("WATER_HEATER_PRODUCT_LOCK", names)
         self.assertIn("DEFAULT_LIBRARY_CATEGORIES", names)
         self.assertIn("AIR_CONDITIONING_CATEGORY", names)
@@ -111,8 +100,6 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("PSX1_PRODUCT_LOCK", names)
         self.assertIn("is_stabilizer_override_pin_context", names)
         self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", names)
-        self.assertIn("is_fridge_ice_moisture_context", names)
-        self.assertIn("is_fcr_dial_off_compressor_run_context", names)
         self.assertIn("DIAL_OFF_RUN_PRODUCT_LOCK", names)
         self.assertIn("complete_chat_with_payload_retry", names)
         self.assertIn("trim_coach_history", names)
@@ -125,7 +112,6 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("is_bal_soft_touch_tongue_only_context", names)
         self.assertIn("is_coleman_2111_context", names)
         self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", names)
-        self.assertIn("lock_spark_free_part_g", names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -174,32 +160,15 @@ class TestCoachModuleLoads(unittest.TestCase):
         end = src.index("_gdc = _load_gd_library_coach()")
         exec(compile(src[start:end] + "_gdc = _load_gd_library_coach()\n", "loader", "exec"), ns)
         loaded = ns["_gdc"]
-        self.assertTrue(hasattr(loaded, "skip_unity_for_ac"))
         self.assertTrue(hasattr(loaded, "is_fcr_e2_fan_fault_context"))
-        self.assertTrue(hasattr(loaded, "skip_unity_for_water_heater"))
         self.assertTrue(hasattr(loaded, "is_cooktop_pan_on_flameout_context"))
         self.assertTrue(hasattr(loaded, "is_stabilizer_override_pin_context"))
-        self.assertTrue(hasattr(loaded, "is_fridge_ice_moisture_context"))
-        self.assertTrue(hasattr(loaded, "is_fcr_dial_off_compressor_run_context"))
         self.assertTrue(hasattr(loaded, "is_facr_rooftop_freeze_context"))
         self.assertTrue(hasattr(loaded, "is_firefly_can_path_context"))
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
-        self.assertTrue(
-            loaded.skip_unity_for_ac("Air Conditioning", "Dometic B57915", "no cool")
-        )
-        self.assertTrue(
-            loaded.skip_unity_for_water_heater("", "Girard GSWH-2", "water heater stopped working E8")
-        )
         self.assertEqual(loaded.COACH_REVISION, "v4.19.65")
-        self.assertTrue(
-            loaded.is_dometic_b57915_nocoool_context(
-                "Air Conditioning",
-                "B57915E711J0EMX",
-                "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold.",
-            )
-        )
 
     def test_loader_reloads_when_revision_is_old_even_if_names_exist(self):
         """v4.19.4 kept the v4.19.3 coach: every old name existed, so the fan-only detector stayed."""
@@ -212,7 +181,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         for name in ns["_GDC_STALE_GUARD_ATTRS"]:
             setattr(stale, name, lambda *a, **k: False)
         stale.COACH_REVISION = "v4.19.3"
-        stale.is_dometic_b57915_nocoool_context = lambda *a, **k: False
+        stale.is_fcr_e2_fan_fault_context = lambda *a, **k: False
         sys.modules["gd_library_coach"] = stale
         self.addCleanup(lambda: sys.modules.pop("gd_library_coach", None))
         exec(
@@ -223,10 +192,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertEqual(loaded.COACH_REVISION, "v4.19.65")
         self.assertIsNot(loaded, stale)
         self.assertTrue(
-            loaded.is_dometic_b57915_nocoool_context(
-                "Air Conditioning",
-                "B57915E711J0EMX",
-                "Dometic rooftop AC B57915E711J0EMX turns on but will not blow cold.",
+            loaded.is_fcr_e2_fan_fault_context(
+                "Refrigerators", "Furrion FCR10DCGTA", "intermittent E2 / 2-flash"
             )
         )
 

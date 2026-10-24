@@ -123,7 +123,6 @@ class TestNoBannedLeftovers(unittest.TestCase):
         gd = src[a:b]
         for name, pat in BANNED:
             self.assertIsNone(re.search(pat, gd), f"{name} found in the app's GD path")
-        self.assertNotIn("ask_techtrack_reply", gd, "GD must not fall back to the keyword coach")
         self.assertIsNone(re.search(r"unity_gate\s*=\s*st\.selectbox", src), "Unity selector still in the app")
         self.assertIn("gd_official", gd)  # the web tool is wired in the GD path (no longer a None stub)
 

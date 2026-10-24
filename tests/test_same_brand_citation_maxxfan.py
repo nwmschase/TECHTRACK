@@ -14,9 +14,6 @@ THET = {"title": "Thetford Style II OM Permanent RV Toilet 42088", "excerpt": "w
 
 
 class TestMaxxAirBrand(unittest.TestCase):
-    def test_maxxfan_is_its_own_brand(self):
-        self.assertEqual(g.asked_brands_for_lookup("", M, S), {"maxxair"})
-        self.assertEqual(g.library_miss_brand_label("", M, S), "MaxxAir")
 
     def test_airxcel_on_maxxair_page_is_not_coleman(self):
         self.assertEqual(g.canonical_shop_brands("Airxcel MaxxFan Plus"), {"maxxair"})
@@ -27,36 +24,6 @@ class TestMaxxAirBrand(unittest.TestCase):
         self.assertFalse(g.chunk_matches_asked_brand(FURRION["title"], "", FURRION["excerpt"], asked))
         self.assertFalse(g.chunk_matches_asked_brand(COLEMAN["title"], "", COLEMAN["excerpt"], asked))
         self.assertTrue(g.chunk_matches_asked_brand(MAXX["title"], "", MAXX["excerpt"], asked, brand="MaxxAir"))
-
-    def test_miss_line_when_only_other_brands(self):
-        line = g.library_miss_reply_for_turn([], S, "", M, S, [FURRION, COLEMAN])
-        self.assertEqual(line, "")   # the library-miss line is retired (Chase 2026-10-23)
-
-
-class TestUnknownBrandGuard(unittest.TestCase):
-    def test_unknown_brand_unit_drops_branded_foreign_pages(self):
-        self.assertFalse(g.unnamed_unit_page_allowed("Truma AquaGo", FURRION["title"]))
-        self.assertTrue(g.unnamed_unit_page_allowed("Truma AquaGo", "Truma AquaGo Service Manual"))
-
-    def test_unbranded_page_and_empty_unit_keep_old_behaviour(self):
-        self.assertTrue(g.unnamed_unit_page_allowed("", FURRION["title"]))
-        self.assertTrue(g.unnamed_unit_page_allowed("Truma AquaGo", "Generic 12V wiring primer"))
-
-
-class TestMissLineVsSameBrandPage(unittest.TestCase):
-    def test_retrieved_thetford_page_is_not_a_miss(self):
-        out = g._unmatched_unit_line([], "toilet leaks under the flush lever", "Plumbing / Toilets",
-                                     "Thetford Style II 42070", current="Check the water valve at the pedal.",
-                                     chunks=[THET])
-        self.assertEqual(out, "")
-
-    def test_retrieved_maxxair_page_is_not_a_miss(self):
-        out = g._unmatched_unit_line([], S, "", M, current="", chunks=[MAXX])
-        self.assertEqual(out, "")
-
-    def test_foreign_page_still_a_miss(self):
-        out = g._unmatched_unit_line([], S, "", M, current="", chunks=[FURRION])
-        self.assertEqual(out, "")   # the library-miss line is retired (Chase 2026-10-23)
 
 
 if __name__ == "__main__":

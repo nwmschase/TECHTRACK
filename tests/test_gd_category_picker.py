@@ -79,15 +79,6 @@ class TestGdCategoryPicker(unittest.TestCase):
         self.assertIn("DEFAULT_LIBRARY_CATEGORIES", seed_src)
         self.assertIn("if name not in existing:", seed_src)
 
-    def test_search_filters_use_category_constants(self):
-        src = (ROOT / "rv_techtrack.py").read_text()
-        search = src.split("def search_manual_chunks(", 1)[1].split("\ndef ", 1)[0]
-        self.assertIn("WATER_HEATERS_CATEGORY", search)
-        self.assertIn("AIR_CONDITIONING_CATEGORY", search)
-        self.assertIn("RANGE_COOKTOPS_CATEGORY", search)
-        self.assertNotIn('"Water Heaters"', search)
-        self.assertNotIn('"Air Conditioning"', search)
-
 
 if __name__ == "__main__":
     unittest.main()

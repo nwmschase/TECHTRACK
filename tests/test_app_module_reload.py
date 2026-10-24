@@ -1,4 +1,4 @@
-"""A Streamlit redeploy must bind the new Bay PDF module, not the cached one."""
+"""A Streamlit redeploy must bind the new sibling modules, not the cached ones."""
 import re
 import sys
 import types
@@ -13,7 +13,6 @@ APP_NAMES = (
     "manual_figures",
     "gd_library_coach",
     "library_figure_backfill",
-    "bay_procedure",
 )
 
 
@@ -35,6 +34,17 @@ class TestAppModuleReload(unittest.TestCase):
     def setUp(self):
         self._saved = {name: sys.modules.get(name) for name in APP_NAMES}
 
+    def test_matching_revision_is_not_replaced(self):
+        ns = _loader_namespace()
+        current = types.ModuleType("library_figure_backfill")
+        current.MODULE_REVISION = "v4.19.65"
+        marker = object()
+        current.marker = marker
+        sys.modules["library_figure_backfill"] = current
+        loaded = ns["_reload_app_module"]("library_figure_backfill", "v4.19.65")
+        self.assertIs(loaded, current)
+        self.assertIs(loaded.marker, marker)
+
     def tearDown(self):
         for name, mod in self._saved.items():
             if mod is None:
@@ -42,40 +52,6 @@ class TestAppModuleReload(unittest.TestCase):
             else:
                 sys.modules[name] = mod
 
-    def test_redeploy_replaces_stale_bay_procedure_that_still_has_names(self):
-        """Old function names are not enough. The previous sheet must not run."""
-        ns = _loader_namespace()
-        stale = types.ModuleType("bay_procedure")
-        stale.MODULE_REVISION = "v4.19.6"
-        stale.BAY_PROCEDURE_LABEL = "old"
-        stale.MAX_FIGURES_PER_SHEET = 2
-        stale.compile_bay_procedure = lambda *a, **k: "STALE"
-        stale.render_bay_procedure_pdf = lambda *a, **k: b"STALE"
-        stale.crop_page_png_to_figure = lambda *a, **k: b""
-        stale.rewrite_bay_search_symptom = lambda *a, **k: ""
-        stale.suggested_pdf_filename = lambda *a, **k: "old.pdf"
-        sys.modules["bay_procedure"] = stale
-
-        ns["_reload_stale_app_modules"]("v4.19.65")
-        loaded = sys.modules["bay_procedure"]
-        self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.19.65")
-        # A second pass sees the matching stamp and keeps this module object.
-        again = ns["_reload_app_module"]("bay_procedure", "v4.19.65")
-        self.assertIs(again, loaded)
-
-        proc = loaded.compile_bay_procedure(
-            concern="Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
-            brand="Suburban",
-            model="NT-20SEQT",
-            category="Furnaces",
-            chunks=[],
-        )
-        self.assertNotEqual(proc, "STALE")
-        nodes = " ".join(node.text for node in proc.flowchart.nodes).lower()
-        self.assertIn("limit switch", nodes)
-        self.assertIn("module board", nodes)
-        self.assertNotIn("sail passed", nodes)
 
     def test_redeploy_replaces_a_stale_figure_bank_module(self):
         """Callers reload. The figure bank has to reload with them."""
@@ -115,54 +91,6 @@ class TestAppModuleReload(unittest.TestCase):
             ns["_log_loaded_revision"]("gd_step_photo", mismatch, "v4.19.65")
         self.assertIn("MODULE_REVISION gd_step_photo=v4.19.6 expected v4.19.65", "\n".join(bad.output))
 
-    def test_stale_figure_bank_shows_no_figure_instead_of_crashing(self):
-        """The live crash: a reloaded caller bound the old module object."""
-        import bay_procedure as bp
-
-        stale = types.ModuleType("library_figure_backfill")
-        sys.modules["library_figure_backfill"] = stale
-        proc = bp.compile_bay_procedure(
-            concern="AC turns on but will not blow cold",
-            brand="Dometic",
-            model="B57915E711J0EMX",
-            category="Air Conditioning",
-            chunks=[
-                {
-                    "title": "Tip Sheet #216",
-                    "excerpt": "Remove the pump seal at the closet flange.",
-                    "page": 4,
-                    "figures": [
-                        {
-                            "png": b"\x89PNG\r\n\x1a\nstale",
-                            "label": "Fig. 4 pump seal",
-                            "caption": "Power Gear pump seal",
-                            "page": 4,
-                            "title": "Tip Sheet #216",
-                        }
-                    ],
-                }
-            ],
-        )
-        titles = " ".join(
-            [
-                *(fig.title for fig in proc.figures or []),
-                *(fig.title for group in proc.step_figures or [] for fig in group),
-            ]
-        ).lower()
-        self.assertNotIn("tip sheet", titles)
-        self.assertNotIn("power gear", titles)
-        self.assertEqual(bp.cited_figure_count(proc), 0)
-
-        proc.figures = [
-            bp.BayFigure(
-                title="Tip Sheet #216",
-                caption="Fig. 4 pump seal",
-                excerpt="Power Gear pump seal",
-                image_png=b"\x89PNG\r\n\x1a\nstale",
-            )
-        ]
-        bp._drop_off_brand_sheet_figures(proc, "Dometic B57915 AC will not blow cold")
-        self.assertEqual(proc.figures, [])
 
     def test_missing_revision_is_stale(self):
         ns = _loader_namespace()
@@ -173,16 +101,6 @@ class TestAppModuleReload(unittest.TestCase):
         self.assertIsNot(loaded, stale)
         self.assertEqual(loaded.MODULE_REVISION, "v4.19.65")
 
-    def test_matching_revision_is_not_replaced(self):
-        ns = _loader_namespace()
-        current = types.ModuleType("bay_procedure")
-        current.MODULE_REVISION = "v4.19.65"
-        marker = object()
-        current.marker = marker
-        sys.modules["bay_procedure"] = current
-        loaded = ns["_reload_app_module"]("bay_procedure", "v4.19.65")
-        self.assertIs(loaded, current)
-        self.assertIs(loaded.marker, marker)
 
     def test_required_revision_matches_the_app_header(self):
         src = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
@@ -195,46 +113,14 @@ class TestAppModuleReload(unittest.TestCase):
             self.assertIn(f'MODULE_REVISION = "{header}"' if name != "gd_library_coach" else "MODULE_REVISION = COACH_REVISION", text)
             self.assertIn(header, text)
 
-    def test_header_date_is_the_pacific_calendar_day(self):
-        """UTC 2026-10-10 05:30 is still 2026-10-09 in Pacific (PDT, UTC-7)."""
-        import bay_procedure as bp
-
-        utc = datetime(2026, 10, 10, 5, 30, tzinfo=timezone.utc)
-
-        class _Clock(datetime):
-            @classmethod
-            def now(cls, tz=None):
-                if tz is None:
-                    return utc.replace(tzinfo=None)
-                return utc.astimezone(tz)
-
-        original = bp.datetime
-        bp.datetime = _Clock
-        try:
-            self.assertEqual(bp.sheet_local_now().strftime("%Y-%m-%d"), "2026-10-09")
-            proc = bp.compile_bay_procedure(
-                concern="Suburban NT-20SEQT furnace fan comes on then shuts off, no heat",
-                brand="Suburban",
-                model="NT-20SEQT",
-                category="Furnaces",
-                chunks=[],
-            )
-            self.assertEqual(proc.created.strftime("%Y-%m-%d"), "2026-10-09")
-            self.assertIn("Date: 2026-10-09", bp.procedure_plain_text(proc))
-            pages = bp.compose_sheet(proc)
-            header = " ".join(item.text for item in pages[0].texts if item.role == "header")
-            self.assertIn("2026-10-09", header)
-            self.assertNotIn("2026-10-10", header)
-        finally:
-            bp.datetime = original
-
 
 if __name__ == "__main__":
     unittest.main()
 
 
 class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
-    """Live 2026-10-20 reboot: "cannot import name 'MAX_FIGURES_PER_SHEET' from 'bay_procedure'". Two session threads
+    """Live 2026-10-20 reboot: "cannot import name 'MAX_FIGURES_PER_SHEET' from 'bay_procedure'" (the Bay PDF module,
+    removed 2026-10-24; the check now imports the last name of the figure bank). Two session threads
     loaded the sibling modules at once; one bound the other's half-run module. Reproduced here before the lock (3/3
     rounds failed: MAX_FIGURES_PER_SHEET, manual_figures attrs, KeyError) and clean after it."""
 
@@ -262,7 +148,7 @@ class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
                     bar.wait()
                     ns["_reload_stale_app_modules"]("v4.19.65")
                     with ns["_app_module_lock"]():
-                        from bay_procedure import MAX_FIGURES_PER_SHEET  # noqa: F401
+                        from library_figure_backfill import complete_figure_rows  # noqa: F401
                 except BaseException as exc:  # noqa: BLE001
                     errs.append(f"{type(exc).__name__}: {exc}")
 

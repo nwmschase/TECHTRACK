@@ -21,7 +21,6 @@ class TestGdNavAndSend(unittest.TestCase):
         self.assertIn('key="tt_nav"', src)
         self.assertIn("with tab_ask:", src)
         self.assertIn('"💬 Guided Diagnostics"', src)
-        self.assertIn('"🧾 Bay procedure PDF"', src)
         self.assertNotIn("st.tabs(", src)
         self.assertIn("_enter_panel(tab_ask)", src)
         self.assertIn("_enter_panel(tab_dash)", src)

@@ -216,33 +216,6 @@ class TestRealLibrary(unittest.TestCase):
             self.assertTrue(all(x.text for x in self.f.fetch_part("blower", p)))   # the part search returns what it found, no adapter filter
 
 
-class TestBayPdfSources(unittest.TestCase):
-    def chunks(self):
-        return [{"document_id": 218, "file_path": F218, "title": "Level Up Advantage 807662 Manual Mode Flash Home — Shop Writeup",
-                 "brand": "Lippert", "page": 1,
-                 "excerpt": "Unplugged wired CAN only. Manual Mode stays and works after the CAN harness is unplugged at the controller."},
-                {"document_id": 139, "file_path": F139, "title": "Coleman AC Troubleshooting", "page": 2, "excerpt": "x" * 60},
-                {"document_id": 413, "file_path": F413, "title": "Valid TrueLine Leveling System", "brand": "Lippert", "page": 3,
-                 "excerpt": "y" * 60},
-                {"document_id": 4, "title": "Thetford Water Valve Kit 42109", "page": 1, "excerpt": "Pull the pedal."}]
-
-    def test_fixes_on_chunks(self):
-        import bay_procedure as bp
-        out = bp.apply_library_doc_fixes(self.chunks())
-        self.assertEqual([c["document_id"] for c in out], [218, 413, 4])   # the L139 duplicate is dropped
-        self.assertEqual(out[0]["title"], "Shop sheet: Level Up Advantage 807662 Manual Mode Flash Home")
-        self.assertEqual(out[1]["brand"], "Valid")
-        self.assertEqual(out[2]["title"], "Thetford Water Valve Kit 42109")   # a test doc with a reused id: untouched
-
-    def test_bay_citation_says_shop_sheet(self):
-        import bay_procedure as bp
-        proc = bp.compile_bay_procedure("Manual mode flashes and goes home", brand="Lippert", model="Level Up Advantage 807662",
-                                        category="Leveling", chunks=self.chunks()[:1])
-        self.assertTrue(proc.primary_cite.startswith("Shop sheet: "), proc.primary_cite)
-        self.assertNotIn("Lippert", proc.primary_cite)
-        self.assertTrue(all(s["title"].startswith("Shop sheet: ") for s in proc.sources))
-
-
 class TestPrompt(unittest.TestCase):
     def test_primer_describes_the_labels(self):
         self.assertIn("shop sheet", gd_prompt.SYSTEM)

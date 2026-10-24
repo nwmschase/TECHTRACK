@@ -193,25 +193,18 @@ except ImportError:
 # Sentinels that must exist on a cached gd_library_coach. Streamlit Cloud can
 # keep a pre-v4.13.7 coach that has cooktop/stab helpers but no category constants.
 _GDC_STALE_GUARD_ATTRS = (
-    "skip_unity_for_ac",
     "is_fcr_e2_fan_fault_context",
-    "skip_unity_for_water_heater",
     "is_cooktop_pan_on_flameout_context",
     "is_stabilizer_override_pin_context",
-    "is_fridge_ice_moisture_context",
-    "is_fcr_dial_off_compressor_run_context",
     "is_facr_rooftop_freeze_context",
     "is_firefly_can_path_context",
     "is_level_up_manual_can_conflict_context",
     "is_bal_soft_touch_tongue_only_context",
-    "rewrite_shop_channel_words",
     "SHOP_LANGUAGE_RULE",
     "is_coleman_2111_context",
     "asked_brands_for_lookup",
     "chunk_matches_asked_brand",
     "is_ground_control_context",
-    "is_dometic_b57915_nocoool_context",
-    "filter_chunks_for_unit",
     "DOMETIC_NOCOOL_CONFIRM_FAN",
     "COACH_REVISION",
     "AIR_CONDITIONING_CATEGORY",
@@ -230,14 +223,13 @@ _GDC_STALE_GUARD_ATTRS = (
 _GDC_REQUIRED_REVISION = "v4.19.65"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
-# they load. The coach is before the figure bank and the Bay PDF, which import it.
+# they load. The coach is before the figure bank, which imports it.
 _APP_MODULES = (
     "gd_llm",
     "gd_step_photo",
     "manual_figures",
     "gd_library_coach",
     "library_figure_backfill",
-    "bay_procedure",
 )
 
 
@@ -245,9 +237,8 @@ def _app_module_lock():
     """ONE process-wide lock for loading the sibling modules.
 
     Streamlit runs every session's script in its own thread. On a reboot two sessions ran this loader at once: one
-    thread had put a half-executed bay_procedure into sys.modules (MODULE_REVISION already set near the top), the other
-    took it as current and failed with "cannot import name 'MAX_FIGURES_PER_SHEET' from 'bay_procedure'" (live
-    2026-10-20). The script itself is re-executed per run, so the lock lives on a stable holder in sys.modules."""
+    thread had put a half-executed sibling module into sys.modules (MODULE_REVISION already set near the top), the
+    other took it as current and failed with an ImportError on a name defined further down (live 2026-10-20). The script itself is re-executed per run, so the lock lives on a stable holder in sys.modules."""
     import sys
     import threading
     import types
@@ -349,7 +340,7 @@ def _log_loaded_revision(name, mod, required_revision):
 
 
 def _reload_stale_app_modules(required_revision):
-    """Reload every Guided Diagnostics and Bay PDF module when its stamp is old.
+    """Reload every Guided Diagnostics and library module when its stamp is old.
 
     A module that imports an earlier one is loaded again when that dependency
     was replaced, so it cannot keep the previous function objects. Each module
@@ -433,47 +424,30 @@ is_facr_rooftop_freeze_context = _gdc.is_facr_rooftop_freeze_context
 is_firefly_can_path_context = _gdc.is_firefly_can_path_context
 is_dometic_only_rooftop_ac = _gdc.is_dometic_only_rooftop_ac
 cooktop_search_symptom = _gdc.cooktop_search_symptom
-error_code_query_terms = _gdc.error_code_query_terms
 coach_library_search_boost = _gdc.coach_library_search_boost
-rewrite_shop_channel_words = _gdc.rewrite_shop_channel_words
 SHOP_LANGUAGE_RULE = _gdc.SHOP_LANGUAGE_RULE
 is_coleman_2111_context = _gdc.is_coleman_2111_context
-coleman_facts_from_chat = _gdc.coleman_facts_from_chat
-coleman_motor_board_evidence_complete = _gdc.coleman_motor_board_evidence_complete
 coleman_search_symptom = _gdc.coleman_search_symptom
 COLEMAN_MOTOR_BOARD_LOCK = _gdc.COLEMAN_MOTOR_BOARD_LOCK
 COLEMAN_2111_SEARCH_BOOST = _gdc.COLEMAN_2111_SEARCH_BOOST
 is_bal_soft_touch_tongue_only_context = _gdc.is_bal_soft_touch_tongue_only_context
 bal_tongue_search_symptom = _gdc.bal_tongue_search_symptom
-rank_chunks_for_bal_tongue = _gdc.rank_chunks_for_bal_tongue
-score_bal_tongue_chunk = _gdc.score_bal_tongue_chunk
 BAL_TONGUE_PRODUCT_LOCK = _gdc.BAL_TONGUE_PRODUCT_LOCK
 BAL_TONGUE_SEARCH_BOOST = _gdc.BAL_TONGUE_SEARCH_BOOST
-facr_freeze_proves_from_text = _gdc.facr_freeze_proves_from_text
-facr_proves_from_chat = _gdc.facr_proves_from_chat
 facr_proves_complete = _gdc.facr_proves_complete
 FACR_FREEZE_ASSEMBLY_LOCK = _gdc.FACR_FREEZE_ASSEMBLY_LOCK
-lock_spark_free_part_g = _gdc.lock_spark_free_part_g
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
 drop_unity_chunks_for_water_heater = _gdc.drop_unity_chunks_for_water_heater
 fcr_e2_search_symptom = _gdc.fcr_e2_search_symptom
 figure_library_search_boost = _gdc.figure_library_search_boost
 figure_render_honesty_note = _gdc.figure_render_honesty_note
-format_ac_library_honesty = _gdc.format_ac_library_honesty
-format_level_up_library_honesty = _gdc.format_level_up_library_honesty
-format_water_heater_library_honesty = _gdc.format_water_heater_library_honesty
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
 is_air_conditioning_context = _gdc.is_air_conditioning_context
 is_cooktop_pan_on_flameout_context = _gdc.is_cooktop_pan_on_flameout_context
 is_cooktop_range_context = _gdc.is_cooktop_range_context
 is_fcr_e2_fan_fault_context = _gdc.is_fcr_e2_fan_fault_context
-is_fridge_ice_moisture_context = _gdc.is_fridge_ice_moisture_context
-is_fcr_dial_off_compressor_run_context = _gdc.is_fcr_dial_off_compressor_run_context
-is_fridge_no_power_complaint = _gdc.is_fridge_no_power_complaint
-ice_moisture_search_symptom = _gdc.ice_moisture_search_symptom
-dial_off_run_search_symptom = _gdc.dial_off_run_search_symptom
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
@@ -510,9 +484,7 @@ score_level_up_can_chunk = _gdc.score_level_up_can_chunk
 score_level_up_product = _gdc.score_level_up_product
 score_stabilizer_override_chunk = _gdc.score_stabilizer_override_chunk
 score_water_heater_product = _gdc.score_water_heater_product
-skip_unity_for_ac = _gdc.skip_unity_for_ac
 skip_unity_for_level_up = _gdc.skip_unity_for_level_up
-skip_unity_for_water_heater = _gdc.skip_unity_for_water_heater
 stabilizer_search_symptom = _gdc.stabilizer_search_symptom
 water_heater_search_symptom = _gdc.water_heater_search_symptom
 strip_path_complete_trap = _gdc.strip_path_complete_trap
@@ -524,20 +496,6 @@ wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
 wants_library_figures = _gdc.wants_library_figures
 wants_library_page_shown = _gdc.wants_library_page_shown
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
-
-with _app_module_lock():   # bind only a fully loaded bay_procedure (see _app_module_lock)
-    from bay_procedure import (
-        BAY_PROCEDURE_LABEL,
-        MAX_FIGURES_PER_SHEET,
-        apply_chunk_figures,
-        compile_bay_procedure,
-        crop_page_png_to_figure,
-        cited_figure_count,
-        paint_library_step_figures,
-        render_bay_procedure_pdf,
-        rewrite_bay_search_symptom,
-        suggested_pdf_filename,
-    )
 
 # ---------------- SHOP BRANDING ----------------
 HEADER_GREEN = "#038944"
@@ -1411,7 +1369,6 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-
 AUTH_COOKIE_NAME = "tt_auth"
 AUTH_COOKIE_HOURS = 10
 
@@ -2030,56 +1987,6 @@ def index_document_from_r2(doc: Document):
 FAULT_CODE_TOKEN_RE = re.compile(r"^[a-z]\d{1,3}$")
 
 
-def tokenize(text: str):
-    """Keep 3+ letter tokens and short fault codes (E8, E2) that library search already matches."""
-    tokens = re.findall(r"[a-z0-9]+", (text or "").lower())
-    return [t for t in tokens if len(t) > 2 or FAULT_CODE_TOKEN_RE.match(t)]
-
-
-def model_search_terms(model_text: str) -> set:
-    """Expand FCR10DCGTA-BL into fcr10dcgta, fcr10, fcr10dc, etc. Never emit bare 'fcr'."""
-    out = set()
-    raw = (model_text or "").strip().lower()
-    if not raw:
-        return out
-    for chunk in re.split(r"[\s_/]+", raw):
-        for piece in chunk.split("-"):
-            alnum = re.sub(r"[^a-z0-9]", "", piece)
-            if len(alnum) < 4:
-                continue
-            out.add(alnum)
-            m = re.match(r"([a-z]{2,}\d{2,})", alnum)
-            if not m:
-                continue
-            root = m.group(1)
-            out.add(root)
-            for n in range(len(root) + 1, len(alnum)):
-                out.add(alnum[:n])
-    return out
-
-
-def is_fridge_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
-    cat = (category_name or "").lower()
-    if "refriger" in cat:
-        return True
-    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
-    if any(w in blob for w in ("fridge", "reefer", "refrigerator", "fcr0", "fcr1")):
-        return True
-    if "norcold" in blob:
-        return True
-    if "furrion fcr" in blob or re.search(r"\bfcr\d", blob):
-        return True
-    if "arctic" in blob and any(
-        w in blob for w in ("fridge", "refrigerator", "reefer", "ice", "icing", "frost", "moisture")
-    ):
-        return True
-    if "dometic rm" in blob or re.search(r"\brm\d{3,}", blob):
-        return True
-    if "12v" in blob and any(w in blob for w in ("fridge", "refrigerator", "reefer")):
-        return True
-    return False
-
-
 PAGE_REF_RE = re.compile(r"page\s*0*(\d+)", re.I)
 
 PROCEDURE_TOPIC_TERMS = [
@@ -2095,163 +2002,6 @@ PROCEDURE_TOPIC_TERMS = [
 ]
 
 
-def is_diagnostic_index_text(text: str) -> bool:
-    t = (text or "").lower()
-    if not t or len(t) < 80:
-        return False
-    page_hits = len(PAGE_REF_RE.findall(t))
-    if "section & page" in t or "section and page" in t:
-        return True
-    if "symptom" in t and "cause" in t and page_hits >= 2:
-        return True
-    if page_hits >= 4 and any(
-        s in t for s in ("no operation", "insufficient cooling", "no gas", "no ac", "freezes")
-    ):
-        return True
-    return False
-
-
-def extract_page_refs(text: str):
-    return {int(m) for m in PAGE_REF_RE.findall(text or "")}
-
-
-def symptom_matched_pages_from_index(index_text: str, symptom: str):
-    """
-    From a diagnostic index chart, pick ONLY page numbers on rows that match the concern.
-    Does NOT dump every page on the chart.
-    """
-    t_sym = (symptom or "").lower()
-    terms = set(tokenize(symptom))
-    want_gas = any(w in t_sym for w in ("gas", "lp", "propane", "flame", "igniter", "burner"))
-    want_ac = any(w in t_sym for w in ("ac", "electric", "120", "element", "shore", "electric"))
-    want_cool = any(w in t_sym for w in ("cool", "cold", "warm", "temp", "not cooling", "won't cool", "wont cool"))
-    want_dead = any(w in t_sym for w in ("dead", "no power", "no operation", "won't turn", "wont turn", "blank"))
-    want_lights_off = any(w in t_sym for w in ("no light", "no panel", "dark", "blank display"))
-    want_lights_on = any(w in t_sym for w in ("display is on", "lights on", "panel on", "display on"))
-    want_freeze = any(w in t_sym for w in ("freeze", "freezing", "frozen", "too cold"))
-    both_modes = (
-        (want_gas and want_ac)
-        or ("gas" in t_sym and "electric" in t_sym)
-        or ("gas or electric" in t_sym)
-        or ("gas and electric" in t_sym)
-        or ("neither" in t_sym)
-        or ("all mode" in t_sym)
-    )
-
-    scored_lines = []
-    lines = re.split(r"[\n\r]+|(?=\d+\.\s)", index_text or "")
-    for line in lines:
-        ll = line.lower().strip()
-        if len(ll) < 8:
-            continue
-        line_pages = extract_page_refs(line)
-        if not line_pages:
-            continue
-        score = 0
-        # Primary symptom rows
-        if want_freeze and "freeze" in ll:
-            score += 10
-        if want_cool and "insufficient cooling" in ll:
-            if both_modes and "all mode" in ll:
-                score += 12
-            elif want_ac and not want_gas and ("on ac" in ll or "ac -" in ll or "ac mode" in ll):
-                score += 10
-            elif want_gas and not want_ac and ("on gas" in ll or "gas -" in ll or "gas mode" in ll):
-                score += 10
-            elif "all mode" in ll:
-                score += 9
-            else:
-                score += 6
-        if want_dead or want_lights_off:
-            if "no operation" in ll and "no panel" in ll:
-                score += 10
-            elif "no operation" in ll and "has panel" in ll:
-                score += 8 if want_lights_on else 6
-        if want_lights_on and "has panel" in ll:
-            score += 5
-        if want_ac and not both_modes and ("no ac" in ll or "operates on gas" in ll):
-            score += 8
-        if want_gas and not both_modes and ("no gas" in ll or "operates on ac" in ll):
-            score += 8
-        # Weak keyword overlap
-        score += min(2, sum(1 for term in terms if term in ll and term not in ("the", "and", "for")))
-        # Penalize clearly wrong rows
-        if want_cool and not want_freeze and "freeze" in ll and "insufficient" not in ll:
-            score -= 6
-        if want_lights_on and "no panel" in ll:
-            score -= 4
-        if score >= 6:
-            scored_lines.append((score, line_pages, ll[:80]))
-
-    scored_lines.sort(key=lambda x: x[0], reverse=True)
-    pages = set()
-    if scored_lines:
-        # Take top-scoring rows only (same band as best)
-        best = scored_lines[0][0]
-        for sc, lp, _ in scored_lines:
-            if sc >= best - 2:
-                pages |= lp
-    else:
-        # Narrow fallback: only insufficient-cooling / no-operation rows, never whole chart
-        for line in lines:
-            ll = line.lower()
-            if "insufficient cooling" in ll or "no operation" in ll or "no gas" in ll or "no ac" in ll:
-                pages |= extract_page_refs(line)
-    # Always include a couple of early procedure pages often needed first
-    if pages:
-        pages.update({6, 7, 9, 10})  # operation / voltage common early pages in Americana-style books
-        # but drop junk if we only wanted freeze etc. - keep simple
-    return pages
-
-
-def _chunk_meta_text(ch) -> str:
-    """Brand, models, and document numbers copied onto a chunk for scoring.
-
-    Empty lookup fields add nothing, so a document from before these columns
-    scores the same title and keywords it always did.
-    """
-    parts = []
-    for name in ("clean_title", "brand", "product_line", "models", "doc_number", "revision_date"):
-        if isinstance(ch, dict):
-            value = ch.get(f"_lookup_{name}") or ch.get(name) or ""
-        else:
-            value = getattr(ch, f"_lookup_{name}", None)
-            if value is None or value == "":
-                value = getattr(ch, name, "") or ""
-        text = "" if value is None else str(value).strip()
-        if text:
-            parts.append(text)
-    return " ".join(parts)
-
-
-def score_chunk(ch, query_terms, model_text: str, procedure_boost: bool = True) -> int:
-    meta = _chunk_meta_text(ch)
-    base = f"{ch.title or ''} {ch.keywords or ''}"
-    if meta:
-        base = f"{base} {meta}"
-    hay = f"{base} {ch.chunk_text or ''}".lower()
-    if not query_terms:
-        return 1
-    score = 0
-    title_kw = base.lower()
-    for term in query_terms:
-        if term in hay:
-            score += 4 if term in title_kw else 1
-            score += min(hay.count(term), 3)
-    if model_text.strip() and model_text.strip().lower() in hay:
-        score += 8
-    if procedure_boost:
-        proc_signals = (
-            "check ", "measure", "volt", "ohm", "if ", "disconnect", "replace",
-            "inspect", "amp", "continuity", "resistance", "should be", "spec",
-            "heating element", "thermistor", "cooling unit", "ventilation", "burner"
-        )
-        score += sum(1 for s in proc_signals if s in hay)
-        if is_diagnostic_index_text(ch.chunk_text or ""):
-            score -= 3
-    return score
-
-
 SHOP_BRANDS = tuple(_gdc.SHOP_BRAND_TOKENS)
 
 
@@ -2261,585 +2011,6 @@ def named_brands(*texts: str) -> list:
 
 def chunk_brands(ch) -> list:
     return named_brands(ch.title or "", ch.keywords or "")
-
-
-def search_manual_chunks(
-    category_id,
-    model_text: str,
-    symptom: str,
-    limit: int = 14,
-    unity_context: bool = False,
-    figure_seek: bool = False,
-    level_up_context: bool = False,
-    ac_context: bool = False,
-    fan_fault_context: bool = False,
-    water_heater_context: bool = False,
-    cooktop_context: bool = False,
-    stabilizer_context: bool = False,
-    ice_moisture_context: bool = False,
-    dial_off_run_context: bool = False,
-    bal_tongue_context: bool = False,
-):
-    """Keyword search + expand matching INDEX chart rows into real SECTION pages.
-
-    figure_seek is GD-chat only (Jobs leave it False): prefer Fig./PCB/terminal
-    pages and do not let procedure-voltage scoring crown Quick Notes.
-    level_up_context is GD-chat only (Jobs leave it False): search Leveling /
-    Level-Up titles first and do not let Unity Electrical SM win 807662 jobs.
-    ac_context: rooftop Air Conditioning — prefer FACT/FACR/Brisk/ADB and do not let
-    Unity Electrical SM win unless the tech named OneControl/Unity/CAN.
-    FACR freeze/condensate/base-pan prefers CCD-0007990 + CCD-0008666 over Dometic-only.
-    fan_fault_context is GD-chat only (Jobs leave it False): Furrion FCR E2 /
-    Fan Fault Current — prefer Fan Fault Diagnostics + Fan Replacement.
-    water_heater_context: Girard GSWH-2 / Water Heaters — include that category
-    even when the UI left category as (any), and do not let Unity Electrical SM
-    win E8 / Petit Tube / air-pressure-switch jobs.
-    cooktop_context: Suburban Range/Cooktops pan-on flame-out — prefer that SM
-    over furnace sail-switch / igniter-first pages.
-    stabilizer_context: Lippert PSX1 / front stabilizer override pin — prefer
-    complete jack assembly over coupler-only / override-usage-only pages.
-    ice_moisture_context: fridge rear/back-wall ice/frost/moisture — prefer
-    CCD-0008122 Ice and Moisture p.36 / Fig.36 over fuse / 12V no-power pages.
-    dial_off_run_context: FCR08/FCR10 dial OFF + compressor still running /
-    overcooling — prefer thermostat C/T p.31 and R&R p.43–45 over fuse / 12V / LED.
-    bal_tongue_context: BAL Soft-Touch SS 5.1 tongue jack only dead — prefer
-    INS.STA.001 / soft-touch user panel 20300427 over coupler, 30A, or remote harness.
-    """
-    gc_job = _gdc.is_ground_control_context("", model_text or "", symptom or "")
-    q = session.query(DocChunk)
-    if category_id:
-        cat_ids = [category_id]
-        tsb = session.query(Category).filter(Category.name == "TSB / Recall").first()
-        if tsb and tsb.id not in cat_ids:
-            cat_ids.append(tsb.id)
-        if level_up_context or gc_job:
-            for extra_name in ("Leveling", "ID & Reference"):
-                extra = session.query(Category).filter(Category.name == extra_name).first()
-                if extra and extra.id not in cat_ids:
-                    cat_ids.append(extra.id)
-        if ac_context:
-            extra = session.query(Category).filter(Category.name == AIR_CONDITIONING_CATEGORY).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if water_heater_context:
-            extra = session.query(Category).filter(Category.name == WATER_HEATERS_CATEGORY).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cooktop_context:
-            for extra_name in (RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference"):
-                extra = session.query(Category).filter(Category.name == extra_name).first()
-                if extra and extra.id not in cat_ids:
-                    cat_ids.append(extra.id)
-        if stabilizer_context:
-            for extra_name in ("Leveling", "ID & Reference"):
-                extra = session.query(Category).filter(Category.name == extra_name).first()
-                if extra and extra.id not in cat_ids:
-                    cat_ids.append(extra.id)
-        if unity_context and not level_up_context and not ac_context and not water_heater_context:
-            for extra_name in ("Electrical", "Reference", "ID & Reference"):
-                extra = session.query(Category).filter(Category.name == extra_name).first()
-                if extra and extra.id not in cat_ids:
-                    cat_ids.append(extra.id)
-        q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif level_up_context or gc_job:
-        cat_ids = []
-        for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif ac_context:
-        cat_ids = []
-        for extra_name in (AIR_CONDITIONING_CATEGORY, "TSB / Recall"):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif water_heater_context:
-        cat_ids = []
-        for extra_name in (WATER_HEATERS_CATEGORY, "TSB / Recall"):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif cooktop_context:
-        cat_ids = []
-        for extra_name in (
-            RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference", "TSB / Recall"
-        ):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif stabilizer_context or bal_tongue_context:
-        cat_ids = []
-        for extra_name in ("Leveling", "ID & Reference", "TSB / Recall"):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    elif unity_context:
-        cat_ids = []
-        for extra_name in ("Electrical", "Reference", "ID & Reference"):
-            extra = session.query(Category).filter(Category.name == extra_name).first()
-            if extra and extra.id not in cat_ids:
-                cat_ids.append(extra.id)
-        if cat_ids:
-            q = q.filter(DocChunk.category_id.in_(cat_ids))
-    all_chunks = q.all()
-    path_by_doc = {}
-    loaded_docs = {}
-
-    def _attach(chunks):
-        need = []
-        for ch in chunks:
-            doc_id = getattr(ch, "document_id", None)
-            if doc_id is not None and doc_id not in loaded_docs:
-                need.append(doc_id)
-        if need:
-            for doc in session.query(Document).filter(Document.id.in_(need)).all():
-                loaded_docs[doc.id] = doc
-            for doc_id in need:
-                loaded_docs.setdefault(doc_id, None)
-        for ch in chunks:
-            doc = loaded_docs.get(getattr(ch, "document_id", None))
-            if doc is None:
-                continue
-            path_by_doc[doc.id] = doc.file_path or ""
-            if not getattr(ch, "_lookup_file_path", ""):
-                ch._lookup_file_path = doc.file_path or ""
-            ch._lookup_brand = doc.brand or ""
-            ch._lookup_models = doc.models or ""
-            ch._lookup_clean_title = doc.clean_title or ""
-            ch._lookup_product_line = doc.product_line or ""
-            ch._lookup_doc_number = doc.doc_number or ""
-            ch._lookup_revision_date = doc.revision_date or ""
-            ch._lookup_doc_keywords = doc.keywords or ""
-
-    _attach(all_chunks)
-    # Brand comes from the unit the tech named, not from an AC search boost that
-    # says "Furrion" on a Coleman job. Coleman also keeps 1976 / Peacemaker titles.
-    asked_canon = _gdc.asked_brands_for_lookup("", model_text or "", symptom or "")
-    coleman_brand_job = _gdc.is_coleman_2111_context(
-        "", model_text or "", _gdc.symptom_for_brand_detect(symptom or "")
-    )
-
-    def _brand_keep(ch) -> bool:
-        models = getattr(ch, "_lookup_models", "") or ""
-        if not _gdc.model_list_allows(models, model_text or ""):
-            return False
-        if not asked_canon:
-            return True
-        return _gdc.chunk_matches_asked_brand(
-            ch.title or "",
-            getattr(ch, "keywords", "") or "",
-            ch.chunk_text or "",
-            asked_canon,
-            coleman_job=coleman_brand_job,
-            file_path=path_by_doc.get(getattr(ch, "document_id", None), "")
-            or getattr(ch, "_lookup_file_path", ""),
-            brand=getattr(ch, "_lookup_brand", "") or "",
-            models=models,
-            clean_title=getattr(ch, "_lookup_clean_title", "") or "",
-            product_line=getattr(ch, "_lookup_product_line", "") or "",
-            doc_number=getattr(ch, "_lookup_doc_number", "") or "",
-        )
-
-    fridge_job = is_fridge_context("", model_text or "", symptom or "")
-    branded = []
-    if asked_canon:
-        branded = [ch for ch in all_chunks if _brand_keep(ch)]
-        if branded:
-            all_chunks = branded
-        else:
-            if water_heater_context:
-                extra_names = [WATER_HEATERS_CATEGORY]
-            elif ac_context:
-                extra_names = [AIR_CONDITIONING_CATEGORY]
-            elif cooktop_context:
-                extra_names = [RANGE_COOKTOPS_CATEGORY, "Ranges", "Cooktops", "Furnaces", "ID & Reference"]
-            elif stabilizer_context or bal_tongue_context:
-                extra_names = ["Leveling", "ID & Reference"]
-            elif fridge_job or category_id:
-                extra_names = [REFRIGERATORS_CATEGORY, "Electrical"]
-            else:
-                extra_names = []
-            have_ids = set()
-            if category_id:
-                have_ids.add(category_id)
-            for extra_name in extra_names:
-                extra = session.query(Category).filter(Category.name == extra_name).first()
-                if extra:
-                    have_ids.add(extra.id)
-            if have_ids:
-                more = session.query(DocChunk).filter(DocChunk.category_id.in_(list(have_ids))).all()
-                seen = {(c.document_id, c.page, (c.chunk_text or "")[:40]) for c in all_chunks}
-                for ch in more:
-                    key = (ch.document_id, ch.page, (ch.chunk_text or "")[:40])
-                    if key not in seen:
-                        all_chunks.append(ch)
-                        seen.add(key)
-            _attach(all_chunks)
-            branded = [ch for ch in all_chunks if _brand_keep(ch)]
-            if branded:
-                all_chunks = branded
-            else:
-                # A named brand with no hit does not keep another brand's pages.
-                all_chunks = []
-    else:
-        all_chunks = [ch for ch in all_chunks if _brand_keep(ch)]
-        # Unrecognised brand on a typed unit: another maker's manual is not a
-        # source for it. Better a library miss than a wrong-brand cite.
-        all_chunks = [
-            ch for ch in all_chunks
-            if _gdc.unnamed_unit_page_allowed(
-                model_text or "",
-                " ".join(
-                    part for part in (
-                        ch.title or "",
-                        getattr(ch, "keywords", "") or "",
-                        _gdc.library_filename_words(getattr(ch, "_lookup_file_path", "") or ""),
-                        getattr(ch, "_lookup_brand", "") or "",
-                        getattr(ch, "_lookup_models", "") or "",
-                        getattr(ch, "_lookup_clean_title", "") or "",
-                        getattr(ch, "_lookup_product_line", "") or "",
-                        getattr(ch, "_lookup_doc_number", "") or "",
-                    ) if part
-                ),
-            )
-        ]
-    all_chunks = _gdc.filter_chunks_for_unit(all_chunks, "", model_text or "", symptom or "")
-    if not all_chunks:
-        return []
-
-    query_terms = set(tokenize(f"{model_text} {symptom}"))
-    query_terms |= model_search_terms(model_text or "")
-    query_terms |= error_code_query_terms(f"{model_text} {symptom}")
-    if figure_seek:
-        query_terms |= set(FIGURE_QUERY_TERMS)
-        query_terms.add("f+")
-        query_terms.add("fig.")
-    # Light topic boost from symptom only (do NOT dump every OEM topic every time)
-    for topic in PROCEDURE_TOPIC_TERMS:
-        if any(tok in (symptom or "").lower() for tok in tokenize(topic)):
-            query_terms |= set(tokenize(topic))
-    # Core path terms for reefer no-cool (skip on figure_seek — "voltage" crowns Quick Notes)
-    # Fan-fault E2 must not inherit fuse/no-power + generic "board" terms that crown
-    # driver-board R&R over Fan Replacement.
-    # Rear-wall ice/frost and dial-OFF-still-running must not inherit fuse / 12V
-    # terms that crown p.19 / p.20.
-    if (
-        not figure_seek
-        and not fan_fault_context
-        and not ice_moisture_context
-        and not dial_off_run_context
-        and not bal_tongue_context
-    ):
-        if any(k in (symptom or "").lower() for k in ("cool", "gas", "electric", "ac", "refriger", "fridge", "reefer")):
-            for t in ("heating", "element", "thermistor", "cooling", "unit", "ventilation",
-                      "burner", "orifice", "solenoid", "igniter", "board", "fuse", "voltage"):
-                query_terms.add(t)
-        if fridge_job or any(k in (symptom or "").lower() for k in ("fridge", "reefer", "no power")):
-            for t in ("fuse", "voltage", "front", "vent", "display", "refrigerator", "fridge"):
-                query_terms.add(t)
-    if ice_moisture_context and not figure_seek:
-        for t in (
-            "ice", "moisture", "frost", "icing", "gasket", "wall",
-            "rear", "back", "fridge", "refrigerator", "fig.",
-        ):
-            query_terms.add(t)
-    if dial_off_run_context and not figure_seek:
-        for t in (
-            "thermostat", "spark", "probe", "terminal", "replacement",
-            "controller", "2021128850", "flag",
-        ):
-            query_terms.add(t)
-    if bal_tongue_context and not figure_seek:
-        for t in (
-            "20300427", "ins.sta.001", "soft-touch", "tongue", "pigtail",
-            "panel", "ss", "bal",
-        ):
-            query_terms.add(t)
-    if fan_fault_context and not figure_seek:
-        for t in (
-            "fan", "fault", "f+", "f-", "replacement", "inverter",
-            "evaporator", "airflow", "diagnostics", "current",
-        ):
-            query_terms.add(t)
-    if cooktop_context and not figure_seek:
-        for t in (
-            "thermocouple", "tip", "position", "cookware", "pan",
-            "flame", "sensor", "cooktop", "range",
-        ):
-            query_terms.add(t)
-    level_up_can_job = is_level_up_manual_can_conflict_context(
-        "", model_text or "", symptom or ""
-    )
-    if (level_up_context or level_up_can_job) and level_up_can_job and not figure_seek:
-        for t in (
-            "firefly", "terminator", "isolate", "wired", "manual",
-            "can", "brinkley", "firmware",
-        ):
-            query_terms.add(t)
-    if stabilizer_context and not figure_seek:
-        for t in (
-            "stabilizer", "jack", "psx1", "override", "roll",
-            "pin", "assembly", "complete",
-        ):
-            query_terms.add(t)
-    facr_freeze_job = is_facr_rooftop_freeze_context("", model_text or "", symptom or "")
-    coleman_2111_job = is_coleman_2111_context("", model_text or "", symptom or "")
-    if _gdc.is_ground_control_context("", model_text or "", symptom or "") and not figure_seek:
-        for t in (
-            "ground", "control", "leveling", "manual", "zero",
-            "calibration", "343633",
-        ):
-            query_terms.add(t)
-    if _gdc.is_dometic_b57915_nocoool_context("", model_text or "", symptom or "") and not figure_seek:
-        for t in (
-            "3311071", "compressor", "diagnostic", "thermostat", "selector", "cool",
-        ):
-            query_terms.add(t)
-    if coleman_2111_job and not figure_seek:
-        for t in (
-            "2111", "coleman", "peacemaker", "1976-536", "1976-603",
-            "1976-695", "fan", "capacitor", "9-pin",
-        ):
-            query_terms.add(t)
-    if ac_context and facr_freeze_job and not figure_seek:
-        for t in (
-            "facr", "7990", "8666", "ccd0007990", "ccd0008666",
-            "freeze", "ice", "frost", "condensate", "pan",
-            "icing", "hvac", "chill",
-        ):
-            query_terms.add(t)
-    # Core path terms for RV furnace - sail switch is first-line, even if the tech
-    # only typed "won't light" / "fan runs" / Dometic furnace.
-    furnace_blob = f"{model_text or ''} {symptom or ''}".lower()
-    if (
-        not cooktop_context
-        and any(
-            k in furnace_blob
-            for k in ("furnace", "sail", "blower", "won't light", "wont light", "no heat", "no ignition")
-        )
-    ):
-        for t in ("sail", "switch", "limit", "thermostat", "bypass", "blower",
-                  "airflow", "voltage", "igniter", "electrode", "valve", "propane"):
-            query_terms.add(t)
-
-    scored = []
-    for ch in all_chunks:
-        sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
-        sc += _gdc.unit_page_score(ch, model_text or "", symptom or "")
-        if figure_seek:
-            sc += score_figure_page(ch, symptom or "")
-        if level_up_can_job:
-            sc += score_level_up_can_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        elif level_up_context:
-            sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
-        if ac_context:
-            sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
-        if fan_fault_context:
-            sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if water_heater_context:
-            sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
-        if cooktop_context:
-            sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if stabilizer_context and not bal_tongue_context:
-            sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if bal_tongue_context:
-            sc += score_bal_tongue_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if ice_moisture_context:
-            sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if dial_off_run_context:
-            sc += score_dial_off_run_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        meta = _chunk_meta_text(ch)
-        title_kw = f"{ch.title or ''} {ch.keywords or ''}".lower()
-        if meta:
-            title_kw = f"{title_kw} {meta.lower()}"
-        hay = f"{title_kw} {(ch.chunk_text or '').lower()}"
-        if asked_canon and _brand_keep(ch):
-            sc += 6
-        if coleman_2111_job:
-            if _gdc.is_coleman_library_text(title_kw) or _gdc.is_coleman_library_text(hay):
-                sc += 18
-            if "furrion" in title_kw or ("dometic" in title_kw and "coleman" not in title_kw):
-                sc -= 28
-        for term in model_search_terms(model_text or ""):
-            if term in title_kw:
-                sc += 8
-            elif term in hay:
-                sc += 3
-        if fridge_job:
-            if any(x in title_kw for x in ("refriger", "fridge", "fcr", "norcold", "12v refrigerator")):
-                sc += 5
-            if any(x in title_kw for x in ("furnace", "rooftop", "chill cube", "air condition")) and "refriger" not in title_kw:
-                sc -= 8
-        if ac_context:
-            if any(
-                x in title_kw
-                for x in (
-                    "air condition", "rooftop", "fact", "facr", "chill",
-                    "hvac", "ccd-0007990", "ccd-0008666", "brisk", "b57915", "adb",
-                )
-            ):
-                sc += 5
-            if facr_freeze_job and is_facr_freeze_library_title(title_kw):
-                sc += 10
-            if facr_freeze_job and is_dometic_only_rooftop_ac(title_kw):
-                sc -= 16
-            if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
-                sc -= 20
-        if water_heater_context:
-            if any(x in title_kw for x in ("water heat", "girard", "gswh", "ccd-0009390")):
-                sc += 5
-            if is_unity_board_manual(title_kw) or is_unity_board_manual(hay):
-                sc -= 20
-        if cooktop_context:
-            if any(x in title_kw for x in ("range", "cooktop", "suburban")):
-                sc += 5
-            if "furnace" in title_kw and "cooktop" not in title_kw and "range" not in title_kw:
-                sc -= 8
-        if stabilizer_context and not bal_tongue_context:
-            if any(x in title_kw for x in ("psx1", "ccd-0007345", "stabilizer")):
-                sc += 5
-            if any(x in title_kw for x in ("level-up", "level up", "octp", "807662")):
-                sc -= 8
-        if bal_tongue_context:
-            if any(x in hay for x in ("20300427", "ins.sta.001", "soft-touch", "soft touch")):
-                sc += 8
-            if any(x in hay for x in ("21700072", "30a", "30 a", "remote stab")) and "20300427" not in hay:
-                sc -= 8
-        if ice_moisture_context:
-            if any(x in title_kw for x in ("refriger", "fridge", "fcr", "ccd-0008122")):
-                sc += 5
-            if any(x in hay for x in ("ice and moisture", "ice or moisture", "fig. 36", "figure 36")):
-                sc += 8
-            if any(x in hay for x in ("fuse location", "front vent", "15a")) and "moisture" not in hay:
-                sc -= 8
-        if dial_off_run_context:
-            if any(x in title_kw for x in ("refriger", "fridge", "fcr", "ccd-0008122")):
-                sc += 5
-            if any(x in hay for x in ("thermostat replacement", "spark-free", "2021128850")):
-                sc += 8
-            if any(x in hay for x in ("fuse location", "front vent", "15a", "diagnostic led")) and "thermostat" not in hay:
-                sc -= 10
-        if sc > 0:
-            scored.append((sc, ch))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    if not scored:
-        return all_chunks[:limit]
-
-    seed = [c for _, c in scored[: max(limit, 8)]]
-    by_key = {}
-
-    def add_chunk(ch):
-        key = (ch.document_id, ch.page, (ch.chunk_text or "")[:60])
-        if key not in by_key:
-            by_key[key] = ch
-
-    for ch in seed:
-        add_chunk(ch)
-
-    target_doc_ids = set()
-    target_pages = set()
-    for ch in seed[:5]:
-        target_doc_ids.add(ch.document_id)
-        if is_diagnostic_index_text(ch.chunk_text or ""):
-            target_pages |= symptom_matched_pages_from_index(ch.chunk_text or "", symptom)
-            if ch.page:
-                target_pages.add(int(ch.page))
-
-    # Neighbors of top non-index hits only
-    for ch in seed[:3]:
-        if ch.page and not is_diagnostic_index_text(ch.chunk_text or ""):
-            p = int(ch.page)
-            target_pages.update({max(1, p - 1), p, p + 1})
-            target_doc_ids.add(ch.document_id)
-
-    if target_doc_ids and target_pages:
-        for ch in all_chunks:
-            if ch.document_id not in target_doc_ids:
-                continue
-            if ch.page and int(ch.page) in target_pages:
-                add_chunk(ch)
-
-    # Prefer same-title manuals as top seed (e.g. Americana)
-    top_titles = {((seed[0].title or "").lower())} if seed else set()
-    for ch in seed[:3]:
-        if ch.title:
-            top_titles.add(ch.title.lower())
-
-    merged = list(by_key.values())
-    rescored = []
-    for ch in merged:
-        sc = score_chunk(ch, query_terms, model_text or "", procedure_boost=not figure_seek)
-        sc += _gdc.unit_page_score(ch, model_text or "", symptom or "")
-        if figure_seek:
-            sc += score_figure_page(ch, symptom or "")
-        if level_up_can_job:
-            sc += score_level_up_can_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        elif level_up_context:
-            sc += score_level_up_product(ch, f"{model_text or ''} {symptom or ''}")
-        if ac_context:
-            sc += score_ac_product(ch, f"{model_text or ''} {symptom or ''}")
-        if fan_fault_context:
-            sc += score_fcr_fan_fault_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if water_heater_context:
-            sc += score_water_heater_product(ch, f"{model_text or ''} {symptom or ''}")
-        if cooktop_context:
-            sc += score_cooktop_pan_on_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if stabilizer_context and not bal_tongue_context:
-            sc += score_stabilizer_override_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if bal_tongue_context:
-            sc += score_bal_tongue_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if ice_moisture_context:
-            sc += score_ice_moisture_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if dial_off_run_context:
-            sc += score_dial_off_run_chunk(ch, f"{model_text or ''} {symptom or ''}")
-        if (ch.title or "").lower() in top_titles:
-            sc += 3
-        rescored.append((sc, ch))
-    rescored.sort(
-        key=lambda x: (x[0], 0 if not is_diagnostic_index_text(x[1].chunk_text or "") else -1),
-        reverse=True,
-    )
-    out = []
-    index_kept = False
-    for sc, ch in rescored:
-        if is_diagnostic_index_text(ch.chunk_text or ""):
-            if index_kept:
-                continue
-            index_kept = True
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    if ac_context and not unity_context:
-        out = drop_unity_chunks_for_ac(out)
-        out = rank_chunks_for_ac(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if water_heater_context and not unity_context:
-        out = drop_unity_chunks_for_water_heater(out)
-        out = rank_chunks_for_water_heater(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if fan_fault_context:
-        out = rank_chunks_for_fcr_fan_fault(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if cooktop_context:
-        out = rank_chunks_for_cooktop_pan_on(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if bal_tongue_context:
-        out = rank_chunks_for_bal_tongue(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    elif stabilizer_context:
-        out = rank_chunks_for_stabilizer_override(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if ice_moisture_context:
-        out = rank_chunks_for_ice_moisture(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if dial_off_run_context:
-        out = rank_chunks_for_dial_off_run(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    if level_up_can_job:
-        out = rank_chunks_for_level_up_can(out, f"{model_text or ''} {symptom or ''}", limit=limit)
-    return out
 
 
 def build_sources_payload(chunks) -> tuple:
@@ -3094,35 +2265,6 @@ def record_cited_pages(assistant_text: str):
     return cited
 
 
-def _furrion_fcr_library_context(model_text: str, chunks) -> bool:
-    blob = (model_text or "") + " " + " ".join(
-        (getattr(ch, "title", "") or "") for ch in (chunks or [])
-    )
-    if is_furrion_ccd_0008122(blob):
-        return True
-    t = blob.lower()
-    return "furrion" in t and any(k in t for k in ("fcr08", "fcr10", "ccd-0008122", "ccd0008122"))
-
-
-def list_library_catalog_docs() -> list:
-    """Document catalog rows (title / indexed / category) for coach honesty. Not Jobs."""
-    try:
-        cats = {c.id: c.name for c in session.query(Category).all()}
-        rows = []
-        for d in session.query(Document).order_by(Document.title).all():
-            rows.append({
-                "id": d.id,
-                "title": d.title or "",
-                "indexed": bool(d.indexed),
-                "category": cats.get(d.category_id, ""),
-                "file_path": d.file_path or "",
-                "chunk_count": None,
-            })
-        return rows
-    except Exception:
-        return []
-
-
 def resolve_level_up_document_seed():
     """First catalog Level-Up / OCTP / TI PDF. Never a Unity board SM."""
     for hint in LEVEL_UP_ADVANTAGE_HINT_TITLES:
@@ -3221,210 +2363,6 @@ def resolve_water_heater_document_seed():
         if best is None:
             best = row
     return best
-
-
-def supplement_level_up_figure_pages(chunks, model_text: str, user_msg: str):
-    """Pull figure/wiring chunks from Level-Up / OCTP / TI titles when the tech asks."""
-    chunks = list(chunks or [])
-    if not wants_library_page_shown(user_msg):
-        return chunks
-    if not is_level_up_advantage_context("", model_text, user_msg):
-        return chunks
-    have = {
-        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
-        for ch in chunks
-    }
-    try:
-        doc_ids = [
-            d.id for d in session.query(Document).all()
-            if is_level_up_library_title(d.title or "")
-        ]
-        extra = (
-            session.query(DocChunk).filter(DocChunk.document_id.in_(doc_ids)).all()
-            if doc_ids else []
-        )
-    except Exception:
-        extra = []
-    extra = rank_chunks_for_figure_ask(extra, user_msg, limit=6) if extra else extra
-    for ch in extra:
-        key = (ch.document_id, int(ch.page or 0))
-        if key not in have:
-            chunks.append(ch)
-            have.add(key)
-    return chunks
-
-
-def supplement_fcr_fan_fault_pages(chunks, model_text: str, user_msg: str):
-    """Pull known CCD-0008122 Fan Fault Diagnostics / Fan Replacement pages into GD excerpts."""
-    chunks = list(chunks or [])
-    if not is_fcr_e2_fan_fault_context("", model_text, user_msg):
-        return chunks
-    doc_id = None
-    for ch in chunks:
-        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
-            doc_id = getattr(ch, "document_id", None)
-            if doc_id:
-                break
-    if not doc_id:
-        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
-        if seed:
-            doc_id = seed.get("document_id")
-    if not doc_id:
-        return chunks
-    have = {
-        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
-        for ch in chunks
-    }
-    try:
-        extra = (
-            session.query(DocChunk)
-            .filter(
-                DocChunk.document_id == int(doc_id),
-                DocChunk.page.in_(list(FURRION_FCR_FAN_FAULT_PAGES)),
-            )
-            .all()
-        )
-    except Exception:
-        extra = []
-    for ch in extra:
-        key = (ch.document_id, int(ch.page or 0))
-        if key not in have:
-            chunks.append(ch)
-            have.add(key)
-    return chunks
-
-
-def supplement_concern_pages(chunks, model_text: str, user_msg: str, limit: int = 5):
-    """Re-order this turn's chunks with the ONE generic page ranker (model/part numbers on the page, complaint words,
-    troubleshooting tables; other brands last). Replaces the MaxxFan doc/page-keyed supplement (F4)."""
-    chunks = list(chunks or [])
-    if not chunks:
-        return chunks
-    import bay_procedure as _bp
-
-    return _bp.rank_pages_for_concern(chunks, model_text, user_msg, limit=max(limit, 6))
-
-
-def supplement_ice_moisture_pages(chunks, model_text: str, user_msg: str):
-    """Pull known CCD-0008122 Ice and Moisture p.36 into GD excerpts."""
-    chunks = list(chunks or [])
-    if not is_fridge_ice_moisture_context("", model_text, user_msg):
-        return chunks
-    doc_id = None
-    for ch in chunks:
-        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
-            doc_id = getattr(ch, "document_id", None)
-            if doc_id:
-                break
-    if not doc_id:
-        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
-        if seed:
-            doc_id = seed.get("document_id")
-    if not doc_id:
-        return chunks
-    have = {
-        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
-        for ch in chunks
-    }
-    try:
-        extra = (
-            session.query(DocChunk)
-            .filter(
-                DocChunk.document_id == int(doc_id),
-                DocChunk.page.in_(list(FURRION_FCR_ICE_MOISTURE_PAGES)),
-            )
-            .all()
-        )
-    except Exception:
-        extra = []
-    for ch in extra:
-        key = (ch.document_id, int(ch.page or 0))
-        if key not in have:
-            chunks.append(ch)
-            have.add(key)
-    return chunks
-
-
-def supplement_dial_off_run_pages(chunks, model_text: str, user_msg: str):
-    """Pull CCD-0008122 thermostat p.31 and Thermostat Replacement p.43–45 into GD excerpts."""
-    chunks = list(chunks or [])
-    if not is_fcr_dial_off_compressor_run_context("", model_text, user_msg):
-        return chunks
-    doc_id = None
-    for ch in chunks:
-        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
-            doc_id = getattr(ch, "document_id", None)
-            if doc_id:
-                break
-    if not doc_id:
-        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
-        if seed:
-            doc_id = seed.get("document_id")
-    if not doc_id:
-        return chunks
-    have = {
-        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
-        for ch in chunks
-    }
-    try:
-        extra = (
-            session.query(DocChunk)
-            .filter(
-                DocChunk.document_id == int(doc_id),
-                DocChunk.page.in_(list(FURRION_FCR_DIAL_OFF_RUN_PAGES)),
-            )
-            .all()
-        )
-    except Exception:
-        extra = []
-    for ch in extra:
-        key = (ch.document_id, int(ch.page or 0))
-        if key not in have:
-            chunks.append(ch)
-            have.add(key)
-    return chunks
-
-
-def supplement_board_figure_pages(chunks, model_text: str, user_msg: str):
-    """Pull known CCD-0008122 board/terminal figure pages into the GD excerpt set."""
-    chunks = list(chunks or [])
-    if not wants_board_or_terminal_figure(user_msg):
-        return chunks
-    if not _furrion_fcr_library_context(model_text, chunks):
-        return chunks
-    doc_id = None
-    for ch in chunks:
-        if is_furrion_ccd_0008122(getattr(ch, "title", "") or ""):
-            doc_id = getattr(ch, "document_id", None)
-            if doc_id:
-                break
-    if not doc_id:
-        seed = resolve_document_by_title(FURRION_FCR_SM_TITLE)
-        if seed:
-            doc_id = seed.get("document_id")
-    if not doc_id:
-        return chunks
-    have = {
-        (getattr(ch, "document_id", None), int(getattr(ch, "page", 0) or 0))
-        for ch in chunks
-    }
-    try:
-        extra = (
-            session.query(DocChunk)
-            .filter(
-                DocChunk.document_id == int(doc_id),
-                DocChunk.page.in_(list(FURRION_FCR_BOARD_FIGURE_PAGES)),
-            )
-            .all()
-        )
-    except Exception:
-        extra = []
-    for ch in extra:
-        key = (ch.document_id, int(ch.page or 0))
-        if key not in have:
-            chunks.append(ch)
-            have.add(key)
-    return chunks
 
 
 def store_ask_sources(chunks):
@@ -3901,68 +2839,6 @@ def load_job_sources(job: DiagnosticJob) -> list:
         return []
 
 
-def run_guided_diagnostics(category_name: str, model_text: str, symptom: str, chunks, unity_gate: str = "") -> tuple:
-    """Returns (plan_text, sources_text, sources_json). The system text is the primer; the user text is the unit,
-    the symptom and the excerpts."""
-    import gd_prompt
-
-    if not chunks:
-        return "", "", "[]"
-
-    sources_text, sources_json = build_sources_payload(chunks)
-    context_parts = []
-    for i, ch in enumerate(chunks, 1):
-        label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"
-        context_parts.append(
-            f"[EXCERPT {i} | {label}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
-        )
-    context = "\n\n".join(context_parts)
-
-    if not ai_available():
-        body = [
-            "**Guided Diagnostics (AI offline - matching manual excerpts)**",
-            "",
-            f"**Category:** {category_name}",
-            f"**Model/System:** {model_text or '-'}",
-            f"**Symptom:** {symptom}",
-            "",
-            "**Sources:**",
-            sources_text,
-            "",
-        ]
-        for i, ch in enumerate(chunks[:8], 1):
-            kind = "INDEX" if is_diagnostic_index_text(ch.chunk_text or "") else "PROC"
-            body.append(f"**Excerpt {i} [{kind}] - {ch.title} p.{ch.page}**")
-            body.append(ch.chunk_text[:700] + ("..." if len(ch.chunk_text) > 700 else ""))
-            body.append("")
-        return "\n".join(body), sources_text, sources_json
-    try:
-        user_prompt = f"""CATEGORY: {category_name}
-MODEL / SYSTEM: {model_text or "(not provided)"}
-SYMPTOM: {symptom}
-
-MANUAL EXCERPTS (each header has the manual and page; INDEX CHART = a symptom index, PROCEDURE = test text):
-
-{context}
-
-Write the guided diagnostic plan: a numbered test sequence, each step followed by its source line in the form
-📖 Source: [manual title] - page [N]."""
-        answer = ai_chat(
-            [
-                {"role": "system", "content": gd_prompt.PRIMER},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.15,
-            max_tokens=None,
-        )
-        if "source" not in answer.lower():
-            answer += "\n\n**Sources used**\n" + sources_text
-        return rewrite_shop_channel_words(answer), sources_text, sources_json
-    except Exception as e:
-        return f"Error contacting AI: {e}", sources_text, sources_json
-
-
-
 # ---------------- FURNACE OEM ORDER (always-on coach rule) ----------------
 def is_furnace_context(category_name: str = "", model_text: str = "", symptom: str = "") -> bool:
     if is_cooktop_pan_on_flameout_context(category_name, model_text, symptom):
@@ -3980,19 +2856,6 @@ def furnace_search_symptom(category_name: str, model_text: str, symptom: str) ->
     return symptom
 
 
-def fridge_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
-    symptom = (symptom or "").strip()
-    if not is_fridge_context(category_name, model_text, symptom):
-        return symptom
-    if is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom):
-        return dial_off_run_search_symptom(category_name, model_text, symptom)
-    if is_fridge_ice_moisture_context(category_name, model_text, symptom):
-        return ice_moisture_search_symptom(category_name, model_text, symptom)
-    if is_fcr_e2_fan_fault_context(category_name, model_text, symptom):
-        return symptom
-    return f"{symptom} refrigerator fridge fuse voltage front vent no power display".strip()
-
-
 FURNACE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 
 
@@ -4000,52 +2863,6 @@ FRIDGE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); orig
 
 
 DIAG_LED_HONESTY = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-
-
-def is_unity_context(category_name: str = "", model_text: str = "", symptom: str = "", unity_gate: str = "") -> bool:
-    """True when this coach has or may have a Lippert OneControl / Unity multiplex board."""
-    if skip_unity_for_ac(category_name, model_text, symptom, unity_gate):
-        return False
-    if skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate):
-        return False
-    gate = (unity_gate or "").strip()
-    if gate == "No":
-        return False
-    if gate in ("Yes", "Not sure"):
-        return True
-    cat = (category_name or "").lower()
-    if "electrical" in cat:
-        return True
-    blob = f"{category_name or ''} {model_text or ''} {symptom or ''}".lower()
-    markers = (
-        "unity", "onecontrol", "one control", "x270", "x270d", "multiplex",
-        "can bus", "can-bus", "can network",
-    )
-    if any(m in blob for m in markers):
-        return True
-    smell = (
-        "relay click", "touch panel", "onecontrol", "latching",
-        "water pump", "generator start", "from panel",
-    )
-    load = any(w in blob for w in ("awning", "slide", "retract", "extend"))
-    intermittent = any(w in blob for w in ("intermittent", "dropout", "drop out", "sometimes", "in and out"))
-    if load and (intermittent or any(s in blob for s in smell)):
-        return True
-    if any(s in blob for s in ("latching light", "lights on panel", "water pump on panel", "generator from panel")):
-        return True
-    return False
-
-
-def unity_search_symptom(category_name: str, model_text: str, symptom: str, unity_gate: str = "") -> str:
-    symptom = (symptom or "").strip()
-    if is_unity_context(category_name, model_text, symptom, unity_gate):
-        return (
-            f"{symptom} Unity OneControl X270 BAT1 BAT2 reversing output "
-            "awning slide CAN software fuse"
-        ).strip()
-    return symptom
 
 
 UNITY_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
@@ -4989,7 +3806,7 @@ GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothi
 
 
 def _gd_page_finder():
-    """The ONE page-finder (GD, Bay PDF and library search). Its index ships in pagefinder/index; the app DB is
+    """The ONE page-finder (GD and library search). Its index ships in pagefinder/index; the app DB is
     the source of truth for document metadata and for documents added after the index build."""
     global _gd_finder
     if _gd_finder is None:
@@ -5095,229 +3912,6 @@ def _doc_file_available(doc) -> bool:
         return session.query(DocChunk.id).filter(DocChunk.document_id == doc["id"]).first() is not None
     except Exception:
         return True
-
-
-def _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit):
-    """Bay PDF / library search use the SAME manual pick as Guided Diagnostics: the page-finder's pick_manual
-    (category -> brand -> model, all from the library's own data). Chunks outside the picked manual(s) are dropped;
-    the picked pages lead. Returns (chunks, miss_line)."""
-    if not (model_text or "").strip():
-        return chunks, ""  # nothing to select on: the keyword search stands
-    try:
-        picked = _gd_page_finder().pick_manual(category_name or "", model_text or "", symptom or "")
-    except Exception:
-        return chunks, ""
-    if not picked.found:
-        return [], f"No manual in the shop library matches {model_text.strip()} ({category_name or 'no category'})."
-    ids = [int(str(m["doc_id"]).lstrip("L")) for m in picked.manuals if str(m.get("doc_id", "")).lstrip("L").isdigit()]
-    order = {(int(p.doc_id.lstrip("L")), int(p.sheet)): i for i, p in enumerate(picked.pages) if p.doc_id.lstrip("L").isdigit()}
-    mine = [c for c in (chunks or []) if int(getattr(c, "document_id", 0) or 0) in ids]
-    want = max(int(limit or 8), 8)
-    if len(mine) < want and ids:
-        extra = (session.query(DocChunk).filter(DocChunk.document_id.in_(ids))
-                 .order_by(DocChunk.document_id, DocChunk.page, DocChunk.id).all())
-        have = {c.id for c in mine}
-        mine += [c for c in extra if c.id not in have]
-    mine.sort(key=lambda c: (order.get((int(c.document_id), int(c.page or 0)), 10_000), ids.index(int(c.document_id)), int(c.page or 0)))
-    return mine[:want], ""
-
-
-def _ask_manual_context(
-    category_name: str,
-    model_text: str,
-    symptom: str,
-    limit: int = 8,
-    unity_gate: str = "",
-    figure_seek: bool = False,
-    figure_query: str = "",
-):
-    """Search uploaded manuals when category and/or symptom is known. Returns (chunks, context_text)."""
-    category_name = (category_name or "").strip()
-    model_text = (model_text or "").strip()
-    symptom = (symptom or "").strip()
-    if not category_name and not symptom:
-        return [], ""
-    cat_obj = None
-    if category_name:
-        cat_obj = session.query(Category).filter_by(name=category_name).first()
-    category_id = cat_obj.id if cat_obj else None
-    level_up = is_level_up_advantage_context(
-        category_name, model_text, symptom
-    ) or is_firefly_can_path_context(category_name, model_text, symptom)
-    if _gdc.is_ground_control_context(category_name, model_text, symptom):
-        level_up = False
-    level_up_can = is_level_up_manual_can_conflict_context(category_name, model_text, symptom)
-    if _gdc.is_ground_control_context(category_name, model_text, symptom):
-        level_up_can = False
-    ac_job = is_air_conditioning_context(category_name, model_text, symptom)
-    water_heater_job = is_water_heater_context(category_name, model_text, symptom)
-    fan_fault_job = is_fcr_e2_fan_fault_context(category_name, model_text, symptom)
-    cooktop_job = is_cooktop_pan_on_flameout_context(category_name, model_text, symptom)
-    stabilizer_job = is_stabilizer_override_pin_context(category_name, model_text, symptom)
-    bal_tongue_job = is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom)
-    if bal_tongue_job:
-        stabilizer_job = False
-    ice_moisture_job = is_fridge_ice_moisture_context(category_name, model_text, symptom)
-    dial_off_job = is_fcr_dial_off_compressor_run_context(category_name, model_text, symptom)
-    skip_ac_unity = skip_unity_for_ac(category_name, model_text, symptom, unity_gate)
-    skip_wh_unity = skip_unity_for_water_heater(category_name, model_text, symptom, unity_gate)
-    unity_on = (
-        False
-        if (
-            level_up
-            or skip_unity_for_level_up(category_name, model_text, symptom)
-            or skip_ac_unity
-            or skip_wh_unity
-        )
-        else is_unity_context(category_name, model_text, symptom, unity_gate)
-    )
-    chunks = search_manual_chunks(
-        category_id,
-        model_text,
-        symptom,
-        limit=max(limit, 10) if figure_seek else limit,
-        unity_context=unity_on,
-        figure_seek=figure_seek,
-        level_up_context=level_up,
-        ac_context=ac_job,
-        fan_fault_context=fan_fault_job,
-        water_heater_context=water_heater_job,
-        cooktop_context=cooktop_job,
-        stabilizer_context=stabilizer_job,
-        ice_moisture_context=ice_moisture_job,
-        dial_off_run_context=dial_off_job,
-        bal_tongue_context=bal_tongue_job,
-    )
-    if figure_seek:
-        chunks = supplement_board_figure_pages(chunks, model_text, figure_query or symptom)
-        if level_up:
-            chunks = supplement_level_up_figure_pages(chunks, model_text, figure_query or symptom)
-        chunks = rank_chunks_for_figure_ask(chunks, figure_query or symptom, limit=limit)
-    elif fan_fault_job:
-        chunks = supplement_fcr_fan_fault_pages(chunks, model_text, figure_query or symptom)
-        chunks = rank_chunks_for_fcr_fan_fault(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif dial_off_job:
-        chunks = supplement_dial_off_run_pages(chunks, model_text, figure_query or symptom)
-        chunks = rank_chunks_for_dial_off_run(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif ice_moisture_job:
-        chunks = supplement_ice_moisture_pages(chunks, model_text, figure_query or symptom)
-        chunks = rank_chunks_for_ice_moisture(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif cooktop_job:
-        chunks = rank_chunks_for_cooktop_pan_on(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif bal_tongue_job:
-        chunks = rank_chunks_for_bal_tongue(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif stabilizer_job:
-        chunks = rank_chunks_for_stabilizer_override(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    else:
-        chunks = supplement_concern_pages(chunks, model_text, figure_query or symptom, limit=limit)
-    honesty = ""
-    if level_up:
-        chunks = drop_unity_chunks_for_level_up(chunks)
-        if level_up_can:
-            chunks = rank_chunks_for_level_up_can(
-                chunks, f"{model_text} {figure_query or symptom}", limit=limit
-            )
-        else:
-            chunks = rank_chunks_for_level_up(
-                chunks, f"{model_text} {figure_query or symptom}", limit=limit
-            )
-        honesty = format_level_up_library_honesty(list_library_catalog_docs(), chunks)
-        if not chunks:
-            return [], honesty
-    elif _gdc.is_ground_control_context(category_name, model_text, symptom):
-        chunks = _gdc.rank_chunks_for_ground_control(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif _gdc.is_dometic_b57915_nocoool_context(category_name, model_text, symptom):
-        chunks = _gdc.rank_chunks_for_dometic_nocoool(
-            chunks, f"{model_text} {figure_query or symptom}", limit=limit
-        )
-    elif ac_job:
-        if skip_ac_unity:
-            chunks = drop_unity_chunks_for_ac(chunks)
-            chunks = rank_chunks_for_ac(
-                chunks, f"{model_text} {figure_query or symptom}", limit=limit
-            )
-        honesty = format_ac_library_honesty(list_library_catalog_docs(), chunks)
-        if skip_ac_unity and not chunks:
-            return [], honesty
-    elif water_heater_job:
-        if skip_wh_unity:
-            chunks = drop_unity_chunks_for_water_heater(chunks)
-            chunks = rank_chunks_for_water_heater(
-                chunks, f"{model_text} {figure_query or symptom}", limit=limit
-            )
-        honesty = format_water_heater_library_honesty(list_library_catalog_docs(), chunks)
-        if skip_wh_unity and not chunks:
-            return [], honesty
-    chunks, miss = _gate_chunks_by_selected_manual(chunks, category_name, model_text, symptom, limit)
-    if not chunks:
-        return [], honesty or ""
-    parts = []
-    for i, ch in enumerate(chunks, 1):
-        label = "INDEX CHART" if is_diagnostic_index_text(ch.chunk_text or "") else "PROCEDURE"
-        parts.append(
-            f"[EXCERPT {i} | {label}] Manual: {ch.title} | Page: {ch.page}\n{ch.chunk_text}"
-        )
-    context = "\n\n".join(parts)
-    if honesty:
-        context = honesty + "\n\n" + context
-    return chunks, context
-
-
-def ask_techtrack_reply(user_msg: str, category_name: str, model_text: str, history: list, unity_gate: str = "", extra_system_rule: str = "") -> str:
-    """One chat turn of the older Ask chat (not used by Guided Diagnostics): manual excerpts + the primer + the chat."""
-    import gd_prompt
-
-    user_msg = (user_msg or "").strip()
-    if not user_msg:
-        return "Type a symptom or question first."
-    prior_user = " ".join((m.get("content") or "") for m in (history or []) if m.get("role") == "user")
-    search_symptom = f"{prior_user} {user_msg}".strip()
-    chunks, context = _ask_manual_context(category_name, model_text, search_symptom, limit=5, unity_gate=unity_gate,
-                                          figure_seek=False, figure_query=user_msg)
-    store_ask_sources(chunks)
-    system_prompt = gd_prompt.PRIMER
-    if category_name:
-        system_prompt += f"\n\nCategory selected: {category_name}"
-    if model_text:
-        system_prompt += f"\nModel/system: {model_text}"
-    if chunks and context:
-        system_prompt += (
-            "\n\nMANUAL EXCERPTS (each header has the manual and page; cite them as 📖 Source: [manual title] - page [N]):\n\n"
-            + compact_manual_context(context)
-        )
-    if not ai_available():
-        fallback = ["AI is offline (no XAI_API_KEY or GROQ_API_KEY). Matching manual excerpts:", ""]
-        for ch in (chunks or [])[:6]:
-            fallback.append(f"**{ch.title}** p.{ch.page}")
-            fallback.append((ch.chunk_text or "")[:500])
-            fallback.append("")
-        return rewrite_shop_channel_words("\n".join(fallback))
-    messages = [{"role": "system", "content": system_prompt}]
-    for m in history or []:
-        if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip():
-            messages.append({"role": m["role"], "content": m["content"]})
-    messages.append({"role": "user", "content": user_msg})
-    try:
-        reply = ai_chat(messages, temperature=0.2, max_tokens=gd_llm.GD_ASK_MAX_TOKENS,
-                        reasoning_effort=gd_llm.GD_ASK_REASONING_EFFORT)
-    except Exception as e:
-        return rewrite_shop_channel_words(f"Error contacting AI: {e}")
-    record_cited_pages(reply)
-    return rewrite_shop_channel_words(reply)
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
@@ -5514,7 +4108,7 @@ if st.sidebar.button("Log out"):
     st.rerun()
 st.sidebar.caption(f"Role: {user['role']}")
 
-tabs = ["📱 My Dashboard", "🧾 Bay procedure PDF", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
+tabs = ["📱 My Dashboard", "💬 Guided Diagnostics", "📚 Document Library", "🛡️ Safety / Compliance"]
 if is_manager:
     tabs.extend(["👥 Team Overview", "🛠️ Manager Tools"])
 # Keyed radio, not st.tabs. The choice lives in session_state and survives
@@ -5529,12 +4123,11 @@ selected_nav = st.radio(
     label_visibility="collapsed",
 )
 tab_dash = _Panel(tabs[0], selected_nav)
-tab_jobs = _Panel(tabs[1], selected_nav)
-tab_ask = _Panel(tabs[2], selected_nav)
-tab_lib = _Panel(tabs[3], selected_nav)
-tab_safety = _Panel(tabs[4], selected_nav)
-tab_team = _Panel(tabs[5], selected_nav) if is_manager else None
-tab_mgr = _Panel(tabs[6], selected_nav) if is_manager else None
+tab_ask = _Panel(tabs[1], selected_nav)
+tab_lib = _Panel(tabs[2], selected_nav)
+tab_safety = _Panel(tabs[3], selected_nav)
+tab_team = _Panel(tabs[4], selected_nav) if is_manager else None
+tab_mgr = _Panel(tabs[5], selected_nav) if is_manager else None
 
 # =========================================================
 # MY DASHBOARD
@@ -5594,8 +4187,7 @@ with tab_dash:
 
     st.markdown("#### ✍️ Quick Story Improver (no WO)")
     st.caption(
-        "For one-off claims after you already tested. "
-        "Printable bay checks are under Bay procedure PDF."
+        "For one-off claims after you already tested."
     )
     sc = st.text_area("1. Customer Concern", key="story_concern", placeholder="Customer states the air conditioner is not cooling…")
     sn = st.text_area("2. What you found and did", key="story_notes", placeholder="Found bad compressor. Recovered, replaced, evacuated, recharged, tested.")
@@ -5607,256 +4199,6 @@ with tab_dash:
             st.text_area("Copy this improved story", value=improved, height=320, key="story_improved")
         else:
             st.warning("Please enter at least the customer concern or your notes.")
-
-# =========================================================
-# BAY PROCEDURE PDF (replaces Diagnostic Jobs as the plan UI)
-# =========================================================
-def _retrieve_bay_library_chunks(category_name: str, model_text: str, concern: str):
-    """Same Document Library retrieval GD chat uses. No live web."""
-    search_sym = rewrite_bay_search_symptom(category_name, model_text, concern)
-    chunks, _ctx = _ask_manual_context(
-        category_name,
-        model_text,
-        search_sym,
-        limit=12,
-    )
-    return chunks or []
-
-
-def _merge_stored_figures(proc, chunks):
-    """Crops already indexed with the retrieved manuals go on the step they support.
-
-    Any brand. The PNG load is limited to those documents.
-    """
-    import library_figure_backfill as fb
-
-    try:
-        rows = fb.meta_rows(session)
-    except Exception:
-        return proc
-    if not rows:
-        return proc
-    job = f"{proc.category or ''} {proc.brand or ''} {proc.model or ''} {proc.concern or ''}"
-    try:
-        fb.complete_figure_rows(rows, chunks, download=r2_download_bytes)
-    except Exception:
-        pass
-    packets = fb.figure_packets(rows, chunks, job)
-    # An off-brand retrieval still leaves the matching library document to paint.
-    # Stopping here was why a Bay sheet said Cited figures: 0.
-    if packets:
-        packet_ids = {int(packet.get("document_id") or 0) for packet in packets}
-        load_rows = [
-            row for row in rows
-            if (row.get("kind") or "") == "figure" and int(row.get("document_id") or 0) in packet_ids
-        ]
-        try:
-            fb.attach_pngs(session, load_rows, read_local=True, download=r2_download_bytes)
-        except Exception:
-            load_rows = []
-        by_key = {
-            (int(row.get("document_id") or 0), row.get("page"), row.get("label") or ""): row.get("png") or b""
-            for row in load_rows
-        }
-        for packet in packets:
-            kept = []
-            for figure in packet.get("figures") or []:
-                png = by_key.get(
-                    (int(packet.get("document_id") or 0), figure.get("page"), figure.get("label") or ""),
-                    b"",
-                )
-                if not png:
-                    continue
-                figure["png"] = png
-                kept.append(figure)
-            packet["figures"] = kept
-        packets = [packet for packet in packets if packet.get("figures")]
-        if packets:
-            proc = apply_chunk_figures(proc, packets)
-    groups = fb.figures_beside_steps(
-        rows,
-        proc.bay_order,
-        proc.category,
-        f"{proc.brand or ''} {proc.model or ''}".strip(),
-    )
-    pending = [offer for group in groups for offer in group if not offer.get("png")]
-    if pending:
-        try:
-            fb.attach_pngs(session, pending, read_local=True, download=r2_download_bytes)
-        except Exception:
-            pass
-    return paint_library_step_figures(proc, rows, groups)
-
-
-def _attach_bay_figure_images(proc, chunks=None):
-    """Best-effort shop-library page images for cited figures (stored crops, then R2)."""
-    proc = _merge_stored_figures(proc, chunks)
-    if not r2_available() or not PYMUPDF_AVAILABLE:
-        return proc
-    for fig in proc.figures[:MAX_FIGURES_PER_SHEET]:
-        if fig.image_png:
-            continue
-        title = (fig.title or "").strip()
-        page = fig.page
-        if not title or not page:
-            continue
-        seed = None
-        try:
-            seed = resolve_document_by_title(title)
-        except Exception:
-            seed = None
-        fpath = (seed or {}).get("file_path") if seed else None
-        if not fpath:
-            continue
-        try:
-            data = r2_download_bytes(fpath)
-        except Exception:
-            data = None
-        if not data:
-            continue
-        png = render_pdf_page_png(data, int(page), zoom=1.2)
-        cropped = crop_page_png_to_figure(png) if png else b""
-        if cropped:
-            fig.image_png = cropped
-    return proc
-
-
-with tab_jobs:
-    _enter_panel(tab_jobs)
-    st.subheader(f"🧾 {BAY_PROCEDURE_LABEL}")
-    st.caption(
-        "Enter the customer concern. TechTrack retrieves from this shop's Document Library "
-        "(same stack as Guided Diagnostics — no live web) and compiles a printable repair document: "
-        "header, what this pattern usually means, a yes/no flowchart, then one numbered branch "
-        "for every flowchart outcome. Each branch has Before you start, Removal, Installation, "
-        "and a confirm step. A manual figure is drawn under the step that cites it. "
-        "The Do Not list and the sources stay case-relevant. "
-        "Optional blank 3C is a small footer only. "
-        "Short paths stay short but complete. Long appliance paths are full A to Z, "
-        "not hint cards. Checks, thresholds, and pass or fail stay on the page. "
-        "Guided Diagnostics chat is separate. This does not write a warranty story."
-    )
-
-    cats = session.query(Category).order_by(Category.name).all()
-    cat_names = gd_category_select_options([c.name for c in cats])
-    bay_concern = st.text_area(
-        "Customer concern",
-        key="bay_concern",
-        height=110,
-        placeholder="Icing up on the rear wall — only about half from the top down",
-    )
-    c1, c2 = st.columns(2)
-    with c1:
-        bay_brand = st.text_input("Brand (optional)", key="bay_brand", placeholder="Furrion")
-        bay_cat = st.selectbox("Category (optional)", cat_names, key="bay_cat")
-    with c2:
-        bay_model = st.text_input(
-            "Model / system (optional)",
-            key="bay_model",
-            placeholder="FCR10DCGTA-BG-PWH",
-        )
-        bay_wo = st.text_input("Work order # (optional)", key="bay_wo", placeholder="WO-4521")
-    with st.expander("📷 Read model from data plate photo", expanded=False):
-        st.caption("Snap or upload the rating plate. Fills Model / system for this procedure.")
-        bay_cam = st.camera_input("Snap data plate", key="bay_plate_cam")
-        bay_up = st.file_uploader(
-            "Or upload plate photo",
-            type=["jpg", "jpeg", "png", "webp"],
-            key="bay_plate_upload",
-        )
-        bay_img = bay_cam or bay_up
-        if bay_img is not None:
-            st.image(bay_img, caption="Plate photo", width=280)
-            apply_plate_read_to_model_key("bay_model", bay_img, "bay_plate_read_btn")
-    bay_include_3c = st.checkbox(
-        "Include blank 3C footer (small — not the body)",
-        value=False,
-        key="bay_include_3c",
-        help="Tiny Concern / Cause / Correction line at the bottom. TechTrack does not write the warranty story.",
-    )
-    if st.button(f"Generate {BAY_PROCEDURE_LABEL}", type="primary", key="bay_generate"):
-        if not (bay_concern or "").strip():
-            st.warning("Customer concern is required.")
-        else:
-            cat_use = "" if (bay_cat or "") in ("(any)", "") else bay_cat
-            model_text = " ".join(p for p in ((bay_brand or "").strip(), (bay_model or "").strip()) if p)
-            with st.spinner("Retrieving shop library pages and compiling the bay procedure..."):
-                hits = _retrieve_bay_library_chunks(cat_use, model_text, bay_concern.strip())
-                proc = compile_bay_procedure(
-                    concern=bay_concern.strip(),
-                    brand=bay_brand,
-                    model=bay_model,
-                    category=cat_use,
-                    wo_number=bay_wo,
-                    chunks=hits,
-                    include_3c=bool(bay_include_3c),
-                    history=st.session_state.get("ask_chat"),
-                )
-                proc = _attach_bay_figure_images(proc, hits)
-                pdf_bytes = render_bay_procedure_pdf(proc)
-            st.session_state["bay_pdf_bytes"] = pdf_bytes
-            st.session_state["bay_pdf_name"] = suggested_pdf_filename(proc)
-            st.session_state["bay_pdf_preview"] = {
-                "concern": proc.concern,
-                "model": proc.model_line,
-                "primary_cite": proc.primary_cite,
-                "sources": proc.sources,
-                "check_count": len(proc.bay_order),
-                "branch_count": len(proc.procedures or []),
-                "step_count": sum(len(item.get("steps") or []) for item in (proc.procedures or [])),
-                "figure_count": cited_figure_count(proc),
-            }
-            st.success(f"{BAY_PROCEDURE_LABEL} ready — download below.")
-
-    preview = st.session_state.get("bay_pdf_preview")
-    pdf_bytes = st.session_state.get("bay_pdf_bytes")
-    if pdf_bytes:
-        if preview:
-            st.markdown(
-                f"**Concern:** {preview.get('concern') or '—'}  \n"
-                f"**Model:** {preview.get('model') or '—'}  \n"
-                f"**Primary OEM cite:** {preview.get('primary_cite') or '—'}  \n"
-                f"**Repair branches:** {preview.get('branch_count') or 0} · "
-                f"**Branch steps:** {preview.get('step_count') or 0} · "
-                f"**Cited figures:** {preview.get('figure_count') or 0}"
-            )
-            srcs = preview.get("sources") or []
-            if srcs:
-                st.caption(
-                    "Sources: "
-                    + "; ".join(
-                        f"{(s.get('title') or 'Manual')[:48]}"
-                        + (f" p.{s.get('page')}" if s.get("page") else "")
-                        for s in srcs[:6]
-                    )
-                )
-        st.download_button(
-            f"⬇️ Download {BAY_PROCEDURE_LABEL}",
-            data=pdf_bytes,
-            file_name=st.session_state.get("bay_pdf_name") or "bay_procedure.pdf",
-            mime="application/pdf",
-            type="primary",
-            key="bay_pdf_dl",
-        )
-
-    past = (
-        session.query(DiagnosticJob)
-        .filter_by(user_id=user["id"])
-        .order_by(DiagnosticJob.updated_date.desc())
-        .limit(12)
-        .all()
-    )
-    if past:
-        with st.expander("Past work-order jobs (archived — not a second plan UI)", expanded=False):
-            st.caption(
-                "Older Diagnostic Jobs stay on file. New plans are Bay procedure PDF. "
-                "Live coaching stays in Guided Diagnostics chat."
-            )
-            for j in past:
-                st.write(
-                    f"WO {j.wo_number} · {j.status} · {j.category_name or '-'} · "
-                    f"{(j.concern or '')[:90]}"
-                )
 
 # =========================================================
 # ASK TECHTRACK

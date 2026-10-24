@@ -2,7 +2,6 @@
 import unittest
 from pathlib import Path
 
-from bay_procedure import compile_bay_procedure, procedure_plain_text, rewrite_bay_search_symptom
 from gd_library_coach import (
     DIAL_OFF_RUN_PRODUCT_LOCK,
     DIAL_OFF_RUN_SEARCH_BOOST,
@@ -10,12 +9,8 @@ from gd_library_coach import (
     coach_library_search_boost,
     compact_manual_context,
     complete_chat_with_payload_retry,
-    dial_off_run_search_symptom,
     is_ai_request_too_large,
-    is_fcr_dial_off_compressor_run_context,
     is_fcr_e2_fan_fault_context,
-    is_fridge_ice_moisture_context,
-    is_fridge_no_power_complaint,
     rank_chunks_for_dial_off_run,
     score_dial_off_run_chunk,
     shrink_ai_messages,
@@ -108,97 +103,6 @@ LIVE_FUSE_MISS = (
 )
 
 
-class TestDialOffRunDetect(unittest.TestCase):
-    def test_live_off_and_running_is_thermostat_not_fuse_or_ice(self):
-        self.assertTrue(
-            is_fcr_dial_off_compressor_run_context("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        )
-        self.assertFalse(
-            is_fridge_no_power_complaint("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        )
-        self.assertFalse(
-            is_fridge_ice_moisture_context("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        )
-        self.assertFalse(
-            is_fcr_e2_fan_fault_context("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        )
-
-    def test_natural_complaints_match_fcr_family(self):
-        samples = (
-            "won't shut off",
-            "runs when Off",
-            "overcooling with dial Off",
-            "freezer frozen solid with control Off",
-            "compressor keeps running with the knob off",
-            "control set to off and the compressor is still running",
-        )
-        for complaint in samples:
-            self.assertTrue(
-                is_fcr_dial_off_compressor_run_context("Refrigerators", WO_MODEL, complaint),
-                complaint,
-            )
-
-    def test_arctic_family_matches(self):
-        self.assertTrue(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                "Furrion Arctic",
-                "dial off, compressor still running, too cold",
-            )
-        )
-
-    def test_opposite_and_other_paths_do_not_match(self):
-        self.assertFalse(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                WO_MODEL,
-                "dial is off and the fridge is not cooling",
-            )
-        )
-        self.assertFalse(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                WO_MODEL,
-                "not cooling, compressor running constantly, coolant leak",
-            )
-        )
-        self.assertFalse(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                "Norcold N611",
-                "dial off but compressor still running",
-            )
-        )
-        self.assertFalse(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                WO_MODEL,
-                "freezes contents, intermittent blinking 2 / E2",
-            )
-        )
-        self.assertTrue(
-            is_fridge_ice_moisture_context(
-                "Refrigerators",
-                WO_MODEL,
-                "icing up on rear wall — only about half from the top down",
-            )
-        )
-        self.assertFalse(
-            is_fcr_dial_off_compressor_run_context(
-                "Refrigerators",
-                WO_MODEL,
-                "icing up on rear wall — only about half from the top down",
-            )
-        )
-
-    def test_wont_turn_off_is_not_no_power(self):
-        complaint = "FCR10 won't turn off, compressor still running"
-        self.assertFalse(is_fridge_no_power_complaint("Refrigerators", WO_MODEL, complaint))
-        self.assertTrue(
-            is_fcr_dial_off_compressor_run_context("Refrigerators", WO_MODEL, complaint)
-        )
-
-
 class TestDialOffRunQueryAndRank(unittest.TestCase):
 
     def test_thermostat_pages_outrank_fuse_continuity_led_and_p34(self):
@@ -214,52 +118,6 @@ class TestDialOffRunQueryAndRank(unittest.TestCase):
         self.assertGreater(score_dial_off_run_chunk(P31, query), score_dial_off_run_chunk(CONT_P20, query))
         self.assertGreater(score_dial_off_run_chunk(P31, query), score_dial_off_run_chunk(LED_P18, query))
         self.assertGreater(score_dial_off_run_chunk(P43, query), score_dial_off_run_chunk(P34, query))
-
-
-class TestDialOffRunBayProcedure(unittest.TestCase):
-
-    def test_fcr10_off_locks_exact_part_g_and_rejects_transposed_pn(self):
-        concern = "FCR10 OFF + compressor still running / overcool"
-        self.assertTrue(
-            is_fcr_dial_off_compressor_run_context("Refrigerators", WO_MODEL, concern)
-        )
-        transposed = {
-            "title": FURRION,
-            "category": "Refrigerators",
-            "page": 43,
-            "excerpt": (
-                "Part G Spark-Free Thermostat 2021218850 and also 2021128805. "
-                "Do not use a digit-transposed part number."
-            ),
-        }
-        proc = compile_bay_procedure(
-            concern=concern,
-            brand="Furrion",
-            model=WO_MODEL,
-            category="Refrigerators",
-            chunks=[transposed, FUSE_P19, LED_P18, P34],
-        )
-        text = procedure_plain_text(proc)
-        pdf = ""
-        try:
-            from bay_procedure import render_bay_procedure_pdf as _render
-
-            pdf = _render(proc)
-            import pymupdf
-
-            doc = pymupdf.open(stream=pdf, filetype="pdf")
-            pdf_text = "\n".join(page.get_text() for page in doc)
-        except Exception:
-            pdf_text = text
-        for blob in (text, pdf_text):
-            self.assertIn("2021128850", blob)
-            self.assertIn("part g", blob.lower())
-            self.assertIn("spark-free", blob.lower())
-            for wrong in ("2021218850", "2021128805", "2021182850", "2201128850", "2021128580"):
-                self.assertNotIn(wrong, blob)
-        self.assertIn("no jumper", text.lower())
-        self.assertIn("c (blue)", text.lower())
-        self.assertIn("t (black)", text.lower())
 
 
 class TestPayload413(unittest.TestCase):

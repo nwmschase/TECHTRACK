@@ -12,12 +12,6 @@ from pathlib import Path
 import pymupdf
 
 import manual_figures as mf
-from bay_procedure import (
-    compile_bay_procedure,
-    compose_sheet,
-    layout_problems,
-    render_bay_procedure_pdf,
-)
 from gd_library_coach import PLUMBING_TOILETS_CATEGORY
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -129,64 +123,6 @@ class TestManualFigureIndex(unittest.TestCase):
     def test_other_brand_image_is_refused(self):
         self.assertTrue(mf.brands_conflict("Thetford 42070", "Coleman-Mach 2111 service manual"))
         self.assertFalse(mf.brands_conflict("Thetford 42070", VALVE_TITLE))
-
-
-class TestBayFigurePlacement(unittest.TestCase):
-    def _procedure(self, extra_brand_figure=False):
-        valve, _valve_index = _packet(VALVE_TITLE, VALVE_PDF)
-        breaker, _breaker_index = _packet(BREAKER_TITLE, BREAKER_PDF)
-        chunks = [valve, breaker]
-        if extra_brand_figure:
-            chunks.append(
-                {
-                    "title": "Coleman-Mach 2111 service manual",
-                    "page": 4,
-                    "excerpt": "Needed Pliers. Remove the fan motor. " * 20,
-                    "figures": [
-                        {
-                            "title": "Coleman-Mach 2111 service manual",
-                            "page": 4,
-                            "label": "Fig. 9",
-                            "png": valve["figures"][0]["png"],
-                        }
-                    ],
-                }
-            )
-        return compile_bay_procedure(
-            concern=CONCERN,
-            brand="Thetford",
-            model="42070",
-            category=PLUMBING_TOILETS_CATEGORY,
-            chunks=chunks,
-        )
-
-    def test_every_step_cites_a_page_and_the_figure_stays_whole(self):
-        proc = self._procedure(extra_brand_figure=True)
-        for step in proc.bay_order:
-            self.assertRegex(step, r"\bpage\s+\d+\b", step[:180])
-        joined = " ".join(proc.bay_order).lower()
-        self.assertIn("pliers", joined)
-        self.assertIn("not stated in", joined)
-        self.assertNotIn("coleman", joined)
-        self.assertNotIn("disconnect rv water supply", joined)
-        pages = compose_sheet(proc)
-        self.assertEqual(pages[0].images, [])
-        images = [(index, image) for index, page in enumerate(pages) for image in page.images]
-        self.assertGreaterEqual(len(images), 2)
-        for index, image in images:
-            self.assertGreaterEqual(image.w, 120.0, index)
-            self.assertGreater(image.h, 24.0)
-            self.assertGreaterEqual(image.y, 36.0)
-            self.assertLessEqual(image.y + image.h, 792.0)
-            self.assertFalse(mf.png_is_blank(image.png))
-        trace = []
-        pdf = render_bay_procedure_pdf(proc, trace=trace)
-        self.assertTrue(pdf.startswith(b"%PDF"))
-        problems = layout_problems(trace)
-        self.assertEqual(problems, [], problems[:6])
-        doc = pymupdf.open(stream=pdf, filetype="pdf")
-        self.assertGreaterEqual(doc.page_count, 2)
-        doc.close()
 
 
 class TestFigureCaption(unittest.TestCase):
