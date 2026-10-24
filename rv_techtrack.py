@@ -955,6 +955,7 @@ class DiagnosticJob(Base):
     status = Column(String(30), default="in_progress")
     created_date = Column(DateTime, default=func.now())
     updated_date = Column(DateTime, default=func.now(), onupdate=func.now())
+    ask_chat_id = Column(Integer, nullable=True, index=True)   # the GD chat a past work order came from (gd_work_orders)
 
 
 class AskChat(Base):
@@ -994,6 +995,8 @@ def _ensure_schema_upgrades():
             job_cols = [row[1] for row in conn.exec_driver_sql("PRAGMA table_info(diagnostic_jobs)").fetchall()]
             if "sources_json" not in job_cols:
                 conn.exec_driver_sql("ALTER TABLE diagnostic_jobs ADD COLUMN sources_json TEXT")
+            if "ask_chat_id" not in job_cols:
+                conn.exec_driver_sql("ALTER TABLE diagnostic_jobs ADD COLUMN ask_chat_id INTEGER")
             conn.commit()
     except Exception:
         pass
@@ -1216,6 +1219,49 @@ def purge_old_ask_chats(days: int = 30):
             session.commit()
     except Exception:
         session.rollback()
+
+
+def save_gd_work_order(user_id, *, only_if_closed_or_saved=False, wo_number=""):
+    """Past work orders (gd_work_orders): save the open GD job as a DiagnosticJob row. The case state is used only when it
+    belongs to this chat (gd_case_chat_id); a reopened chat keeps what its earlier save recorded.
+    only_if_closed_or_saved: the per-turn auto-save, which writes when the job closed or a work order already exists."""
+    import gd_work_orders as wo
+
+    chat_id = st.session_state.get("ask_chat_id")
+    if not chat_id:
+        return None
+    case = (st.session_state.get("gd_pin_store") or {}).get("gd_case")
+    if st.session_state.get("gd_case_chat_id") != chat_id:
+        case = None
+    closed = bool(((case or {}).get("state") or {}).get("closed"))
+    if only_if_closed_or_saved and not closed and not session.query(DiagnosticJob).filter_by(
+            user_id=user_id, ask_chat_id=chat_id).first():
+        return None
+    cat = st.session_state.get("gd_category_memory") or ""
+    snap = wo.snapshot(history=st.session_state.get("ask_chat") or [], case=case,
+                       category="" if cat == "(any)" else cat, model_text=st.session_state.get("gd_model_memory") or "",
+                       story=st.session_state.get("ask_story_out") or "", cited_log=st.session_state.get("ask_cited_log") or [],
+                       wo_number=wo_number, chat_id=chat_id)
+    try:
+        return wo.save(session, DiagnosticJob, user_id, chat_id, snap)
+    except Exception:
+        session.rollback()
+        return None
+
+
+def _render_past_work_orders(user_id):
+    """GD area: the tech's own past work orders (newest first), each with a Download button (HTML work order)."""
+    import gd_work_orders as wo
+
+    jobs = wo.list_jobs(session, DiagnosticJob, user_id)
+    with st.expander(f"🗂️ Past work orders (kept {wo.WORK_ORDER_RETENTION_DAYS} days)", expanded=False):
+        if not jobs:
+            st.caption("No saved work orders yet. Save work order keeps this job here; a closed job is saved by itself.")
+        for j in jobs:
+            cols = st.columns([4, 1])
+            cols[0].write(wo.list_label(j))
+            cols[1].download_button("Download", data=wo.render_html(j).encode("utf-8"), file_name=wo.file_name(j),
+                                    mime="text/html", key=f"wo_dl_{j.id}", use_container_width=True)
 
 
 def load_ask_chat(chat_id: int):
@@ -2564,6 +2610,8 @@ def reset_guided_diagnostics_session():
     st.session_state.pop("ask_plate_cam", None)
     st.session_state.pop("ask_plate_upload", None)
     st.session_state.pop("ask_plate_read_btn", None)
+    st.session_state["ask_wo_number"] = ""
+    st.session_state.pop("gd_case_chat_id", None)
 
 
 def render_library_page_image(src: dict, key_suffix: str):
@@ -3247,6 +3295,11 @@ def seed_data():
 maybe_restore_db_from_r2()
 seed_data()
 purge_old_ask_chats(30)
+try:
+    import gd_work_orders as _gd_wo
+    _gd_wo.purge_old(session, DiagnosticJob)          # WORK_ORDER_RETENTION_DAYS (30), purged on load
+except Exception:
+    pass
 
 # ---------------- LOGIN ----------------
 if "user" not in st.session_state:
@@ -3483,7 +3536,11 @@ with tab_ask:
                 st.session_state["ask_story_n"] = int(st.session_state.get("ask_story_n") or 0) + 1
                 if loaded and loaded.final_story:
                     st.session_state["ask_story_out"] = loaded.final_story
+                _wo_row = session.query(DiagnosticJob).filter_by(user_id=user["id"], ask_chat_id=ch.id).first()
+                st.session_state["ask_wo_number"] = _wo_row.wo_number if _wo_row else ""
                 st.rerun()
+
+    _render_past_work_orders(user["id"])
 
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = gd_category_select_options([c.name for c in cats])
@@ -3602,6 +3659,23 @@ with tab_ask:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
     with b3:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
+    w1, w2 = st.columns([2, 1])
+    with w1:
+        st.text_input("Work order # (optional)", key="ask_wo_number", placeholder="WO number for this job")
+    with w2:
+        st.write("")
+        save_wo = st.button("💾 Save work order", key="ask_save_wo", use_container_width=True)
+    _wo_note = st.session_state.pop("ask_wo_saved_note", None)
+    if _wo_note:
+        st.success(_wo_note)
+    if save_wo:
+        _saved = save_gd_work_order(user["id"], wo_number=st.session_state.get("ask_wo_number") or "")
+        if _saved is not None:
+            # rerun so the Past work orders list above shows it now
+            st.session_state["ask_wo_saved_note"] = f"Saved WO {_saved.wo_number}. It is under Past work orders."
+            st.rerun()
+        else:
+            st.warning("Send a message first, then save the work order.")
 
     if new_chat:
         # Flag only. Widget keys are reset on the next run, before history is read.
@@ -3681,6 +3755,9 @@ with tab_ask:
                 stored_msg,
                 reply,
             )
+            st.session_state["gd_case_chat_id"] = st.session_state["ask_chat_id"]
+            save_gd_work_order(user["id"], only_if_closed_or_saved=True,
+                               wo_number=st.session_state.get("ask_wo_number") or "")
             _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
             if _step_figs:
                 st.session_state.pop("ask_auto_show", None)
@@ -3770,6 +3847,7 @@ with tab_ask:
                     chat_row.final_story = story
                     chat_row.updated_date = datetime.now()
                     session.commit()
+                save_gd_work_order(user["id"], wo_number=st.session_state.get("ask_wo_number") or "")
             st.rerun()
 
     if st.session_state.get("ask_story_out"):
