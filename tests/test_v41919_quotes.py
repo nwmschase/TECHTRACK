@@ -4,12 +4,10 @@ import unittest
 
 from bay_procedure import compile_bay_procedure, procedure_plain_text
 from gd_library_coach import (
-    BAL_TONGUE_PROVE_SHOP_LINE,
     COOKTOP_TIP_LOW_REPAIR,
     FACT12_FREEZE_RESECURE_LINE,
     avoid_duplicate_reply,
     category_conflicts_with_model,
-    extract_bal_tongue_facts,
     facr_reported_assembly_rr_line,
     is_air_conditioning_context,
     is_water_heater_context,
@@ -162,23 +160,6 @@ class TestChunkQuotes(unittest.TestCase):
 
 
 class TestShopReplyPolish(unittest.TestCase):
-    def test_the_model_instruction_never_reaches_the_tech(self):
-        history = [
-            {"role": "assistant", "content": BAL_TONGUE_PROVE_SHOP_LINE},
-        ]
-        latest = "I measured 0 V at the soft-touch panel tongue channel while commanding extend."
-        facts = extract_bal_tongue_facts(latest)
-        self.assertEqual(facts.get("tongue_channel_volts"), "missing")
-        reply = avoid_duplicate_reply(
-            "Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel.",
-            history,
-            latest,
-        )
-        low = reply.lower()
-        self.assertNotIn("that check was already asked", low)
-        self.assertNotIn("use the facts already reported", low)
-        self.assertIn("20300427", reply)
-        self.assertNotIn("noted:", low)
 
     def test_fallback_questions_are_not_noted_as_facts(self):
         history = [

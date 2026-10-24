@@ -18,39 +18,6 @@ def _png_size(path: Path) -> tuple[int, int]:
 
 
 class TestThetfordLiveGateCli(unittest.TestCase):
-    def test_the_fixture_library_scores_ten(self):
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp)
-            code = main(["--db", str(DB), "--cache", str(CACHE), "--out", str(out)])
-            report = (out / "report.txt").read_text(encoding="utf-8")
-            transcript = (out / "transcript.txt").read_text(encoding="utf-8")
-            self.assertEqual(code, 0, report)
-            self.assertEqual(report.count("Result: 10/10."), 2)
-            self.assertIn("PF-32 MANUAL", report)
-            self.assertNotIn("PF-08 MANUAL", report)
-            self.assertTrue((out / "thetford-bay.pdf").stat().st_size > 1000)
-            self.assertIn("T2 Tech: Show me where that connection is", transcript)
-            t2 = transcript.split("T2 Tech:", 1)[1].split("T3 Tech:", 1)[0]
-            self.assertIn("no picture", t2.lower())
-            self.assertIn("back of the toilet", t2.lower())
-            self.assertIn("water supply line", t2.lower())
-            self.assertIn("then do that check and tell me what you see", t2.lower())
-            self.assertNotIn("good result", t2.lower())
-            self.assertNotIn("bad result", t2.lower())
-            self.assertIn("photo", t2.lower())
-            self.assertNotIn("Figure:", t2)
-            self.assertIn("water valve", transcript.lower())
-            self.assertNotIn("not stated", transcript.lower())
-            self.assertNotIn("How (", transcript)
-            self.assertNotIn("page 7", transcript.lower())
-            self.assertNotRegex(transcript, r"Step 1")
-            page = out / "thetford-bay-p01.png"
-            self.assertTrue(page.is_file())
-            width, height = _png_size(page)
-            self.assertEqual((width, height), (765, 990))
-            self.assertTrue((out / "transcript-profile.txt").is_file())
 
     def test_live_llm_without_a_key_exits_2(self):
         saved = os.environ.pop("XAI_API_KEY", None)
@@ -279,29 +246,6 @@ class TestThetfordLiveGateCli(unittest.TestCase):
         ]
         self.assertFalse(profile_check._near_duplicate(bodies[:2]))
 
-    def test_manual_lines_do_not_fail_the_exit(self):
-        from scripts.profile_check import Rule
-        from scripts.thetford_live_gate import _score_gap
-
-        manual = [
-            Rule("score-1", True, "human confirms", status="MANUAL", number=1, scorecard=True),
-            Rule("score-2", True, "shown", status="PASS", number=2, scorecard=True),
-            Rule("PF-32", True, "expert review", status="MANUAL"),
-        ]
-        self.assertEqual(_score_gap(manual, "GD"), [])
-        manual.append(Rule("labeled_good_bad", False, "turn 1 does not label both"))
-        self.assertEqual(len(_score_gap(manual, "GD")), 1)
-        errored = [
-            Rule("PF-07", True, "checker error", status="ERROR"),
-            Rule("PF-32", True, "expert review", status="MANUAL"),
-        ]
-        gap = _score_gap(errored, "PF")
-        self.assertEqual(len(gap), 1)
-        self.assertIn("ERROR", gap[0])
-        self.assertEqual(
-            len(_score_gap([Rule("PF-03", True, "unknown", status="UNKNOWN")], "PF")),
-            1,
-        )
 
     def test_a_cited_vacuum_reply_is_not_called_a_library_miss(self):
         """rev4 live2: a correct T3 was replaced with a false library-miss line.

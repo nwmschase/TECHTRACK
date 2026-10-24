@@ -4,18 +4,12 @@ import unittest
 from gd_library_coach import (
     ICE_MOISTURE_PRODUCT_LOCK,
     ICE_MOISTURE_SEARCH_BOOST,
-    ICE_MOISTURE_SHOP_LINE,
     coach_library_search_boost,
-    ensure_fridge_ice_moisture_path,
-    extract_stated_facts,
-    ice_moisture_reply_needs_guard,
     ice_moisture_search_symptom,
     is_fcr_e2_fan_fault_context,
     is_fridge_ice_moisture_context,
     is_fridge_no_power_complaint,
     rank_chunks_for_ice_moisture,
-    reply_names_ice_moisture_p36,
-    reply_opens_fuse_12v_no_power,
     score_ice_moisture_chunk,
 )
 
@@ -153,15 +147,6 @@ class TestIceMoistureQueryRewrite(unittest.TestCase):
             ice_moisture_search_symptom("Refrigerators", WO_MODEL, raw), raw
         )
 
-    def test_stated_facts_boost_is_moisture_not_fuse(self):
-        facts = extract_stated_facts(WO_COMPLAINT)
-        self.assertEqual(facts.get("ice_moisture"), "rear_wall")
-        boost = coach_library_search_boost(facts)
-        low = boost.lower()
-        self.assertIn("ice and moisture", low)
-        self.assertNotIn("no power", low)
-        self.assertNotIn("inoperable compressor", low)
-
 
 class TestIceMoistureRanking(unittest.TestCase):
     def test_p36_outranks_fuse_and_12v_inverter(self):
@@ -181,49 +166,6 @@ class TestIceMoistureRanking(unittest.TestCase):
             score_ice_moisture_chunk(ICE_MOISTURE_P36, query),
             score_ice_moisture_chunk(FAN_FAULT, query),
         )
-
-
-class TestIceMoistureGuard(unittest.TestCase):
-    def test_live_miss_fuse_cite_without_page_is_caught(self):
-        self.assertTrue(reply_opens_fuse_12v_no_power(LIVE_FUSE_MISS))
-        self.assertFalse(reply_names_ice_moisture_p36(LIVE_FUSE_MISS))
-        self.assertTrue(ice_moisture_reply_needs_guard(LIVE_FUSE_MISS))
-        self.assertNotIn("page 36", LIVE_FUSE_MISS.lower())
-        self.assertIn("fuse location", LIVE_FUSE_MISS.lower())
-
-    def test_ensure_steers_to_p36_and_drops_fuse_12v(self):
-        fixed = ensure_fridge_ice_moisture_path(LIVE_FUSE_MISS)
-        self.assertTrue(reply_names_ice_moisture_p36(fixed))
-        self.assertFalse(reply_opens_fuse_12v_no_power(fixed))
-        low = fixed.lower()
-        self.assertIn("ice and moisture", low)
-        self.assertIn("page 36", low)
-        self.assertIn("fig.36", low.replace(" ", "").replace("fig. 36", "fig.36"))
-        self.assertIn("dial", low)
-        self.assertNotIn("fuse location", low)
-        self.assertIn(ICE_MOISTURE_SHOP_LINE.split("\n")[0][:40], fixed)
-        self.assertIn("📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36", fixed)
-        self.assertNotIn("1 month", fixed.lower())
-        self.assertNotIn("replace the unit", fixed.lower())
-
-    def test_good_p36_reply_gains_month_close(self):
-        good = (
-            "Rear-wall ice about half from the top is Ice and Moisture → "
-            "Ice or Moisture in the Fridge. Note the frost pattern, then check "
-            "whether the dial is at max, then the door gasket, then verify cooling.\n"
-            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36"
-        )
-        self.assertTrue(reply_names_ice_moisture_p36(good))
-        self.assertFalse(reply_opens_fuse_12v_no_power(good))
-        self.assertFalse(ice_moisture_reply_needs_guard(good))
-        fixed = ensure_fridge_ice_moisture_path(good)
-        self.assertTrue(fixed.startswith(good))
-        self.assertNotIn("1 month", fixed.lower())
-        self.assertNotIn("replace the unit", fixed.lower())
-        self.assertNotIn("fuse location", fixed.lower())
-        again = ensure_fridge_ice_moisture_path(fixed)
-        self.assertEqual(again, fixed)
-
 
 
 if __name__ == "__main__":

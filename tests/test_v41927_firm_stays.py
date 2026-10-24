@@ -4,7 +4,6 @@ import unittest
 from gd_library_coach import (
     FURNACE_WALL_TSTAT_LINE,
     avoid_duplicate_reply,
-    ensure_furnace_wall_thermostat,
     polish_shop_reply,
 )
 
@@ -93,42 +92,6 @@ class TestFirmRepairStays(unittest.TestCase):
         self.assertNotIn("report whether it holds", low)
         self.assertIn("📖", reply)
 
-    def test_s08_continuity_ok_is_the_thermostat(self):
-        history = [
-            {"role": "user", "content": "Will not blow warm; fan turns on then shuts off."},
-            {
-                "role": "user",
-                "content": "Thermostat bypassed at the furnace: the furnace operates.",
-            },
-            {
-                "role": "assistant",
-                "content": (
-                    "Prove the sail switch with the blower running. "
-                    "Report power in and power out before any thermostat replacement."
-                ),
-            },
-        ]
-        conditional = (
-            "With the blower running, measure power in and power out at the sail switch. "
-            "If power is present in and out, replace the wall thermostat."
-        )
-        opened = ensure_furnace_wall_thermostat(
-            conditional,
-            history,
-            "Sail switch continuity OK",
-            "Furnaces",
-            "Suburban NT-20SEQT",
-        )
-        self.assertEqual(opened, FURNACE_WALL_TSTAT_LINE)
-        reply = avoid_duplicate_reply(
-            opened,
-            history,
-            "Sail switch continuity OK",
-            "Furnaces",
-            "Suburban NT-20SEQT",
-        )
-        self.assertIn("replace the wall thermostat", reply.lower())
-        self.assertNotIn("measure power", reply.lower())
 
     def test_s09_both_bypasses_replace_the_ceiling_selector(self):
         history = [

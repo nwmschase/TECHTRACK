@@ -6,7 +6,6 @@ from pathlib import Path
 from gd_library_coach import (
     WATER_HEATER_PRODUCT_LOCK,
     WATER_HEATER_SEARCH_BOOST,
-    claims_water_heater_library_empty,
     drop_unity_chunks_for_water_heater,
     error_code_query_terms,
     figure_library_search_boost,
@@ -188,37 +187,6 @@ class TestWaterHeaterRanking(unittest.TestCase):
 
 
 class TestWaterHeaterHonesty(unittest.TestCase):
-    def test_does_not_claim_empty_when_titles_exist(self):
-        catalog = [
-            {"title": GSWH["title"], "indexed": False, "chunk_count": 0},
-            {"title": UNITY["title"], "indexed": True, "chunk_count": 20},
-        ]
-        note = format_water_heater_library_honesty(catalog, chunks=None)
-        self.assertIn("DOES include", note)
-        self.assertIn("CCD-0009390", note)
-        self.assertIn("re-index", note.lower().replace("reindex", "re-index"))
-        self.assertIn("Unity", note)
-        self.assertFalse(claims_water_heater_library_empty(note))
-
-    def test_empty_claim_detector(self):
-        bad = (
-            "The shop Document Library does not include a Girard GSWH-2 procedure. "
-            "I only have the OneControl Unity board manual."
-        )
-        self.assertTrue(claims_water_heater_library_empty(bad))
-        good = (
-            "Girard GSWH-2 Troubleshooting Manual CCD-0009390 is in the shop library "
-            "but is not indexed. Ask a manager to re-index it."
-        )
-        self.assertFalse(claims_water_heater_library_empty(good))
-
-    def test_first_turn_hits_block_empty_claim(self):
-        note = format_water_heater_library_honesty(
-            [{"title": GSWH["title"], "indexed": True, "chunk_count": 109}],
-            chunks=[GSWH],
-        )
-        self.assertIn("CCD-0009390", note)
-        self.assertFalse(claims_water_heater_library_empty(note))
 
 
     def test_figure_render_fail_names_gswh_not_missing_library(self):

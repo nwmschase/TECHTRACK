@@ -15,9 +15,6 @@ from bay_procedure import (
 from gd_library_coach import (
     avoid_duplicate_reply,
     dometic_bypass_facts,
-    ensure_cooktop_tip_pan_check,
-    ensure_dometic_ceiling_thermostat,
-    ensure_ground_control_level_path,
     ensure_level_up_lead_jack_reply,
     polish_shop_reply,
     repair_glued_sentence,
@@ -91,63 +88,7 @@ class TestGateQuotes(unittest.TestCase):
 
 
 class TestGateReplies(unittest.TestCase):
-    def test_s15_drops_the_excerpt_guard(self):
-        leak = (
-            "The shop Document Library excerpts for this cooktop do not include the thermocouple tip. "
-            "With a pan on the burner, check the thermocouple tip position in the flame."
-        )
-        complaint = "When using stove, it will shut off as soon as a pan is put on it — either burner."
-        ensured = ensure_cooktop_tip_pan_check(leak, complaint, [])
-        polished = polish_shop_reply(ensured, [], complaint, "Range & Cooktops", "Suburban SDN2U")
-        for reply in (ensured, polished):
-            low = reply.lower()
-            self.assertNotIn("do not include", low)
-            self.assertNotIn("document library excerpts", low)
-            self.assertIn("thermocouple", low)
 
-    def test_s09_does_not_glue_check_onto_the_rooftop_unit(self):
-        draft = (
-            "Do the Peacemaker bypass at the rooftop unit Check the ceiling selector "
-            "and report whether it cools."
-        )
-        self.assertNotIn("unit Check", repair_glued_sentence(draft))
-        history = [
-            {"role": "user", "content": "AC turns on but will not blow cold."},
-            {
-                "role": "assistant",
-                "content": (
-                    "Confirm the fan runs, then do the Peacemaker bypass at the rooftop unit "
-                    "and report whether it cools."
-                ),
-            },
-        ]
-        latest = "Peacemaker bypass at the rooftop unit cools."
-        ensured = ensure_dometic_ceiling_thermostat(
-            draft, dometic_bypass_facts(history, latest), history
-        )
-        reply = avoid_duplicate_reply(
-            ensured, history, latest, "Air Conditioning", "B57915E711J0EMX"
-        )
-        self.assertNotIn("unit Check", reply)
-        self.assertIn("ceiling", reply.lower())
-
-    def test_s10_states_zero_point_calibration_is_the_repair(self):
-        history = []
-        turns = [
-            "Auto-level lifts driver-side tires though nearly level.",
-            "Not checked yet — what do you recommend next?",
-            "What is the repair?",
-        ]
-        replies = []
-        for latest in turns:
-            guarded = ensure_ground_control_level_path("Check the harness.", history)
-            reply = avoid_duplicate_reply(
-                guarded, history, latest, "Leveling", "Lippert Ground Control 343633"
-            )
-            replies.append(reply)
-            history.append({"role": "user", "content": latest})
-            history.append({"role": "assistant", "content": reply})
-        self.assertIn("zero-point calibration is the repair", replies[-1].lower())
 
     def test_s20_replies_do_not_repeat(self):
         history = []

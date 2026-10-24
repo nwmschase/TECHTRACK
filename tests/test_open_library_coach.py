@@ -8,15 +8,10 @@ from gd_library_coach import (
     FCR_E2_FAN_FAULT_PRODUCT_LOCK,
     HARD_TREE_EXCLUSIVE_CHAT,
     OPEN_LIBRARY_COACH_RULE,
-    claims_fcr_e2_board_only_cage,
     coach_library_search_boost,
-    extract_stated_facts,
-    facts_from_chat,
-    format_stated_facts_rule,
     groq_vision_model_candidates,
     hard_tree_yields_to_coach,
     is_fcr_e2_fan_fault_context,
-    is_path_complete_trap,
     pick_working_vision_model,
     powered_not_cooling,
     reply_reasks_stated_facts,
@@ -50,15 +45,6 @@ class TestProductPath(unittest.TestCase):
         self.assertFalse(HARD_TREE_EXCLUSIVE_CHAT)
         self.assertTrue(hard_tree_yields_to_coach("anything", {"type": "binary", "edges": {"yes": "x"}}))
 
-    def test_coach_rule_text_is_retired(self):
-        self.assertEqual(OPEN_LIBRARY_COACH_RULE, "")
-        self.assertFalse(is_path_complete_trap(OPEN_LIBRARY_COACH_RULE))
-        self.assertTrue(
-            is_path_complete_trap(
-                "This path is complete. Start a new chat for another symptom branch."
-            )
-        )
-
 
     def test_strip_path_complete_trap(self):
         cleaned = strip_path_complete_trap(
@@ -66,84 +52,6 @@ class TestProductPath(unittest.TestCase):
         )
         self.assertNotIn("path is complete", cleaned.lower())
         self.assertIn("Check amps", cleaned)
-
-
-class TestChaseBayFacts(unittest.TestCase):
-    def test_extracts_fuse_light_not_cooling(self):
-        facts = extract_stated_facts(CHASE_BAY)
-        self.assertEqual(facts.get("fuse"), "replaced")
-        self.assertEqual(facts.get("light"), "on")
-        self.assertEqual(facts.get("cooling"), "not_cooling")
-        self.assertTrue(powered_not_cooling(facts))
-
-    def test_facts_from_chat_merge_latest(self):
-        hist = [{"role": "user", "content": "customer states not cooling, fuse already replaced, cavity light on"}]
-        facts = facts_from_chat(hist, "go to compressor section")
-        self.assertEqual(facts.get("fuse"), "replaced")
-        self.assertEqual(facts.get("light"), "on")
-        self.assertEqual(facts.get("cooling"), "not_cooling")
-        self.assertEqual(facts.get("pivot"), "compressor")
-
-    def test_stated_facts_rule_forbids_reask(self):
-        rule = format_stated_facts_rule(extract_stated_facts(CHASE_BAY))
-        self.assertIn("never re-ask", rule.lower())
-        self.assertIn("light is ON", rule)
-        self.assertIn("NOT cooling", rule)
-        self.assertIn("Do NOT restart at fuse", rule)
-
-    def test_chase_reask_reply_is_detected(self):
-        facts = extract_stated_facts(CHASE_BAY)
-        hits = reply_reasks_stated_facts(BAD_REASK, facts)
-        self.assertIn("light", hits)
-        self.assertIn("cooling", hits)
-
-    def test_good_next_check_is_not_a_reask(self):
-        facts = extract_stated_facts(CHASE_BAY)
-        good = (
-            "Fuse replaced and cavity light is on — unit has power and is not cooling. "
-            "Next from the service manual: confirm the compressor is running (or measure "
-            "current) on the inoperable-compressor / not-cooling section.\n"
-            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 34"
-        )
-        self.assertEqual(reply_reasks_stated_facts(good, facts), [])
-
-    def test_search_boost_is_not_the_wrong_tree(self):
-        facts = extract_stated_facts(CHASE_BAY)
-        boost = coach_library_search_boost(facts)
-        self.assertIn("inoperable compressor", boost)
-        self.assertNotIn("fan replacement", boost.lower())
-        self.assertNotIn("no power", boost.lower())
-
-
-class TestFcrE2FanFaultFacts(unittest.TestCase):
-    def test_extracts_e2_and_fan_readings(self):
-        facts = extract_stated_facts(
-            WO_155578 + ". fan V 14.28-10.37 V; fan amps 0.383-0.442 A; E2 returned after thaw"
-        )
-        self.assertEqual(facts.get("fan_fault"), "e2")
-        self.assertEqual(facts.get("fan_volts"), "reported")
-        self.assertEqual(facts.get("fan_amps"), "reported")
-
-    def test_e2_search_boost_is_fan_replacement_not_compressor_only(self):
-        facts = extract_stated_facts(WO_155578)
-        boost = coach_library_search_boost(facts)
-        low = boost.lower()
-        self.assertIn("fan fault", low)
-        self.assertIn("fan replacement", low)
-        self.assertNotIn("inoperable compressor", low)
-        self.assertNotIn("no power", low)
-
-    def test_stated_facts_rule_forbids_board_only_cage(self):
-        rule = format_stated_facts_rule(extract_stated_facts(WO_155578 + " fan V 12.4 V"))
-        low = rule.lower()
-        self.assertIn("never re-ask", low)
-        self.assertIn("freezer evaporator fan", low)
-        self.assertIn("board only", low)
-
-    def test_powered_not_cooling_without_e2_still_not_fan_path(self):
-        facts = extract_stated_facts(CHASE_BAY)
-        self.assertNotIn("fan_fault", facts)
-        self.assertFalse(is_fcr_e2_fan_fault_context("Refrigerators", "Furrion FCR10", CHASE_BAY))
 
 
 class TestFigureAsks(unittest.TestCase):
@@ -272,8 +180,6 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("fcr_e2_search_symptom", src)
         self.assertIn("is_fcr_e2_fan_fault_context", src)
         self.assertIn("rank_chunks_for_fcr_fan_fault", src)
-        self.assertIn("claims_fcr_e2_board_only_cage", src)
-        self.assertIn("ensure_fcr_e2_fan_rr", src)
         self.assertIn("WATER_HEATER_PRODUCT_LOCK", src)
         self.assertIn("water_heater_search_symptom", src)
         self.assertIn("skip_unity_for_water_heater", src)
@@ -281,22 +187,18 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("COOKTOP_PRODUCT_LOCK", src)
         self.assertIn("cooktop_search_symptom", src)
         self.assertIn("is_cooktop_pan_on_flameout_context", src)
-        self.assertIn("ensure_cooktop_tip_pan_check", src)
         self.assertIn("PSX1_PRODUCT_LOCK", src)
         self.assertIn("stabilizer_search_symptom", src)
         self.assertIn("is_stabilizer_override_pin_context", src)
-        self.assertIn("ensure_stabilizer_assembly_rr", src)
         self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", src)
         self.assertIn("ice_moisture_search_symptom", src)
         self.assertIn("is_fridge_ice_moisture_context", src)
         self.assertIn("rank_chunks_for_ice_moisture", src)
-        self.assertIn("ensure_fridge_ice_moisture_path", src)
         self.assertIn("supplement_ice_moisture_pages", src)
         self.assertIn("DIAL_OFF_RUN_PRODUCT_LOCK", src)
         self.assertIn("dial_off_run_search_symptom", src)
         self.assertIn("is_fcr_dial_off_compressor_run_context", src)
         self.assertIn("rank_chunks_for_dial_off_run", src)
-        self.assertIn("ensure_fcr_dial_off_compressor_run_path", src)
         self.assertIn("supplement_dial_off_run_pages", src)
         self.assertIn("complete_chat_with_payload_retry", src)
         self.assertIn("trim_coach_history", src)
@@ -309,14 +211,10 @@ class TestProductSource(unittest.TestCase):
         self.assertIn("CCD-0008666", src)
         self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", src)
         self.assertIn("is_level_up_manual_can_conflict_context", src)
-        self.assertIn("ensure_level_up_manual_can_path", src)
         self.assertIn("rank_chunks_for_level_up_can", src)
-        self.assertIn("ensure_bal_tongue_only_path", src)
         self.assertIn("is_bal_soft_touch_tongue_only_context", src)
         self.assertIn("rank_chunks_for_bal_tongue", src)
         self.assertIn("20300427", src)
-        self.assertIn("ensure_facr_freeze_assembly_rr", src)
-        self.assertIn("ensure_coleman_motor_board_auth", src)
         self.assertIn("is_coleman_2111_context", src)
         self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", src)
         self.assertIn("1976-536", src)

@@ -5,14 +5,10 @@ from gd_library_coach import (
     PSX1_ASSEMBLY_RR_SHOP_LINE,
     PSX1_PRODUCT_LOCK,
     PSX1_SEARCH_BOOST,
-    claims_coupler_only_rr,
-    ensure_stabilizer_assembly_rr,
     is_level_up_advantage_context,
     is_stabilizer_override_pin_context,
     rank_chunks_for_stabilizer_override,
-    reply_recommends_complete_jack_assembly,
     score_stabilizer_override_chunk,
-    stabilizer_reply_needs_assembly_rr,
     stabilizer_search_symptom,
 )
 
@@ -134,44 +130,6 @@ class TestStabilizerRanking(unittest.TestCase):
             score_stabilizer_override_chunk(PSX1_ASSEMBLY, query),
             score_stabilizer_override_chunk(LEVEL_UP, query),
         )
-
-
-class TestStabilizerAssemblyGuard(unittest.TestCase):
-    def test_live_miss_coupler_only_is_caught(self):
-        live = (
-            "Override will not engage. Roll pin is seized. Replace the coupler only. "
-            "See PSX1 CCD-0007345 p.7 override usage."
-        )
-        self.assertTrue(claims_coupler_only_rr(live))
-        self.assertTrue(stabilizer_reply_needs_assembly_rr(live, {"override_pin": "broken_or_seized"}))
-        self.assertFalse(reply_recommends_complete_jack_assembly(live))
-
-    def test_ensure_steers_to_complete_assembly_not_coupler_only(self):
-        live = (
-            "Override pin is seized. Replace the coupler only. "
-            "📖 Source: Lippert PSX1 CCD-0007345 - page 7"
-        )
-        facts = {"override_pin": "broken_or_seized"}
-        fixed = ensure_stabilizer_assembly_rr(live, facts)
-        self.assertTrue(reply_recommends_complete_jack_assembly(fixed))
-        self.assertIn("complete", fixed.lower())
-        self.assertIn("assembly", fixed.lower())
-        self.assertFalse(claims_coupler_only_rr(fixed))
-        self.assertIn(PSX1_ASSEMBLY_RR_SHOP_LINE.split("\n")[0][:40], fixed)
-
-    def test_good_assembly_reply_is_left_alone(self):
-        good = (
-            "Roll pin is seized and not field-serviceable. "
-            "Replace the complete front stabilizer jack assembly. "
-            "Reconnect mount and electrical; retest power and manual.\n"
-            "📖 Source: Lippert PSX1 CCD-0007345"
-        )
-        facts = {"override_pin": "broken_or_seized"}
-        self.assertTrue(reply_recommends_complete_jack_assembly(good))
-        self.assertFalse(claims_coupler_only_rr(good))
-        self.assertFalse(stabilizer_reply_needs_assembly_rr(good, facts))
-        self.assertEqual(ensure_stabilizer_assembly_rr(good, facts), good)
-
 
 
 if __name__ == "__main__":

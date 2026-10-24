@@ -6,7 +6,6 @@ from gd_library_coach import (
     LEVEL_UP_PRODUCT_LOCK,
     LEVEL_UP_SEARCH_BOOST,
     is_firefly_can_path_context,
-    claims_level_up_library_empty,
     drop_unity_chunks_for_level_up,
     figure_library_search_boost,
     figure_render_honesty_note,
@@ -181,31 +180,6 @@ class TestLevelUpRanking(unittest.TestCase):
 
 
 class TestLevelUpHonesty(unittest.TestCase):
-    def test_does_not_claim_empty_when_titles_exist(self):
-        catalog = [
-            {"title": TI005["title"], "indexed": False, "chunk_count": 0},
-            {"title": QR092["title"], "indexed": True, "chunk_count": 2},
-            {"title": UNITY["title"], "indexed": True, "chunk_count": 20},
-        ]
-        note = format_level_up_library_honesty(catalog, chunks=None)
-        self.assertIn("DOES include", note)
-        self.assertIn("TI-005", note)
-        self.assertIn("re-index", note.lower().replace("reindex", "re-index"))
-        self.assertIn("Unity", note)
-        self.assertNotIn("does not include Level Up", note)
-        self.assertFalse(claims_level_up_library_empty(note))
-
-    def test_empty_claim_detector(self):
-        bad = (
-            "The shop Document Library does not include Level Up controller diagnostics. "
-            "I only have the OneControl Unity board manual."
-        )
-        self.assertTrue(claims_level_up_library_empty(bad))
-        good = (
-            "TI-005 Electronic Leveling Troubleshooting Guide is in the shop library "
-            "but is not indexed. Ask a manager to re-index it."
-        )
-        self.assertFalse(claims_level_up_library_empty(good))
 
 
     def test_figure_render_fail_names_level_up_not_missing_library(self):

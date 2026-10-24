@@ -2,15 +2,7 @@
 import unittest
 
 from gd_library_coach import (
-    FACT12_E2_PROVE_LINE,
-    FACT12_E3_AFTER_VOLTS_LINE,
-    FACT12_E3_PROVE_LINE,
     FACT12_FREEZE_RESECURE_LINE,
-    GIRARD_BLOWER_SUCTION_LINE,
-    GROUND_CONTROL_PROVE_LINE,
-    ensure_fact12_freeze_resecure,
-    ensure_girard_petit_align,
-    ensure_ground_control_level_path,
     polish_shop_reply,
 )
 
@@ -121,88 +113,6 @@ class TestLaterTurnAnswersTheFact(unittest.TestCase):
         self.assertNotIn("repair stands", reply.lower())
         self.assertIn("replace the ceiling thermostat", reply.lower())
 
-    def test_s11_voltage_is_not_unchanged_and_reseat_waits(self):
-        prove = ensure_fact12_freeze_resecure(
-            "Reseat it now.",
-            [],
-            "Intermittent E3; sometimes normal.",
-            "Air Conditioning",
-            "FACT12SA2-PS",
-            "Intermittent E3; sometimes normal.",
-        )
-        self.assertIn("12 v", prove.lower())
-        self.assertIn("data line", prove.lower())
-        self.assertNotIn("not in the shop library", prove.lower())
-        history = [
-            {"role": "user", "content": "Intermittent E3; sometimes normal."},
-            {"role": "assistant", "content": prove},
-        ]
-        volts = polish_shop_reply(
-            "The repair is unchanged.",
-            history,
-            "Thermostat reads 13.13 V and the control box 13.59 V; wiring is good.",
-        )
-        self.assertNotIn("unchanged", volts.lower())
-        self.assertNotIn("repair stands", volts.lower())
-        self.assertNotIn("measure 12 v", volts.lower())
-        self.assertNotIn("data line", volts.lower())
-        self.assertIn("freeze sensor", volts.lower())
-        seated = ensure_fact12_freeze_resecure(
-            "Check the nozzles.",
-            history,
-            "Freeze sensor was found disconnected, not in the evaporator.",
-            "Air Conditioning",
-            "FACT12SA2-PS",
-            "Intermittent E3. Freeze sensor was found disconnected, not in the evaporator.",
-        )
-        self.assertIn("reseat the freeze sensor", seated.lower())
-        self.assertNotIn("nozzle", seated.lower())
-
-    def test_s12_does_not_jump_to_air_nozzles(self):
-        history = [
-            {"role": "user", "content": "E2 error code; sometimes normal."},
-            {"role": "assistant", "content": FACT12_E2_PROVE_LINE},
-            {"role": "user", "content": "Not checked yet — what do you recommend next?"},
-            {"role": "assistant", "content": "The freeze-sensor check is still open. Report whether it is fastened on the evaporator coil."},
-        ]
-        reply = ensure_fact12_freeze_resecure(
-            "The shop Document Library excerpts do not list E2 codes. "
-            "Check that all air nozzles are open and outer temp is not too low.",
-            history,
-            "What is the repair?",
-            "Air Conditioning",
-            "FACT12SA2-PS",
-            "E2 error code; sometimes normal. What is the repair?",
-        )
-        self.assertNotIn("nozzle", reply.lower())
-        self.assertNotIn("outer temp", reply.lower())
-        self.assertIn("freeze sensor", reply.lower())
-
-    def test_s13_clear_tubing_goes_to_the_blower(self):
-        reply = ensure_girard_petit_align(
-            "Align the petit tube in the burner flame first and retest.",
-            [{"role": "user", "content": "Gives E8 error code."}],
-            "Tubing is clear.",
-            "(any)",
-            "Girard GSWH-2",
-            "Gives E8 error code. Tubing is clear.",
-        )
-        low = reply.lower()
-        self.assertNotIn("burner flame", low)
-        self.assertIn("blower", low)
-        self.assertIn("suction", low)
-        again = polish_shop_reply(
-            "Repair stands: Align the petit tube in the burner flame and retest.",
-            [
-                {"role": "user", "content": "Girard GSWH-2 gives E8."},
-                {"role": "assistant", "content": GIRARD_BLOWER_SUCTION_LINE},
-                {"role": "user", "content": "Tubing is clear."},
-                {"role": "assistant", "content": GIRARD_BLOWER_SUCTION_LINE},
-            ],
-            "Not checked yet — what do you recommend next?",
-        )
-        self.assertNotIn("repair stands", again.lower())
-        self.assertNotIn("burner flame", again.lower())
 
     def test_s05_not_checked_does_not_copy_the_dial_step(self):
         history = [
@@ -252,28 +162,7 @@ class TestLaterTurnAnswersTheFact(unittest.TestCase):
 
 
 class TestProveBeforeRepair(unittest.TestCase):
-    def test_fact12_e2_asks_before_the_reseat(self):
-        self.assertIn("before any repair", FACT12_E2_PROVE_LINE.lower())
-        self.assertNotIn("reseat", FACT12_E2_PROVE_LINE.lower())
-        self.assertIn("reseat", FACT12_FREEZE_RESECURE_LINE.lower())
 
-    def test_fact12_e3_names_the_communication_path(self):
-        self.assertIn("page 15", FACT12_E3_PROVE_LINE.lower())
-        self.assertIn("page 18", FACT12_E3_PROVE_LINE.lower())
-        self.assertIn("supply readings", FACT12_E3_AFTER_VOLTS_LINE.lower())
-
-    def test_s10_asks_for_the_plugs_before_the_zero_point_sequence(self):
-        first = ensure_ground_control_level_path(
-            "The library has no Ground Control docs, so there are no steps."
-        )
-        self.assertEqual(first, GROUND_CONTROL_PROVE_LINE)
-        self.assertNotIn("front five", first.lower())
-        self.assertNotIn("do not swap a level sensor", first.lower())
-        sequenced = ensure_ground_control_level_path(
-            "Set zero point.",
-            history=[{"role": "user", "content": "The plugs are seated. Auto-level lifts the driver side."}],
-        )
-        self.assertIn("front five", sequenced.lower())
 
     def test_s08_does_not_replace_the_thermostat_before_the_sail_prove(self):
         history = [

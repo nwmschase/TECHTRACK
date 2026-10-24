@@ -78,10 +78,6 @@ DEFAULT_XAI_VISION_MODELS = (
     "grok-2-vision-1212",
 )
 
-PATH_COMPLETE_TRAP_RE = re.compile(
-    r"this path is complete|start a new chat for another symptom branch",
-    re.I,
-)
 
 FIGURE_HINTS = (
     "illustration", "illustrations", "figure", "fig.", " fig ",
@@ -368,32 +364,11 @@ FIREFLY_CAN_SEARCH_BOOST = (
     "Manual Mode flashes home Auto Level works"
 )
 
-# Exact bay voice for the Firefly / Level Up Manual Mode prove.
-FIREFLY_TWO_PLUG_PROVE = (
-    "The Level Up controller has two network plugs. "
-    "One has a rubber boot on it — leave that one alone. "
-    "The other has a cable running to the Firefly / OneControl system — unplug that cable only. "
-    "Then try Manual Mode again."
-)
-FIREFLY_HOLDS_FIX = (
-    "If Manual Mode stays open, Firefly is fighting the Level Up controller. "
-    "Reconnect the Firefly cable after this prove unless you are using the interim. "
-    "The real fix is a Firefly USB firmware update: read GUI and CCM from Settings, "
-    "call Firefly 574-825-4600, and use a USB stick 4 GB or smaller plus the interim file they specify. "
-    "Interim: turn the front-bay main battery switch OFF (solar can stay ON) so Firefly drops, "
-    "or leave the Firefly cable unplugged with the rubber-boot plug still in."
-)
 LEVELUP_FIREFLY_FIRM_LINE = (
     "The repair is to update the Firefly firmware. "
     "Read GUI and CCM from Settings, call Firefly at 574-825-4600, "
     "and use a USB stick of 4 GB or smaller. "
     "Do not replace the Level Up controller."
-)
-FIREFLY_STILL_DUMPS = (
-    "If Manual Mode still dumps home, this is not the Firefly path. "
-    "Stay on the Level Up sensor and harness path. "
-    "Do not swap another Level Up controller for Firefly blame. "
-    "Do not push a Firefly USB firmware update as the fix."
 )
 WIRED_COACH_CAN_RE = re.compile(r"wired\s+coach\s+can", re.I)
 LEVEL_UP_FIGURE_SEARCH_BOOST = (
@@ -408,13 +383,6 @@ LEVEL_UP_ADVANTAGE_HINT_TITLES = (
     "QR-059 ID guide",
 )
 LEVEL_UP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-LEVEL_UP_EMPTY_CLAIM_RE = re.compile(
-    r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
-    r"(level[\s-]*up|807662|leveling controller)|"
-    r"(no|not|lack|missing|doesn't have|does not have|do not have).{0,50}"
-    r"(level[\s-]*up|807662).{0,40}(manual|procedure|diagnos|controller|guide)",
-    re.I,
-)
 
 # Level Up Manual Mode flash-home while Auto Level still works — Firefly/OneControl
 # CAN isolate. Narrow shop path only. Not a Firefly encyclopedia. Not Unity SM.
@@ -423,41 +391,6 @@ LEVEL_UP_CAN_SEARCH_BOOST = (
     "rubber boot network plugs Firefly cable isolate Level Up controller USB firmware"
 )
 LEVEL_UP_CAN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-LEVEL_UP_CAN_ISOLATE_SHOP_LINE = (
-    "Confirm power looks sane and Auto Level still works. Clear sticky Low Voltage, "
-    "Excess Angle, or External Sensor text if it is present. "
-    + FIREFLY_TWO_PLUG_PROVE
-    + "\n"
-    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
-)
-LEVEL_UP_CAN_FIREFLY_SHOP_LINE = (
-    "Manual Mode holds with the Firefly cable unplugged and the rubber-boot plug still in. "
-    + FIREFLY_HOLDS_FIX
-    + "\n"
-    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
-)
-LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE = (
-    "Manual Mode still dumps with the Firefly cable unplugged and the rubber-boot plug still in. "
-    + FIREFLY_STILL_DUMPS
-    + "\n"
-    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
-)
-LEVEL_UP_CAN_CHEAP_PROVES_SHOP_LINE = (
-    "Manual Mode flashes then dumps to home on the Level Up controller. Before you unplug "
-    "the Firefly cable or order parts, confirm power looks sane / no brownout, Auto Level "
-    "(or other pad functions) still work, and the dump is not sticky Low Voltage / Excess "
-    "Angle / External Sensor (clear those first if they are present).\n"
-    "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
-)
-LEVEL_UP_BOARD_SWAP_RE = re.compile(
-    r"(replace|swap|r\s*&\s*r|r and r).{0,50}"
-    r"(another\s+)?(807662|controller|level(?:ing)?\s+board|\blcd\b)",
-    re.I,
-)
-FIREFLY_USB_PUSH_RE = re.compile(
-    r"(firefly.{0,60}usb|usb.{0,40}(firmware|firefly|stick)|574[\s-]*825[\s-]*4600)",
-    re.I,
-)
 
 # Rooftop Air Conditioning (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915 / Brisk, ADB).
 # NOT Lippert OneControl Unity M-Series awning/slide reversing — unless the tech
@@ -521,14 +454,6 @@ FACR_FREEZE_HINT_TITLES = (
     "Furrion Chill FACR",
 )
 AC_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-AC_EMPTY_CLAIM_RE = re.compile(
-    r"(library|manuals?|document library).{0,80}(does not|doesn't|do not|don't|lacks?|no |without).{0,60}"
-    r"(air\s*condit|rooftop\s+a/?c|fact\d|b57915|brisk)|"
-    r"(no|not|lack|missing|doesn't have|does not have|do not have).{0,50}"
-    r"(air\s*condit|rooftop\s+a/?c|fact\d|ac procedure).{0,40}(manual|procedure|diagnos|guide)|"
-    r"(only (has|have)|library only|only the onecontrol|only onecontrol).{0,40}unity",
-    re.I,
-)
 AC_UNITY_ASK_RE = re.compile(
     r"\b(one\s*control|unity|x270|can[\s-]*bus|can[\s-]*multiplex|can[\s-]*network)\b",
     re.I,
@@ -562,14 +487,6 @@ WATER_HEATER_HINT_TITLES = (
     "GSWH-2",
 )
 WATER_HEATER_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-WATER_HEATER_EMPTY_CLAIM_RE = re.compile(
-    r"(library|manuals?|document library).{0,80}"
-    r"(does not include|doesn't include|does not have|doesn't have|do not have|lacks?|without).{0,60}"
-    r"(girard|gswh|water\s*heater|ccd-0009390)|"
-    r"(does not include|doesn't include|does not have|doesn't have|do not have|lacks?|missing|no matching).{0,50}"
-    r"(girard|gswh-?2|water\s*heater|e8).{0,40}(manual|procedure|diagnos|guide)",
-    re.I,
-)
 ERROR_CODE_QUERY_RE = re.compile(r"\b([a-z])[\s-]*([0-9]{1,3})\b", re.I)
 
 # Furrion FCR08/FCR10 fridge E2 / 2-flash / Fan Fault Current (CCD-0008122).
@@ -582,32 +499,6 @@ FAN_FAULT_SEARCH_BOOST = (
     "freezer evaporator fan airflow"
 )
 FCR_E2_FAN_FAULT_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-FCR_E2_NO_SEPARATE_FAN_RE = re.compile(
-    r"(does not list|doesn't list|does not include|doesn't include|"
-    r"does not (?:have|name|show)|doesn't (?:have|name|show)|"
-    r"no separate|not list a separate)"
-    r".{0,60}(freezer )?(evaporator )?fan",
-    re.I,
-)
-FCR_E2_BOARD_ONLY_RE = re.compile(
-    r"(e2|fan fault|2[\s-]*flash).{0,50}"
-    r"(repair |fix |r\s*&\s*r |= |is |means )?"
-    r"(the )?(rear )?(inverter/?|control |driver )?(board only|inverter only)",
-    re.I,
-)
-# SM language already in this repo (leftover tree + p.27 fixture). No invented pages.
-FCR_E2_FAN_RR_SHOP_LINE = (
-    "CCD-0008122 Error Code — Fan Fault Diagnostics includes Fan Replacement "
-    "in Repair Section 2. The SM fan on F+/F− is a replaceable freezer evaporator fan. "
-    "When fan volts/amps are present and E2 / 2-flash returned, recommend freezer "
-    "evaporator fan R&R and the rear inverter/control board — not board only.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 27"
-)
-BOARD_RR_RE = re.compile(
-    r"(replace|r\s*&\s*r|r and r).{0,40}"
-    r"(inverter|control board|driver board|rear (?:control )?board|\bpcb\b)",
-    re.I,
-)
 
 # Suburban Range / Cooktops — pan-on flame-out (thermocouple tip geometry).
 # Do not invent OEM voltages or page numbers. Title bias only.
@@ -623,21 +514,6 @@ COOKTOP_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); 
 COOKTOP_TIP_CITE = (
     "📖 Source: Suburban SDN2U Range/Cooktops SM - page 4 (Figs. 3-4)"
 )
-COOKTOP_TIP_PAN_SHOP_LINE = (
-    "With a pan on the burner, check the thermocouple tip position in the flame. "
-    "Report what you see.\n"
-    + COOKTOP_TIP_CITE
-)
-COOKTOP_PARTS_RR_RE = re.compile(
-    r"(?<!before )(?<!not )(?<!don't )(?<!do not )"
-    r"(replace|r\s*&\s*r|r and r|condemn).{0,50}"
-    r"(thermocouple|flame[\s-]*sensor|safety valve|orifice|regulator|igniter)",
-    re.I,
-)
-COOKTOP_SKIP_AHEAD_RE = re.compile(
-    r"\b(igniter|draft|regulator|orifice|safety valve)\b",
-    re.I,
-)
 
 # Lippert PSX1 front stabilizer — broken/seized override roll pin.
 # CCD-0007345 p.7 is override USAGE, not the end fix for a destroyed pin.
@@ -650,29 +526,10 @@ PSX1_SEARCH_BOOST = (
     "manual crank override roll pin complete assembly"
 )
 PSX1_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-PSX1_PROVE_LINE = (
-    "Does the manual crank turn, and what does the override roll pin or coupler look like? "
-    "Report what you see.\n"
-    "📖 Source: Lippert PSX1 front stabilizer, page 7"
-)
 PSX1_ASSEMBLY_RR_SHOP_LINE = (
     "Replace the complete front stabilizer jack assembly. "
     "Reconnect the mount and the electrical connector, then retest power and the manual crank.\n"
     "📖 Source: Lippert PSX1 CCD-0007345, page 7"
-)
-COUPLER_ONLY_RE = re.compile(
-    r"(replace|r\s*&\s*r|r and r)\s+(the\s+)?(override\s+)?coupler.{0,20}(only|alone)|"
-    r"\bcoupler[\s-]*only\b",
-    re.I,
-)
-COMPLETE_JACK_ASSEMBLY_RE = re.compile(
-    r"(replace|r\s*&\s*r|r and r).{0,50}"
-    r"(complete|entire|whole).{0,20}"
-    r"(front )?(stabilizer )?(jack )?assembly|"
-    r"(complete|entire|whole).{0,20}"
-    r"(front )?(stabilizer )?jack assembly.{0,30}"
-    r"(replace|r\s*&\s*r|r and r)",
-    re.I,
 )
 
 # Furrion FCR / Arctic fridge rear-wall ice / frost / moisture (CCD-0008122 p.36 / Fig.36).
@@ -685,11 +542,6 @@ ICE_MOISTURE_SEARCH_BOOST = (
 ICE_MOISTURE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
 ICE_MONTH_CLOSE = (
     "If ice or moisture persists after drying and waiting 1 month, replace the unit."
-)
-ICE_MOISTURE_SHOP_LINE = (
-    "Rear-wall ice is the Ice and Moisture check. "
-    "Check whether the temperature dial is at maximum. Report the setting.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 36 (Fig. 36)"
 )
 ICE_COOLING_UNIT_LINE = (
     "Replace the cooling unit.\n"
@@ -706,20 +558,6 @@ FRIDGE_NO_POWER_RE = re.compile(
     r")\b",
     re.I,
 )
-FUSE_12V_PATH_RE = re.compile(
-    r"("
-    r"15\s*a(?:tc)?(?:\s+blade)?(?:\s*/\s*cartridge)?(?:\s+fuse)?|"
-    r"front\s+vent(?:\s+cover|\s+cavity)?|"
-    r"fuse\s+location|"
-    r"locate(?:\s+the)?\s+fuse|"
-    r"pull\s+the\s+front\s+vent|"
-    r"check(?:\s+the)?\s+(?:accessible\s+)?(?:customer/tech\s+)?fuse|"
-    r"12\s*v(?:dc)?\s+inverter|"
-    r"inverter\s+(?:pcb|board|path)|"
-    r"no[\s-]*power\s+(?:path|tree|oem|order)"
-    r")",
-    re.I,
-)
 
 
 def _norm(text: str) -> str:
@@ -727,14 +565,6 @@ def _norm(text: str) -> str:
     t = t.replace("—", "-").replace("–", "-")
     t = re.sub(r"\s+", " ", t)
     return t
-
-
-def is_path_complete_trap(text: str) -> bool:
-    """True if a reply uses the old locked-flowchart trap language."""
-    t = text or ""
-    if re.search(r"never say.{0,80}this path is complete", t, re.I | re.S):
-        return False
-    return bool(PATH_COMPLETE_TRAP_RE.search(t))
 
 
 def wants_library_figures(text: str) -> bool:
@@ -927,7 +757,6 @@ def skip_unity_for_level_up(
 ) -> bool:
     """Coach-only: do not inject Unity Electrical search for a Level Up Advantage job."""
     return is_level_up_advantage_context(category_name, model_text, symptom)
-
 
 
 def _has_manual_mode_dump_marker(blob: str) -> bool:
@@ -1536,222 +1365,6 @@ def rank_chunks_for_level_up_can(chunks, query: str = "", limit: int = 8) -> lis
     return out
 
 
-def _claim_is_negated(text: str, match) -> bool:
-    """True when the match sits behind never / do not / don't / unless."""
-    line_start = text.rfind("\n", 0, match.start()) + 1
-    prefix = text[line_start:match.start()].lower()
-    window = text[max(0, match.start() - 90):match.start()].lower()
-    return bool(
-        re.search(
-            r"(never|do not|don't|not a |not the |not push|not swap|"
-            r"not replace|not conclude|unless )",
-            f"{window} {prefix}",
-        )
-    )
-
-
-def reply_offers_can_isolate(reply: str) -> bool:
-    """True when the reply tells the tech to leave the rubber-boot plug and unplug the Firefly cable."""
-    t = _norm(reply)
-    if not t:
-        return False
-    boot = "rubber boot" in t or "rubber-boot" in t or "terminator" in t
-    unplug = bool(re.search(r"\b(unplug|unplugg|disconnect)\b", t))
-    firefly_cable = bool(
-        ("firefly" in t and "cable" in t)
-        or "network plug" in t
-        or "two network" in t
-        or re.search(r"\b(wired|coach)\b.{0,24}\bcan\b", t)
-        or "wired can" in t
-        or "coach can" in t
-        or ("unplug" in t and "can" in t)
-    )
-    return bool(boot and unplug and firefly_cable)
-
-
-def reply_names_firefly_usb_fix(reply: str) -> bool:
-    """True when Firefly USB firmware is the recommended fix (not a do-not)."""
-    t = reply or ""
-    if not t:
-        return False
-    n = _norm(t)
-    if "firefly" not in n and "574-825-4600" not in n and "5748254600" not in n.replace("-", ""):
-        if not ("usb" in n and "firmware" in n):
-            return False
-    found = False
-    for m in FIREFLY_USB_PUSH_RE.finditer(t):
-        if _claim_is_negated(t, m):
-            continue
-        found = True
-        break
-    if not found and "574-825-4600" in n:
-        idx = n.find("574-825-4600")
-        window = n[max(0, idx - 80):idx]
-        if not re.search(r"(never|do not|don't|not push|unless)", window):
-            found = True
-    if not found:
-        return False
-    return bool(
-        ("usb" in n and ("firmware" in n or "firefly" in n or "4 gb" in n or "4gb" in n))
-        or "574-825-4600" in n
-    )
-
-
-def reply_names_firefly_interim(reply: str) -> bool:
-    t = _norm(reply)
-    if not t:
-        return False
-    battery = ("battery" in t and any(k in t for k in ("off", "switch"))) or "main battery" in t
-    can_out = (
-        ("can" in t and any(k in t for k in ("unplug", "unplugg", "out")) and ("terminator" in t or "rubber" in t))
-        or ("firefly" in t and "cable" in t and any(k in t for k in ("unplug", "unplugg")) and ("rubber" in t or "boot" in t or "terminator" in t))
-    )
-    return bool(battery or can_out)
-
-
-def reply_names_can_reconnect(reply: str) -> bool:
-    t = _norm(reply)
-    if not t:
-        return False
-    return bool(
-        re.search(r"\breconnect\b.{0,48}\bcan\b", t)
-        or re.search(r"\bcan\b.{0,48}\breconnect\b", t)
-        or re.search(r"\breconnect\b.{0,48}(firefly|cable)", t)
-        or re.search(r"(firefly|cable).{0,48}\breconnect\b", t)
-    )
-
-
-def reply_swaps_807662_for_firefly(reply: str) -> bool:
-    """True when the reply treats another 807662 / board / LCD swap as the Firefly fix."""
-    t = reply or ""
-    if not t:
-        return False
-    for m in LEVEL_UP_BOARD_SWAP_RE.finditer(t):
-        if _claim_is_negated(t, m):
-            continue
-        return True
-    return False
-
-
-def reply_stays_lippert_path(reply: str) -> bool:
-    t = _norm(reply)
-    if not t:
-        return False
-    return bool(
-        any(k in t for k in ("sensor", "harness", "support"))
-        and any(k in t for k in ("lippert", "not this", "not a firefly", "not firefly"))
-    )
-
-
-def level_up_can_stage(facts: dict = None) -> str:
-    """isolate | firefly | not_firefly | cheap_proves | ''."""
-    facts = facts or {}
-    if facts.get("can_isolate") == "stays":
-        return "firefly"
-    if facts.get("can_isolate") == "still_dumps":
-        return "not_firefly"
-    if facts.get("sticky_level_error") == "present" and facts.get("manual_dump") == "reported":
-        return "cheap_proves"
-    if facts.get("auto_level") == "works" and facts.get("manual_dump") == "reported":
-        return "isolate"
-    if facts.get("manual_dump") == "reported":
-        return "cheap_proves"
-    return ""
-
-
-def level_up_can_reply_needs_guard(reply: str, facts: dict = None) -> bool:
-    """True when this turn would miss the locked CAN / Firefly branch."""
-    if not (reply or "").strip():
-        return False
-    stage = level_up_can_stage(facts)
-    if not stage:
-        return False
-    if stage == "isolate":
-        if reply_swaps_807662_for_firefly(reply) and not reply_offers_can_isolate(reply):
-            return True
-        if reply_names_firefly_usb_fix(reply) and not reply_offers_can_isolate(reply):
-            return True
-        return not reply_offers_can_isolate(reply)
-    if stage == "firefly":
-        if reply_swaps_807662_for_firefly(reply):
-            return True
-        return not (
-            reply_names_firefly_usb_fix(reply)
-            and reply_names_firefly_interim(reply)
-            and reply_names_can_reconnect(reply)
-        )
-    if stage == "not_firefly":
-        if reply_names_firefly_usb_fix(reply) or reply_swaps_807662_for_firefly(reply):
-            return True
-        return not reply_stays_lippert_path(reply)
-    if stage == "cheap_proves":
-        if reply_names_firefly_usb_fix(reply) or reply_swaps_807662_for_firefly(reply):
-            return True
-        if facts and facts.get("sticky_level_error") == "present":
-            return "clear" not in _norm(reply) and "low voltage" not in _norm(reply)
-        return False
-    return False
-
-
-def strip_level_up_board_swap_claims(reply: str) -> str:
-    if not reply or not reply_swaps_807662_for_firefly(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
-        if part and not reply_swaps_807662_for_firefly(part):
-            kept.append(part)
-    return " ".join(kept).strip()
-
-
-def strip_firefly_usb_push_claims(reply: str) -> str:
-    if not reply or not reply_names_firefly_usb_fix(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
-        if part and not reply_names_firefly_usb_fix(part):
-            kept.append(part)
-    return " ".join(kept).strip()
-
-
-def ensure_level_up_manual_can_path(reply: str, facts: dict = None) -> str:
-    """
-    Deterministic shop lines so Manual-dump + Auto-works cannot skip CAN isolate,
-    and so the CAN-out branch cannot ship the wrong Firefly / board-swap fix.
-    """
-    if not reply or not level_up_can_reply_needs_guard(reply, facts):
-        return reply
-    stage = level_up_can_stage(facts)
-    if stage == "isolate":
-        cleaned = strip_level_up_board_swap_claims(reply)
-        if reply_offers_can_isolate(cleaned) and not reply_swaps_807662_for_firefly(cleaned):
-            return cleaned
-        return f"{LEVEL_UP_CAN_ISOLATE_SHOP_LINE}\n\n{cleaned}".strip()
-    if stage == "firefly":
-        cleaned = strip_level_up_board_swap_claims(reply)
-        if (
-            reply_names_firefly_usb_fix(cleaned)
-            and reply_names_firefly_interim(cleaned)
-            and reply_names_can_reconnect(cleaned)
-            and not reply_swaps_807662_for_firefly(cleaned)
-        ):
-            return cleaned
-        return f"{cleaned.rstrip()}\n\n{LEVEL_UP_CAN_FIREFLY_SHOP_LINE}".strip()
-    if stage == "not_firefly":
-        cleaned = strip_firefly_usb_push_claims(strip_level_up_board_swap_claims(reply))
-        if (
-            cleaned
-            and reply_stays_lippert_path(cleaned)
-            and not reply_names_firefly_usb_fix(cleaned)
-            and not reply_swaps_807662_for_firefly(cleaned)
-        ):
-            return cleaned
-        return f"{cleaned.rstrip()}\n\n{LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE}".strip()
-    if stage == "cheap_proves":
-        cleaned = strip_firefly_usb_push_claims(strip_level_up_board_swap_claims(reply))
-        return f"{LEVEL_UP_CAN_CHEAP_PROVES_SHOP_LINE}\n\n{cleaned}".strip()
-    return reply
-
-
 def score_ac_product(page, query: str = "", category: str = "") -> int:
     """
     Higher = Furrion/Dometic rooftop AC / ADB / Brisk / FACT / FACR doc.
@@ -1931,54 +1544,9 @@ def facr_reported_assembly_rr_line(facts: dict | None = None) -> str:
 
 
 FACR_REPORTED_ASSEMBLY_RR_LINE = facr_reported_assembly_rr_line()
-FACR_ASSEMBLY_RR_SHOP_LINE = (
-    "Drain is clear, the fan and filter are good, and the freeze sensor is good. "
-    "Do not keep searching manuals and do not repeat a drain-only check. "
-    "Read the refrigerant pressures before any rooftop assembly replacement. "
-    "Rooftop assembly replacement waits until those pressures are reported.\n"
-    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-)
-FACR_FREEZE_NEXT_SHOP_LINE = (
-    "Stay on the CCD-0007990 condensate path. "
-    "Do not stop to search manuals. "
-    "Order: the condensation drain and the refrigerant pressures first, then the pan, filter and fan, suction line, and freeze sensor. "
-    "Rooftop assembly replacement waits until those pressures are reported.\n"
-    "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-)
 FACR_PRESSURE_HOLD_LINE = (
     "Read the refrigerant pressures.\n"
     "📖 Source: Furrion Rooftop HVAC Troubleshooting & Service Manual CCD-0007990"
-)
-_SEARCHING_MANUALS_RE = re.compile(
-    r"searching (?:the )?(?:manuals|library|documents|service manuals)|"
-    r"let me search|still searching|looking through (?:the )?manuals",
-    re.I,
-)
-_DRAIN_ACTION_RE = re.compile(
-    r"\b(clear|recheck|check|clean|inspect)\b.{0,24}\bdrain\b",
-    re.I,
-)
-_FACR_OFFPATH_RE = re.compile(
-    r"\b("
-    r"dc\s*bus|"
-    r"350\s*v|"
-    r"compressor[\s-]*side|"
-    r"fan\s+(?:motor\s+)?windings?|"
-    r"winding\s+continuity|"
-    r"no\s+compressor\s+start|"
-    r"compressor\s+(?:will\s+not|won't|does\s+not|doesn't)\s+start"
-    r")\b",
-    re.I,
-)
-_FACR_LIBRARY_RR_MISS_RE = re.compile(
-    r"("
-    r"(?:don'?t|do not|does not|doesn't)\s+have.{0,120}(?:r\s*&\s*r|r and r|removal)"
-    r"|paste\s+(?:the\s+|an\s+)?(?:r\s*&\s*r|removal)"
-    r"|(?:no|without|lack(?:ing)?|missing).{0,48}"
-    r"(?:r\s*&\s*r|removal-and-replace|removal and replace).{0,48}"
-    r"(?:step|excerpt|library|procedure|section)"
-    r")",
-    re.I,
 )
 _FACR_AUTH_ASK_RE = re.compile(
     r"\bauthori[sz]e\b.{0,60}\b(?:rooftop(?:\s+assembly)?|assembly)\b"
@@ -2457,68 +2025,12 @@ def reply_names_rooftop_assembly_rr(reply: str) -> bool:
     return bool(assembly and replace and cite and condensate)
 
 
-def reply_stalls_searching_manuals(reply: str) -> bool:
-    text = reply or ""
-    for m in _SEARCHING_MANUALS_RE.finditer(text):
-        if _mention_is_negated(text, m.start()):
-            continue
-        return True
-    return False
-
-
-def reply_loops_drain_only(reply: str) -> bool:
-    """True when the next action is still 'clear the drain' and assembly R&R is absent."""
-    text = reply or ""
-    if reply_names_rooftop_assembly_rr(text):
-        return False
-    for m in _DRAIN_ACTION_RE.finditer(text):
-        if _mention_is_negated(text, m.start()):
-            continue
-        return True
-    return False
-
-
-def _strip_facr_stall_sentences(reply: str) -> str:
-    if not reply:
-        return ""
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
-        if not part:
-            continue
-        if reply_stalls_searching_manuals(part):
-            continue
-        if re.search(r"error contacting ai|no matching manual", part, re.I):
-            continue
-        if reply_loops_drain_only(part):
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def _facr_reply_unusable(reply: str) -> bool:
-    """Blank card, whitespace, or an AI error with no shop action."""
-    text = (reply or "").strip()
-    if not text:
-        return True
-    return bool(re.fullmatch(r"error contacting ai:.*", text, flags=re.I | re.S))
-
-
 def _facr_climax_line(facts: dict | None, history: list = None, latest_msg: str = "") -> str:
     if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
         return facr_pressure_rr_line(facts)
     if facr_gate_turn_authorizes(facts, history, latest_msg):
         return facr_reported_assembly_rr_line(facts)
     return _facr_stay_on_prove_line(facts, history)
-
-
-def reply_drifts_facr_off_freeze_path(reply: str) -> bool:
-    """Compressor no-start, fan-winding continuity, or a DC bus reading."""
-    return bool(_FACR_OFFPATH_RE.search(reply or ""))
-
-
-def reply_refuses_facr_library_rr(reply: str) -> bool:
-    """Library-miss refusal, or a request to paste an R&R section."""
-    return bool(_FACR_LIBRARY_RR_MISS_RE.search(reply or ""))
 
 
 def _facr_next_prove_prompt(facts: dict | None, history: list = None) -> str:
@@ -2608,7 +2120,6 @@ _FACR_INTERNAL_GUARD_RE = re.compile(
     r"|Report the prove that is still open\.?\s*",
     re.I,
 )
-_EARLY_ROOFTOP_RR_RE = re.compile(r"replace the rooftop assembly", re.I)
 
 
 def _strip_facr_internal_guard(text: str) -> str:
@@ -2640,93 +2151,6 @@ def _facr_pressures_already_asked(history: list = None) -> bool:
         if _FACR_PRESSURE_ASK_RE.search(message.get("content") or ""):
             return True
     return False
-
-
-def ensure_facr_early_pressure_ask(
-    reply: str,
-    history: list = None,
-    latest_msg: str = "",
-    category_name: str = "",
-    model_text: str = "",
-) -> str:
-    """Ask for refrigerant pressures on the first FACR prove, then do not loop that ask.
-
-    Pressures alone do not authorize. Once they are reported, they are not asked again.
-    Once an assistant turn has asked, later proves (pan, fan, suction, sensor) can proceed.
-    """
-    if _job_key(history, latest_msg, category_name, model_text) != "facr":
-        return reply or ""
-    if "Here is the repair procedure." in (reply or "") and re.search(r"Step \d+(?::| of\b)", reply or ""):
-        return reply or ""
-    facts = facr_proves_from_chat(history, latest_msg, category_name, model_text)
-    text = (reply or "").strip()
-    pressures_in = facts.get("facr_pressure") == "ok"
-    already = _facr_pressures_already_asked(history)
-    if facr_reported_path_supports_rr(facts) and not pressures_in:
-        if _FACR_PRESSURE_ASK_RE.search(text) and "📖" in text and not (
-            reply_names_rooftop_assembly_rr(text) or _EARLY_ROOFTOP_RR_RE.search(text)
-        ):
-            return text
-        return FACR_PRESSURE_HOLD_LINE
-    if pressures_in or already:
-        if _FACR_PRESSURE_ASK_RE.search(text) and not reply_names_rooftop_assembly_rr(text):
-            nxt = _strip_facr_internal_guard(_facr_stay_on_prove_line(facts, history))
-            if nxt and not _FACR_PRESSURE_ASK_RE.search(nxt):
-                return nxt
-        return text
-    if _FACR_PRESSURE_ASK_RE.search(text):
-        return text
-    ask = "Read the refrigerant pressures."
-    if not text:
-        return ask
-    return f"{ask} {text}"
-
-
-def _facr_terminal_reply_ok(reply: str) -> bool:
-    return bool(
-        reply_names_rooftop_assembly_rr(reply)
-        and not reply_refuses_facr_library_rr(reply)
-        and not reply_drifts_facr_off_freeze_path(reply)
-        and not reply_stalls_searching_manuals(reply)
-        and not reply_loops_drain_only(reply)
-        and not reply_opens_fuse_12v_no_power(reply)
-    )
-
-
-def ensure_facr_freeze_assembly_rr(reply: str, facts: dict | None = None) -> str:
-    """
-    Rooftop assembly R&R is authorized only after refrigerant pressures are reported
-    on the full drain/pan/filter/suction/sensor/thermostat/nozzle/pressure path.
-    Drain clear plus fan/filter OK plus a good freeze sensor is not that card.
-    A library-miss refusal, a paste-the-R&R request, or a compressor / DC-bus detour
-    does not stand. A blank card stays blank until that full path is in.
-    A searching-manuals stall is replaced even before those proves are all in.
-    """
-    facts = facts or {}
-    if facr_terminal_path_complete(facts) or facr_pressure_authorizes_rr(facts):
-        if _facr_terminal_reply_ok(reply):
-            return reply
-        return _facr_climax_line(facts)
-    # The reported drain / pan / filter / fan / nozzle / sensor path is still open.
-    if (
-        reply_names_rooftop_assembly_rr(reply)
-        or _EARLY_ROOFTOP_RR_RE.search(reply or "")
-        or reply_drifts_facr_off_freeze_path(reply)
-        or reply_refuses_facr_library_rr(reply)
-    ):
-        return _facr_stay_on_prove_line(facts)
-    if facts.get("facr_auth_request") == "yes" and _facr_reply_unusable(reply):
-        return _facr_stay_on_prove_line(facts)
-    if facr_proves_complete(facts) and (
-        reply_stalls_searching_manuals(reply)
-        or reply_loops_drain_only(reply)
-        or reply_opens_fuse_12v_no_power(reply)
-    ):
-        return _facr_stay_on_prove_line(facts)
-    if reply and reply_stalls_searching_manuals(reply) and not reply_names_rooftop_assembly_rr(reply):
-        cleaned = _strip_facr_stall_sentences(reply)
-        return f"{FACR_FREEZE_NEXT_SHOP_LINE}\n\n{cleaned}".strip()
-    return reply
 
 
 # Coleman-Mach 2111-0001: Fan High dead + Peacemaker fan locked + run cap OK
@@ -2808,12 +2232,6 @@ _COLEMAN_CAP_OK_WORD_RE = re.compile(
 _COLEMAN_CAP_BAD_RE = re.compile(
     r"\bcap(?:acitor)?\b.{0,32}\b(?:bad|open|short(?:ed)?|failed|0\s*uf)\b|"
     r"\b(?:bad|open|short(?:ed)?|failed)\b.{0,20}\bcap(?:acitor)?\b",
-    re.I,
-)
-_COLEMAN_FISH_RE = re.compile(
-    r"\b(?:next|also|then|another)\b.{0,48}\b(?:test|check|measure)\b|"
-    r"\b(?:check|measure|test)\b.{0,40}\b(?:continuity|winding|ohm)\b|"
-    r"\bcontinuity\b",
     re.I,
 )
 
@@ -3363,50 +2781,9 @@ def is_fact12_freeze_code_context(
     return bool(re.search(r"\be\s*[23]\b", _norm(complaint)))
 
 
-_FACT12_NO_CODE_RE = re.compile(
-    r"("
-    r"do not list or define"
-    r"|does not list or define"
-    r"|don'?t list or define"
-    r"|no e2 definition"
-    r"|not define an e\s*2"
-    r")",
-    re.I,
-)
-
-
 def reply_names_fact12_freeze_resecure(reply: str) -> bool:
     t = _norm(reply)
     return "resecure" in t and "freeze sensor" in t
-
-
-def ensure_fact12_freeze_resecure(
-    reply: str,
-    history: list = None,
-    latest_msg: str = "",
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> str:
-    """FACT12 E2/E3 reseats the freeze sensor. A 'no E2 definition' line does not."""
-    blob = _blob(
-        category_name,
-        model_text,
-        symptom,
-        _chat_user_blob(history, latest_msg),
-    )
-    if not is_fact12_freeze_code_context(category_name, model_text, blob):
-        return reply or ""
-    user = _chat_user_blob(history, latest_msg)
-    if re.search(r"nozzle|outer temp", reply or "", re.I):
-        reply = ""
-    if _SENSOR_LOOSE_RE.search(user) and not _is_fallback_question(latest_msg or ""):
-        return FACT12_FREEZE_RESECURE_LINE
-    if re.search(r"\be\s*3\b", _norm(blob)):
-        if re.search(r"\d+(?:\.\d+)?\s*v\b", _norm(user)):
-            return FACT12_E3_AFTER_VOLTS_LINE
-        return FACT12_E3_PROVE_LINE
-    return FACT12_E2_PROVE_LINE
 
 
 def page_is_ground_control_family(identity: str) -> bool:
@@ -3498,12 +2875,6 @@ GROUND_CONTROL_SEARCH_BOOST = (
 DOMETIC_NOCOOL_SEARCH_BOOST = (
     "Dometic diagnostic service manual 3311071 no cool compressor ceiling thermostat selector"
 )
-GROUND_CONTROL_PROVE_LINE = (
-    "Confirm the controller, jack, and touch pad plugs are seated. "
-    "Report whether those plugs are seated before any zero-point change.\n"
-    "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
-    "(Ground Control TT/2.0/3.0)"
-)
 GROUND_CONTROL_LEVEL_LINE = (
     "Auto-level that lifts the driver side is a zero-point calibration on Lippert Ground Control.\n"
     "1. Do a manual level, then set zero point.\n"
@@ -3515,11 +2886,6 @@ GROUND_CONTROL_LEVEL_LINE = (
     "7. The display reads Zero point stability check, then Zero point set successfully.\n"
     "8. That stored position is the level state, and the touch pad turns off.\n"
     "Zero-point calibration is the repair.\n"
-    "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
-    "(Ground Control TT/2.0/3.0)"
-)
-GROUND_CONTROL_STAY_LINE = (
-    "If the stored level holds, call that calibration the repair and leave the FRONT side alone.\n"
     "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems "
     "(Ground Control TT/2.0/3.0)"
 )
@@ -3539,11 +2905,6 @@ DOMETIC_NOCOOL_CONFIRM_FAN = (
     "📖 Source: Dometic diagnostic service manual 3311071"
 )
 DOMETIC_NOCOOL_STEER = DOMETIC_NOCOOL_OPEN
-FURNACE_SAIL_PROVE_LINE = (
-    "Prove the sail switch with the blower running. "
-    "Report power in and power out before any thermostat replacement.\n"
-    "📖 Source: Suburban Furnace Service and Training Manual"
-)
 FURNACE_WALL_TSTAT_LINE = (
     "Replace the wall thermostat.\n"
     "📖 Source: Suburban Furnace Service and Training Manual"
@@ -3552,24 +2913,6 @@ COOKTOP_TIP_LOW_REPAIR = (
     "Reposition the thermocouple tip in the flame with the pan on. "
     "Figs. 3-4 on page 4 show that tip height.\n"
     + COOKTOP_TIP_CITE
-)
-# Shared with the Bay PDF. Ask for the freeze-sensor check before the reseat.
-FACT12_E2_PROVE_LINE = (
-    "Check whether the freeze sensor is fastened on the evaporator coil. "
-    "Report what you find before any repair.\n"
-    "📖 Source: Furrion Chill FACR08 8K manual CCD-0008666, page 5"
-)
-FACT12_E3_PROVE_LINE = (
-    "FACT12 E3 is the communication path. Measure 12 V and the data line at the connector, "
-    "and check whether the freeze sensor is fastened on the evaporator coil. "
-    "Report those before any repair.\n"
-    "📖 Source: Furrion Chill FACR CCD-0008666, page 15\n"
-    "📖 Source: Furrion Chill FACR CCD-0008666, page 18"
-)
-FACT12_E3_AFTER_VOLTS_LINE = (
-    "Those supply readings are in. Check whether the freeze sensor is fastened "
-    "on the evaporator coil. Report what you find.\n"
-    "📖 Source: Furrion Chill FACR CCD-0008666, page 15"
 )
 FACT12_FREEZE_RESECURE_LINE = (
     "Reseat the freeze sensor on the evaporator coil and retest.\n"
@@ -3582,32 +2925,9 @@ GIRARD_PETIT_ALIGN_LINE = (
     "and report what you find.\n"
     "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
 )
-GIRARD_BLOWER_SUCTION_LINE = (
-    "The sensing tube is at the blower for the air pressure switch. "
-    "With the blower running, confirm suction at that tube and report the result.\n"
-    "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
-)
 GIRARD_SEATING_REPAIR_LINE = (
     "That seating is the repair.\n"
     "📖 Source: Girard tankless water heater service manual CCD-0009390, page 23"
-)
-_LIBRARY_NO_STEPS_RE = re.compile(
-    r"("
-    r"library has no|"
-    r"no steps in the (?:library|manual|excerpt)|"
-    r"(?:does not|doesn't|do not|don't) have.{0,48}(?:steps|procedure)|"
-    r"no (?:procedure|steps).{0,30}(?:library|manual)|"
-    r"library (?:does not|doesn't|doesnt) cover|"
-    r"(?:library|manual|excerpt|excerpts).{0,120}(?:does not|doesn't|doesnt|do not|don't) cover|"
-    r"(?:manual|excerpt|document library) (?:does not|doesn't|doesnt) cover|"
-    r"not covered by (?:the |this )?(?:library|manual|excerpt)|"
-    r"no diagnostic steps"
-    r")",
-    re.I,
-)
-_LIBRARY_MISS_NEG_RE = re.compile(
-    r"\b(do not|don't|dont|never|not say)\b",
-    re.I,
 )
 
 
@@ -3629,178 +2949,11 @@ def dometic_nocoool_search_symptom(category_name: str, model_text: str, symptom:
     return f"{symptom} {DOMETIC_NOCOOL_SEARCH_BOOST}".strip()
 
 
-def _reply_sentences(reply: str) -> list:
-    return [part for part in re.split(r"(?<=[.!?])\s+|\n+", (reply or "").strip()) if part]
-
-
-def claims_library_missing_steps(reply: str) -> bool:
-    """True when the reply says the library has no steps. A 'do not say' warning does not count."""
-    text = reply or ""
-    for match in _LIBRARY_NO_STEPS_RE.finditer(text):
-        window = text[max(0, match.start() - 48):match.start()]
-        if _LIBRARY_MISS_NEG_RE.search(window):
-            continue
-        return True
-    return False
-
-
-def strip_library_no_steps(reply: str) -> str:
-    if not reply or not claims_library_missing_steps(reply):
-        return reply or ""
-    kept = []
-    for part in _reply_sentences(reply):
-        if not claims_library_missing_steps(part):
-            kept.append(part)
-    return " ".join(kept).strip()
-
-
-def library_miss_already_said(history: list = None) -> bool:
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if claims_library_missing_steps(message.get("content") or ""):
-            return True
-    return False
-
-
-def limit_library_miss_mentions(reply: str, history: list = None) -> str:
-    """Keep one library-coverage sentence on the first turn that says it, and none after that."""
-    if not reply or not claims_library_missing_steps(reply):
-        return reply or ""
-    if library_miss_already_said(history):
-        return strip_library_no_steps(reply)
-    kept = []
-    seen = False
-    for part in _reply_sentences(reply):
-        if claims_library_missing_steps(part):
-            if seen:
-                continue
-            seen = True
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
 def reply_names_ground_control_calibration(reply: str) -> bool:
     t = _norm(reply)
     manual = "manual level" in t
     zero = "zero-point" in t or "zero point" in t
     return bool(manual and zero)
-
-
-def reply_has_zero_point_steps(reply: str) -> bool:
-    """True when the reply gives the Electric Leveling button sequence, not only the opener."""
-    t = _norm(reply)
-    front = bool(re.search(r"\bfront\b.{0,48}\b(?:five|5)\b|\b(?:five|5)\b.{0,24}\bfront\b", t))
-    rear = bool(re.search(r"\brear\b.{0,48}\b(?:five|5)\b|\b(?:five|5)\b.{0,24}\brear\b", t))
-    enter = bool(re.search(r"\benter\b", t))
-    return bool(front and rear and enter)
-
-
-_GC_DRIFT_RE = re.compile(
-    r"\bharness\b|\bsensor swap\b|\blevel sensor\b|"
-    r"\b(?:replace|swap|swapping)\b.{0,24}\bsensor\b",
-    re.I,
-)
-_GC_DRIFT_NEG_RE = re.compile(r"\b(do not|don't|dont|never)\b", re.I)
-_ZP_REPEAT_RE = re.compile(
-    r"press and release|five times|manual level|turn the touch pad off|"
-    r"enter to set|zero point calibration|run the jacks|stability check|"
-    r"run manual level, then zero-point",
-    re.I,
-)
-
-
-def _gc_drift_sentence(part: str) -> bool:
-    if _GC_DRIFT_NEG_RE.search(part or ""):
-        return False
-    return bool(_GC_DRIFT_RE.search(part or ""))
-
-
-def _drop_gc_drift_sentences(reply: str) -> str:
-    kept = [part for part in _reply_sentences(reply) if not _gc_drift_sentence(part)]
-    return " ".join(kept).strip()
-
-
-def _history_has_zero_point_steps(history: list = None) -> bool:
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if reply_has_zero_point_steps(message.get("content") or ""):
-            return True
-    return False
-
-
-def _strip_repeated_zero_point(reply: str) -> str:
-    text = (reply or "").strip()
-    lead = GROUND_CONTROL_LEVEL_LINE.strip()
-    if text.startswith(lead):
-        text = text[len(lead):].strip()
-    kept = []
-    for part in _reply_sentences(text):
-        if _ZP_REPEAT_RE.search(part):
-            continue
-        if part.strip() == "📖 Source: Lippert Internal Tech Support – Electric Leveling Systems (Ground Control TT/2.0/3.0)":
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def claims_library_missing_ground_control(reply: str) -> bool:
-    t = _norm(reply)
-    return bool(
-        re.search(
-            r"(library|manual|document).{0,70}(no|not|without|lack|missing).{0,40}"
-            r"(ground control|electric leveling)|"
-            r"(no|not any|don't have|do not have|doesn't have|does not have).{0,40}"
-            r"(ground control|electric leveling)",
-            t,
-        )
-    )
-
-
-def _gc_plugs_reported(history: list = None) -> bool:
-    parts = []
-    for message in history or []:
-        if (message.get("role") or "") == "user":
-            parts.append(message.get("content") or "")
-    blob = _norm(" ".join(parts))
-    return bool(
-        re.search(
-            r"\b(?:plugs?|connectors?)\b.{0,48}\b(?:seated|tight|connected|good)\b|"
-            r"\b(?:seated|tight)\b.{0,48}\b(?:plugs?|connectors?)\b",
-            blob,
-        )
-    )
-
-
-def _gc_plugs_already_asked(history: list = None) -> bool:
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if "plugs are seated" in _norm(message.get("content") or ""):
-            return True
-    return False
-
-
-def ensure_ground_control_level_path(reply: str, history: list = None) -> str:
-    """
-    Ask whether the plugs are seated before the zero-point sequence.
-    Once that ask has shipped, the next turn is the manual-level sequence.
-    A later turn does not get that sequence again, and a harness or sensor swap does not replace it.
-    """
-    cleaned = _drop_gc_drift_sentences(strip_library_no_steps(reply or ""))
-    if not _history_has_zero_point_steps(history) and not _gc_plugs_reported(history):
-        if _gc_plugs_already_asked(history):
-            return GROUND_CONTROL_LEVEL_LINE
-        return GROUND_CONTROL_PROVE_LINE
-    if _history_has_zero_point_steps(history):
-        cleaned = _strip_repeated_zero_point(cleaned)
-        if not cleaned:
-            return GROUND_CONTROL_STAY_LINE
-        return cleaned
-    if reply_has_zero_point_steps(cleaned) and not claims_library_missing_ground_control(cleaned):
-        return cleaned
-    return GROUND_CONTROL_LEVEL_LINE
 
 
 def dometic_bypass_facts(history: list = None, latest_msg: str = "") -> dict:
@@ -3844,59 +2997,6 @@ def dometic_nocoool_open_line(facts: dict | None = None) -> str:
     return DOMETIC_NOCOOL_CONFIRM_FAN
 
 
-def _dometic_reply_has_bypass_path(reply: str) -> bool:
-    low = _norm(reply)
-    if "peacemaker" in low and not re.search(r"\b(clean|replace|check) the filter\b", low):
-        return True
-    return bool("3311071" in (reply or "") and "peacemaker" in low)
-
-
-def _history_has_dometic_bypass(history: list = None) -> bool:
-    for message in history or []:
-        if (message.get("role") or "") != "assistant":
-            continue
-        if _dometic_reply_has_bypass_path(message.get("content") or ""):
-            return True
-    return False
-
-
-def _dometic_reply_restarts_filter(reply: str) -> bool:
-    text = reply or ""
-    if not text.strip() or claims_library_missing_steps(text):
-        return True
-    return bool(re.search(r"\bfilters?\b", text, re.I))
-
-
-def ensure_dometic_ceiling_thermostat(
-    reply: str,
-    facts: dict | None = None,
-    history: list = None,
-) -> str:
-    """
-    Turn 1 with no fan fact confirms the fan runs, then the 3311071 Peacemaker bypass.
-    A stated running fan starts at that bypass. Both bypasses cooling replaces the
-    ceiling thermostat/selector. A later turn keeps a real follow-up.
-    """
-    facts = facts or {}
-    text = repair_glued_sentence(reply or "")
-    open_line = dometic_nocoool_open_line(facts)
-    if (
-        facts.get("dometic_unit_bypass") == "cools"
-        and facts.get("dometic_ceiling_bypass") == "cools"
-    ):
-        low = _norm(text)
-        if "replace the ceiling thermostat" in low and "filter" not in low:
-            return limit_library_miss_mentions(text, history)
-        return DOMETIC_CEILING_LINE
-    if _dometic_reply_has_bypass_path(text) and not re.search(
-        r"\b(clean|replace|check) the filter\b", text, re.I
-    ):
-        return limit_library_miss_mentions(text, history)
-    if _history_has_dometic_bypass(history) and not _dometic_reply_restarts_filter(text):
-        return limit_library_miss_mentions(text, history)
-    return open_line
-
-
 def is_suburban_furnace_context(
     category_name: str = "",
     model_text: str = "",
@@ -3915,35 +3015,6 @@ def is_suburban_furnace_context(
     if "furnace" in _norm(category_name) and "suburban" in blob:
         return True
     return False
-
-
-def _chat_user_blob(history: list = None, latest_msg: str = "") -> str:
-    parts = []
-    for m in history or []:
-        if (m.get("role") or "") == "user":
-            parts.append(m.get("content") or "")
-    if latest_msg:
-        parts.append(latest_msg)
-    return " ".join(parts)
-
-
-def furnace_rw_jumper_ran(text: str) -> bool:
-    """R/W jumper, or a thermostat bypass at the furnace, and the furnace runs."""
-    t = _norm(text)
-    jumper = bool(
-        re.search(
-            r"\br\s*/\s*w\b|\br\s+and\s+w\b|"
-            r"thermostat bypassed|bypassed at the furnace|\bjumped\b",
-            t,
-        )
-    )
-    ran = bool(
-        re.search(
-            r"\b(lights?|lit|runs|running|fires|fired|ignites|ignited|operates|operating)\b",
-            t,
-        )
-    )
-    return bool(jumper and ran)
 
 
 def asks_what_is_the_repair(text: str) -> bool:
@@ -5991,10 +5062,6 @@ def _thetford_stage(history: list = None, latest_msg: str = "") -> str:
     return "flange"
 
 
-_PHOTO_CONFIRM_RE = re.compile(
-    r"\b(?:photo|picture|sent|attached|yes|done|ok|okay|here)\b",
-    re.I,
-)
 _THETFORD_HOLD_RE = re.compile(r"\b(?:not yet|not checked yet|hold on|wait)\b", re.I)
 
 
@@ -7543,7 +6610,6 @@ def _live_close_reply(
 
 
 _STOP_NO_FURTHER_RE = re.compile(r"\bStop\.\s*No further tests\.?\s*", re.I)
-_COOKTOP_RUNON_RE = re.compile(r"under load\s+[A-Z]")
 
 
 def _strip_stop_no_further_tests(text: str) -> str:
@@ -7688,35 +6754,6 @@ def _history_asked_furnace_12v(history: list = None) -> bool:
         if reply_loops_furnace_12v(message.get("content") or ""):
             return True
     return False
-
-
-def ensure_furnace_wall_thermostat(
-    reply: str,
-    history: list = None,
-    latest_msg: str = "",
-    category_name: str = "",
-    model_text: str = "",
-) -> str:
-    """
-    A furnace that runs on a thermostat bypass gets the sail-switch prove first.
-    The wall thermostat is replaced only after that prove is reported.
-    """
-    reply = limit_library_miss_mentions(reply or "", history)
-    blob = _blob(category_name, model_text, _chat_user_blob(history, latest_msg))
-    if not is_suburban_furnace_context(category_name, model_text, blob):
-        return reply
-    if not furnace_rw_jumper_ran(blob):
-        return reply
-    prior_user = _norm(_chat_user_blob(history, ""))
-    latest_user = _norm(latest_msg or "")
-    sail_reported = bool(re.search(r"\bsail\b", prior_user)) or (
-        bool(re.search(r"\bsail\b", latest_user)) and not _is_fallback_question(latest_msg or "")
-    )
-    if not sail_reported:
-        return FURNACE_SAIL_PROVE_LINE
-    # The sail-switch result is the proving fact. The repair is the thermostat,
-    # not another measure-the-sail-switch conditional.
-    return FURNACE_WALL_TSTAT_LINE
 
 
 def cooktop_tip_sits_low(text: str) -> bool:
@@ -7881,26 +6918,6 @@ def reply_authorizes_coleman_full_assembly(reply: str) -> bool:
     return False
 
 
-def reply_fishes_coleman_more_tests(reply: str) -> bool:
-    t = reply or ""
-    if re.search(r"\b(?:no further tests|do not run more tests)\b", t, re.I):
-        return False
-    return bool(_COLEMAN_FISH_RE.search(t))
-
-
-def ensure_coleman_motor_board_auth(reply: str, facts: dict | None = None) -> str:
-    """
-    Evidence complete → motor + control board authorization only.
-    Incomplete evidence is left alone. No invented page numbers.
-    """
-    facts = facts or {}
-    if not coleman_motor_board_evidence_complete(facts):
-        return reply
-    # Stall current and a near-rated capacitor close the prove. The card is the
-    # repair. A conditional that still names those checks is not sent again.
-    return COLEMAN_MOTOR_BOARD_AUTH_LINE
-
-
 def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
     """
     When Level-Up titles exist on the catalog, never claim the library lacks them.
@@ -7954,21 +6971,6 @@ def format_level_up_library_honesty(catalog_docs, chunks=None) -> str:
             "do not invent Unity as the controller manual."
         )
     return "\n".join(lines)
-
-
-def claims_level_up_library_empty(reply: str) -> bool:
-    """True when a coach reply falsely says the library has no Level Up procedure."""
-    t = reply or ""
-    if not t:
-        return False
-    if LEVEL_UP_EMPTY_CLAIM_RE.search(t):
-        return True
-    low = _norm(t)
-    if "unity" in low and any(
-        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
-    ):
-        return True
-    return False
 
 
 def format_ac_library_honesty(catalog_docs, chunks=None) -> str:
@@ -8025,22 +7027,6 @@ def format_ac_library_honesty(catalog_docs, chunks=None) -> str:
             "do not invent Unity as the AC manual."
         )
     return "\n".join(lines)
-
-
-def claims_ac_library_empty(reply: str) -> bool:
-    """True when a coach reply falsely says the library has no AC procedure / only Unity."""
-    t = reply or ""
-    if not t:
-        return False
-    if AC_EMPTY_CLAIM_RE.search(t):
-        return True
-    low = _norm(t)
-    if "unity" in low and any(
-        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
-    ):
-        if any(k in low for k in ("air condition", "rooftop", "fact", "brisk", "ac ")):
-            return True
-    return False
 
 
 def error_code_query_terms(text: str) -> set:
@@ -8105,61 +7091,6 @@ def is_girard_petit_tube_context(
         return False
     blob = _blob(category_name, model_text, symptom)
     return bool(re.search(r"\be\s*8\b", blob) or "petit tube" in blob or "petit-tube" in blob)
-
-
-def girard_petit_facts(history: list = None, latest_msg: str = "") -> dict:
-    """Tubing-clear and APS/harness facts from the tech's own words."""
-    blob = _norm(_chat_user_blob(history, latest_msg))
-    facts = {}
-    if re.search(
-        r"\btubing is clear\b|"
-        r"\b(tubing|petit tube|petit-tube)\b.{0,32}\b(clear|ok|good|connected)\b|"
-        r"\b(clear|connected)\b.{0,16}\b(tubing|petit tube)\b",
-        blob,
-    ):
-        facts["girard_tube"] = "clear"
-    if re.search(
-        r"\baps\b.{0,48}\b(ok|okay|good|fine)\b|"
-        r"\bharness continuity\b.{0,24}\b(ok|okay|good|fine)\b",
-        blob,
-    ):
-        facts["girard_aps"] = "ok"
-    return facts
-
-
-def ensure_girard_petit_align(
-    reply: str,
-    history: list = None,
-    latest_msg: str = "",
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> str:
-    """
-    After the tube is clear, an APS/harness pass or a repair ask is the
-    alignment fix. Do not repeat the vent and petit-tube check.
-    """
-    blob = _blob(category_name, model_text, symptom, _chat_user_blob(history, latest_msg))
-    if not is_girard_petit_tube_context(category_name, model_text, blob):
-        return reply
-    facts = girard_petit_facts(history, latest_msg)
-    ready = facts.get("girard_tube") == "clear" and (
-        facts.get("girard_aps") == "ok"
-        or asks_what_is_the_repair(latest_msg or "")
-        or asks_what_next(latest_msg or "")
-        or bool(re.search(r"\btubing is clear\b", _norm(latest_msg or "")))
-    )
-    if "burner flame" in _norm(reply):
-        reply = ""
-    if _girard_seating_confirmed(_chat_user_blob(history, latest_msg)):
-        return GIRARD_SEATING_REPAIR_LINE
-    if facts.get("girard_tube") == "clear":
-        return GIRARD_BLOWER_SUCTION_LINE
-    if not ready:
-        if reply and "blower" in _norm(reply):
-            return reply
-        return GIRARD_PETIT_ALIGN_LINE
-    return GIRARD_BLOWER_SUCTION_LINE
 
 
 def tech_asks_unity_for_water_heater(
@@ -8355,22 +7286,6 @@ def format_water_heater_library_honesty(catalog_docs, chunks=None) -> str:
     return "\n".join(lines)
 
 
-def claims_water_heater_library_empty(reply: str) -> bool:
-    """True when a coach reply falsely says the library has no GSWH-2 / water heater procedure."""
-    t = reply or ""
-    if not t:
-        return False
-    if WATER_HEATER_EMPTY_CLAIM_RE.search(t):
-        return True
-    low = _norm(t)
-    if "unity" in low and any(
-        p in low for p in ("only has", "only have", "library only", "only the onecontrol", "only onecontrol")
-    ):
-        if any(k in low for k in ("water heater", "girard", "gswh", "e8")):
-            return True
-    return False
-
-
 def _has_fcr_e2_fan_fault_marker(blob: str) -> bool:
     """E2 / 2-flash / Fan Fault Current / freezer-fan readings — fridge wording only."""
     t = _norm(blob)
@@ -8495,101 +7410,6 @@ def rank_chunks_for_fcr_fan_fault(chunks, query: str = "", limit: int = 8) -> li
         if len(out) >= limit:
             break
     return out
-
-
-def _match_not_negated(pattern, text: str) -> bool:
-    """True if pattern matches a claim that is not a 'never / do not' instruction."""
-    t = text or ""
-    for m in pattern.finditer(t):
-        line_start = t.rfind("\n", 0, m.start()) + 1
-        prefix = t[line_start:m.start()].lower()
-        if re.search(
-            r"(never say|never treat|do not|don't|do not treat|not treat|not say)",
-            prefix,
-        ):
-            continue
-        return True
-    return False
-
-
-def claims_fcr_e2_board_only_cage(reply: str) -> bool:
-    """True when a coach reply cages FCR E2 to board-only / 'no separate fan'."""
-    t = reply or ""
-    if not t:
-        return False
-    if _match_not_negated(FCR_E2_NO_SEPARATE_FAN_RE, t):
-        return True
-    if _match_not_negated(FCR_E2_BOARD_ONLY_RE, t):
-        return True
-    return False
-
-
-def reply_names_freezer_fan_rr(reply: str) -> bool:
-    """True when the reply already reaches freezer evaporator fan / Fan Replacement."""
-    t = _norm(reply)
-    if not t:
-        return False
-    if "fan replacement" in t:
-        return True
-    if any(k in t for k in ("freezer evaporator fan", "evaporator fan")) and any(
-        k in t for k in ("replace", "r&r", "r & r")
-    ):
-        return True
-    if any(
-        k in t
-        for k in (
-            "inverter pcb and fan",
-            "board and fan",
-            "board + fan",
-            "board and the fan",
-        )
-    ):
-        return True
-    return False
-
-
-def reply_recommends_rear_board_rr(reply: str) -> bool:
-    return bool(BOARD_RR_RE.search(reply or ""))
-
-
-def fcr_e2_reply_needs_fan_rr(reply: str, facts: dict = None) -> bool:
-    """
-    True when this E2 turn would ship without freezer evaporator fan R&R:
-    explicit board-only cage, or board R&R with fan volts/amps already reported.
-    """
-    if not (reply or "").strip():
-        return False
-    if claims_fcr_e2_board_only_cage(reply):
-        return True
-    facts = facts or {}
-    readings = bool(facts.get("fan_volts") or facts.get("fan_amps"))
-    if readings and reply_recommends_rear_board_rr(reply) and not reply_names_freezer_fan_rr(reply):
-        return True
-    return False
-
-
-def strip_fcr_e2_board_only_claims(reply: str) -> str:
-    """Drop sentences that deny a separate fan or say E2 is board-only."""
-    if not reply or not claims_fcr_e2_board_only_cage(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
-        if part and not claims_fcr_e2_board_only_cage(part):
-            kept.append(part)
-    return " ".join(kept).strip() or reply
-
-
-def ensure_fcr_e2_fan_rr(reply: str, facts: dict = None) -> str:
-    """
-    Deterministic shop line so E2 cannot ship as board-only.
-    Uses CCD-0008122 Fan Fault Diagnostics / Fan Replacement language already in-repo.
-    """
-    if not reply or not fcr_e2_reply_needs_fan_rr(reply, facts):
-        return reply
-    cleaned = strip_fcr_e2_board_only_claims(reply)
-    if "includes fan replacement in repair section 2" in _norm(cleaned):
-        return cleaned
-    return f"{cleaned.rstrip()}\n\n{FCR_E2_FAN_RR_SHOP_LINE}".strip()
 
 
 def is_cooktop_library_title(title: str) -> bool:
@@ -8777,140 +7597,11 @@ def rank_chunks_for_cooktop_pan_on(chunks, query: str = "", limit: int = 8) -> l
     return out
 
 
-def reply_names_cooktop_tip_pan_check(reply: str) -> bool:
-    """True when the reply already tells the tech to check tip position with a pan on."""
-    t = _norm(reply)
-    if not t:
-        return False
-    tip = "tip" in t or "geometry" in t
-    position = any(k in t for k in ("position", "geometry", "in the flame", "in the burner"))
-    pan = any(k in t for k in ("pan", "cookware", "pot", "skillet"))
-    return bool(tip and position and pan)
-
-
-def reply_jumps_to_cooktop_parts_rr(reply: str) -> bool:
-    """True when the reply condemns / R&Rs cooktop parts without a tip+pan check."""
-    return bool(COOKTOP_PARTS_RR_RE.search(reply or ""))
-
-
-def cooktop_reply_needs_tip_pan(reply: str) -> bool:
-    """True when a pan-on flame-out turn would ship without tip/position/pan first."""
-    if not (reply or "").strip():
-        return False
-    if reply_names_cooktop_tip_pan_check(reply) and reply_has_tip_pan_before_parts(reply):
-        return False
-    if reply_jumps_to_cooktop_parts_rr(reply):
-        return True
-    if COOKTOP_SKIP_AHEAD_RE.search(reply or "") and not reply_names_cooktop_tip_pan_check(reply):
-        return True
-    if not reply_names_cooktop_tip_pan_check(reply):
-        return True
-    return False
-
-
-def reply_has_tip_pan_before_parts(reply: str) -> bool:
-    """Success check: tip/position/pan appear before parts R&R (or no parts R&R yet)."""
-    text = reply or ""
-    if not reply_names_cooktop_tip_pan_check(text):
-        return False
-    t = _norm(text)
-    tip_at = t.find("tip")
-    if tip_at < 0:
-        tip_at = t.find("geometry")
-    pan_at = -1
-    for key in ("cookware", "pan", "pot", "skillet"):
-        idx = t.find(key)
-        if idx >= 0 and (pan_at < 0 or idx < pan_at):
-            pan_at = idx
-    first_check = min(i for i in (tip_at, pan_at) if i >= 0)
-    parts_at = None
-    for m in COOKTOP_PARTS_RR_RE.finditer(text):
-        line_start = text.rfind("\n", 0, m.start()) + 1
-        prefix = text[line_start:m.start()].lower()
-        if re.search(r"(before|never|do not|don't|not condemn|not replace)", prefix):
-            continue
-        parts_at = m.start()
-        break
-    if parts_at is None:
-        return True
-    return first_check < parts_at
-
-
-_COOKTOP_OTHER_PAGES_RE = re.compile(
-    r"do you have other pages|other pages from that manual|"
-    r"do you have a different page(?: or section)?|different page or section",
-    re.I,
-)
 _STRAY_PAGE_RE = re.compile(
     r"do you have (?:other pages|a different page(?: or section)?)"
     r"(?: from (?:that|the) [\w /-]+manual)?[^.?!\n]*[.?!]?",
     re.I,
 )
-
-
-def _strip_cooktop_contradiction(reply: str) -> str:
-    """Drop a library-coverage denial and the follow-up ask for other pages."""
-    text = _STRAY_PAGE_RE.sub("", strip_library_no_steps(reply or ""))
-    kept = []
-    for part in _reply_sentences(text):
-        if _COOKTOP_OTHER_PAGES_RE.search(part):
-            continue
-        if claims_library_missing_steps(part):
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def _cooktop_cites_page4(reply: str) -> bool:
-    t = _norm(reply)
-    page = "page 4" in t or "p.4" in t or "p. 4" in t
-    figs = "fig" in t
-    return bool(page and figs)
-
-
-def _with_cooktop_page4_cite(reply: str) -> str:
-    text = _strip_cooktop_contradiction(reply or "").strip()
-    if not text:
-        return COOKTOP_TIP_PAN_SHOP_LINE
-    if _cooktop_cites_page4(text):
-        return text
-    return f"{text.rstrip()}\n{COOKTOP_TIP_CITE}"
-
-
-def ensure_cooktop_tip_pan_check(reply: str, complaint: str = "", history: list = None) -> str:
-    """
-    Deterministic shop line so pan-on flame-out cannot skip tip geometry.
-    A low tip that the pan pushes gets that repair and cites SDN2U page 4, Figs. 3-4.
-    A sentence that says the library does not cover tip position does not ship with the repair.
-    """
-    cleaned = _strip_excerpt_guard(_strip_cooktop_contradiction(reply or ""))
-    repair_ask = asks_what_is_the_repair(complaint or "") and _has_pan_on_flameout_marker(
-        complaint or ""
-    )
-    if _COOKTOP_RUNON_RE.search(cleaned):
-        if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
-            return COOKTOP_TIP_LOW_REPAIR
-        return COOKTOP_TIP_PAN_SHOP_LINE
-    if cooktop_tip_sits_low(f"{complaint or ''} {cleaned}") or repair_ask:
-        low = _norm(cleaned)
-        if (
-            "reposition" in low
-            and "tip" in low
-            and ("pan" in low or "cookware" in low)
-            and _cooktop_cites_page4(cleaned)
-            and not claims_library_missing_steps(cleaned)
-        ):
-            return cleaned
-        return COOKTOP_TIP_LOW_REPAIR
-    reply = cleaned
-    if reply and reply_names_cooktop_tip_pan_check(reply) and reply_has_tip_pan_before_parts(reply):
-        return _with_cooktop_page4_cite(reply)
-    if not reply or not cooktop_reply_needs_tip_pan(reply):
-        return reply
-    if "with cookware on" in _norm(reply) and "tip" in _norm(reply):
-        if reply_has_tip_pan_before_parts(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}"):
-            return _with_cooktop_page4_cite(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}")
-    return _with_cooktop_page4_cite(f"{COOKTOP_TIP_PAN_SHOP_LINE}\n\n{reply}")
 
 
 def _is_stabilizer_blob(blob: str) -> bool:
@@ -8956,43 +7647,12 @@ def _has_override_pin_marker(blob: str) -> bool:
     return False
 
 
-# BAL Soft-Touch SS 5.1 — electric tongue jack ONLY dead.
-# Other stabilizers and panel lights still work. Climax is the soft-touch
-# user panel 20300427, or a tongue-pigtail repair after the panel voltage prove.
-# Coupler / shear-pin / 30A fuse / remote stab harness are not the primary.
-BAL_TONGUE_PART = "20300427"
 BAL_TONGUE_DOC = "INS.STA.001"
-BAL_TONGUE_SOURCE = "📖 Source: BAL SS 5.1 Stabilizing System INS.STA.001"
 BAL_TONGUE_SEARCH_BOOST = (
     "BAL Soft-Touch SS 5.1 INS.STA.001 20300427 soft-touch user panel "
     "tongue jack output wire pigtail panel-to-motor"
 )
 BAL_TONGUE_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-BAL_TONGUE_PROVE_SHOP_LINE = (
-    "The electric tongue jack is the only jack that is dead. The other stabilizers "
-    "and the soft-touch panel lights still work.\n"
-    "1. Press tongue extend/retract and check for 12V on the tongue jack output wire at the panel. "
-    "Report that voltage.\n"
-    + BAL_TONGUE_SOURCE
-)
-BAL_TONGUE_PANEL_SHOP_LINE = (
-    "No 12V on the tongue jack output wire at the panel, and the other stabilizers and panel lights still work. "
-    "Replace the soft-touch user panel 20300427. Do not replace the coupler or the shear pin, and do not open "
-    "the 30A fuse or the remote stabilizer harness.\n"
-    + BAL_TONGUE_SOURCE
-)
-BAL_TONGUE_PIGTAIL_SHOP_LINE = (
-    "12V is present on the tongue jack output wire at the panel. Repair the local tongue pigtail and the "
-    "panel-to-motor leads. That is the confirmed correction after the panel voltage prove. "
-    "Do not replace the coupler or open the 30A fuse or the remote stabilizer harness.\n"
-    + BAL_TONGUE_SOURCE
-)
-BAL_TONGUE_COUPLER_SHOP_LINE = (
-    "The manual override will not turn, or the motor failed a direct-12V prove. "
-    "Replace the coupler. Do not start on the 30A fuse or the remote stabilizer harness, "
-    "and do not replace the soft-touch user panel as the primary part for this prove.\n"
-    + BAL_TONGUE_SOURCE
-)
 _BAL_FAMILY_RE = re.compile(
     r"\b(bal|norco|soft[\s-]*touch|ss\s*5\.1|ss5\.1|20300427|ins\.?\s*sta\.?\s*001)\b",
     re.I,
@@ -9017,22 +7677,6 @@ _ALL_JACKS_DEAD_RE = re.compile(
     r"\b(all|both|no)\s+(?:the\s+)?(?:jacks|stabilizers)\b.{0,24}\b(dead|won't|wont|not)\b|"
     r"\bstabilizers?\b.{0,24}\b(also\s+)?(dead|won't|wont|do not work|don't work)\b|"
     r"\bno\s+lights?\b|\blights?\s+(?:are\s+)?(?:out|dead|off)\b",
-    re.I,
-)
-_BAL_BANNED_PRIMARY_RE = re.compile(
-    r"("
-    r"\bcoupler\b|"
-    r"shear[\s-]*pin|"
-    r"\b21700072\b|"
-    r"\b30\s*a\b|"
-    r"\bfuse\b|"
-    r"remote\s+stab|"
-    r"stabilizer harness"
-    r")",
-    re.I,
-)
-_BAL_FUSE_HARNESS_RE = re.compile(
-    r"(\b30\s*a\b|\bfuse\b|remote\s+stab|stabilizer harness)",
     re.I,
 )
 
@@ -9121,64 +7765,6 @@ def is_bal_soft_touch_tongue_only_context(
     return bool(stabs_ok or lights_ok or only)
 
 
-def extract_bal_tongue_facts(text: str) -> dict:
-    """Stage facts for the tongue-only path. Does not require the full complaint."""
-    raw = text or ""
-    norm = _norm(raw)
-    if not norm:
-        return {}
-    facts = {}
-    if re.search(
-        r"(no|0|zero|missing|without)\s+12\s*v.{0,64}tongue|"
-        r"\b0\s*v.{0,80}\b(?:tongue|panel)\b|"
-        r"tongue (?:jack )?output(?: wire)?.{0,40}(no|0|zero|missing|dead)\s*12|"
-        r"tongue channel.{0,40}(no|0|zero|missing|dead)\s*12|"
-        r"no voltage.{0,32}tongue (?:jack )?output|"
-        r"no voltage.{0,24}tongue channel",
-        norm,
-    ):
-        facts["tongue_channel_volts"] = "missing"
-    elif re.search(
-        r"12\s*v.{0,72}tongue (?:jack )?output|"
-        r"tongue (?:jack )?output(?: wire)?.{0,40}(has|have|shows|reads|present|good|ok)|"
-        r"12\s*v.{0,48}tongue channel|tongue channel.{0,40}(has|have|shows|reads|present|good|ok)|"
-        r"(have|has|shows)\s+12\s*v.{0,32}tongue",
-        norm,
-    ):
-        facts["tongue_channel_volts"] = "present"
-    motor = _bal_motor_direct_result(raw)
-    if motor:
-        facts["tongue_motor_12v"] = motor
-    if re.search(r"\bcoupler\b", norm) and re.search(r"\b(ok|good|engaged|fine)\b", norm):
-        if not re.search(r"\bcoupler\b.{0,24}\b(bad|broken|sheared|stripped|failed)\b", norm):
-            facts["tongue_coupler"] = "ok"
-    elif re.search(r"\b(shear[\s-]*pin|coupler\b.{0,24}\b(bad|broken|sheared|stripped))\b", norm):
-        facts["tongue_coupler"] = "bad"
-    if _bal_override_wont_turn(raw):
-        facts["tongue_override"] = "wont_turn"
-    elif re.search(r"\boverride\b.{0,32}\b(turns|turned|works|working)\b", norm):
-        facts["tongue_override"] = "turns"
-    if re.search(r"\bpigtail\b", norm) and re.search(
-        r"\b(open|bad|broken|repair|failed|no continuity)\b", norm
-    ):
-        facts["tongue_pigtail"] = "bad"
-    elif re.search(r"\bpigtail\b", norm) and re.search(r"\b(ok|good|fine)\b", norm):
-        facts["tongue_pigtail"] = "good"
-    return facts
-
-
-def bal_tongue_stage(facts: dict | None) -> str:
-    """prove | panel | pigtail | coupler."""
-    facts = facts or {}
-    if facts.get("tongue_override") == "wont_turn" or facts.get("tongue_motor_12v") == "fail":
-        return "coupler"
-    if facts.get("tongue_channel_volts") == "missing":
-        return "panel"
-    if facts.get("tongue_channel_volts") == "present":
-        return "pigtail"
-    return "prove"
-
-
 def bal_tongue_search_symptom(category_name: str, model_text: str, symptom: str) -> str:
     symptom = (symptom or "").strip()
     if not is_bal_soft_touch_tongue_only_context(category_name, model_text, symptom):
@@ -9256,150 +7842,6 @@ def rank_chunks_for_bal_tongue(chunks, query: str = "", limit: int = 8) -> list:
         if len(out) >= limit:
             break
     return out or [ch for _sc, ch in scored[:limit]]
-
-
-def _first_unnegated(text: str, pattern: re.Pattern):
-    for m in pattern.finditer(text or ""):
-        if _mention_is_negated(text, m.start()):
-            continue
-        return m.start()
-    return None
-
-
-def reply_leads_with_bal_banned_primary(reply: str) -> bool:
-    """Coupler / shear-pin / fuse / 30A / remote harness is the first action."""
-    text = reply or ""
-    banned_at = _first_unnegated(text, _BAL_BANNED_PRIMARY_RE)
-    if banned_at is None:
-        return False
-    prove_at = None
-    for pat in (
-        r"20300427",
-        r"tongue channel",
-        r"tongue output",
-        r"output wire",
-        r"tongue pigtail",
-        r"soft-touch user panel",
-    ):
-        m = re.search(pat, text, re.I)
-        if m and (prove_at is None or m.start() < prove_at):
-            prove_at = m.start()
-    if prove_at is None:
-        return True
-    return banned_at < prove_at
-
-
-def reply_leads_with_bal_fuse_harness(reply: str) -> bool:
-    text = reply or ""
-    fuse_at = _first_unnegated(text, _BAL_FUSE_HARNESS_RE)
-    if fuse_at is None:
-        return False
-    action_at = None
-    for pat in (
-        r"\bcoupler\b",
-        r"20300427",
-        r"tongue channel",
-        r"tongue output",
-        r"output wire",
-        r"tongue pigtail",
-    ):
-        m = re.search(pat, text, re.I)
-        if m and (action_at is None or m.start() < action_at):
-            action_at = m.start()
-    if action_at is None:
-        return True
-    return fuse_at < action_at
-
-
-def reply_names_tongue_channel_prove(reply: str) -> bool:
-    t = _norm(reply)
-    names_output = bool(
-        re.search(r"tongue (?:jack )?output(?: wire)?|tongue channel", t)
-    )
-    return names_output and bool(re.search(r"12\s*v", t))
-
-
-def reply_names_panel_20300427(reply: str) -> bool:
-    return BAL_TONGUE_PART in (reply or "")
-
-
-def reply_names_pigtail_repair(reply: str) -> bool:
-    t = _norm(reply)
-    return "pigtail" in t and bool(re.search(r"\b(repair|replace|open|bad)\b", t))
-
-
-def reply_names_coupler_path(reply: str) -> bool:
-    t = _norm(reply)
-    return "coupler" in t and not reply_leads_with_bal_fuse_harness(reply)
-
-
-def bal_tongue_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
-    facts = facts or {}
-    stage = bal_tongue_stage(facts)
-    if stage == "coupler":
-        if reply_leads_with_bal_fuse_harness(reply):
-            return True
-        return not reply_names_coupler_path(reply)
-    if reply_leads_with_bal_banned_primary(reply):
-        return True
-    if stage == "panel":
-        if not reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply):
-            return True
-        # The prove script still asks for the 12V check. The panel is the repair.
-        return _reply_asks_check(reply, _REPEATED_CHECK_RES[2][1])
-    if stage == "pigtail":
-        return not reply_names_pigtail_repair(reply) or not reply_names_tongue_channel_prove(reply)
-    return not (
-        reply_names_tongue_channel_prove(reply)
-        and reply_names_panel_20300427(reply)
-        and reply_names_pigtail_repair(reply)
-    )
-
-
-def _strip_bal_banned_primary_sentences(reply: str) -> str:
-    if not reply:
-        return ""
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
-        if not part:
-            continue
-        if reply_leads_with_bal_banned_primary(part) or reply_leads_with_bal_fuse_harness(part):
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def ensure_bal_tongue_only_path(reply: str, facts: dict | None = None) -> str:
-    """
-    Tongue-only dead with stabilizers and panel lights working cannot ship
-    coupler-first or fuse-first. Climax is 20300427 or the tongue pigtail.
-    """
-    facts = facts or {}
-    stage = bal_tongue_stage(facts)
-    if stage == "prove":
-        if reply_names_panel_20300427(reply) or not reply_names_tongue_channel_prove(reply):
-            return BAL_TONGUE_PROVE_SHOP_LINE
-        return reply or ""
-    lines = {
-        "coupler": BAL_TONGUE_COUPLER_SHOP_LINE,
-        "panel": BAL_TONGUE_PANEL_SHOP_LINE,
-        "pigtail": BAL_TONGUE_PIGTAIL_SHOP_LINE,
-        "prove": BAL_TONGUE_PROVE_SHOP_LINE,
-    }
-    shop = lines[stage]
-    if not bal_tongue_reply_needs_guard(reply, facts):
-        return reply
-    if stage == "coupler":
-        cleaned = reply or ""
-        if reply_leads_with_bal_fuse_harness(cleaned):
-            cleaned = _strip_bal_banned_primary_sentences(cleaned)
-        if reply_names_coupler_path(cleaned) and not reply_leads_with_bal_fuse_harness(cleaned):
-            return cleaned
-        return f"{shop}\n\n{cleaned}".strip()
-    cleaned = _strip_bal_banned_primary_sentences(reply or "")
-    if not bal_tongue_reply_needs_guard(cleaned, facts):
-        return cleaned
-    return f"{shop}\n\n{cleaned}".strip()
 
 
 def is_stabilizer_override_pin_context(
@@ -9487,82 +7929,6 @@ def rank_chunks_for_stabilizer_override(chunks, query: str = "", limit: int = 8)
         if len(out) >= limit:
             break
     return out
-
-
-def claims_coupler_only_rr(reply: str) -> bool:
-    """True when a coach reply treats coupler-only as the end fix."""
-    t = reply or ""
-    if not t:
-        return False
-    for m in COUPLER_ONLY_RE.finditer(t):
-        line_start = t.rfind("\n", 0, m.start()) + 1
-        prefix = t[line_start:m.start()].lower()
-        if re.search(r"(never|do not|don't|not a |not the |not treat)", prefix):
-            continue
-        return True
-    return False
-
-
-def reply_recommends_complete_jack_assembly(reply: str) -> bool:
-    t = reply or ""
-    if COMPLETE_JACK_ASSEMBLY_RE.search(t):
-        return True
-    n = _norm(t)
-    if "complete" in n and "assembly" in n and any(k in n for k in ("replace", "r&r", "r & r")):
-        if "jack" in n or "stabilizer" in n:
-            return True
-    return False
-
-
-def stabilizer_reply_needs_assembly_rr(reply: str, facts: dict = None) -> bool:
-    """True when a broken/seized override-pin turn would ship coupler-only or no assembly."""
-    if not (reply or "").strip():
-        return False
-    if claims_coupler_only_rr(reply):
-        return True
-    facts = facts or {}
-    pin_known = facts.get("override_pin") == "broken_or_seized"
-    n = _norm(reply)
-    pin_in_reply = bool(
-        re.search(r"\b(roll[\s-]*pin|override[\s-]*pin|coupler)\b", n)
-        and re.search(r"\b(broken|seized|seize|sheared|destroyed|not serviceable)\b", n)
-    )
-    if (pin_known or pin_in_reply) and not reply_recommends_complete_jack_assembly(reply):
-        return True
-    return False
-
-
-def strip_coupler_only_claims(reply: str) -> str:
-    """Drop sentences that recommend coupler-only R&R."""
-    if not reply or not claims_coupler_only_rr(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
-        if part and not claims_coupler_only_rr(part):
-            kept.append(part)
-    return " ".join(kept).strip() or reply
-
-
-def ensure_stabilizer_assembly_rr(reply: str, facts: dict = None) -> str:
-    """
-    Deterministic shop line so a destroyed override pin cannot ship as coupler-only.
-    """
-    facts = facts or {}
-    user_said_pin = facts.get("override_pin") == "broken_or_seized"
-    if not user_said_pin:
-        if re.search(r"\b(?:replace|r\s*&\s*r)\b", reply or "", re.I) and re.search(
-            r"jack|stabilizer", reply or "", re.I
-        ):
-            return PSX1_PROVE_LINE
-        return reply or PSX1_PROVE_LINE
-    if not reply or not stabilizer_reply_needs_assembly_rr(reply, facts):
-        return reply
-    cleaned = strip_coupler_only_claims(reply)
-    if reply_recommends_complete_jack_assembly(cleaned) and not claims_coupler_only_rr(cleaned):
-        return cleaned
-    if "complete front stabilizer jack assembly" in _norm(cleaned):
-        return cleaned
-    return f"{cleaned.rstrip()}\n\n{PSX1_ASSEMBLY_RR_SHOP_LINE}".strip()
 
 
 def _is_fridge_job_blob(category_name: str = "", blob: str = "") -> bool:
@@ -9734,96 +8100,9 @@ def rank_chunks_for_ice_moisture(chunks, query: str = "", limit: int = 8) -> lis
     return out
 
 
-def reply_opens_fuse_12v_no_power(reply: str) -> bool:
-    """True when a coach reply opens the No Power / fuse / 12V inverter tree."""
-    t = reply or ""
-    if not t:
-        return False
-    for m in FUSE_12V_PATH_RE.finditer(t):
-        line_start = t.rfind("\n", 0, m.start()) + 1
-        prefix = t[line_start:m.start()].lower()
-        window = t[max(0, m.start() - 90):m.start()].lower()
-        if re.search(
-            r"(never|do not|don't|not a |not the |unless |not open|"
-            r"do not open|not a no-power|not no-power|not a no power)",
-            f"{window} {prefix}",
-        ):
-            continue
-        return True
-    return False
-
-
-def reply_names_ice_moisture_p36(reply: str) -> bool:
-    """True when the reply already cites Ice and Moisture p.36 / Fig.36."""
-    t = _norm(reply)
-    if not t:
-        return False
-    ice = (
-        "ice and moisture" in t
-        or "ice or moisture" in t
-        or ("moisture" in t and "fridge" in t)
-    )
-    page = any(
-        k in t
-        for k in (
-            "page 36",
-            "p.36",
-            "p. 36",
-            "fig. 36",
-            "fig 36",
-            "figure 36",
-            "fig.36",
-        )
-    )
-    return bool(ice and page)
-
-
-def ice_moisture_reply_needs_guard(reply: str) -> bool:
-    """True when a rear-wall ice turn would ship on fuse/12V or without p.36."""
-    if not (reply or "").strip():
-        return False
-    if reply_names_ice_moisture_p36(reply) and not reply_opens_fuse_12v_no_power(reply):
-        return False
-    if reply_opens_fuse_12v_no_power(reply):
-        return True
-    if not reply_names_ice_moisture_p36(reply):
-        return True
-    return False
-
-
-def strip_fuse_12v_no_power_claims(reply: str) -> str:
-    """Drop sentences that open the fuse / 12V no-power tree."""
-    if not reply or not reply_opens_fuse_12v_no_power(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+", reply.strip()):
-        if part and not reply_opens_fuse_12v_no_power(part):
-            kept.append(part)
-    return " ".join(kept).strip()
-
-
 def _ice_has_month_close(reply: str) -> bool:
     t = _norm(reply)
     return "1 month" in t and "replace the unit" in t
-
-
-def ensure_fridge_ice_moisture_path(reply: str) -> str:
-    """
-    Deterministic shop line so rear-wall ice cannot ship as fuse / 12V no-power.
-    The first ask is the dial. Cooling-unit replacement waits until heavy frost returns.
-    """
-    if reply and reply_names_ice_moisture_p36(reply) and not ice_moisture_reply_needs_guard(reply):
-        return reply
-    if not reply or not ice_moisture_reply_needs_guard(reply):
-        return reply
-    cleaned = strip_fuse_12v_no_power_claims(reply)
-    if cleaned and reply_opens_fuse_12v_no_power(cleaned):
-        cleaned = ""
-    if reply_names_ice_moisture_p36(cleaned) and not reply_opens_fuse_12v_no_power(cleaned):
-        return cleaned
-    if cleaned and not reply_opens_fuse_12v_no_power(cleaned) and "dial" in _norm(cleaned):
-        return cleaned
-    return ICE_MOISTURE_SHOP_LINE
 
 
 # Furrion Arctic FCR08/FCR10 — dial/control OFF, compressor still running / overcooling.
@@ -9862,34 +8141,6 @@ DIAL_OFF_RUN_SEARCH_BOOST = (
     "part 2021128850 Repair Section 2"
 )
 DIAL_OFF_RUN_PRODUCT_LOCK = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-DIAL_OFF_RUN_SHOP_LINE = (
-    "Confirm the dial is fully OFF, past the detent. "
-    "Seat the capillary probe and the blue and black thermostat wires. "
-    "Disconnect flag terminals C (blue) and T (black) and leave them open, with no jumper. "
-    "Report whether the compressor stops.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43"
-)
-DIAL_OFF_RUN_PART_SHOP_LINE = (
-    "C (blue) and T (black) were opened with no jumper and the compressor stopped. "
-    "The thermostat was holding a continuous run call. R&R Spark-Free Thermostat "
-    "part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 Repair §2 "
-    "Thermostat Replacement p.43–45 Figs. 57–67: clocking pin to the housing indent, "
-    "straighten the probe, reseat it, reconnect the wires. "
-    "Cite pages 43–45 for the R&R and page 31 for the open C/T prove.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 43\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
-)
-DIAL_OFF_RUN_INVERTER_SHOP_LINE = (
-    "C (blue) and T (black) are open (no jumper) and the compressor keeps running. "
-    "The run call is downstream of the thermostat — escalate inverter/harness "
-    "(secondary), not a fuse recheck and not Spark-Free Thermostat R&R. "
-    "CCD-0008122 p.45 Fig. 70A: at the inverter, C and T connections may be reversed "
-    "and that does not affect product performance. "
-    "Cite page 45 for the inverter note and page 31 for the open C/T prove.\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 45\n"
-    "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 31"
-)
 _DIAL_OFF_RE = re.compile(
     r"\b("
     r"(?:temp(?:erature)?\s+)?(?:control\s+)?dial\s+(?:is\s+|was\s+|set\s+(?:fully\s+)?(?:to\s+)?)?off|"
@@ -9946,92 +8197,6 @@ _NOT_COOLING_OPPOSITE_RE = re.compile(
     r")\b",
     re.I,
 )
-_CT_OPEN_RE = re.compile(
-    r"("
-    r"\bc\s*/\s*t\b|"
-    r"\bc\s+(?:and|&)\s+t\b|"
-    r"flag\s+terminals?|"
-    r"terminals?\s+c\b|"
-    r"\b(?:blue|c)\b.{0,40}\b(?:black|t)\b.{0,24}\b(?:open|disconnect)|"
-    r"no\s+jumper|"
-    r"left\s+(?:them|the\s+terminals?|c\s*/?\s*t)\s+open|"
-    r"open(?:ed)?\s+(?:the\s+)?(?:thermostat\s+)?(?:wires?|flag\s+)?terminals?"
-    r")",
-    re.I,
-)
-_CT_STOPPED_RE = re.compile(
-    r"\b("
-    r"compressor\s+(?:stopped|stops|quit|shut\s+off|turned\s+off|is\s+off|now\s+off)|"
-    r"(?:it|unit)\s+stopped|"
-    r"stopped\s+running|quit\s+running|"
-    r"cycles?\s+off"
-    r")\b",
-    re.I,
-)
-_CT_STILL_RE = re.compile(
-    r"\b("
-    r"still\s+running|keeps?\s+running|kept\s+running|"
-    r"did\s+not\s+stop|didn'?t\s+stop|does\s+not\s+stop|"
-    r"won'?t\s+stop|wont\s+stop|continues?\s+to\s+run|"
-    r"keeps?\s+going|still\s+runs"
-    r")\b",
-    re.I,
-)
-_DIAL_OFF_WRONG_TREE_RE = re.compile(
-    r"("
-    r"\bfuse\b|"
-    r"15\s*a(?:tc)?|"
-    r"front\s+vent|"
-    r"12\s*v(?:dc)?\s+continuity|"
-    r"power\s+continuity|"
-    r"continuity\s+at\s+the\s+(?:appliance|power|unit)|"
-    r"diagnostic\s+led|\bled\s+flash|"
-    r"flash\s+codes?|"
-    r"10\s*ma|"
-    r"inverter\s+control\s+voltage|"
-    r"\bpage\s+18\b|\bp\.\s*18\b|"
-    r"\bpage\s+19\b|\bp\.\s*19\b|"
-    r"\bpage\s+20\b|\bp\.\s*20\b"
-    r")",
-    re.I,
-)
-# Cites outside p.31 and p.43–45, and the written turn-ON sequence, are the wrong tree.
-_PAGE_34_CITE_RE = re.compile(r"\b(?:page\s*34|p\.\s*34)\b", re.I)
-_ON_OFF_AS_WRITTEN_RE = re.compile(
-    r"("
-    r"\bpage\s*23\b|\bp\.\s*23\b|"
-    r"on\s*/\s*off\s+diagnostic|"
-    r"\bfig\.?\s*16\b|"
-    r"turn\s+(?:the\s+)?(?:refrigerator|dial|unit)\s+on\b|"
-    r"(?:set\s+)?(?:the\s+)?dial\s+(?:on\s+)?to\s+(?:dial\s+)?(?:position\s+)?[45]\b|"
-    r"wait\s+2\s+hours"
-    r")",
-    re.I,
-)
-_RUNNING_CONSTANT_THERMOSTAT_RE = re.compile(
-    r"("
-    r"running\s+constantly.{0,80}(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement)|"
-    r"(?:replace\s+(?:the\s+)?thermostat|thermostat\s+replacement).{0,80}running\s+constantly"
-    r")",
-    re.I,
-)
-
-
-def _mention_is_negated(text: str, start: int) -> bool:
-    """True when the match sits in a 'do not / skip / unless' window."""
-    raw = text or ""
-    line_start = raw.rfind("\n", 0, start) + 1
-    prefix = raw[line_start:start].lower()
-    window = raw[max(0, start - 110):start].lower()
-    return bool(
-        re.search(
-            r"(never|do not|don't|dont|not a |not the |unless |not open|"
-            r"do not open|skip |not fuse|do not cite|do not start|do not lead|"
-            r"do not go|not a no-power|not no-power|not fuse-first|"
-            r"skip fuse|skip the|skip ccd)",
-            f"{window} {prefix}",
-        )
-    )
 
 
 def _is_fcr08_fcr10_family(category_name: str = "", blob: str = "") -> bool:
@@ -10085,42 +8250,6 @@ def _has_dial_off_run_complaint(blob: str) -> bool:
     if fcr_off and (overcool or comp_run or still or wont_stop):
         return True
     return False
-
-
-def _ct_prove_result(blob: str) -> str:
-    """'stopped' or 'still_running' when the tech reports an open C/T prove."""
-    if not blob or not _CT_OPEN_RE.search(blob):
-        return ""
-    if _CT_STILL_RE.search(blob):
-        return "still_running"
-    if _CT_STOPPED_RE.search(blob):
-        return "stopped"
-    return ""
-
-
-def ct_prove_from_turn(user_msg: str, facts: dict | None = None) -> str:
-    """
-    Open C/T result. The latest tech line wins over an older prove.
-    Explicit C/T language, or a short follow-up ('compressor stopped'), counts.
-    The original dial-off complaint is not a prove result.
-    """
-    msg = user_msg or ""
-    found = _ct_prove_result(msg)
-    if found:
-        return found
-    if not _has_dial_off_run_complaint(msg):
-        norm = _norm(msg)
-        if norm:
-            if _CT_STILL_RE.search(msg) and (_CT_OPEN_RE.search(msg) or "open" in norm):
-                return "still_running"
-            if _CT_STOPPED_RE.search(msg):
-                return "stopped"
-            if len(norm) <= 80 and re.search(r"\bstopped\b", norm) and "still" not in norm:
-                return "stopped"
-    facts = facts or {}
-    if facts.get("ct_prove") in ("stopped", "still_running"):
-        return facts["ct_prove"]
-    return ""
 
 
 def is_fcr_dial_off_compressor_run_context(
@@ -10234,147 +8363,6 @@ def rank_chunks_for_dial_off_run(chunks, query: str = "", limit: int = 8) -> lis
         if len(out) >= limit:
             break
     return out or [ch for _sc, ch in scored[:limit]]
-
-
-def reply_opens_dial_off_wrong_tree(reply: str) -> bool:
-    """True when a coach reply leads with fuse, 12V, LED, or a cite outside p.31 and p.43–45."""
-    t = reply or ""
-    if not t.strip():
-        return False
-    if (
-        _PAGE_34_CITE_RE.search(t)
-        or _ON_OFF_AS_WRITTEN_RE.search(t)
-        or _RUNNING_CONSTANT_THERMOSTAT_RE.search(t)
-    ):
-        return True
-    for m in _DIAL_OFF_WRONG_TREE_RE.finditer(t):
-        if _mention_is_negated(t, m.start()):
-            continue
-        return True
-    return False
-
-
-def reply_names_dial_off_ct_prove(reply: str) -> bool:
-    """True when the reply already gives the open C/T prove and cites p.31 + p.43."""
-    t = _norm(reply)
-    if not t:
-        return False
-    terminals = any(
-        k in t
-        for k in (
-            "c (blue)",
-            "c/t",
-            "c and t",
-            "flag terminal",
-        )
-    )
-    open_circuit = "no jumper" in t or "leave them open" in t or "left open" in t
-    page_31 = any(k in t for k in ("page 31", "p.31", "p. 31"))
-    page_43 = any(k in t for k in ("page 43", "p.43", "p. 43"))
-    return bool(terminals and open_circuit and page_31 and page_43)
-
-
-def reply_names_spark_free_thermostat_part(reply: str) -> bool:
-    """True when the reply names part G 2021128850 and the R&R pages."""
-    t = _norm(reply)
-    if "2021128850" not in t:
-        return False
-    return any(k in t for k in ("page 43", "p.43", "p. 43", "page 44", "page 45"))
-
-
-def reply_names_dial_off_inverter_secondary(reply: str) -> bool:
-    """True when C/T-open-still-running escalates to inverter/harness, not the fuse."""
-    t = _norm(reply)
-    if not t:
-        return False
-    if "inverter" not in t and "harness" not in t:
-        return False
-    if not any(k in t for k in ("c/t", "c and t", "c (blue)", "flag terminal", "open")):
-        return False
-    if reply_opens_dial_off_wrong_tree(reply):
-        return False
-    return True
-
-
-def dial_off_run_reply_needs_guard(reply: str, facts: dict | None = None) -> bool:
-    """True when this turn would ship fuse-first or skip the open C/T prove."""
-    facts = facts or {}
-    if not (reply or "").strip():
-        return True
-    if reply_opens_dial_off_wrong_tree(reply):
-        return True
-    prove = facts.get("ct_prove") or ""
-    if prove == "stopped":
-        return not reply_names_spark_free_thermostat_part(reply)
-    if prove == "still_running":
-        return not reply_names_dial_off_inverter_secondary(reply)
-    if reply_names_dial_off_ct_prove(reply) and reply_names_spark_free_thermostat_part(reply):
-        return False
-    return True
-
-
-def _drop_thermostat_rr_sentences(reply: str) -> str:
-    """C/T-open-still-running is inverter/harness, not Spark-Free Thermostat R&R."""
-    if not reply:
-        return ""
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
-        if re.search(r"2021128850|c-fcr10dcgta-007|spark-free thermostat", part, re.I):
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def strip_dial_off_wrong_tree_claims(reply: str) -> str:
-    """Drop sentences that open fuse / continuity / LED or cite outside p.31 and p.43–45."""
-    if not reply or not reply_opens_dial_off_wrong_tree(reply):
-        return reply
-    kept = []
-    for part in re.split(r"(?<=[.!?])\s+|\n+", reply.strip()):
-        if not part or reply_opens_dial_off_wrong_tree(part):
-            continue
-        if re.search(r"error contacting ai|request too large|\b413\b", part, re.I):
-            continue
-        kept.append(part)
-    return " ".join(kept).strip()
-
-
-def ensure_fcr_dial_off_compressor_run_path(reply: str, facts: dict | None = None) -> str:
-    """
-    Deterministic shop line so dial-OFF + compressor-running cannot ship fuse-first.
-    Stopped C/T prove climaxes at part G 2021128850. Still-running escalates
-    inverter/harness. Uses CCD-0008122 p.31 and p.43–45 only.
-    """
-    facts = facts or {}
-    prove = facts.get("ct_prove") or ""
-    if prove == "stopped":
-        cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
-        if reply_names_spark_free_thermostat_part(cleaned) and not reply_opens_dial_off_wrong_tree(cleaned):
-            return cleaned
-        return f"{DIAL_OFF_RUN_PART_SHOP_LINE}\n\n{cleaned}".strip()
-    if prove == "still_running":
-        cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
-        cleaned = _drop_thermostat_rr_sentences(cleaned)
-        if reply_names_dial_off_inverter_secondary(cleaned):
-            return cleaned
-        return f"{DIAL_OFF_RUN_INVERTER_SHOP_LINE}\n\n{cleaned}".strip()
-    if not dial_off_run_reply_needs_guard(reply, facts):
-        return lock_spark_free_part_g(reply)
-    cleaned = lock_spark_free_part_g(strip_dial_off_wrong_tree_claims(reply or ""))
-    if reply_names_dial_off_ct_prove(cleaned) and reply_names_spark_free_thermostat_part(cleaned):
-        if not reply_opens_dial_off_wrong_tree(cleaned):
-            return cleaned
-    if _dial_off_prompt_present(cleaned) or _dial_off_prompt_present(reply or ""):
-        return DIAL_OFF_RUN_SHOP_LINE
-    return f"{DIAL_OFF_RUN_SHOP_LINE}\n\n{cleaned}".strip()
-
-
-def _dial_off_prompt_present(text: str) -> bool:
-    """The open C/T prompt is already in this draft. Do not paste it again."""
-    t = _norm(text)
-    terminals = any(k in t for k in ("flag terminal", "c and t", "c (blue)", "c/t"))
-    opened = any(k in t for k in ("no jumper", "leave them open", "left open"))
-    return bool(terminals and opened)
 
 
 def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
@@ -10610,567 +8598,6 @@ def hard_tree_yields_to_coach(user_msg: str, node: dict | None = None) -> bool:
     if ntype == "end" or not edges:
         return True
     return False
-
-
-def extract_stated_facts(text: str) -> dict:
-    """
-    Pull shop facts the tech already reported. Used to stop gate-parrot re-asks
-    and to search the right manual section (powered / not-cooling vs no-power).
-    """
-    raw = _norm(text)
-    if not raw:
-        return {}
-    facts = {}
-
-    if re.search(
-        r"\b(fuse\s+(?:is\s+|was\s+|already\s+)?(?:blown\s+)?replaced|replaced\s+(?:the\s+)?fuse|"
-        r"new\s+fuse|fuse\s+(?:was\s+)?blown\s+replac\w*|found\s+fuse\s+blown\s+and\s+replaced|"
-        r"fuse\s+already\s+replaced)\b",
-        raw,
-    ) or ("fuse" in raw and "replac" in raw):
-        facts["fuse"] = "replaced"
-    elif re.search(r"\b(fuse\s+(?:is\s+|was\s+)?blown|blown\s+fuse)\b", raw):
-        facts["fuse"] = "blown"
-    elif re.search(r"\b(fuse\s+(?:is\s+|was\s+)?(?:good|ok|fine|intact)|fuse\s+not\s+blown)\b", raw):
-        facts["fuse"] = "good"
-
-    if re.search(
-        r"\b(light\s+comes\s+on|light\s+come\s+on|light\s+is\s+on|light\s+on|"
-        r"cavity\s+light|interior\s+light|fridge\s+light\s+comes\s+on|"
-        r"has\s+power|powered|display\s+is\s+on)\b",
-        raw,
-    ) and not re.search(r"\b(no\s+light|light\s+(?:is\s+)?off|light\s+does\s+not|light\s+doesn't)\b", raw):
-        facts["light"] = "on"
-    elif re.search(r"\b(no\s+light|light\s+(?:is\s+)?off|light\s+does\s+not\s+come|still\s+dark)\b", raw):
-        facts["light"] = "off"
-
-    if re.search(
-        r"\b(not\s+cool(?:ing)?|no\s+cool(?:ing)?|won'?t\s+cool|wont\s+cool|"
-        r"not\s+cold|is\s+not\s+cooling|fridge\s+is\s+not\s+cooling)\b",
-        raw,
-    ):
-        facts["cooling"] = "not_cooling"
-    elif re.search(r"\b(is\s+cooling|cooling\s+now|cools\s+now)\b", raw) and "not" not in raw:
-        facts["cooling"] = "cooling"
-
-    if re.search(
-        r"\b(compressor\s+(?:is\s+)?(?:not|isn't|isnt)\s+runn|"
-        r"compressor\s+(?:dead|not\s+running|won't\s+run|will\s+not\s+run)|"
-        r"not\s+getting\s+power\s+to\s+compressor|compressor\s+not\s+running)\b",
-        raw,
-    ) or re.search(r"\b(does\s+not|doesn't|doesnt|not)\b.{0,40}\bcompressor\b.{0,20}\b(runn|operat)\b", raw):
-        facts["compressor"] = "not_running"
-    elif re.search(r"\bcompressor\s+(?:is\s+)?running\b", raw) and not re.search(r"\b(not|no|isn't|isnt)\b", raw):
-        facts["compressor"] = "running"
-
-    if re.search(
-        r"\b(go\s+to\s+compressor|compressor\s+section|test\s+(?:the\s+)?compressor|"
-        r"need\s+to\s+test\s+compressor|inoperable\s+compressor)\b",
-        raw,
-    ):
-        facts["pivot"] = "compressor"
-
-    if re.search(r"\b(dial\s+(?:is\s+)?(?:on|at)\s*[45]|set\s+to\s*[45]|position\s*[45])\b", raw):
-        facts["dial"] = "on_4_5"
-    elif re.search(r"\b(dial\s+(?:is\s+)?off|set\s+to\s+off)\b", raw):
-        facts["dial"] = "off"
-
-    if re.search(
-        r"\b(?:e\s*2|2\s*[\s-]*flash|flash(?:es|ing)?\s*2|blink(?:ing)?\s*2|"
-        r"fan[\s-]*fault)\b",
-        raw,
-    ):
-        facts["fan_fault"] = "e2"
-    if re.search(r"\bfan\s*(?:v|volts?|voltage)\b", raw) or (
-        F_PLUS_MINUS_RE.search(text or "") and re.search(r"\b\d+(?:\.\d+)?\s*v", raw)
-    ):
-        facts["fan_volts"] = "reported"
-    if re.search(r"\bfan\s*(?:amps?|amperage|current)\b", raw) or (
-        "fan" in raw and re.search(r"\b0?\.\d+\s*a(?:mps?)?\b", raw)
-    ):
-        facts["fan_amps"] = "reported"
-
-    if re.search(r"\b(pan|cookware|pot|skillet)\b", raw) and re.search(
-        r"\b(goes?\s+out|went\s+out|flame[\s-]*out|shuts?\s+off|drops?\s+out)\b",
-        raw,
-    ):
-        facts["pan_on_flameout"] = "reported"
-    if re.search(
-        r"\b(roll[\s-]*pin|override[\s-]*pin|override coupler|coupler)\b",
-        raw,
-    ) and re.search(r"\b(broken|seized|seize|sheared|destroyed|not serviceable)\b", raw):
-        facts["override_pin"] = "broken_or_seized"
-
-    if _has_ice_moisture_marker(raw) and not FRIDGE_NO_POWER_RE.search(raw):
-        if not _has_dial_off_run_complaint(raw):
-            facts["ice_moisture"] = "rear_wall"
-
-    if _has_dial_off_run_complaint(raw) and (
-        _is_fcr08_fcr10_family("", raw)
-        or any(k in raw for k in ("fridge", "refriger", "reefer", "freezer", "compressor", "arctic"))
-    ):
-        facts["dial_off_run"] = "overcool"
-    ct_prove = _ct_prove_result(text or "")
-    if ct_prove:
-        facts["ct_prove"] = ct_prove
-
-    levelingish = any(
-        k in raw
-        for k in (
-            "manual mode",
-            "level up",
-            "level-up",
-            "levelup",
-            "807662",
-            "leveling pad",
-            "auto level",
-            "firefly",
-            "octp",
-        )
-    )
-    if _has_manual_mode_dump_marker(raw):
-        facts["manual_dump"] = "reported"
-    if _has_auto_level_fail(raw):
-        facts["auto_level"] = "fails"
-    elif _has_auto_or_other_pad_works(raw):
-        facts["auto_level"] = "works"
-    if re.search(
-        r"\b(no\s+brownout|power\s+(?:is\s+)?(?:good|sane|ok|fine)|"
-        r"voltage\s+(?:is\s+)?(?:good|ok|fine)|power\s+looks\s+sane)\b",
-        raw,
-    ):
-        facts["level_up_power"] = "good"
-    elif levelingish and re.search(r"\b(brownout|voltage\s+collapse)\b", raw):
-        facts["level_up_power"] = "brownout"
-    if re.search(
-        r"\b(no|not|without|cleared|clear(?:ed)?\s+(?:those|them|it))\b.{0,48}"
-        r"\b(low\s+voltage|excess\s+angle|external\s+sensor)\b",
-        raw,
-    ) or re.search(
-        r"\b(low\s+voltage|excess\s+angle|external\s+sensor)\b.{0,32}"
-        r"\b(cleared|not\s+present|none|no\s+error)\b",
-        raw,
-    ) or re.search(r"\bno\s+(?:sticky\s+)?(?:error\s+text|errors?)\b", raw):
-        facts["sticky_level_error"] = "none"
-    elif re.search(r"\b(excess\s+angle|external\s+sensor)\b", raw) or (
-        levelingish and re.search(r"\blow\s+voltage\b", raw)
-    ):
-        facts["sticky_level_error"] = "present"
-
-    can_unplug = bool(
-        (
-            (
-                re.search(r"\bunplug", raw)
-                or re.search(r"\bdisconnect", raw)
-                or "can-out" in raw
-                or "can out" in raw
-            )
-            and re.search(r"\bcan\b", raw)
-        )
-        or (
-            re.search(r"\bunplug", raw)
-            and re.search(r"\b(firefly|onecontrol).{0,32}cable|cable.{0,32}(firefly|onecontrol)", raw)
-        )
-    )
-    manual_stays = bool(
-        re.search(
-            r"\bmanual(?:\s+mode)?\b.{0,56}\b("
-            r"stays?|stayed|holds?|held|works?|worked|ok|good|"
-            r"did\s+not\s+dump|doesn'?t\s+dump|does\s+not\s+dump"
-            r")\b",
-            raw,
-        )
-        or re.search(
-            r"\b(stays?|stayed|holds?|held|works?|worked)\b.{0,40}\bmanual(?:\s+mode)?\b",
-            raw,
-        )
-        or "manual works can-out" in raw
-        or "manual works with can" in raw
-        or "manual stayed" in raw
-    )
-    manual_still_dumps = bool(
-        re.search(
-            r"\bmanual(?:\s+mode)?\b.{0,56}\b(still\s+(?:dumps?|flash|returns?|home))\b",
-            raw,
-        )
-        or re.search(
-            r"\b(still\s+(?:dumps?|flashes?|returns?|homes?))\b.{0,40}\bmanual",
-            raw,
-        )
-        or (
-            can_unplug
-            and re.search(r"\b(still\s+dumps?|still\s+dumped|still\s+flashes?|still\s+returns?\s+home)\b", raw)
-        )
-    )
-    if can_unplug and manual_stays:
-        facts["can_isolate"] = "stays"
-    elif can_unplug and manual_still_dumps:
-        facts["can_isolate"] = "still_dumps"
-
-    if is_bal_soft_touch_tongue_only_context("", "", raw):
-        facts["bal_tongue"] = "only_dead"
-    if (
-        facts.get("bal_tongue") == "only_dead"
-        or "tongue" in raw
-        or "20300427" in raw
-        or "soft-touch" in raw
-        or "soft touch" in raw
-    ):
-        facts.update(extract_bal_tongue_facts(text or ""))
-    facts.update(facr_freeze_proves_from_text(text or ""))
-
-    return facts
-
-
-def facts_from_chat(history: list = None, latest_msg: str = "") -> dict:
-    """Merge facts from prior tech lines plus the latest message. Latest wins on conflict."""
-    merged = {}
-    for m in history or []:
-        if (m.get("role") or "") != "user":
-            continue
-        merged.update(extract_stated_facts(m.get("content") or ""))
-    merged.update(extract_stated_facts(latest_msg or ""))
-    merged.update(facr_proves_from_chat(history, latest_msg))
-    merged.update(coleman_facts_from_chat(history, latest_msg))
-    return merged
-
-
-def format_stated_facts_rule(facts: dict) -> str:
-    """System-prompt block: never re-ask these; search the matching SM section."""
-    if not facts:
-        return ""
-    labels = {
-        "fuse": {"replaced": "fuse blown and replaced", "blown": "fuse blown", "good": "fuse good / intact"},
-        "light": {"on": "cavity / interior light is ON (unit has power)", "off": "cavity light is OFF"},
-        "cooling": {"not_cooling": "fridge is NOT cooling", "cooling": "fridge is cooling"},
-        "compressor": {"not_running": "compressor is NOT running", "running": "compressor is running"},
-        "dial": {"on_4_5": "temperature dial is ON at 4 or 5", "off": "temperature dial is OFF"},
-        "pivot": {"compressor": "tech asked to go to the compressor / inoperable-compressor section"},
-        "fan_fault": {"e2": "Furrion FCR E2 / 2-flash / Fan Fault Current (freezer fan / airflow)"},
-        "fan_volts": {"reported": "fan / F+ F− voltage already reported"},
-        "fan_amps": {"reported": "fan amps / current already reported"},
-        "pan_on_flameout": {
-            "reported": "cooktop burner lights then goes out with pan / cookware on"
-        },
-        "override_pin": {
-            "broken_or_seized": "stabilizer override roll pin / coupler is broken or seized"
-        },
-        "ice_moisture": {
-            "rear_wall": "rear/back-wall ice, frost, or moisture in the fridge cavity"
-        },
-        "dial_off_run": {
-            "overcool": (
-                "FCR dial/control OFF and compressor still running or overcooling "
-                "(not a fuse / 12V tree)"
-            )
-        },
-        "ct_prove": {
-            "stopped": "open C/T (no jumper) and the compressor STOPPED",
-            "still_running": "open C/T (no jumper) and the compressor KEEPS RUNNING",
-        },
-        "manual_dump": {
-            "reported": "Level Up Manual Mode flashes then dumps / returns to home"
-        },
-        "auto_level": {
-            "works": "Auto Level (or other pad functions) still work",
-            "fails": "Auto Level does not work",
-        },
-        "level_up_power": {
-            "good": "Level Up power looks sane / no brownout",
-            "brownout": "Level Up power brownout / voltage collapse",
-        },
-        "sticky_level_error": {
-            "none": "no sticky Low Voltage / Excess Angle / External Sensor text",
-            "present": "sticky Low Voltage / Excess Angle / External Sensor is present — clear first",
-        },
-        "can_isolate": {
-            "stays": "Manual Mode STAYS with the Firefly cable unplugged (rubber-boot plug still in)",
-            "still_dumps": "Manual Mode STILL DUMPS with the Firefly cable unplugged",
-        },
-        "bal_tongue": {
-            "only_dead": "BAL Soft-Touch tongue jack only is dead; other stabilizers and panel lights work",
-        },
-        "tongue_channel_volts": {
-            "missing": "no 12V on the tongue jack output wire at the panel",
-            "present": "12V is present on the tongue jack output wire at the panel",
-        },
-        "tongue_motor_12v": {
-            "ok": "tongue motor runs on direct 12V",
-            "fail": "tongue motor fails a direct-12V prove",
-        },
-        "tongue_coupler": {
-            "ok": "tongue coupler is engaged / OK",
-            "bad": "tongue coupler or shear pin is bad",
-        },
-        "tongue_override": {
-            "wont_turn": "manual override will not turn",
-            "turns": "manual override turns",
-        },
-        "tongue_pigtail": {
-            "bad": "tongue pigtail is open / needs repair",
-            "good": "tongue pigtail is good",
-        },
-        "facr_drain": {"clear": "FACR condensate drain is clear"},
-        "facr_pan_slope": {"ok": "FACR evaporator pan / base-pan slope is good"},
-        "facr_fan_filter": {"ok": "FACR fan and filter are OK"},
-        "facr_suction": {"clear": "FACR suction line is clear"},
-        "facr_freeze_sensor": {"good": "FACR freeze sensor is good"},
-        "facr_sensor_reading": {"reported": "FACR freeze sensor reading was reported"},
-        "facr_thermostat": {"good": "FACR cool setpoint / thermostat is good"},
-        "facr_nozzle": {"open": "FACR nozzles are open"},
-        "facr_ambient": {"ok": "FACR ambient is good"},
-        "facr_pressure": {"ok": "FACR refrigerant pressures are good"},
-        "facr_auth_request": {
-            "yes": "tech asked to authorize FACR rooftop assembly R&R",
-        },
-        "coleman_2111": {
-            "open": "Coleman-Mach 2111-0001 is the unit under test",
-            "climax": "Coleman-Mach 2111-0001 motor and control-board evidence is complete",
-        },
-        "coleman_fan_high": {
-            "dead": "Coleman board Fan High is dead (tester dark and/or about 0 VAC)",
-            "live": "Coleman board Fan High still has line voltage",
-        },
-        "coleman_compressor": {
-            "ok": "Peacemaker bypass: the compressor runs",
-        },
-        "coleman_fan_motor": {
-            "locked": "Peacemaker bypass: the fan does not rotate",
-        },
-        "coleman_stall_amps": {
-            "reported": "fan stall current is about 1.9 A with the shaft locked",
-        },
-        "coleman_cap": {
-            "ok": "fan run capacitor measures about its rated value",
-            "bad": "fan run capacitor is bad",
-        },
-    }
-    lines = [
-        "TECH ALREADY STATED IN THIS CHAT — never re-ask these facts:",
-    ]
-    hidden = set()
-    if facts.get("bal_tongue") != "only_dead":
-        hidden.update(
-            {
-                "bal_tongue",
-                "tongue_channel_volts",
-                "tongue_motor_12v",
-                "tongue_coupler",
-                "tongue_override",
-                "tongue_pigtail",
-            }
-        )
-    if not facts.get("facr_fan_filter") and not facts.get("facr_freeze_sensor"):
-        hidden.add("facr_drain")
-    for key, val in facts.items():
-        if key in hidden:
-            continue
-        pretty = (labels.get(key) or {}).get(val) or f"{key}={val}"
-        lines.append(f"- {pretty}")
-    lines.append(
-        "Do not open or close with Heard or Noted. Give the next cited service-manual check "
-        "or answer their question. Do not parrot a prior gate."
-    )
-    if facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"):
-        lines.append(
-            "E2 / Fan Fault Current is already in play. Do NOT claim CCD-0008122 has no "
-            "separate freezer evaporator fan. Do NOT cage the repair to rear inverter/control "
-            "board only. Fan Fault Diagnostics (F+/F−) and Fan Replacement are valid. "
-            "If fan volts/amps are present and the fault returned, recommend freezer "
-            "evaporator fan R&R and the rear inverter/control board when both are supported."
-        )
-    if facts.get("light") == "on" and facts.get("cooling") == "not_cooling":
-        if facts.get("fan_fault") or facts.get("fan_volts") or facts.get("fan_amps"):
-            lines.append(
-                "Power is present. Stay on the cited Fan Fault / freezer-fan path. "
-                "Do NOT ask whether the light is on or restart at fuse / no-power."
-            )
-        else:
-            lines.append(
-                "Power is present and the unit is not cooling. Do NOT ask whether the light is on "
-                "or whether it is cooling. Do NOT restart at fuse / no-power. Follow the shop "
-                "service-manual section for a powered unit that is not cooling (inoperable compressor "
-                "/ not-cooling diagnostics) from the excerpts — not a hardcoded Fan Replacement leaf "
-                "unless this turn's excerpt says so."
-            )
-    if facts.get("pivot") == "compressor" or facts.get("compressor") == "not_running":
-        if facts.get("fan_fault"):
-            lines.append(
-                "Compressor questions do not cancel E2 / Fan Fault Current. Keep Fan Replacement "
-                "and F+/F− in play when those excerpts apply."
-            )
-        else:
-            lines.append(
-                "The tech wants compressor / inoperable-compressor guidance. Use the cited SM pages "
-                "for that section. Do not force Fan Replacement unless this turn's excerpt says so."
-            )
-    if facts.get("pan_on_flameout"):
-        lines.append(
-            "Pan-on cooktop flame-out is already in play. FIRST verify the thermocouple / "
-            "flame-sensor tip is positioned in the burner flame WITH COOKWARE ON. Do NOT "
-            "jump to thermocouple, safety valve, orifice, regulator, or igniter R&R until "
-            "tip geometry is correct and the flame still drops out."
-        )
-    if facts.get("override_pin") == "broken_or_seized":
-        lines.append(
-            "Override roll pin / coupler is broken or seized and not field-serviceable. "
-            "Recommend complete front stabilizer jack assembly R&R (mount + electrical; "
-            "retest power and manual). Do NOT recommend coupler-only. CCD-0007345 override "
-            "usage is not the end fix."
-        )
-    if facts.get("ice_moisture") == "rear_wall":
-        lines.append(
-            "Rear/back-wall ice, frost, or moisture is already in play. Follow "
-            "CCD-0008122 Ice and Moisture → Ice or Moisture in the Fridge (p.36 / Fig.36). "
-            "Coach order: pattern note → dial max? → gasket → cooling verify → watch/replace. "
-            "Do NOT restart at fuse / 12V inverter / No Power unless the complaint is "
-            "no power / dead / won't run / no light. Cite page 36 and Fig. 36 — never a "
-            "fake Fuse location title with no page."
-        )
-    if facts.get("dial_off_run") == "overcool":
-        lines.append(
-            "FCR08/FCR10 dial/control OFF with the compressor still running or the "
-            "cavity over-cold is already in play. Do NOT open fuse (p.19), 12V continuity "
-            "(p.20), or diagnostic LED / inverter control voltage (p.18). Confirm dial "
-            "fully OFF, seat the probe and thermostat wires (p.43), then open C (blue) "
-            "and T (black) with no jumper (p.31 Figs. 24–25 inverse). Compressor stops → "
-            "R&R Spark-Free Thermostat part G 2021128850 (retail C-FCR10DCGTA-007), "
-            "p.43–45. Compressor keeps running with C/T open → inverter/harness. "
-            "Cite p.31 and p.43–45 only. Leave the dial fully OFF."
-        )
-    if facts.get("ct_prove") == "stopped":
-        lines.append(
-            "Open C/T already stopped the compressor. Climax is R&R Spark-Free "
-            "Thermostat part G 2021128850 (retail C-FCR10DCGTA-007) per CCD-0008122 "
-            "p.43–45 Figs. 57–67. Cite p.31 for the open C/T prove and p.43–45 for the R&R."
-        )
-    elif facts.get("ct_prove") == "still_running":
-        lines.append(
-            "Open C/T and the compressor kept running. Escalate inverter/harness "
-            "(CCD-0008122 p.45). Do not lead with fuse and do not R&R the thermostat "
-            "as the climax of this prove."
-        )
-    if facts.get("can_isolate") == "stays":
-        lines.append(
-            "The Firefly-cable prove already showed Manual Mode HOLDS with the Firefly "
-            "cable unplugged and the rubber-boot plug still in. Firefly / OneControl "
-            "conflict is confirmed. Tell the tech to reconnect the Firefly cable after "
-            "the prove unless using interim. Real fix: Firefly USB firmware — GUI + CCM "
-            "from Settings, Firefly 574-825-4600, USB stick ≤4 GB. Interim: front-bay "
-            "main battery OFF (solar OK) or leave the Firefly cable unplugged with the "
-            "rubber-boot plug still in. Do NOT swap another Level Up controller for Firefly blame."
-        )
-    elif facts.get("can_isolate") == "still_dumps":
-        lines.append(
-            "The Firefly-cable prove already showed Manual Mode STILL DUMPS with the "
-            "Firefly cable unplugged. This is NOT a Firefly / OneControl conflict. Stay "
-            "on the Level Up sensor / harness / support path. Do NOT swap another Level "
-            "Up controller for Firefly blame. Do NOT push Firefly USB as the fix."
-        )
-    elif facts.get("auto_level") == "works" and facts.get("manual_dump") == "reported":
-        if facts.get("sticky_level_error") == "present":
-            lines.append(
-                "Clear sticky Low Voltage / Excess Angle / External Sensor first. "
-                "Do not jump to Firefly USB or another Level Up controller swap."
-            )
-        else:
-            lines.append(
-                "Manual Mode dumps while Auto Level still works. Cheap proves first "
-                "(power / no brownout; no sticky LV / Excess Angle / External Sensor). "
-                + FIREFLY_TWO_PLUG_PROVE
-                + " Do not open board/LCD swap first. Do not push Firefly USB until "
-                "Manual Mode holds with the Firefly cable unplugged."
-            )
-    elif facts.get("manual_dump") == "reported":
-        lines.append(
-            "Manual Mode flash/dump-to-home is already in play. Ask/confirm Auto Level "
-            "still works, power looks sane / no brownout, and the dump is not sticky "
-            "Low Voltage / Excess Angle / External Sensor before you unplug the Firefly "
-            "cable or order parts."
-        )
-    if facts.get("bal_tongue") == "only_dead":
-        stage = bal_tongue_stage(facts)
-        if stage == "coupler":
-            lines.append(
-                "Manual override will not turn, or the motor failed direct 12V. "
-                "Coupler replacement is allowed. Do NOT lead with the 30A fuse or the "
-                "remote stabilizer harness. Do NOT make soft-touch user panel 20300427 the primary."
-            )
-        elif stage == "panel":
-            lines.append(
-                "No 12V on the tongue jack output wire at the panel. Climax is soft-touch "
-                "user panel 20300427. Do NOT lead with coupler, shear pin, 30A fuse, or "
-                "the remote stabilizer harness."
-            )
-        elif stage == "pigtail":
-            lines.append(
-                "12V is present on the tongue jack output wire at the panel. Climax is tongue "
-                "pigtail / panel-to-motor lead repair. Do NOT lead with coupler, 30A fuse, "
-                "or the remote stabilizer harness."
-            )
-        else:
-            lines.append(
-                "BAL Soft-Touch tongue-only dead is in play. Press tongue extend/retract "
-                "and check for 12V on the tongue jack output wire at the panel, then the "
-                "local tongue pigtail. No 12V on the tongue output wire "
-                "→ user panel 20300427. Do NOT lead with coupler / shear-pin or fuse / 30A / "
-                "remote stabilizer harness. Coupler only if the override will not turn or the "
-                "motor fails direct 12V."
-            )
-    if facr_terminal_path_complete(facts):
-        lines.append(
-            "Drain, pan/slope, filter/fan, suction line, freeze sensor, thermostat, "
-            "nozzles/ambient, and refrigerant pressures are already reported good. "
-            "The freeze or interior leak remains. TERMINAL CARD: authorize rooftop "
-            "assembly R&R on the CCD-0007990 condensate and assembly path. Replace "
-            "the rooftop assembly. This is an authorization card, not an R&R procedure. "
-            "Do NOT say the library has no R&R steps. Do NOT ask the tech to paste an "
-            "R&R section. Do NOT open compressor no-start, fan-winding continuity, or "
-            "a DC bus measurement. Do NOT return a blank card. Do NOT open a fuse "
-            "or 12V-first tree. Do NOT stall on searching manuals."
-        )
-    elif facts.get("facr_auth_request") == "yes":
-        lines.append(
-            "The tech asked to authorize rooftop assembly R&R before the freeze/leak "
-            "prove is finished. Do NOT emit the assembly authorization card yet. "
-            "Do NOT say the library has no R&R steps and do NOT ask for a pasted "
-            "R&R section. Ask the next missing condensate/freeze check only. "
-            "Do NOT open compressor no-start or a DC bus measurement."
-        )
-    elif facr_proves_complete(facts):
-        lines.append(
-            "Drain is clear, fan and filter are OK, and the freeze sensor is good. "
-            "CONTINUE to rooftop assembly R&R on the CCD-0007990 condensate/assembly path. "
-            "Do NOT stall on searching manuals. Do NOT repeat a drain-only check."
-        )
-    elif facts.get("facr_drain") == "clear" and (
-        facts.get("facr_fan_filter") or facts.get("facr_freeze_sensor")
-    ):
-        lines.append(
-            "FACR freeze proves are in progress. Do not stall on searching manuals. "
-            "Do not repeat a drain check that is already clear. Move to the remaining "
-            "fan/filter or freeze-sensor prove, then rooftop assembly R&R (CCD-0007990)."
-        )
-    if facts.get("coleman_2111") == "climax":
-        lines.append(
-            "Coleman-Mach 2111-0001 evidence is complete: Fan High is dead, the "
-            "Peacemaker bypass shows the compressor runs with the fan locked at "
-            "about 1.9 A, and the fan run capacitor is about rated. TERMINAL CARD: "
-            "authorize R&R of the fan motor and the control board ONLY. Do NOT "
-            "authorize the full 2111-0001 assembly. Stop. Do not ask for continuity "
-            "or another test. Cite the 12VDC wall-thermostat service manual, "
-            "1976-536, 1976-603, Peacemaker, and mechanical controls / 1976-695. "
-            "Do not invent page numbers."
-        )
-    elif facts.get("coleman_2111") == "open":
-        lines.append(
-            "Coleman-Mach 2111-0001 is in play. Stay on Fan High, the Peacemaker "
-            "bypass, and the fan run capacitor. Do not authorize the full assembly "
-            "and do not authorize motor + board until Fan High is dead, the fan is "
-            "locked at about 1.9 A with the compressor running, and the capacitor "
-            "measures about rated."
-        )
-    return "\n".join(lines)
 
 
 def coach_library_search_boost(facts: dict) -> str:

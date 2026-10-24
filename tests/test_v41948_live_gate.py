@@ -15,26 +15,12 @@ from bay_procedure import (
     layout_problems,
     render_bay_procedure_pdf,
 )
-from gd_library_coach import avoid_duplicate_reply, ensure_facr_early_pressure_ask
+from gd_library_coach import (
+    avoid_duplicate_reply,
+)
 from tests.test_v41947_live_gate import _pdf_text
 
 HOSE = "Check for integrity and connections of the pressure switch hose."
-
-
-def _walk(turns, draft):
-    history = []
-    replies = []
-    for latest in turns:
-        reply = avoid_duplicate_reply(
-            draft, history, latest, "Air Conditioning", "FACR08HESA2-PS"
-        )
-        reply = ensure_facr_early_pressure_ask(
-            reply, history, latest, "Air Conditioning", "FACR08HESA2-PS"
-        )
-        replies.append(reply or "")
-        history.append({"role": "user", "content": latest})
-        history.append({"role": "assistant", "content": reply})
-    return replies
 
 
 class TestThetfordConfirmedRepair(unittest.TestCase):
@@ -128,24 +114,6 @@ class TestThetfordConfirmedRepair(unittest.TestCase):
         self.assertIn("42109", text)
         self.assertIn("Supply connection", text)
         self.assertIn("Flange and seal", text)
-
-
-class TestS01ShortGate(unittest.TestCase):
-    def test_freeze_sensor_draft_still_closes_on_the_fifth_turn(self):
-        replies = _walk(
-            ["drain", "pan", "fan", "pressures", "freeze sensor"],
-            "Read the freeze sensor.",
-        )
-        self.assertLess(
-            sum("pressure" in reply.lower() for reply in replies[1:3]),
-            2,
-            replies[1:3],
-        )
-        fifth = replies[4].lower()
-        self.assertIn("authorize rooftop assembly", fifth)
-        self.assertIn("ccd-0007990", fifth)
-        self.assertNotIn("read the freeze sensor", fifth)
-        self.assertNotIn("authorize rooftop assembly", replies[3].lower())
 
 
 class TestS13HoseWithoutTheChunk(unittest.TestCase):

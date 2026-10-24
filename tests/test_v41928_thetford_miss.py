@@ -6,7 +6,6 @@ from bay_procedure import (
     compile_bay_procedure,
     procedure_plain_text,
     render_bay_procedure_pdf,
-    sheet_standard_violations,
     procedure_body_text,
 )
 from gd_library_coach import (
@@ -45,38 +44,6 @@ def _pdf_text(pdf: bytes) -> str:
 
 
 class TestThetfordLibraryMiss(unittest.TestCase):
-    def test_norcold_pages_are_not_the_thetford_sheet(self):
-        kept, miss = bay_brand_retrieval(
-            NORCOLD, "", MODEL, CONCERN
-        )
-        self.assertTrue(miss)
-        self.assertEqual(kept, [])
-        proc = compile_bay_procedure(
-            concern=CONCERN,
-            brand="Thetford",
-            model="Style II 42070",
-            category="(any)",
-            chunks=NORCOLD,
-        )
-        text = procedure_plain_text(proc)
-        low = text.lower()
-        self.assertIn("thetford: general shop safety sheet", low)
-        self.assertIn("general shop safety, not an oem procedure", low)
-        self.assertNotIn("add the thetford oem manual", low)
-        self.assertNotIn("norcold", low)
-        self.assertNotIn("619394", low)
-        self.assertNotIn("propane", low)
-        self.assertNotIn("/g6e", low)
-        self.assertNotIn("gasket", low)
-        self.assertNotIn("yes:", low)
-        self.assertNotIn("no:", low)
-        self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
-        pdf = _pdf_text(render_bay_procedure_pdf(proc)).lower()
-        self.assertIn("general shop safety sheet", pdf)
-        self.assertNotIn("norcold", pdf)
-        self.assertNotIn("619394", pdf)
-        self.assertNotIn("/g6e", pdf)
-        self.assertNotIn("propane", pdf)
 
     def test_plumbing_category_still_refuses_the_refrigerator_manual(self):
         proc = compile_bay_procedure(

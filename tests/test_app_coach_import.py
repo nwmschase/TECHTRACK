@@ -42,7 +42,6 @@ class TestCoachModuleLoads(unittest.TestCase):
             "FCR_E2_FAN_FAULT_PRODUCT_LOCK",
             "ac_search_symptom",
             "drop_unity_chunks_for_ac",
-            "ensure_fcr_e2_fan_rr",
             "fcr_e2_search_symptom",
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
@@ -59,16 +58,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "library_category_picker_names",
             "is_cooktop_pan_on_flameout_context",
             "COOKTOP_PRODUCT_LOCK",
-            "ensure_cooktop_tip_pan_check",
             "is_stabilizer_override_pin_context",
             "PSX1_PRODUCT_LOCK",
-            "ensure_stabilizer_assembly_rr",
             "is_fridge_ice_moisture_context",
             "ICE_MOISTURE_PRODUCT_LOCK",
-            "ensure_fridge_ice_moisture_path",
             "is_fcr_dial_off_compressor_run_context",
             "DIAL_OFF_RUN_PRODUCT_LOCK",
-            "ensure_fcr_dial_off_compressor_run_path",
             "trim_coach_history",
             "complete_chat_with_payload_retry",
             "is_facr_rooftop_freeze_context",
@@ -77,14 +72,10 @@ class TestCoachModuleLoads(unittest.TestCase):
             "FIREFLY_CAN_SEARCH_BOOST",
             "is_level_up_manual_can_conflict_context",
             "LEVEL_UP_CAN_PRODUCT_LOCK",
-            "ensure_level_up_manual_can_path",
             "is_bal_soft_touch_tongue_only_context",
-            "ensure_bal_tongue_only_path",
             "BAL_TONGUE_PRODUCT_LOCK",
-            "ensure_facr_freeze_assembly_rr",
             "FACR_FREEZE_ASSEMBLY_LOCK",
             "is_coleman_2111_context",
-            "ensure_coleman_motor_board_auth",
             "COLEMAN_MOTOR_BOARD_LOCK",
             "coleman_motor_board_evidence_complete",
             "lock_spark_free_part_g",
@@ -121,10 +112,8 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("is_stabilizer_override_pin_context", names)
         self.assertIn("ICE_MOISTURE_PRODUCT_LOCK", names)
         self.assertIn("is_fridge_ice_moisture_context", names)
-        self.assertIn("ensure_fridge_ice_moisture_path", names)
         self.assertIn("is_fcr_dial_off_compressor_run_context", names)
         self.assertIn("DIAL_OFF_RUN_PRODUCT_LOCK", names)
-        self.assertIn("ensure_fcr_dial_off_compressor_run_path", names)
         self.assertIn("complete_chat_with_payload_retry", names)
         self.assertIn("trim_coach_history", names)
         self.assertIn("is_facr_rooftop_freeze_context", names)
@@ -133,11 +122,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertIn("FACR_FREEZE_SEARCH_BOOST", names)
         self.assertIn("is_level_up_manual_can_conflict_context", names)
         self.assertIn("LEVEL_UP_CAN_PRODUCT_LOCK", names)
-        self.assertIn("ensure_level_up_manual_can_path", names)
-        self.assertIn("ensure_bal_tongue_only_path", names)
         self.assertIn("is_bal_soft_touch_tongue_only_context", names)
-        self.assertIn("ensure_facr_freeze_assembly_rr", names)
-        self.assertIn("ensure_coleman_motor_board_auth", names)
         self.assertIn("is_coleman_2111_context", names)
         self.assertIn("COLEMAN_MOTOR_BOARD_LOCK", names)
         self.assertIn("lock_spark_free_part_g", names)

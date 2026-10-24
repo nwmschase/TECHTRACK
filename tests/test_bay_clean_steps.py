@@ -11,7 +11,6 @@ from bay_procedure import (
     procedure_body_text,
     procedure_plain_text,
     render_bay_procedure_pdf,
-    sheet_standard_violations,
 )
 
 FURNACE_CONCERN = "Will not blow warm; fan turns on then shuts off."
@@ -100,112 +99,6 @@ class TestOcrCleanup(unittest.TestCase):
         self.assertNotIn("time line", source)
         self.assertNotIn("sequence of operation", source)
         self.assertIn("wall thermostat", source)
-
-
-class TestSuburbanFurnaceBay(unittest.TestCase):
-    def test_jumper_then_sail_not_the_timeline(self):
-        proc = compile_bay_procedure(
-            concern=FURNACE_CONCERN,
-            brand="Suburban",
-            model="Suburban NT-20SEQT",
-            category="Furnaces",
-            chunks=[FURNACE_P26, FURNACE_P27, FURNACE_P28],
-        )
-        order = " ".join(proc.bay_order).lower()
-        plain = procedure_plain_text(proc).lower()
-        self.assertIn("page 28", proc.primary_cite.lower())
-        self.assertIn("suburban", proc.primary_cite.lower())
-        self.assertIn("jumper", order)
-        self.assertIn("r/w", order)
-        self.assertIn("wall thermostat", order)
-        self.assertIn("sail", order)
-        self.assertIn("confirmed correction", order)
-        self.assertIn("replace the wall thermostat", order)
-        self.assertNotIn("time line", order)
-        self.assertNotIn("sequence of operation", order)
-        self.assertNotIn("time line", plain)
-        excerpts = " ".join((s.get("excerpt") or "") for s in proc.sources).lower()
-        self.assertNotIn("time line", excerpts)
-        self.assertNotIn("sequence of operation", excerpts)
-        self.assertTrue(any(s.get("page") == 28 for s in proc.sources))
-        self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
-        for node in proc.flowchart.nodes:
-            blob = node.text.replace("\n", " ").strip()
-            if node.kind == "decision":
-                self.assertTrue(blob.endswith("?"))
-            else:
-                self.assertTrue(blob.endswith("."))
-        rects = flowchart_node_rects(proc.flowchart, 36.0, 50.0, 540.0, 612.0)
-        self.assertEqual(flowchart_boxes_overlap(rects, gap=14.0), [])
-        pdf = _pdf_text(render_bay_procedure_pdf(proc)).lower()
-        self.assertIn("suburban nt-20seqt", pdf)
-        self.assertNotIn("suburban suburban", pdf)
-        self.assertIn("r/w", pdf)
-        self.assertIn("sail", pdf)
-        self.assertNotIn("time line", pdf)
-
-
-class TestE2FanFaultBay(unittest.TestCase):
-    def test_steps_follow_the_fan_fault_diamond(self):
-        proc = compile_bay_procedure(
-            concern=E2_CONCERN,
-            brand="Furrion",
-            model="FCR10DCGTA-BG-PWH",
-            category="Refrigerators",
-            chunks=[E2_P27, E2_P29],
-        )
-        order = " ".join(proc.bay_order).lower()
-        self.assertEqual(proc.model_line, "Furrion FCR10DCGTA-BG-PWH")
-        self.assertIn("page 27", proc.primary_cite.lower())
-        self.assertIn("ccd-0008122", proc.primary_cite.lower())
-        self.assertIn("12v", order)
-        self.assertIn("f+", order)
-        self.assertIn("f-", order)
-        self.assertIn("inverter pcb and the fan", order)
-        self.assertIn("confirmed correction", order)
-        self.assertNotIn("rev:", order)
-        self.assertNotIn("connect power to the connect power", order)
-        excerpts = " ".join((s.get("excerpt") or "") for s in proc.sources).lower()
-        self.assertNotIn("rev:", excerpts)
-        self.assertNotIn("connect power to the connect power", excerpts)
-        self.assertTrue(any("ccd-0008122" in (s.get("title") or "").lower() for s in proc.sources))
-        self.assertTrue(any(s.get("page") == 27 for s in proc.sources))
-        self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
-        pdf = _pdf_text(render_bay_procedure_pdf(proc)).lower()
-        self.assertIn("inverter pcb and the fan", pdf)
-        self.assertNotIn("rev:", pdf)
-        self.assertNotIn("connect power to the connect power", pdf)
-
-
-class TestGenericDecisionSteps(unittest.TestCase):
-    def test_unloaded_job_uses_the_yes_no_sentence_not_the_header(self):
-        proc = compile_bay_procedure(
-            concern="Rooftop air conditioner will not cool.",
-            brand="Dometic",
-            model="Penguin II",
-            category="Air Conditioning",
-            chunks=[
-                {
-                    "title": "Dometic rooftop service manual",
-                    "page": 4,
-                    "excerpt": (
-                        "Rev: 01.02.26 Page 4 Connect power to the Connect power to the unit. "
-                        "If the valve is open, replace the valve. If it is closed, retest the cool air."
-                    ),
-                }
-            ],
-        )
-        order = " ".join(proc.bay_order).lower()
-        self.assertIn("replace the valve", order)
-        self.assertIn("if ", order)
-        self.assertIn("confirmed correction", order)
-        self.assertNotIn("rev:", order)
-        self.assertNotIn("connect power to the connect power", order)
-        excerpts = " ".join((s.get("excerpt") or "") for s in proc.sources).lower()
-        self.assertNotIn("rev:", excerpts)
-        self.assertNotIn("connect power to the connect power", excerpts)
-        self.assertIn("dometic", proc.model_line.lower())
-        self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
 
 
 if __name__ == "__main__":

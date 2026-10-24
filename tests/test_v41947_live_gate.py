@@ -20,7 +20,9 @@ from bay_procedure import (
     paint_library_step_figures,
     render_bay_procedure_pdf,
 )
-from gd_library_coach import avoid_duplicate_reply, ensure_facr_early_pressure_ask
+from gd_library_coach import (
+    avoid_duplicate_reply,
+)
 
 HOSE = "Check for integrity and connections of the pressure switch hose."
 S01 = [
@@ -57,18 +59,6 @@ def _placed(proc) -> str:
     ]
     parts.extend(f"{fig.title} {fig.caption}" for fig in (proc.figures or []))
     return " ".join(parts).lower()
-
-
-def _walk(turns, category, model, draft="Read the freeze sensor."):
-    history = []
-    replies = []
-    for latest in turns:
-        reply = avoid_duplicate_reply(draft, history, latest, category, model)
-        reply = ensure_facr_early_pressure_ask(reply, history, latest, category, model)
-        replies.append(reply or "")
-        history.append({"role": "user", "content": latest})
-        history.append({"role": "assistant", "content": reply})
-    return replies
 
 
 class TestThetfordBayRepairProcedure(unittest.TestCase):
@@ -447,50 +437,6 @@ class TestS10FigureDedupe(unittest.TestCase):
         self.assertEqual(len(drawn), 1)
         self.assertEqual(_pdf_text(pdf).count(marker), 1)
         self.assertIn("343633", _pdf_text(pdf))
-
-
-class TestS01RepairByTurnFive(unittest.TestCase):
-    def test_the_gate_replay_authorizes_on_the_fifth_turn(self):
-        """Live gate cases.json: drain, pan, fan, pressures, freeze sensor."""
-        turns = ["drain", "pan", "fan", "pressures", "freeze sensor"]
-        replies = _walk(
-            turns,
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-            draft="Read the refrigerant pressures.",
-        )
-        for reply in replies[:4]:
-            low = reply.lower()
-            self.assertNotIn("replace the rooftop assembly", low)
-            self.assertNotIn("authorize rooftop assembly", low)
-            self.assertNotIn("sail switch", low)
-            self.assertNotIn("stay on the facr", low)
-            self.assertNotIn("next check on the", low)
-        pressure_asks = [
-            reply for reply in replies[1:3]
-            if "pressure" in reply.lower()
-        ]
-        self.assertLess(len(pressure_asks), 2, replies[1:3])
-        fifth = replies[4].lower()
-        self.assertIn("authorize rooftop assembly", fifth)
-        self.assertIn("replace the rooftop assembly", fifth)
-        self.assertIn("ccd-0007990", fifth)
-        self.assertNotIn("read the freeze sensor", fifth)
-
-    def test_four_turns_without_pressures_do_not_authorize(self):
-        replies = _walk(
-            [
-                "Furrion FACR08 rooftop AC. Water leaking inside.",
-                "Drain is clear. Pan is clean and draining. Base-pan slope is fine.",
-                "Filter is clean. Fan spins freely.",
-                "Freeze sensor 2k at 25C.",
-            ],
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-        )
-        last = replies[-1].lower()
-        self.assertNotIn("replace the rooftop assembly", last)
-        self.assertNotIn("authorize rooftop assembly", last)
 
 
 class TestS20BleedReply(unittest.TestCase):

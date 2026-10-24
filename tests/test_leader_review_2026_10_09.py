@@ -13,10 +13,7 @@ from bay_procedure import (
     sheet_has_internal_note,
 )
 from gd_library_coach import (
-    BAL_TONGUE_PANEL_SHOP_LINE,
-    DIAL_OFF_RUN_SHOP_LINE,
     GROUND_CONTROL_LEVEL_LINE,
-    ICE_MOISTURE_SHOP_LINE,
     strip_leaked_prompt,
 )
 
@@ -398,28 +395,3 @@ class TestDashesCitesAndBranches(unittest.TestCase):
         self.assertIn("replace the inverter pcb and the fan", proc.bay_order[0].lower())
 
 
-class TestPromptLeak(unittest.TestCase):
-    def test_leading_prompt_text_is_stripped(self):
-        shop_lines = (
-            BAL_TONGUE_PANEL_SHOP_LINE,
-            DIAL_OFF_RUN_SHOP_LINE,
-            ICE_MOISTURE_SHOP_LINE,
-            GROUND_CONTROL_LEVEL_LINE,
-        )
-        prefixes = (
-            "You are an OPEN LIBRARY COACH for Tacoma RV Center techs.\n\n",
-            "PRODUCT LOCK\nFollow the card.\n\n",
-            "SHOP WORDS: output wire.\n\n",
-            "Rules:\n1. Use only the excerpts.\n\n",
-            "MANUAL EXCERPTS follow.\n\n",
-            "Your previous draft re-asked the fan.\n\n",
-            "Category selected: Refrigerators\n\n",
-            "Model/system: FCR10\n\n",
-            "GROUND CONTROL 343633: zero the jacks.\n\n",
-            "DOMETIC B57915 TURNS ON and will not blow cold.\n\n",
-        )
-        for prefix, shop in zip(prefixes, shop_lines * 3):
-            cleaned = strip_leaked_prompt(prefix + shop)
-            self.assertFalse(cleaned.lower().startswith(prefix.splitlines()[0].lower()))
-            self.assertIn(shop.split(".")[0][:24], cleaned)
-        self.assertTrue(strip_leaked_prompt("Do not swap a level sensor.").lower().startswith("do not"))

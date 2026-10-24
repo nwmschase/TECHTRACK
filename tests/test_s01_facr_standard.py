@@ -11,7 +11,9 @@ from bay_procedure import (
     place_facr_library_figures,
     render_bay_procedure_pdf,
 )
-from gd_library_coach import avoid_duplicate_reply, ensure_facr_early_pressure_ask
+from gd_library_coach import (
+    avoid_duplicate_reply,
+)
 
 CONCERN = "FACR08 freeze up interior leak condensate"
 
@@ -36,26 +38,6 @@ def _sheet():
 
 def _steps(proc):
     return [step for procedure in proc.procedures for step in procedure["steps"]]
-
-
-def _walk(turns):
-    history = []
-    replies = []
-    for latest in turns:
-        reply = avoid_duplicate_reply(
-            "Check the filter and the fan.",
-            history,
-            latest,
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-        )
-        reply = ensure_facr_early_pressure_ask(
-            reply, history, latest, "Air Conditioning", "FACR08HESA2-PS"
-        )
-        replies.append(reply or "")
-        history.append({"role": "user", "content": latest})
-        history.append({"role": "assistant", "content": reply})
-    return replies
 
 
 S01_LIVE = [
@@ -253,69 +235,6 @@ class TestFacrSheet(unittest.TestCase):
         trace = []
         render_bay_procedure_pdf(proc, trace=trace)
         self.assertEqual(layout_problems(trace), [])
-
-
-class TestFacrRepairWalk(unittest.TestCase):
-    def test_rr_starts_after_authorization_and_yes_advances(self):
-        replies = _walk(S01_LIVE)
-        for reply in replies[:5]:
-            self.assertNotRegex(reply, r"(?<!\d)Step 1:")
-            self.assertNotIn("authorize rooftop assembly", reply.lower())
-        later = replies[6]
-        low = later.lower()
-        self.assertIn("suction line is clear", low)
-        self.assertIn("still frosting", low)
-        self.assertIn("verify", low)
-        self.assertIn("rooftop assembly", low)
-        self.assertIn("ccd-0007990", low)
-        self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", low)
-        self.assertNotIn("<!--", later)
-        self.assertTrue(mf.reply_shows_step(later, 1))
-        self.assertIn("Turn the 115VAC breaker off", later)
-        self.assertNotIn("Do this:", later)
-        self.assertNotIn("Here is the repair procedure.", later)
-        self.assertNotRegex(later, r"Step \d+ of")
-        self.assertNotIn("Take a photo of this step and send it.", later)
-        self.assertNotIn("Yes, go to the next step.", later)
-        self.assertNotIn("No, do this step again.", later)
-        self.assertNotIn(mf.PHOTO_VISUAL, later)
-        self.assertIn("2024006031", later)
-        history = []
-        for latest, reply in zip(S01_LIVE, replies):
-            history.append({"role": "user", "content": latest})
-            history.append({"role": "assistant", "content": reply})
-        held = avoid_duplicate_reply(
-            "",
-            history,
-            "Not yet.",
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-        )
-        self.assertNotIn("<!--", held)
-        self.assertTrue(mf.reply_shows_step(held, 1))
-        self.assertNotIn("Send the photo before the next step.", held)
-        self.assertNotRegex(held, r"(?<!\d)Step 2:")
-        advanced = avoid_duplicate_reply(
-            "",
-            history,
-            "Yes.",
-            "Air Conditioning",
-            "FACR08HESA2-PS",
-        )
-        self.assertNotIn("<!--", advanced)
-        self.assertTrue(mf.reply_shows_step(advanced, 2))
-        self.assertNotRegex(advanced, r"(?<!\d)Step 1:")
-        self.assertIn("12VDC", advanced)
-        self.assertNotIn("authorize rooftop assembly r&r on the ccd-0007990 condensate and assembly path.", advanced.lower())
-
-    def test_repair_question_before_the_walk_still_authorizes(self):
-        replies = _walk(S01_LIVE[:6] + ["What is the repair?"])
-        last = replies[-1].lower()
-        self.assertIn("authorize rooftop assembly", last)
-        self.assertIn("replace the rooftop assembly", last)
-        self.assertIn("ccd-0007990", last)
-        self.assertNotRegex(last, r"step 1:")
-        self.assertNotIn("read the refrigerant pressures", last)
 
 
 if __name__ == "__main__":

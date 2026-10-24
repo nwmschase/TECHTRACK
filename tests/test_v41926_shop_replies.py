@@ -5,8 +5,6 @@ from gd_library_coach import (
     FURNACE_WALL_TSTAT_LINE,
     _conditional_lines,
     avoid_duplicate_reply,
-    ensure_cooktop_tip_pan_check,
-    ensure_furnace_wall_thermostat,
     polish_shop_reply,
 )
 
@@ -77,51 +75,6 @@ class TestRepairStatement(unittest.TestCase):
 
 
 class TestProvedRepair(unittest.TestCase):
-    def test_s08_sail_switch_good_is_the_thermostat_repair(self):
-        history = [
-            {"role": "user", "content": "Will not blow warm; fan turns on then shuts off."},
-            {"role": "assistant", "content": "Bypass the wall thermostat at the furnace."},
-            {
-                "role": "user",
-                "content": "Thermostat bypassed at the furnace: the furnace operates.",
-            },
-            {
-                "role": "assistant",
-                "content": (
-                    "Prove the sail switch with the blower running. "
-                    "Report power in and power out before any thermostat replacement."
-                ),
-            },
-        ]
-        conditional = (
-            "With the blower running, measure power in and power out at the sail switch. "
-            "If power is present in and out, replace the wall thermostat."
-        )
-        opened = ensure_furnace_wall_thermostat(
-            conditional,
-            history,
-            "Sail switch is good.",
-            "Furnaces",
-            "Suburban NT-20SEQT",
-        )
-        self.assertEqual(opened, FURNACE_WALL_TSTAT_LINE)
-        self.assertNotIn("measure", opened.lower())
-        history = history + [
-            {"role": "user", "content": "Sail switch is good."},
-            {"role": "assistant", "content": opened},
-        ]
-        again = avoid_duplicate_reply(
-            opened,
-            history,
-            "What is the repair?",
-            "Furnaces",
-            "Suburban NT-20SEQT",
-        )
-        low = again.lower()
-        self.assertIn("wall thermostat", low)
-        self.assertNotIn("measure power", low)
-        self.assertNotIn("sail switch", low)
-        self.assertNotEqual(again.strip(), opened.strip())
 
     def test_s05_does_not_ask_the_dial_again(self):
         history = [
@@ -206,25 +159,6 @@ class TestNoCopiedTurn(unittest.TestCase):
         )
         self.assertNotEqual(reply.strip().lower(), previous.strip().lower())
         self.assertIn("rear five times", reply.lower())
-
-    def test_s15_drops_the_different_page_question(self):
-        raw = (
-            "With a pan on the burner, check the thermocouple tip position in the flame. "
-            "Report what you see.\n"
-            "📖 Source: Suburban SDN2U Range/Cooktops SM - page 4 (Figs. 3-4) "
-            "Do you have a different page or section from the Suburban manual?"
-        )
-        complaint = "When using stove, it will shut off as soon as a pan is put on it — either burner."
-        reply = ensure_cooktop_tip_pan_check(raw, complaint)
-        self.assertNotIn("different page", reply.lower())
-        polished = polish_shop_reply(
-            raw,
-            [],
-            complaint,
-            "Range & Cooktops",
-            "Suburban SDN2U",
-        )
-        self.assertNotIn("different page or section", polished.lower())
 
 
 if __name__ == "__main__":

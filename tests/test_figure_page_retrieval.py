@@ -111,7 +111,6 @@ class TestFigureQueryRewrite(unittest.TestCase):
         self.assertNotIn("quick notes", low)
 
 
-
 class TestPageLayoutGuard(unittest.TestCase):
     def test_page_13_is_text_only(self):
         p13 = FURRION_PAGES[0]["excerpt"]

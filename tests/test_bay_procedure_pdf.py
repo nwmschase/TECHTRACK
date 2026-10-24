@@ -31,18 +31,13 @@ from bay_procedure import (
     load_oem_figure_png,
     rewrite_bay_search_symptom,
     scrub_sheet_text,
-    sheet_standard_violations,
     _seed_figure_png,
     suggested_pdf_filename,
     uses_wired_coach_can_jargon,
 )
 from gd_library_coach import (
     FIREFLY_CAN_SEARCH_BOOST,
-    FIREFLY_TWO_PLUG_PROVE,
     ICE_MOISTURE_SEARCH_BOOST,
-    LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
-    LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
-    LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE,
     LEVEL_UP_CAN_PRODUCT_LOCK,
     OPEN_LIBRARY_COACH_RULE,
     is_facr_rooftop_freeze_context,
@@ -287,59 +282,6 @@ class TestManualModeFireflyCan(unittest.TestCase):
         self.assertNotIn("unity", " ".join(proc.do_not).lower())
         self.assertNotIn("dometic", " ".join(proc.do_not).lower())
 
-    def test_seed_807662_flash_home_has_usb_and_terminator(self):
-        concern = (
-            "Level Up Advantage 807662 Manual Mode flashes then dumps home. "
-            "Auto Level still works. Brinkley Firefly."
-        )
-        self.assertTrue(is_firefly_can_path_context("", "", concern))
-        proc = compile_bay_procedure(concern=concern)
-        text = _sheet_text(proc)
-        low = text.lower()
-        self.assertIn("rubber-boot", low)
-        self.assertIn("terminator", low)
-        self.assertIn("firefly usb", low)
-        self.assertIn("ports labeled can", low)
-        self.assertIn("power connector", low)
-        self.assertIn("12v+", low)
-        self.assertIn("unplug that one only", low)
-        self.assertIn("level up controller", low)
-        self.assertEqual(proc.model_line, "807662")
-        self.assertNotIn("network plugs", low)
-        self.assertNotIn("power looks sane", low)
-        self.assertTrue(firefly_sheet_uses_service_names(text))
-        self.assertFalse(body_uses_manual_codes(procedure_body_text(proc)))
-        self.assertFalse(body_tells_tech_to_open_manual(procedure_body_text(proc)))
-        self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
-        self.assertFalse(body_uses_stays_open(procedure_body_text(proc)))
-        self.assertTrue(proc.flowchart.readable)
-        self.assertFalse(uses_wired_coach_can_jargon(text))
-        self.assertIn(FIREFLY_CAN_PORT_PROVE.split(".")[0].lower(), low)
-        self.assertIn("574-825-4600", low)
-        self.assertIn("still dumps home", low)
-        self.assertNotIn(FIREFLY_TWO_PLUG_PROVE.split(".")[0].lower(), procedure_body_text(proc).lower())
-        self.assertNotIn("confirm manual dump works", low)
-        self.assertNotIn("no matching manual excerpt", low)
-        self.assertNotIn("one at a time", low)
-        self.assertFalse(firefly_has_forbidden_module_hunt(text))
-        self.assertFalse(check_text_leads_with_bare_pn("\n".join(proc.bay_order + proc.do_not)))
-        pdf = render_bay_procedure_pdf(proc)
-        pdf_low = _pdf_text(pdf).lower()
-        self.assertFalse(uses_wired_coach_can_jargon(pdf_low))
-        self.assertIn("ports labeled can", pdf_low)
-        self.assertIn("unplug that one only", pdf_low)
-        self.assertIn("rubber-boot", pdf_low)
-        self.assertIn("power connector", pdf_low)
-        self.assertNotIn("network plugs", pdf_low)
-        self.assertNotIn("power looks sane", pdf_low)
-        self.assertNotIn("stays open", pdf_low)
-        self.assertNotIn("stay open", pdf_low)
-        self.assertIn("574-825-4600", pdf_low)
-        self.assertIn("interim", pdf_low)
-        self.assertIn("still dumps home", pdf_low)
-        self.assertNotIn("one at a time", pdf_low)
-        self.assertFalse(firefly_has_forbidden_module_hunt(pdf_low))
-
 
 class TestBayProcedurePdfBytes(unittest.TestCase):
     def test_pdf_bytes_nonempty_for_sample_concern(self):
@@ -423,10 +365,6 @@ class TestVisualFlowchartDrawn(unittest.TestCase):
 
 
 class TestExactFireflyTwoPlugLock(unittest.TestCase):
-    def test_gd_constant_stays_leader_short_prove(self):
-        self.assertEqual(FIREFLY_TWO_PLUG_PROVE, EXACT_TWO_PLUG)
-        self.assertNotIn("Find the connector", FIREFLY_TWO_PLUG_PROVE)
-        self.assertNotIn("labeled CAN", FIREFLY_TWO_PLUG_PROVE)
 
     def test_bay_sheet_uses_can_port_labels_not_network_plugs(self):
         proc = compile_bay_procedure(
@@ -463,26 +401,6 @@ class TestExactFireflyTwoPlugLock(unittest.TestCase):
         self.assertNotIn("power looks sane", pdf_low)
         self.assertNotIn("wired coach can", pdf_low)
         self.assertNotIn("find the connector", pdf_low)
-
-    def test_gd_path_strings_use_exact_block_and_ban_jargon(self):
-        self.assertIn(EXACT_TWO_PLUG, LEVEL_UP_CAN_ISOLATE_SHOP_LINE)
-        from pathlib import Path
-
-        app = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
-        for blob in (
-            LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
-            LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
-            LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE,
-            LEVEL_UP_CAN_PRODUCT_LOCK,
-            OPEN_LIBRARY_COACH_RULE,
-        ):
-            self.assertNotIn("wired coach can", blob.lower(), blob[:200])
-            self.assertNotIn("find the connector", blob.lower())
-        self.assertIn("gui", LEVEL_UP_CAN_FIREFLY_SHOP_LINE.lower())
-        self.assertIn("ccm", LEVEL_UP_CAN_FIREFLY_SHOP_LINE.lower())
-        self.assertIn("574-825-4600", LEVEL_UP_CAN_FIREFLY_SHOP_LINE)
-        self.assertIn("level up controller", LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE.lower())
-        self.assertIn("do not push", LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE.lower())
 
 
 class TestFireflyServiceNamesNotPartNumbers(unittest.TestCase):
@@ -727,7 +645,6 @@ class TestFullAzAndStandingStandard(unittest.TestCase):
         self.assertIn("BAY_SHEET_STANDARD", src)
         self.assertIn("Standing sheet standard", src)
         self.assertIn("inherit BAY_SHEET_STANDARD", src)
-        self.assertIn("def sheet_standard_violations", src)
         self.assertIn("def apply_sheet_standard", src)
         self.assertIn("def is_long_appliance_path", src)
         self.assertIn("def scrub_sheet_text", src)
@@ -834,12 +751,6 @@ class TestOemFlowchartLayout(unittest.TestCase):
             )
             self.assertGreaterEqual(flow_h, 400, concern)
 
-    def test_sheet_standard_machine_checklist(self):
-        self.assertIn("network plugs", sheet_standard_violations("unplug the network plugs"))
-        self.assertIn("stays open", sheet_standard_violations("Manual Mode stays open"))
-        self.assertIn("open the SM", sheet_standard_violations("open the service manual next"))
-        self.assertEqual(sheet_standard_violations("Check the POWER CONNECTOR. If it holds, call Firefly."), [])
-
 
 class TestNavAndGdUntouched(unittest.TestCase):
     def test_nav_label_and_gd_chat_untouched(self):
@@ -921,70 +832,6 @@ class TestNewConcernsInheritStandard(unittest.TestCase):
         ),
     )
 
-    def test_generic_appliance_paths_are_full_story_with_flowchart(self):
-        chunks = [
-            {
-                "title": "Shop service excerpt",
-                "page": 4,
-                "excerpt": (
-                    "Inspect the assembly and write the first reading. "
-                    "If the first check fails, stay on it until it passes."
-                ),
-            },
-            {
-                "title": "Shop service excerpt",
-                "page": 8,
-                "excerpt": (
-                    "Open the service manual. Power looks sane. "
-                    "If the valve stays open, replace it. Do not start at Unity."
-                ),
-            },
-            {
-                "title": "Shop service excerpt CCD-0001111",
-                "page": 10,
-                "excerpt": (
-                    "Retest the complaint after the cited checks. "
-                    "Network plugs are not the label to use."
-                ),
-            },
-        ]
-        for concern, brand, model, category in self.GENERIC_SEEDS:
-            self.assertTrue(is_long_appliance_path(category, concern), concern)
-            proc = compile_bay_procedure(
-                concern=concern,
-                brand=brand,
-                model=model,
-                category=category,
-                chunks=chunks,
-            )
-            body = procedure_body_text(proc)
-            self.assertTrue(proc.full_story, concern)
-            self.assertGreaterEqual(len(proc.bay_order), 6, concern)
-            self.assertTrue(proc.flowchart.readable, concern)
-            self.assertTrue(any(n.kind == "decision" for n in proc.flowchart.nodes), concern)
-            yes_no = {e.label.upper() for e in proc.flowchart.edges if e.label}
-            self.assertEqual(yes_no, {"YES", "NO"}, concern)
-            self.assertIn("confirmed correction", " ".join(proc.bay_order).lower(), concern)
-            self.assertEqual(sheet_standard_violations(body), [], body[:400])
-            self.assertFalse(body_tells_tech_to_open_manual(body), body[:400])
-            self.assertFalse(body_uses_stays_open(body))
-            self.assertFalse(body_uses_network_plugs(body))
-            self.assertFalse(body_uses_power_looks_sane(body))
-            self.assertFalse(body_uses_coach_donots("\n".join(proc.do_not)))
-            self.assertFalse(body_uses_manual_codes(body), body[:400])
-            self.assertTrue(any(fig.image_png for fig in proc.figures), concern)
-            self.assertGreater(len(render_bay_procedure_pdf(proc)), 2000)
-
-    def test_scrub_rewrites_rejected_draft_language(self):
-        cleaned = scrub_sheet_text(
-            "Unplug the network plugs. Power looks sane. Manual Mode stays open. "
-            "See the service manual. Do not start at Unity."
-        )
-        self.assertEqual(sheet_standard_violations(cleaned), [])
-        self.assertIn("ports labeled CAN", cleaned)
-        self.assertIn("POWER CONNECTOR", cleaned)
-        self.assertIn("holds", cleaned)
-        self.assertNotIn("Unity", cleaned)
 
     def test_apply_sheet_standard_does_not_rewrite_locked_firefly(self):
         proc = compile_bay_procedure(

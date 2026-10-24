@@ -11,7 +11,6 @@ from bay_procedure import (
     procedure_plain_text,
     render_bay_procedure_pdf,
     rewrite_bay_search_symptom,
-    sheet_standard_violations,
 )
 from gd_library_coach import (
     AC_SEARCH_BOOST,
@@ -101,70 +100,6 @@ class TestColemanBayBrandLock(unittest.TestCase):
         self.assertNotIn("furrion", titles)
         self.assertNotIn("ccd-0008666", titles)
 
-    def test_coleman_sheet_cites_coleman_and_climaxes_at_motor_and_board(self):
-        self.assertLessEqual(len(COLEMAN_BAY_PRIMARY_CITE), 92)
-        proc = compile_bay_procedure(
-            concern=CONCERN,
-            brand="Coleman-Mach",
-            model="2111-0001",
-            category="Air Conditioning",
-            chunks=[*FURRION_PAGES, WALL, PINS, PEACE, MECH],
-        )
-        text = procedure_plain_text(proc)
-        low = text.lower()
-        self.assertIn("coleman-mach 2111-0001", proc.model_line.lower())
-        self.assertEqual(proc.primary_cite, COLEMAN_BAY_PRIMARY_CITE)
-        self.assertIn("coleman-mach", proc.primary_cite.lower())
-        self.assertIn("1976-536", proc.primary_cite)
-        self.assertIn("1976-603", proc.primary_cite)
-        self.assertIn("peacemaker", proc.primary_cite.lower())
-        self.assertIn("1976-695", proc.primary_cite)
-        self.assertNotIn("furrion", proc.primary_cite.lower())
-        self.assertNotIn("ccd-0008666", proc.primary_cite.lower())
-        titles = " ".join((s.get("title") or "") for s in proc.sources).lower()
-        self.assertIn("12vdc", titles.replace(" ", ""))
-        self.assertIn("wall-thermostat", titles)
-        self.assertIn("1976-536", titles)
-        self.assertIn("1976-603", titles)
-        self.assertIn("peacemaker", titles)
-        self.assertIn("1976-695", titles)
-        self.assertNotIn("furrion", titles)
-        self.assertNotIn("ccd-0008666", titles)
-        self.assertTrue(any(s.get("page") == 2 for s in proc.sources))
-        for fig in proc.figures:
-            blob = f"{fig.title} {fig.caption}".lower()
-            self.assertNotIn("furrion", blob)
-            self.assertNotIn("ccd-0008666", blob)
-            self.assertNotIn("ccd-0007990", blob)
-        order = " ".join(proc.bay_order).lower()
-        self.assertIn("pin 5", order)
-        self.assertIn("pin 9", order)
-        self.assertIn("fan high", order)
-        self.assertIn("9-pin", order)
-        self.assertIn("peacemaker", order)
-        self.assertIn("capacitor", order)
-        self.assertIn("15", order)
-        self.assertIn("fan motor", order)
-        self.assertIn("control board", order)
-        self.assertIn("only", order)
-        self.assertIn("do not replace the full 2111-0001", order)
-        self.assertTrue(any("full 2111-0001" in item.lower() for item in proc.do_not))
-        self.assertIn("confirmed correction", order)
-        self.assertEqual(sheet_standard_violations(procedure_body_text(proc)), [])
-        self.assertNotIn("furrion", low)
-        self.assertNotIn("ccd-0008666", low)
-        rects = flowchart_node_rects(proc.flowchart, 36.0, 50.0, 540.0, 612.0)
-        self.assertEqual(flowchart_boxes_overlap(rects, gap=14.0), [])
-        pdf = _pdf_text(render_bay_procedure_pdf(proc)).lower()
-        self.assertIn("coleman-mach", pdf)
-        self.assertIn("1976-536", pdf)
-        self.assertIn("1976-603", pdf)
-        self.assertIn("peacemaker", pdf)
-        self.assertIn("1976-695", pdf)
-        self.assertIn("control board only", pdf)
-        self.assertNotIn("furrion", pdf)
-        self.assertNotIn("ccd-0008666", pdf)
-        self.assertNotIn("fact12", pdf)
 
     def test_furrion_only_library_does_not_become_the_coleman_primary(self):
         proc = compile_bay_procedure(

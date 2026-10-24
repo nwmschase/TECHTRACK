@@ -6,7 +6,6 @@ from gd_library_coach import (
     AC_SEARCH_BOOST,
     FACR_FREEZE_SEARCH_BOOST,
     ac_search_symptom,
-    claims_ac_library_empty,
     drop_unity_chunks_for_ac,
     figure_library_search_boost,
     figure_render_honesty_note,
@@ -226,39 +225,6 @@ class TestAcRanking(unittest.TestCase):
 
 
 class TestAcHonesty(unittest.TestCase):
-    def test_does_not_claim_empty_when_titles_exist(self):
-        catalog = [
-            {"title": FACT["title"], "indexed": False, "chunk_count": 0},
-            {"title": BRISK["title"], "indexed": True, "chunk_count": 2},
-            {"title": UNITY["title"], "indexed": True, "chunk_count": 20},
-        ]
-        note = format_ac_library_honesty(catalog, chunks=None)
-        self.assertIn("DOES include", note)
-        self.assertIn("FACT12SA2", note)
-        self.assertIn("re-index", note.lower().replace("reindex", "re-index"))
-        self.assertIn("Unity", note)
-        self.assertNotIn("does not include", note.lower())
-        self.assertFalse(claims_ac_library_empty(note))
-
-    def test_empty_claim_detector(self):
-        bad = (
-            "The shop Document Library does not include Air Conditioning procedures. "
-            "I only have the OneControl Unity board manual."
-        )
-        self.assertTrue(claims_ac_library_empty(bad))
-        good = (
-            "Furrion FACT12SA2 Rooftop Air Conditioner SM is in the shop library "
-            "but is not indexed. Ask a manager to re-index it."
-        )
-        self.assertFalse(claims_ac_library_empty(good))
-
-    def test_first_turn_hits_block_unity_only_claim(self):
-        note = format_ac_library_honesty(
-            [{"title": FACT["title"], "indexed": True, "chunk_count": 4}],
-            chunks=[FACT],
-        )
-        self.assertIn("FACT12SA2", note)
-        self.assertFalse(claims_ac_library_empty(note))
 
 
     def test_figure_render_fail_names_ac_not_missing_library(self):
@@ -330,7 +296,6 @@ class TestFacrFreezeRetrieval(unittest.TestCase):
         self.assertFalse(is_dometic_only_rooftop_ac(CCD_7990["title"]))
         self.assertFalse(is_facr_freeze_library_title(BRISK["title"]))
         self.assertFalse(is_facr_freeze_library_title(FRIDGE["title"]))
-
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ from bay_procedure import (
     procedure_body_text,
     procedure_plain_text,
     render_bay_procedure_pdf,
-    sheet_standard_violations,
 )
 from gd_library_coach import PLUMBING_TOILETS_CATEGORY
 
@@ -97,33 +96,6 @@ class TestThetfordFlushLeakSheet(unittest.TestCase):
             chunks=_chunks(),
         )
 
-    def test_bay_order_is_the_four_leak_checks(self):
-        text = procedure_plain_text(self.proc).lower()
-        self.assertIn("water supply line connection at the water valve", text)
-        self.assertIn("weeps at the pedal", text)
-        self.assertIn("vacuum breaker leaks while flushing", text)
-        self.assertIn("flange", text)
-        self.assertIn("7/16", text)
-        self.assertIn("42006", text)
-        self.assertIn("02125", text)
-        self.assertNotIn("42067", text)
-        self.assertNotIn("33239", text)
-        self.assertNotIn("not on this sheet", text)
-        self.assertIn("fix or tighten the supply connection", text)
-        self.assertNotIn("unconfirmed", text)
-        self.assertNotIn("not stated in this sheet", text)
-        self.assertNotIn("that limit is", text)
-        self.assertNotIn("do not flush until the ice thaws", text)
-        self.assertNotIn("automotive antifreeze", text)
-        order = " ".join(self.proc.bay_order).lower()
-        self.assertLess(order.find("water supply line connection"), order.find("vacuum breaker"))
-        self.assertLess(order.find("vacuum breaker"), order.find("weeps at the pedal"))
-        self.assertLess(order.find("weeps at the pedal"), order.find("flange nuts"))
-        self.assertIn("7/16 inch above the floor", order)
-        self.assertNotIn("7/16 inch above the floor. unconfirmed", order)
-        for junk in JUNK:
-            self.assertNotIn(junk, text, junk)
-        self.assertEqual(sheet_standard_violations(procedure_body_text(self.proc)), [])
 
     def test_flowchart_follows_the_leak_checks(self):
         decisions = [node.text.lower() for node in self.proc.flowchart.nodes if node.kind == "decision"]

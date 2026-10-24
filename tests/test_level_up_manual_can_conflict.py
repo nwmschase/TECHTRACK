@@ -2,26 +2,15 @@
 import unittest
 
 from gd_library_coach import (
-    LEVEL_UP_CAN_FIREFLY_SHOP_LINE,
-    LEVEL_UP_CAN_ISOLATE_SHOP_LINE,
-    LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE,
     LEVEL_UP_CAN_PRODUCT_LOCK,
     LEVEL_UP_CAN_SEARCH_BOOST,
     coach_library_search_boost,
-    ensure_level_up_manual_can_path,
-    extract_stated_facts,
     is_level_up_advantage_context,
     is_level_up_manual_can_conflict_context,
     is_level_up_manual_dump_context,
     is_stabilizer_override_pin_context,
-    level_up_can_reply_needs_guard,
     level_up_search_symptom,
     rank_chunks_for_level_up_can,
-    reply_names_can_reconnect,
-    reply_names_firefly_interim,
-    reply_names_firefly_usb_fix,
-    reply_offers_can_isolate,
-    reply_swaps_807662_for_firefly,
     score_level_up_can_chunk,
 )
 
@@ -143,27 +132,6 @@ class TestLevelUpCanDetect(unittest.TestCase):
         )
 
 
-class TestLevelUpCanFacts(unittest.TestCase):
-    def test_extracts_dump_auto_and_can_stays(self):
-        facts = extract_stated_facts(WO_CAN_STAYS)
-        self.assertEqual(facts.get("manual_dump"), "reported")
-        self.assertEqual(facts.get("auto_level"), "works")
-        self.assertEqual(facts.get("can_isolate"), "stays")
-        self.assertEqual(facts.get("level_up_power"), "good")
-
-    def test_extracts_can_still_dumps(self):
-        facts = extract_stated_facts(WO_CAN_DUMPS)
-        self.assertEqual(facts.get("can_isolate"), "still_dumps")
-        self.assertEqual(facts.get("auto_level"), "works")
-
-    def test_reconnect_dump_does_not_overwrite_can_stays(self):
-        facts = extract_stated_facts(
-            "Unplugged wired CAN, terminator in, Manual Mode stays. "
-            "Reconnected CAN and the dump returns."
-        )
-        self.assertEqual(facts.get("can_isolate"), "stays")
-
-
 class TestLevelUpCanQueryRewrite(unittest.TestCase):
     def test_boost_adds_can_isolate_when_auto_works(self):
         q = level_up_search_symptom("Leveling", WO_MODEL, WO_COMPLAINT)
@@ -185,14 +153,6 @@ class TestLevelUpCanQueryRewrite(unittest.TestCase):
         self.assertNotIn("firefly", low)
         self.assertNotIn("terminator", low)
 
-    def test_stated_facts_boost_is_can_not_unity(self):
-        facts = extract_stated_facts(WO_COMPLAINT)
-        boost = coach_library_search_boost(facts)
-        low = boost.lower()
-        self.assertIn("firefly", low)
-        self.assertIn("terminator", low)
-        self.assertNotIn("unity", low)
-
 
 class TestLevelUpCanRanking(unittest.TestCase):
     def test_can_writeup_outranks_board_swap_and_unity(self):
@@ -209,75 +169,6 @@ class TestLevelUpCanRanking(unittest.TestCase):
             score_level_up_can_chunk(SHOP_WRITEUP, query),
             score_level_up_can_chunk(UNITY, query),
         )
-
-
-class TestLevelUpCanGuardBranches(unittest.TestCase):
-    def test_a_manual_dump_auto_works_offers_can_isolate_with_terminator(self):
-        facts = extract_stated_facts(WO_COMPLAINT)
-        self.assertEqual(facts.get("manual_dump"), "reported")
-        self.assertEqual(facts.get("auto_level"), "works")
-        self.assertFalse(reply_offers_can_isolate(LIVE_BOARD_FIRST))
-        self.assertTrue(level_up_can_reply_needs_guard(LIVE_BOARD_FIRST, facts))
-        fixed = ensure_level_up_manual_can_path(LIVE_BOARD_FIRST, facts)
-        self.assertTrue(reply_offers_can_isolate(fixed))
-        low = fixed.lower()
-        self.assertIn("rubber boot", low)
-        self.assertIn("firefly", low)
-        self.assertIn("cable", low)
-        self.assertIn("unplug", low)
-        self.assertIn("two network plugs", low)
-        self.assertNotIn("wired coach can", low)
-        self.assertIn(LEVEL_UP_CAN_ISOLATE_SHOP_LINE.split("\n")[0][:40], fixed)
-
-    def test_b_manual_works_can_out_is_firefly_usb_interim_reconnect(self):
-        facts = extract_stated_facts(WO_CAN_STAYS)
-        self.assertEqual(facts.get("can_isolate"), "stays")
-        fixed = ensure_level_up_manual_can_path(LIVE_BOARD_FIRST, facts)
-        self.assertTrue(reply_names_firefly_usb_fix(fixed))
-        self.assertTrue(reply_names_firefly_interim(fixed))
-        self.assertTrue(reply_names_can_reconnect(fixed))
-        low = fixed.lower()
-        self.assertIn("firefly", low)
-        self.assertIn("usb", low)
-        self.assertIn("574-825-4600", low)
-        self.assertIn("gui", low)
-        self.assertIn("ccm", low)
-        self.assertTrue("4 gb" in low or "4gb" in low or "4 gb" in LEVEL_UP_CAN_FIREFLY_SHOP_LINE.lower())
-        self.assertIn("battery", low)
-        self.assertIn("solar", low)
-        self.assertIn("reconnect", low)
-        self.assertFalse(reply_swaps_807662_for_firefly(fixed))
-        self.assertIn(LEVEL_UP_CAN_FIREFLY_SHOP_LINE.split("\n")[0][:40], fixed)
-
-    def test_c_manual_still_dumps_can_out_is_not_firefly_or_board_swap(self):
-        facts = extract_stated_facts(WO_CAN_DUMPS)
-        self.assertEqual(facts.get("can_isolate"), "still_dumps")
-        self.assertTrue(reply_names_firefly_usb_fix(LIVE_FIREFLY_AFTER_STILL_DUMP))
-        self.assertTrue(reply_swaps_807662_for_firefly(LIVE_FIREFLY_AFTER_STILL_DUMP))
-        fixed = ensure_level_up_manual_can_path(LIVE_FIREFLY_AFTER_STILL_DUMP, facts)
-        self.assertFalse(reply_names_firefly_usb_fix(fixed))
-        self.assertFalse(reply_swaps_807662_for_firefly(fixed))
-        low = fixed.lower()
-        self.assertIn("level up", low)
-        self.assertIn("sensor", low)
-        self.assertIn("harness", low)
-        self.assertIn("do not swap", low)
-        self.assertIn("do not push", low)
-        self.assertIn(LEVEL_UP_CAN_NOT_FIREFLY_SHOP_LINE.split("\n")[0][:40], fixed)
-
-    def test_good_isolate_reply_is_left_alone(self):
-        good = (
-            "Auto Level still works and there is no sticky Low Voltage text. "
-            "The Level Up controller has two network plugs. One has a rubber boot "
-            "on it — leave that one alone. The other has a cable running to the "
-            "Firefly / OneControl system — unplug that cable only. Then try Manual Mode again.\n"
-            "📖 Source: shop writeup — Level Up Advantage Manual Mode flash-home / Firefly"
-        )
-        facts = extract_stated_facts(WO_COMPLAINT)
-        self.assertTrue(reply_offers_can_isolate(good))
-        self.assertFalse(level_up_can_reply_needs_guard(good, facts))
-        self.assertEqual(ensure_level_up_manual_can_path(good, facts), good)
-
 
 
 if __name__ == "__main__":

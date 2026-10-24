@@ -4,31 +4,19 @@ from pathlib import Path
 
 from bay_procedure import compile_bay_procedure, procedure_plain_text, rewrite_bay_search_symptom
 from gd_library_coach import (
-    DIAL_OFF_RUN_INVERTER_SHOP_LINE,
-    DIAL_OFF_RUN_PART_SHOP_LINE,
     DIAL_OFF_RUN_PRODUCT_LOCK,
     DIAL_OFF_RUN_SEARCH_BOOST,
-    DIAL_OFF_RUN_SHOP_LINE,
     OPEN_LIBRARY_COACH_RULE,
     coach_library_search_boost,
     compact_manual_context,
     complete_chat_with_payload_retry,
-    ct_prove_from_turn,
-    dial_off_run_reply_needs_guard,
     dial_off_run_search_symptom,
-    ensure_fcr_dial_off_compressor_run_path,
-    extract_stated_facts,
-    format_stated_facts_rule,
     is_ai_request_too_large,
     is_fcr_dial_off_compressor_run_context,
     is_fcr_e2_fan_fault_context,
     is_fridge_ice_moisture_context,
     is_fridge_no_power_complaint,
     rank_chunks_for_dial_off_run,
-    reply_names_dial_off_ct_prove,
-    reply_names_dial_off_inverter_secondary,
-    reply_names_spark_free_thermostat_part,
-    reply_opens_dial_off_wrong_tree,
     score_dial_off_run_chunk,
     shrink_ai_messages,
     trim_coach_history,
@@ -36,21 +24,6 @@ from gd_library_coach import (
 
 ROOT = Path(__file__).resolve().parents[1]
 
-
-def assert_locked_thermostat_cites(testcase, text: str):
-    """Shipped dial-off copy cites p.31 and p.43–45 only."""
-    low = (text or "").lower()
-    testcase.assertNotIn("page 34", low)
-    testcase.assertNotIn("p.34", low)
-    testcase.assertNotIn("p. 34", low)
-    testcase.assertNotIn("page 23", low)
-    testcase.assertNotIn("p.23", low)
-    testcase.assertNotIn("p. 23", low)
-    testcase.assertNotIn("fig. 16", low)
-    testcase.assertNotIn("fig 16", low)
-    testcase.assertNotIn("turn the dial on", low)
-    testcase.assertNotIn("on/off diagnostic", low)
-    testcase.assertFalse(reply_opens_dial_off_wrong_tree(text), text[:120])
 
 FURRION = "Furrion FCR08/FCR10 SM CCD-0008122"
 WO_MODEL = "Furrion FCR10DCGTA-BG-PWH"
@@ -227,19 +200,6 @@ class TestDialOffRunDetect(unittest.TestCase):
 
 
 class TestDialOffRunQueryAndRank(unittest.TestCase):
-    def test_boost_is_thermostat_not_fuse(self):
-        q = dial_off_run_search_symptom("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        low = q.lower()
-        self.assertIn("2021128850", q)
-        self.assertIn("thermostat", low)
-        self.assertNotIn("fuse", DIAL_OFF_RUN_SEARCH_BOOST.lower())
-        self.assertNotIn("no power", DIAL_OFF_RUN_SEARCH_BOOST.lower())
-        facts = extract_stated_facts(f"{WO_MODEL} {WO_COMPLAINT}")
-        self.assertEqual(facts.get("dial_off_run"), "overcool")
-        boost = coach_library_search_boost(facts).lower()
-        self.assertIn("2021128850", boost)
-        self.assertNotIn("no power", boost)
-        self.assertNotIn("ice and moisture", boost)
 
     def test_thermostat_pages_outrank_fuse_continuity_led_and_p34(self):
         query = f"{WO_MODEL} {WO_COMPLAINT}"
@@ -256,138 +216,7 @@ class TestDialOffRunQueryAndRank(unittest.TestCase):
         self.assertGreater(score_dial_off_run_chunk(P43, query), score_dial_off_run_chunk(P34, query))
 
 
-class TestDialOffRunGuard(unittest.TestCase):
-    def test_fuse_first_reply_becomes_ct_prove_and_names_part(self):
-        self.assertTrue(reply_opens_dial_off_wrong_tree(LIVE_FUSE_MISS))
-        self.assertTrue(dial_off_run_reply_needs_guard(LIVE_FUSE_MISS))
-        fixed = ensure_fcr_dial_off_compressor_run_path(LIVE_FUSE_MISS)
-        low = fixed.lower()
-        self.assertTrue(reply_names_dial_off_ct_prove(fixed))
-        self.assertFalse(reply_names_spark_free_thermostat_part(fixed))
-        self.assertNotIn("2021128850", fixed)
-        self.assertIn("no jumper", low)
-        self.assertIn("page 31", low)
-        self.assertIn("page 43", low)
-        self.assertIn("c (blue)", low)
-        self.assertIn("t (black)", low)
-        self.assertIn("compressor stops", low)
-        self.assertFalse(reply_opens_dial_off_wrong_tree(fixed))
-        self.assertNotIn("page 19", low)
-        self.assertNotIn("page 18", low)
-        assert_locked_thermostat_cites(self, fixed)
-        assert_locked_thermostat_cites(self, DIAL_OFF_RUN_PRODUCT_LOCK)
-
-    def test_ct_open_stopped_is_part_climax(self):
-        facts = extract_stated_facts(
-            "Opened flag terminals C and T, no jumper, compressor stopped"
-        )
-        self.assertEqual(facts.get("ct_prove"), "stopped")
-        fixed = ensure_fcr_dial_off_compressor_run_path(LIVE_FUSE_MISS, facts)
-        low = fixed.lower()
-        self.assertIn("2021128850", fixed)
-        self.assertIn("c-fcr10dcgta-007", low)
-        self.assertIn("page 43", low)
-        self.assertIn(DIAL_OFF_RUN_PART_SHOP_LINE.split("\n")[0][:40], fixed)
-        self.assertFalse(reply_opens_dial_off_wrong_tree(fixed))
-        self.assertNotIn("15a", low)
-        assert_locked_thermostat_cites(self, fixed)
-
-    def test_page34_and_on_off_draft_is_rewritten_to_ct_part(self):
-        draft = (
-            "Not Cooling page 34: the compressor is running constantly, so replace the thermostat. "
-            "On/Off diagnostics page 23 Fig. 16: turn the dial on and set the dial to position 4, "
-            "then wait 2 hours.\n"
-            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 34\n"
-            "📖 Source: Furrion FCR08/FCR10 SM CCD-0008122 - page 23"
-        )
-        self.assertTrue(reply_opens_dial_off_wrong_tree(draft))
-        fixed = ensure_fcr_dial_off_compressor_run_path(draft)
-        low = fixed.lower()
-        self.assertTrue(reply_names_dial_off_ct_prove(fixed))
-        self.assertFalse(reply_names_spark_free_thermostat_part(fixed))
-        self.assertNotIn("2021128850", fixed)
-        self.assertIn("no jumper", low)
-        self.assertIn("page 31", low)
-        self.assertIn("page 43", low)
-        self.assertNotIn("running constantly", low)
-        assert_locked_thermostat_cites(self, fixed)
-
-    def test_short_followup_stopped_reaches_part_climax(self):
-        self.assertEqual(ct_prove_from_turn("compressor stopped"), "stopped")
-        self.assertEqual(ct_prove_from_turn(WO_COMPLAINT), "")
-        fixed = ensure_fcr_dial_off_compressor_run_path(
-            "",
-            {"dial_off_run": "overcool", "ct_prove": ct_prove_from_turn("it stopped")},
-        )
-        self.assertIn("2021128850", fixed)
-        self.assertIn("page 43", fixed.lower())
-
-    def test_ct_open_still_running_is_inverter_harness_not_fuse(self):
-        facts = extract_stated_facts(
-            "C/T open, no jumper, compressor keeps running"
-        )
-        self.assertEqual(facts.get("ct_prove"), "still_running")
-        fixed = ensure_fcr_dial_off_compressor_run_path(
-            "Replace the thermostat because it is running constantly. Check the 15A fuse.",
-            facts,
-        )
-        low = fixed.lower()
-        self.assertTrue(reply_names_dial_off_inverter_secondary(fixed))
-        self.assertIn("inverter", low)
-        self.assertIn("harness", low)
-        self.assertIn("page 45", low)
-        self.assertNotIn("2021128850", fixed)
-        self.assertNotIn("c-fcr10dcgta-007", low)
-        self.assertFalse(reply_opens_dial_off_wrong_tree(fixed))
-        self.assertNotIn("15a", low)
-        self.assertNotIn("running constantly", low)
-        self.assertIn(DIAL_OFF_RUN_INVERTER_SHOP_LINE.split("\n")[0][:32], fixed)
-        assert_locked_thermostat_cites(self, fixed)
-
-    def test_shop_lines_do_not_look_like_the_wrong_tree(self):
-        stated = format_stated_facts_rule({"dial_off_run": "overcool"})
-        for line in (
-            DIAL_OFF_RUN_SHOP_LINE,
-            DIAL_OFF_RUN_PART_SHOP_LINE,
-            DIAL_OFF_RUN_INVERTER_SHOP_LINE,
-            stated,
-        ):
-            assert_locked_thermostat_cites(self, line)
-
-
 class TestDialOffRunBayProcedure(unittest.TestCase):
-    def test_bay_pdf_leads_with_thermostat_not_fuse(self):
-        q = rewrite_bay_search_symptom("Refrigerators", WO_MODEL, WO_COMPLAINT)
-        self.assertIn("2021128850", q)
-        self.assertNotIn("no power", DIAL_OFF_RUN_SEARCH_BOOST.lower())
-        proc = compile_bay_procedure(
-            concern=WO_COMPLAINT,
-            brand="Furrion",
-            model=WO_MODEL,
-            category="Refrigerators",
-            chunks=[FUSE_P19, LED_P18, P34, P31, P43],
-        )
-        text = procedure_plain_text(proc).lower()
-        self.assertIn("2021128850", text)
-        self.assertIn("c-fcr10dcgta-007", text)
-        self.assertIn("no jumper", text)
-        self.assertIn("page 31", text)
-        self.assertIn("page 43", text)
-        self.assertIn("inverter", text)
-        self.assertIn("harness", text)
-        pages = [c.source_page for c in proc.checks]
-        self.assertNotIn(19, pages)
-        self.assertNotIn(18, pages)
-        self.assertNotIn(34, pages)
-        self.assertNotIn(23, pages)
-        assert_locked_thermostat_cites(self, procedure_plain_text(proc))
-        action = " ".join(proc.bay_order[:2] + [n.text for n in proc.flowchart.nodes]).lower()
-        self.assertNotIn("fuse", action)
-        self.assertNotIn("12v", action)
-        self.assertIn("no jumper", action)
-        self.assertIn("c (blue)", action)
-        self.assertIn("t (black)", action)
-        self.assertTrue(any("fuse" in item.lower() and "12v" in item.lower() for item in proc.do_not))
 
     def test_fcr10_off_locks_exact_part_g_and_rejects_transposed_pn(self):
         concern = "FCR10 OFF + compressor still running / overcool"

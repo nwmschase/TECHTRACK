@@ -10,7 +10,6 @@ from bay_procedure import compile_bay_procedure, paint_library_step_figures, ren
 from gd_library_coach import (
     GROUND_CONTROL_LEVEL_LINE,
     avoid_duplicate_reply,
-    ensure_ground_control_level_path,
 )
 import library_figure_backfill as fb
 
@@ -204,20 +203,6 @@ class TestGirardHoseQuote(unittest.TestCase):
         )
         hay = " ".join(src.get("excerpt") or "" for src in proc.sources)
         self.assertIn("Check for integrity and connections of the pressure switch hose.", hay)
-
-
-class TestGroundRepairPhrase(unittest.TestCase):
-    def test_the_shipped_level_reply_names_the_repair(self):
-        self.assertIn("zero-point calibration is the repair", GROUND_CONTROL_LEVEL_LINE.lower())
-        history = [
-            {"role": "user", "content": "Auto-level lifts driver-side tires though nearly level."},
-            {
-                "role": "assistant",
-                "content": "Confirm the controller, jack, and touch pad plugs are seated.",
-            },
-        ]
-        reply = ensure_ground_control_level_path("Check the harness.", history)
-        self.assertIn("zero-point calibration is the repair", reply.lower())
 
 
 class TestFreezeSensorGate(unittest.TestCase):

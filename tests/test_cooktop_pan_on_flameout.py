@@ -4,17 +4,12 @@ import unittest
 from gd_library_coach import (
     COOKTOP_PRODUCT_LOCK,
     COOKTOP_SEARCH_BOOST,
-    COOKTOP_TIP_PAN_SHOP_LINE,
-    cooktop_reply_needs_tip_pan,
     cooktop_search_symptom,
-    ensure_cooktop_tip_pan_check,
     is_cooktop_pan_on_flameout_context,
     is_cooktop_range_context,
     is_fcr_e2_fan_fault_context,
     is_water_heater_context,
     rank_chunks_for_cooktop_pan_on,
-    reply_has_tip_pan_before_parts,
-    reply_names_cooktop_tip_pan_check,
     score_cooktop_pan_on_chunk,
 )
 
@@ -122,50 +117,6 @@ class TestCooktopRanking(unittest.TestCase):
             score_cooktop_pan_on_chunk(SUBURBAN_RANGE, query),
             score_cooktop_pan_on_chunk(IGNITER_FIRST, query),
         )
-
-
-class TestCooktopTipPanGuard(unittest.TestCase):
-    def test_live_miss_jumps_to_parts_without_tip_pan(self):
-        live = (
-            "Flame sensor / thermocouple path. Replace the thermocouple and "
-            "check the safety valve, orifice, and regulator. Igniter next if needed."
-        )
-        self.assertFalse(reply_names_cooktop_tip_pan_check(live))
-        self.assertTrue(cooktop_reply_needs_tip_pan(live))
-        self.assertFalse(reply_has_tip_pan_before_parts(live))
-
-    def test_ensure_puts_tip_pan_before_parts_rr(self):
-        live = (
-            "Replace the thermocouple. Then check the safety valve and regulator."
-        )
-        fixed = ensure_cooktop_tip_pan_check(live)
-        self.assertTrue(reply_names_cooktop_tip_pan_check(fixed))
-        self.assertTrue(reply_has_tip_pan_before_parts(fixed))
-        self.assertIn("tip", fixed.lower())
-        self.assertIn("position", fixed.lower())
-        self.assertTrue(any(k in fixed.lower() for k in ("pan", "cookware")))
-        tip_at = fixed.lower().find("tip")
-        parts_at = fixed.lower().find("replace the thermocouple")
-        self.assertGreaterEqual(tip_at, 0)
-        self.assertGreater(parts_at, tip_at)
-        self.assertIn(COOKTOP_TIP_PAN_SHOP_LINE.split("\n")[0][:40], fixed)
-
-    def test_good_tip_pan_reply_is_left_alone(self):
-        good = (
-            "Verify the thermocouple tip position in the burner flame with cookware on. "
-            "Only if the tip geometry is correct and the flame still drops out, "
-            "replace the thermocouple.\n"
-            "📖 Source: Suburban Range/Cooktops SM"
-        )
-        self.assertTrue(reply_names_cooktop_tip_pan_check(good))
-        self.assertTrue(reply_has_tip_pan_before_parts(good))
-        self.assertFalse(cooktop_reply_needs_tip_pan(good))
-        fixed = ensure_cooktop_tip_pan_check(good)
-        self.assertIn("page 4", fixed.lower())
-        self.assertIn("figs. 3-4", fixed.lower())
-        self.assertIn("sdn2u", fixed.lower())
-        self.assertNotIn("does not cover", fixed.lower())
-
 
 
 if __name__ == "__main__":

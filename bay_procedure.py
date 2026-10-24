@@ -296,24 +296,6 @@ def body_uses_stays_open(text: str) -> bool:
     return bool(STAYS_OPEN_RE.search(text or ""))
 
 
-def sheet_standard_violations(text: str) -> list[str]:
-    """Machine checklist for BAY_SHEET_STANDARD. New concerns inherit these bans."""
-    hits = []
-    if uses_wired_coach_can_jargon(text):
-        hits.append("wired coach CAN")
-    if body_uses_network_plugs(text):
-        hits.append("network plugs")
-    if body_uses_power_looks_sane(text):
-        hits.append("power looks sane")
-    if body_uses_stays_open(text):
-        hits.append("stays open")
-    if body_tells_tech_to_open_manual(text):
-        hits.append("open the SM")
-    if body_uses_coach_donots(text):
-        hits.append("coach do-not")
-    return hits
-
-
 def is_long_appliance_path(category: str = "", concern: str = "") -> bool:
     """Appliance / multi-branch jobs inherit full A→Z. Firefly-class stays short."""
     if (category or "").strip().lower() in LONG_APPLIANCE_CATEGORIES:
@@ -356,11 +338,7 @@ def apply_sheet_standard(proc: "BayProcedure") -> "BayProcedure":
             src["title"] = "Furrion Chill FACR08 8K manual CCD-0008666"
     proc.notes = [note for note in proc.notes if not sheet_has_internal_note(note)]
     proc.bay_order = [scrub_sheet_text(step) for step in proc.bay_order if (step or "").strip()]
-    proc.do_not = [
-        item
-        for item in (scrub_sheet_text(x) for x in proc.do_not)
-        if item and not sheet_standard_violations(item)
-    ]
+    proc.do_not = [item for item in (scrub_sheet_text(x) for x in proc.do_not) if item]
     for node in proc.flowchart.nodes:
         node.text = scrub_sheet_text(node.text)
     proc.flowchart.readable = True
@@ -7970,9 +7948,6 @@ def compile_bay_procedure(
         display_model = "Lippert PSX1 front stabilizer"
 
     notes = _lock_note(category, model_text, concern)
-    spec["do_not"] = [
-        item for item in (spec.get("do_not") or []) if not sheet_standard_violations(item)
-    ]
     proc = BayProcedure(
         concern=concern or "(no concern entered)",
         brand=brand,

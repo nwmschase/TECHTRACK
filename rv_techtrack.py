@@ -204,22 +204,16 @@ _GDC_STALE_GUARD_ATTRS = (
     "is_firefly_can_path_context",
     "is_level_up_manual_can_conflict_context",
     "is_bal_soft_touch_tongue_only_context",
-    "ensure_bal_tongue_only_path",
     "rewrite_shop_channel_words",
     "SHOP_LANGUAGE_RULE",
-    "ensure_facr_freeze_assembly_rr",
-    "ensure_coleman_motor_board_auth",
     "is_coleman_2111_context",
     "asked_brands_for_lookup",
     "chunk_matches_asked_brand",
     "is_ground_control_context",
     "is_dometic_b57915_nocoool_context",
     "filter_chunks_for_unit",
-    "ensure_ground_control_level_path",
-    "ensure_dometic_ceiling_thermostat",
     "DOMETIC_NOCOOL_CONFIRM_FAN",
     "COACH_REVISION",
-    "ensure_furnace_wall_thermostat",
     "AIR_CONDITIONING_CATEGORY",
     "DEFAULT_LIBRARY_CATEGORIES",
     "RANGE_COOKTOPS_CATEGORY",
@@ -440,19 +434,9 @@ is_firefly_can_path_context = _gdc.is_firefly_can_path_context
 is_dometic_only_rooftop_ac = _gdc.is_dometic_only_rooftop_ac
 cooktop_search_symptom = _gdc.cooktop_search_symptom
 error_code_query_terms = _gdc.error_code_query_terms
-claims_fcr_e2_board_only_cage = _gdc.claims_fcr_e2_board_only_cage
 coach_library_search_boost = _gdc.coach_library_search_boost
-ensure_cooktop_tip_pan_check = _gdc.ensure_cooktop_tip_pan_check
-ensure_fcr_e2_fan_rr = _gdc.ensure_fcr_e2_fan_rr
-ensure_fridge_ice_moisture_path = _gdc.ensure_fridge_ice_moisture_path
-ensure_fcr_dial_off_compressor_run_path = _gdc.ensure_fcr_dial_off_compressor_run_path
-ensure_level_up_manual_can_path = _gdc.ensure_level_up_manual_can_path
-ensure_stabilizer_assembly_rr = _gdc.ensure_stabilizer_assembly_rr
-ensure_bal_tongue_only_path = _gdc.ensure_bal_tongue_only_path
 rewrite_shop_channel_words = _gdc.rewrite_shop_channel_words
 SHOP_LANGUAGE_RULE = _gdc.SHOP_LANGUAGE_RULE
-ensure_facr_freeze_assembly_rr = _gdc.ensure_facr_freeze_assembly_rr
-ensure_coleman_motor_board_auth = _gdc.ensure_coleman_motor_board_auth
 is_coleman_2111_context = _gdc.is_coleman_2111_context
 coleman_facts_from_chat = _gdc.coleman_facts_from_chat
 coleman_motor_board_evidence_complete = _gdc.coleman_motor_board_evidence_complete
@@ -463,8 +447,6 @@ is_bal_soft_touch_tongue_only_context = _gdc.is_bal_soft_touch_tongue_only_conte
 bal_tongue_search_symptom = _gdc.bal_tongue_search_symptom
 rank_chunks_for_bal_tongue = _gdc.rank_chunks_for_bal_tongue
 score_bal_tongue_chunk = _gdc.score_bal_tongue_chunk
-extract_bal_tongue_facts = _gdc.extract_bal_tongue_facts
-bal_tongue_stage = _gdc.bal_tongue_stage
 BAL_TONGUE_PRODUCT_LOCK = _gdc.BAL_TONGUE_PRODUCT_LOCK
 BAL_TONGUE_SEARCH_BOOST = _gdc.BAL_TONGUE_SEARCH_BOOST
 facr_freeze_proves_from_text = _gdc.facr_freeze_proves_from_text
@@ -472,18 +454,15 @@ facr_proves_from_chat = _gdc.facr_proves_from_chat
 facr_proves_complete = _gdc.facr_proves_complete
 FACR_FREEZE_ASSEMBLY_LOCK = _gdc.FACR_FREEZE_ASSEMBLY_LOCK
 lock_spark_free_part_g = _gdc.lock_spark_free_part_g
-fcr_e2_reply_needs_fan_rr = _gdc.fcr_e2_reply_needs_fan_rr
 drop_unity_chunks_for_ac = _gdc.drop_unity_chunks_for_ac
 drop_unity_chunks_for_level_up = _gdc.drop_unity_chunks_for_level_up
 drop_unity_chunks_for_water_heater = _gdc.drop_unity_chunks_for_water_heater
-facts_from_chat = _gdc.facts_from_chat
 fcr_e2_search_symptom = _gdc.fcr_e2_search_symptom
 figure_library_search_boost = _gdc.figure_library_search_boost
 figure_render_honesty_note = _gdc.figure_render_honesty_note
 format_ac_library_honesty = _gdc.format_ac_library_honesty
 format_level_up_library_honesty = _gdc.format_level_up_library_honesty
 format_water_heater_library_honesty = _gdc.format_water_heater_library_honesty
-format_stated_facts_rule = _gdc.format_stated_facts_rule
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
 is_ac_library_title = _gdc.is_ac_library_title
 is_air_conditioning_context = _gdc.is_air_conditioning_context
@@ -495,7 +474,6 @@ is_fcr_dial_off_compressor_run_context = _gdc.is_fcr_dial_off_compressor_run_con
 is_fridge_no_power_complaint = _gdc.is_fridge_no_power_complaint
 ice_moisture_search_symptom = _gdc.ice_moisture_search_symptom
 dial_off_run_search_symptom = _gdc.dial_off_run_search_symptom
-ct_prove_from_turn = _gdc.ct_prove_from_turn
 is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
 is_level_up_advantage_context = _gdc.is_level_up_advantage_context
 is_level_up_library_title = _gdc.is_level_up_library_title
