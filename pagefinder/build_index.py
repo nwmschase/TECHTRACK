@@ -19,6 +19,7 @@ os.environ.setdefault('HF_HUB_OFFLINE', '1')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pagefinder import pagetext as PT
 from pagefinder import doc_fixes as DF
+from pagefinder import ocr_copies as OC
 
 SCHEMA = '''
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -181,6 +182,7 @@ def main(argv=None):
     ap.add_argument('--app-db', required=True); ap.add_argument('--sources'); ap.add_argument('--out', required=True)
     ap.add_argument('--page-cache'); ap.add_argument('--page-cache-manifest'); ap.add_argument('--no-embed', action='store_true')
     ap.add_argument('--model-dir'); ap.add_argument('--workers', type=int, default=6)
+    ap.add_argument('--ocr-copies', help='manifest CSV of checked OCR copies (pagefinder/ocr_copies.py): read the copy instead of the scanned original')
     if argv is None: argv = sys.argv[1:]
     if argv[:1] == ['--apply-fixes']:   # python -m pagefinder.build_index --apply-fixes pagefinder/index/index.sqlite
         for k, v in sorted(apply_fixes_in_place(argv[1]).items()): print(k, v)
@@ -203,18 +205,21 @@ def main(argv=None):
             if r.get('sheet') and r['doc_id'] in id2sha: tmp[r['doc_id']].append(r)
         for d, pgs in tmp.items():
             cache_by_sha.setdefault(id2sha[d], sorted(pgs, key=lambda r: r['sheet']))
-    todo, got = [], {}
+    copies = OC.load(a.ocr_copies) if a.ocr_copies else {}
+    todo, got, how_of = [], {}, {}
     for app in apps:
         s = src.get(app['id']) or {}
         app['sha'] = s.get('sha') or app.get('content_sha256') or ''
-        if app['sha'] in cache_by_sha: got[app['id']] = (cache_by_sha[app['sha']], 'pdf (cached extraction)')
+        ocr_path, ocr_how = OC.resolve(app['sha'], copies)   # checked OCR copy first: the page cache holds the scan's thin text
+        if ocr_path: todo.append((app['id'], ocr_path)); how_of[app['id']] = ocr_how
+        elif app['sha'] in cache_by_sha: got[app['id']] = (cache_by_sha[app['sha']], 'pdf (cached extraction)')
         elif s.get('src') and os.path.exists(s['src']): todo.append((app['id'], s['src']))
-    print(f'{len(apps)} app docs: {len(got)} from page cache, {len(todo)} to extract', flush=True)
+    print(f'{len(apps)} app docs: {len(got)} from page cache, {len(todo)} to extract ({len(how_of)} from OCR copies)', flush=True)
     if todo:
         from multiprocessing import Pool
         with Pool(a.workers) as pool:
             for app_id, pgs in pool.imap_unordered(_extract, todo):
-                if pgs: got[app_id] = (pgs, 'pdf')
+                if pgs: got[app_id] = (pgs, how_of.get(app_id, 'pdf'))
     os.makedirs(a.out, exist_ok=True)
     out_db = os.path.join(a.out, 'index.sqlite')
     if os.path.exists(out_db): os.remove(out_db)
@@ -232,7 +237,8 @@ def main(argv=None):
                        ':is_toc,:is_cover,:is_safety,:is_parts,:is_fault_codes,:is_troubleshooting,:is_wiring)', dict(doc_id=doc['doc_id'], **p))
     fp = hashlib.sha256(''.join(f"{a_['id']}:{a_['sha']}" for a_ in apps).encode()).hexdigest()
     db.executemany('INSERT INTO meta VALUES(?,?)', [('built_from', os.path.abspath(a.app_db)), ('built_at', time.strftime('%Y-%m-%d %H:%M:%S %Z')),
-                                                   ('library_fingerprint', fp), ('n_docs', str(len(apps)))])
+                                                   ('library_fingerprint', fp), ('n_docs', str(len(apps))),
+                                                   ('ocr_copies', f'{os.path.abspath(a.ocr_copies)} ({len(how_of)} used)' if a.ocr_copies else '')])
     db.commit()
     print(dict(counts), 'pages', db.execute('select count(*) from pages').fetchone()[0], flush=True)
     if not a.no_embed:
