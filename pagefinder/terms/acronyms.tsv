@@ -4,7 +4,7 @@ abs	anti-lock braking system	8	L264 sheet 2
 acc	automatic climate control	3	L845 sheet 6
 adb	air distribution box	51	L151 sheet 2
 aic	ampere interrupting capacity	2	L857 sheet 49
-atf	automatic transmission fluid	66	L17 sheet 8
+atf	automatic transmission fluid	67	L17 sheet 8
 ble	bluetooth low energy	4	L72 sheet 53
 bms	battery management system	21	L28 sheet 19
 bos	backup operating system	4	L185 sheet 2
@@ -34,7 +34,7 @@ gfpd	ground fault protection device	2	L61 sheet 16
 gpm	gallons per minute	2	L208 sheet 6
 gtwr	gross trailer weight rating	2	L804 sheet 155
 gvw	gross vehicle weight	8	L804 sheet 37
-gvwr	gross vehicle weight rating	21	L477 sheet 1
+gvwr	gross vehicle weight rating	22	L477 sheet 1
 hpu	hydraulic power unit	2	L35 sheet 52
 hw	hitch weight	4	L804 sheet 37
 mdf	medium density fiberboard	4	L804 sheet 31
