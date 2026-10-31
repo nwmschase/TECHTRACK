@@ -26,6 +26,7 @@ family	fan | blower	L120 Suburban furnace manual says "blower"; RC13 tech says "
 family	volt | voltage | vdc	L115 "Check for Voltage ... You should have at least 12V"; RC04 part "battery supply voltage"
 family	propane | lp | lpg | lp gas	acronyms in the library: LP = liquid propane (L161 s27), LPG = liquified petroleum gas (L826 s15)
 family	relief valve | pressure relief valve | prv	L224 s49 "Pressure Relief Valve (PRV)"; RC22 complaint "water out PRV"
+family	hydraulic power unit | hpu	L761 s9 "Hydraulic Power Unit (HPU)"; L757 s16 and L760 s15 wiring labels "Hydraulic Power Unit HPU" (was generated in acronyms.tsv from L35, a set-aside flat-rate chart; kept here from searchable pages, 2026-10-31)
 family	landing gear | landing leg | front jack	L1 s2 "Ground Control 3.0 - landing gear (front)"; L229 "Landing Leg Components, Fifth Wheel"
 family	slide out | slideout | slide room	library uses "slide-out", "slideout" and "slide room" (L19 s86 "slideout relay control module")
 family	manual override | hand crank | crank | manual operation	L7 s6 "Crank manual override and move room"; L1 s4 "Manual operation of those jacks"; RC18 complaint "cranking manually with tool"
@@ -44,3 +45,4 @@ keep	fitting | housing | bearing | casing | lining | backing | landing | meaning
 keep	specification | publication | formation | production | transition | exception | information | direction | designation | depression | pression | combination | termination | utilisation | autorisation | alimentation	-ion words whose generated base is a different word (specific, public, format, product ...)
 keep	troubleshooting | troubleshoot | background | feedback | pigtail | sealand | jackknife | crankshaft | hotline	compounds whose halves mean something else in the bay (ground, back, tail) or a brand (Sealand)
 keep	ccc | hw	acronyms with another meaning in RV manuals: CCC = Dometic Comfort Control Center (L157), HW = hot water
+keep	fabrication | mined	generated bases that are different words once only searchable pages count (2026-10-31): fabrication is not fabric (L313 s2 "awning fabric"), mined is not min (minutes)

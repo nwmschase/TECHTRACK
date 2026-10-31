@@ -2,11 +2,11 @@
 # acronym	meaning	times_defined	first_seen
 abs	anti-lock braking system	8	L264 sheet 2
 acc	automatic climate control	3	L845 sheet 6
-adb	air distribution box	51	L151 sheet 2
+adb	air distribution box	48	L157 sheet 4
 aic	ampere interrupting capacity	2	L857 sheet 49
-atf	automatic transmission fluid	66	L17 sheet 8
+atf	automatic transmission fluid	41	L17 sheet 8
 ble	bluetooth low energy	4	L72 sheet 53
-bms	battery management system	21	L28 sheet 19
+bms	battery management system	21	L173 sheet 31
 bos	backup operating system	4	L185 sheet 2
 bts	battery temperature sensor	18	L73 sheet 13
 carb	california air resource board	6	L804 sheet 31
@@ -14,7 +14,7 @@ cca	cold cranking amps	4	L172 sheet 6
 ccc	cargo carrying capacity	14	L804 sheet 4
 ccl	charge current limit	4	L72 sheet 36
 cec	canadian electrical code	3	L854 sheet 10
-cvl	charge voltage limit	9	L61 sheet 37
+cvl	charge voltage limit	9	L173 sheet 36
 dcl	discharge current limit	3	L72 sheet 119
 dmc	digital multi control	3	L72 sheet 34
 dns	domain name system	2	L72 sheet 97
@@ -35,31 +35,29 @@ gpm	gallons per minute	2	L208 sheet 6
 gtwr	gross trailer weight rating	2	L804 sheet 155
 gvw	gross vehicle weight	8	L804 sheet 37
 gvwr	gross vehicle weight rating	21	L477 sheet 1
-hpu	hydraulic power unit	2	L35 sheet 52
 hw	hitch weight	4	L804 sheet 37
 mdf	medium density fiberboard	4	L804 sheet 31
-mpp	maximum power point	5	L61 sheet 9
-mppt	maximum power point tracking	14	L33 sheet 8
+mpp	maximum power point	5	L173 sheet 9
+mppt	maximum power point tracking	13	L173 sheet 8
 ncc	net carrying capacity	2	L804 sheet 156
 nfpa	national fire protection association	3	L282 sheet 3
 nhtsa	national highway traffic safety administration	2	L804 sheet 13
 nws	national weather service	2	L804 sheet 20
 opd	overfill protection device	2	L804 sheet 94
-prv	pressure relief valve	2	L224 sheet 49
 rcd	residual current device	3	L28 sheet 63
-rgn	return goods number	5	L123 sheet 29
+rgn	return goods number	2	L152 sheet 36
 rvia	recreational vehicle industry association	3	L714 sheet 9
 scp	system control panel	8	L854 sheet 12
 scs	shared current sense	3	L72 sheet 4
 scwr	sleeping capacity weight rating	2	L804 sheet 158
-soc	state of charge	5	L29 sheet 26
+soc	state of charge	5	L172 sheet 6
 sts	shared temperature sense	3	L72 sheet 4
 svs	shared voltage sense	3	L72 sheet 4
 tcs	touring coil suspension	2	L184 sheet 1
 tpms	tire pressure monitoring system	4	L804 sheet 52
 tt	travel trailer	2	L804 sheet 158
 ucp	user control panel	2	L208 sheet 6
-ul	underwriters laboratories	4	L210 sheet 2
+ul	underwriters laboratories	3	L804 sheet 22
 utqgl	uniform tire quality grade labeling	2	L804 sheet 159
 uvw	unloaded vehicle weight	8	L804 sheet 37
 voc	volatile organic compounds	2	L72 sheet 62
