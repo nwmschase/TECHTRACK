@@ -123,6 +123,21 @@ def apply_fixes_in_place(index_db):
     return changed
 
 
+def remark_covers_in_place(index_db):
+    """Re-mark is_cover on a built index with the current rule (pagetext.is_cover_page) from the stored page text, without
+    re-extracting or re-embedding. Only sheet 1 can change. Returns {doc_id: (old, new)} for the changed sheets."""
+    db = sqlite3.connect(index_db); db.row_factory = sqlite3.Row
+    n_pages = {r['doc_id']: r['n_pages'] for r in db.execute('select doc_id, n_pages from docs')}
+    changed = {}
+    for r in db.execute('select * from pages where pdf_sheet=1').fetchall():
+        new = int(PT.is_cover_page(r['text'] or '', 1, n_pages.get(r['doc_id'], 0), dict(r)))
+        if new != (r['is_cover'] or 0):
+            changed[r['doc_id']] = (r['is_cover'], new)
+            db.execute('update pages set is_cover=? where doc_id=? and pdf_sheet=1', (new, r['doc_id']))
+    db.commit(); db.close()
+    return changed
+
+
 def pages_from_chunks(conn, app_id):
     """Fallback page text: the app's own doc_chunks merged per page (overlaps removed)."""
     by = collections.defaultdict(list)
@@ -169,6 +184,11 @@ def main(argv=None):
     if argv is None: argv = sys.argv[1:]
     if argv[:1] == ['--apply-fixes']:   # python -m pagefinder.build_index --apply-fixes pagefinder/index/index.sqlite
         for k, v in sorted(apply_fixes_in_place(argv[1]).items()): print(k, v)
+        return
+    if argv[:1] == ['--remark-covers']:   # python -m pagefinder.build_index --remark-covers pagefinder/index/index.sqlite
+        ch = remark_covers_in_place(argv[1])
+        for k, v in sorted(ch.items()): print(k, 'is_cover', v[0], '->', v[1])
+        print(len(ch), 'sheets changed')
         return
     a = ap.parse_args(argv)
     conn = sqlite3.connect(f'file:{a.app_db}?mode=ro', uri=True)

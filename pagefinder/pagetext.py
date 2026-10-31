@@ -167,7 +167,7 @@ def page_marks(p, n_pages):
     dot_lines = sum(1 for l in lines if re.search(r'(\.{4,}|…{2,}|\s\.\s\.\s\.)\s*\d{1,3}$', l))
     num_end = sum(1 for l in lines if re.search(r'[A-Za-z].{3,}\s{1,}\d{1,3}$', l))
     m['is_toc'] = int(bool(re.search(r'table of contents|\bcontents\b|\bindex\b', head) and (dot_lines >= 3 or num_end >= 6)) or dot_lines >= 8)
-    m['is_cover'] = int(p['sheet'] == 1 and (len(t) < 900 or len(lines) < 18))
+    m['is_cover'] = 0   # set below, after the content marks: a page 1 that carries real content is not a cover
     sw = len(re.findall(r'\b(warning|caution|danger)\b', tl))
     m['is_safety'] = int(bool(re.search(r'safety (information|instructions|precautions|alert|warnings|guidelines)|important safety|for your safety|safety first|general safety', head)) or (sw >= 6 and sw * 40 > len(lines)))
     pn = len(re.findall(r'\b(?:\d{5,}|[A-Z]{1,3}-?\d{5,}[A-Z]?)\b', t))
@@ -183,5 +183,75 @@ def page_marks(p, n_pages):
     m['is_troubleshooting'] = int('troubleshoot' in head and ts >= 2 or ts >= 5)
     colors = len(re.findall(r'\b(BLK|RED|WHT|GRN|YEL|BLU|ORG|BRN|black|white|red|green|yellow|blue|orange|brown)\b', t))
     m['is_wiring'] = int(bool(re.search(r'wiring diagram|schematic|ladder diagram|wire diagram|pin ?out|pin map|wiring schematic', tl)) or colors >= 12 and len(t) < 3000)
+    m['is_cover'] = int(is_cover_page(t, p['sheet'], n_pages, m))
     return m, codes
+
+# ---------- cover pages ----------
+# A cover is page 1 of a multi-page doc that holds only a title, a logo, model / document numbers, an address or legal
+# text. Page 1 of a one-page sheet, or a page 1 with a diagram, a parts table, steps, specs or slide text, is content.
+# (Before 2026-10-31 every short sheet 1 was a cover: 271 of the 548 waiting parts breakdowns and the first slides of the
+# training decks were scored 0.3x by search.) Text only, so an existing index can be re-marked without re-extracting.
+COVER_BOILER = re.compile(
+    r'copyright|©|\(c\)\s*\d{4}|rights reserved|trademark|patent|www\.|https?://|\.(?:com|net|org)\b|\S@\S|\b(?:phone|fax|tel|toll[- ]free)\b|'
+    r'\b(?:call|contact|visit|scan|download)\b|qr code|\bread (?:this|these|all|it|the)\b|save these|keep (?:this|these)|future reference|'
+    r'prop(?:osition)?\s*65|cancer|\brev(?:ision)?\b|\bform\s*(?:no|#)|printed in|\bp/?n\b|ccd-|corporation|\binc\b|\bllc\b|\bltd\b|'
+    r'\bversion\b|manufactured (?:for|by)|as a supplier|self-help|lippert provides|picture shown|reference only|this (?:manual|guide|document) '
+    r'(?:contains|covers|is)|p\.?\s?o\.?\s+box|\b(?:street|parkway|avenue|blvd|suite)\b', re.I)
+COVER_VERBS = re.compile(
+    r'^(?:\d{1,2}[.)]\s*)?(?:remove|install|connect|disconnect|tighten|loosen|check|verify|press|push|pull|turn|place|insert|attach|'
+    r'secure|measure|replace|slide|lift|lower|extend|retract|apply|mount|route|ensure|make sure|adjust|test|unplug|locate|align|drill|'
+    r'cut|use|fully|reconnect|torque|inspect|clean|set|hold|position|rotate|open|close|wait|repeat|reinstall|fasten)\b', re.I)
+ZIP = re.compile(r'\b(?:' + '|'.join(sorted(STATES)) + r'|ON|QC|BC|AB)\.?,?\s+(?:\d{5}(?:-\d{4})?|[A-Z]\d[A-Z]\s?\d[A-Z]\d)\b')   # an address line
+PART_NO = re.compile(r'(?<![\w-])(?:\d{5,}|[A-Z]{1,3}-?\d{5,}[A-Z]?|\d{2,4}-\d{3,5}(?:-\d{1,4})?)(?![\w-])')
+MEASURE = re.compile(r'\d+(?:[./]\d+)?\s*(?:"|”|in\.|inch(?:es)?\b|mm\b|cm\b|ft\.?-?\s*lbs?\b|in\.?-?\s*lbs?\b|ft\b|lbs?\b|psi\b|'
+                     r'°\s*[FC]?|nm\b|gpm\b|btu\b|amps?\b|vdc\b|vac\b|ohms?\b|Ω)', re.I)
+
+
+def cover_signals(text, marks=None):
+    """The kinds of real content found on a page ([] = nothing but title / logo / numbers / legal text)."""
+    lines = [l.strip() for l in (text or '').splitlines() if l.strip()]
+    body = [l for l in lines if not COVER_BOILER.search(l) and not ZIP.search(l)]   # legal and address lines are not content
+    safety = len(re.findall(r'\b(?:warning|caution|danger|injury|death|lethal|hazard|failure to follow|property damage)\b', text or '', re.I))
+    out = [k for k in ('is_parts', 'is_fault_codes') if (marks or {}).get(k)]   # the strict marks only (a cover can name 'troubleshooting')
+    steps = {int(mm.group(1)) for l in lines for mm in [re.match(r'^(?:step\s*)?(\d{1,2})\s*[.):]?(?:\s|$)', l, re.I)] if mm and
+             (re.match(r'^step', l, re.I) or re.match(r'^\d{1,2}\s*[.)]', l))}
+    if len(steps) >= 2 or sum(1 for l in body if COVER_VERBS.match(l)) >= 3: out.append('steps')
+    if len(re.findall(r'\bfig(?:ure)?\.?\s*\d', text or '', re.I)) >= 2: out.append('figures')
+    callouts = [l for l in lines if re.fullmatch(r'\(?(?:\d{1,3}|[A-Z])\)?[.)]?', l)]
+    if len(callouts) >= 5 and len(set(callouts)) >= 4 and not re.search(r'\bcontents\b', text or '', re.I):   # not a contents list
+        out.append('callouts')
+    # a parts table has a column heading line and part numbers; a model / product-number list on a cover is not one
+    heads = [l for l in body if re.fullmatch(r'(?:(?:part\s*(?:#|no\.?|number)|description|qty\.?|quantity|callout|item(?:\s*(?:#|no\.?))?|'
+                                             r'balloon\s*#?|ref\.?|key)\s*[|:]?\s*)+', l, re.I)]
+    if heads and len(PART_NO.findall('\n'.join(body))) >= 2:
+        out.append('parts table')
+    if len(MEASURE.findall('\n'.join(body))) >= 4: out.append('measurements')
+    if len(re.findall(r'\b(?:BLK|RED|WHT|GRN|YEL|BLU|ORG|BRN|black|white|red|green|yellow|blue|orange|brown)\b', text or '', re.I)) >= 4:
+        out.append('wire colors')
+    # bullet items (the text may sit on the line after a lone bullet) of 2+ real words: slide or feature text, not a model list
+    items = [re.sub(r'^[•▪●◦■◆➢✓*–-]\s*', '', l) or (body[i + 1] if i + 1 < len(body) else '') for i, l in enumerate(body)
+             if re.match(r'^[•▪●◦■◆➢✓*–-](?:\s|$)', l)]
+    if sum(1 for it in items if len(re.findall(r'(?<![\w-])[A-Za-z][A-Za-z’\']+(?![\w-])', it)) >= 2) >= 3: out.append('bullets')
+    # a labeled drawing: many short part-name labels (Drive Head, Idler Arm, Support Arm ...) beside the title; not a contents list
+    drawn = body[:body.index('[OCR]')] if '[OCR]' in body else body   # not words read off a product photo
+    labels = {l.lower() for l in drawn if 1 <= len(l.split()) <= 5 and re.fullmatch(r"[A-Za-z0-9 ,.&/'’()\"-]+", l) and
+              re.search(r'[A-Za-z][a-z]{3}', l) and not re.search(r'manual|guide|instructions|series|version|english|edition|system$|\d{4}', l, re.I)}
+    if len(labels) >= 6 and safety < 2 and not re.search(r'\bcontents\b', text or '', re.I): out.append('labels')
+    # a slide handout prints 2+ slides per sheet, numbered at the foot (... 1 / 2): the sheet holds more than the title slide
+    nums = [l for l in lines[-3:] if re.fullmatch(r'\d{1,2}', l)]
+    if len(nums) >= 2 and [int(n) for n in nums] == list(range(int(nums[0]), int(nums[0]) + len(nums))) and nums[0] == '1':
+        out.append('slides')
+    words = [len(re.findall(r"(?<![\w-])[A-Za-z]?[a-z]+[’']?[a-z]*(?![\w-])", l)) for l in body]   # plain words, not codes or capitals
+    if safety < 2 and sum(n for n in words if n >= 6) >= 40: out.append('prose')   # sentences; warning text is not content
+    return out
+
+
+def is_cover_page(text, sheet, n_pages, marks=None):
+    """Page 1 of a doc with more pages, short, and with no real content (see cover_signals)."""
+    if sheet != 1 or (n_pages or 0) <= 1:
+        return False
+    lines = [l for l in (text or '').splitlines() if l.strip()]
+    if not (len(text or '') < 900 or len(lines) < 18):
+        return False
+    return not cover_signals(text, marks)
 
