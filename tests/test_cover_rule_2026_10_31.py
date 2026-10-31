@@ -2,6 +2,7 @@
 an address or legal text. A page 1 with a diagram, a parts table, steps, specs or slide text is content and is not scored
 0.3x. Offline: no network, no API, no real library needed."""
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -12,6 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pagefinder import pagetext as PT
 from pagefinder import build_index as B
 from pagefinder import search as S
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 OWNERS_COVER = "Ground Control\n®\nTT Leveling System\nwith LCD Touch Pad\nOWNER'S MANUAL\nScan for Product Support\n"
 DOMETIC_COVER = ("1\nDIAGNOSTIC SERVICE MANUAL\nROOF TOP AC/HP SYSTEMS\nTROUBLESHOOTING\nUSA\nService Office\nDometic Corporation\n"
@@ -127,3 +130,27 @@ class RemarkIndex(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# F10 follow-up "fan run capacitor rating" (Coleman-Mach 2111-0001, RC07). With the cover fix, the one-page Coleman-Mach
+# capacitor reference sheets L244/L246 rank above L242 p1. Chase accepted that move 2026-10-31 2:38 PM PT and they joined
+# F10's gold set (runs/priority-2026-10-22/harness/fq.py). This pins the accepted result in the repo.
+_INDEX = os.environ.get("TT_PAGEFINDER_DIR", os.path.join(ROOT, "pagefinder", "index"))
+_APP_DB = os.environ.get("TT_TEST_APP_DB", "/workspace/techtrack-fresh/migration-test/fresh-start.db")
+F10_GOLD = {"L241", "L236", "L242", "L244", "L246"}
+
+
+@unittest.skipUnless(os.path.exists(os.path.join(_INDEX, "index.sqlite")) and os.path.exists(_APP_DB), "index / app DB not on this box")
+class AcceptedF10(unittest.TestCase):
+    def test_capacitor_rating_page_in_top3(self):
+        import gd_pages
+        f = gd_pages.LibraryPageFinder(_INDEX, meaning=False, app_db=_APP_DB)
+        p = f.pick_manual("Air Conditioning", "Coleman-Mach 2111-0001", "Ran about 2 minutes then dead / no response.")
+        self.assertTrue(p.manuals)
+        brands = {(m.get("brand") or "").lower() for m in p.manuals}
+        full = S.fetch_by_part("fan run capacitor rating", {"manuals": p.manuals}, k=10000)
+        full = [x for x in full if (f.lib.docs.get(x["doc_id"], {}).get("brand") or "").lower() in brands]
+        top = full[:3]
+        self.assertTrue(any(x["doc_id"] in F10_GOLD and re.search(r"MFD|µF|uF|microfarad", x["text"], re.I) for x in top),
+                        [(x["doc_id"], x["pdf_sheet"]) for x in top])
+        self.assertTrue({"L244", "L246"} & {x["doc_id"] for x in top}, "the accepted one-page capacitor sheets rank in the top 3")
