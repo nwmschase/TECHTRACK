@@ -7,7 +7,7 @@ Secrets (Streamlit ``st.secrets`` or environment; never log the values):
 
 - ``XAI_API_KEY`` - primary key
 - ``GROQ_API_KEY`` - fallback key
-- ``XAI_MODEL`` - default ``grok-4.6``
+- ``XAI_MODEL`` - default ``grok-4.3``
 - ``XAI_BASE_URL`` - default ``https://api.x.ai/v1``
 - ``GD_LLM_PRIMARY`` - ``xai`` (default) or ``groq``
 """
@@ -39,7 +39,7 @@ SDK_MODULE = {
     PROVIDER_GROQ: "groq",
 }
 
-DEFAULT_XAI_MODEL = "grok-4.6"
+DEFAULT_XAI_MODEL = "grok-4.3"  # Chase: Grok 4.3 at go-live (readiness #34); XAI_MODEL secret still overrides
 DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
 # Live Groq chat model. Vision plate reads pass their own Groq vision ids.
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"

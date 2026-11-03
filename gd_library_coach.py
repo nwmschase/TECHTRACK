@@ -68,6 +68,7 @@ DEFAULT_GROQ_VISION_MODELS = (
     "qwen/qwen3.8-27b",
 )
 DEFAULT_XAI_VISION_MODELS = (
+    "grok-4.3",
     "grok-4.6",
     "grok-2-vision-1212",
 )

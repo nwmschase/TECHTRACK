@@ -31,7 +31,7 @@ from urllib.parse import urlparse, urljoin, quote_plus
 from gd_pages import Page
 
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
-DEFAULT_SEARCH_MODEL = "grok-4.6"     # same default as gd_llm.DEFAULT_XAI_MODEL; overridden by XAI_MODEL
+DEFAULT_SEARCH_MODEL = "grok-4.3"     # same default as gd_llm.DEFAULT_XAI_MODEL; overridden by XAI_MODEL
 PAGES_PER_DOCUMENT = 8                # pages returned per web document, best-matching first (a search result size, as the library search returns 3)
 TIMEOUT = 60.0
 _URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+", re.I)

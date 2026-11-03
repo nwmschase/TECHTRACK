@@ -115,7 +115,7 @@ class TestGdLlmProvider(unittest.TestCase):
         self.assertEqual(gd_llm.last_provider(), "xai")
         self.assertEqual(len(_calls(record)), 1)
         call = _calls(record, "xai")[0]
-        self.assertEqual(call["kwargs"]["model"], "grok-4.6")
+        self.assertEqual(call["kwargs"]["model"], "grok-4.3")
         self.assertEqual(call["kwargs"]["messages"], MESSAGES)
         self.assertIs(call["kwargs"]["messages"], MESSAGES)
         self.assertEqual(call["base_url"], "https://api.x.ai/v1")
@@ -359,7 +359,7 @@ class TestGdLlmProvider(unittest.TestCase):
         self.assertNotIn("OpenAI(", coach)
         self.assertIn("openai/gpt-oss-120b", helper)
         self.assertIn("https://api.x.ai/v1", helper)
-        self.assertIn('DEFAULT_XAI_MODEL = "grok-4.6"', helper)
+        self.assertIn('DEFAULT_XAI_MODEL = "grok-4.3"', helper)
         self.assertIn("max_retries=0", helper)
         self.assertIn("REQUEST_TIMEOUT_SEC = 150.0", helper)
 
@@ -376,7 +376,7 @@ class TestGdLlmProvider(unittest.TestCase):
         self.assertEqual(groq_client.timeout.connect, gd_llm.CONNECT_TIMEOUT_SEC)
         self.assertEqual(xai.timeout.read, gd_llm.REQUEST_TIMEOUT_SEC)
         self.assertEqual(groq_client.timeout.read, gd_llm.REQUEST_TIMEOUT_SEC)
-        self.assertEqual(gd_llm.DEFAULT_XAI_MODEL, "grok-4.6")
+        self.assertEqual(gd_llm.DEFAULT_XAI_MODEL, "grok-4.3")
 
     def _tight_deadline(self):
         saved = (gd_llm.REQUEST_TIMEOUT_SEC, gd_llm.DEADLINE_SLACK_SEC)

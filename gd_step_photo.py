@@ -16,7 +16,7 @@ MODULE_REVISION = "v4.19.65"
 
 # Groq retired this id (HTTP 404). Step photos do not call Groq at all.
 DEAD_GROQ_SCOUT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-XAI_VISION_MODELS = ("grok-4.6", "grok-2-vision-1212")
+XAI_VISION_MODELS = ("grok-4.3", "grok-4.6", "grok-2-vision-1212")
 XAI_PROVIDERS = ("xai",)
 
 _REVIEW = contextvars.ContextVar("gd_step_photo_review", default=None)
