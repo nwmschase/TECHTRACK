@@ -1,0 +1,25 @@
+{
+  "build_id": "test-0",
+  "built_at": "2026-10-20 11:11:47 PDT",
+  "library_fingerprint": "49b3e0fc5fed1845afd76dcd19c8ff9e115b6b47127ae02608cc60f8708ab2b6",
+  "n_docs": 846,
+  "n_pages": 10860,
+  "n_passages": 33691,
+  "files": {
+    "index.sqlite": {
+      "key": "pagefinder-index/test-0/index.sqlite",
+      "size": 25706496,
+      "sha256": "761a0600eafcefbce9f19a26379baf137f43c658fd9f81488bee7dbee8a0d7b4"
+    },
+    "passages.npy": {
+      "key": "pagefinder-index/test-0/passages.npy",
+      "size": 25874816,
+      "sha256": "1ca9a854f9205b65e9f15499342de560bc2dc8833e37df3d1247b719713df7ef"
+    },
+    "passages.json": {
+      "key": "pagefinder-index/test-0/passages.json",
+      "size": 453358,
+      "sha256": "703934a7ad1d9424498f624b1388659589f8f8f5a0246c78aaeef14a3cb36665"
+    }
+  }
+}

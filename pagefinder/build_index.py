@@ -187,6 +187,10 @@ def main(argv=None):
     if argv[:1] == ['--apply-fixes']:   # python -m pagefinder.build_index --apply-fixes pagefinder/index/index.sqlite
         for k, v in sorted(apply_fixes_in_place(argv[1]).items()): print(k, v)
         return
+    if argv[:1] == ['--write-manifest']:   # python -m pagefinder.build_index --write-manifest <index dir> <build_id> [out json]
+        man = write_manifest(argv[1], argv[2], argv[3] if len(argv) > 3 else None)
+        print(json.dumps({k: v for k, v in man.items() if k != 'files'}), {f: e['size'] for f, e in man['files'].items()})
+        return
     if argv[:1] == ['--remark-covers']:   # python -m pagefinder.build_index --remark-covers pagefinder/index/index.sqlite
         ch = remark_covers_in_place(argv[1])
         for k, v in sorted(ch.items()): print(k, 'is_cover', v[0], '->', v[1])
@@ -251,6 +255,32 @@ def main(argv=None):
         V = embed_texts(texts, a.model_dir)
         np.save(os.path.join(a.out, 'passages.npy'), V); json.dump(keys, open(os.path.join(a.out, 'passages.json'), 'w'))
         print('vectors', V.shape, flush=True)
+
+
+def write_manifest(index_dir, build_id, out=None):
+    """Stamp build_id into the index meta and write the pinned INDEX_MANIFEST.json (index_fetch.py, v4.20.0): one
+    build_id ties the 3 files together; each file carries its R2 key, size and sha256. Default out:
+    pagefinder/INDEX_MANIFEST.json next to this module."""
+    import numpy as np
+    if not re.fullmatch(r'[A-Za-z0-9._-]+', build_id): raise SystemExit('build_id: letters, digits, . _ - only')
+    db = sqlite3.connect(os.path.join(index_dir, 'index.sqlite'))
+    db.execute("INSERT OR REPLACE INTO meta VALUES('build_id', ?)", (build_id,)); db.commit()
+    meta = dict(db.execute('select key, value from meta').fetchall())
+    n_pages = db.execute('select count(*) from pages').fetchone()[0]
+    db.execute('VACUUM'); db.close()
+    n_pass = int(np.load(os.path.join(index_dir, 'passages.npy'), mmap_mode='r').shape[0])
+    if n_pass != len(json.load(open(os.path.join(index_dir, 'passages.json')))): raise SystemExit('passages.npy / passages.json counts differ')
+    files = {}
+    for f in ('index.sqlite', 'passages.npy', 'passages.json'):
+        path = os.path.join(index_dir, f); h = hashlib.sha256()
+        with open(path, 'rb') as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b''): h.update(chunk)
+        files[f] = dict(key=f'pagefinder-index/{build_id}/{f}', size=os.path.getsize(path), sha256=h.hexdigest())
+    man = dict(build_id=build_id, built_at=meta.get('built_at', ''), library_fingerprint=meta.get('library_fingerprint', ''),
+               n_docs=int(meta.get('n_docs') or 0), n_pages=n_pages, n_passages=n_pass, files=files)
+    out = out or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'INDEX_MANIFEST.json')
+    with open(out, 'w') as fh: json.dump(man, fh, indent=2); fh.write('\n')
+    return man
 
 
 def _extract(item):

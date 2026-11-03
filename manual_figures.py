@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.19.65"
+MODULE_REVISION = "v4.20.0"
 
 PAGE_DPI = 150
 _ZOOM = PAGE_DPI / 72.0

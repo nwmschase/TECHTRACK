@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.19.65
+RV TechTrack v4.20.0
+- v4.20.0: Go-live package (2026-11-03). Full manual library: 2,848 new docs (Lippert, Furrion, Onan/Truma, InVision; Chase's 10/31 content decisions) plus the 6 Lippert masters split per product. The page-finder index is no longer shipped in git: the build pinned in pagefinder/INDEX_MANIFEST.json is downloaded from R2 at app start (index_fetch.py: stream to disk, size+sha256 check, build_id and fingerprint check, 3 retries, disk cache); while it loads GD says the library is loading, and if it cannot load GD says so plainly (never a silent keyword-only or empty library), with the reason on Manager Tools. Plate-read crash fixed (the read model is applied on the next run before the Model box is drawn). Grok default model grok-4.3. Memory: the passage vectors are memory-mapped and page caches trimmed.
 - v4.19.65: Manual selector root fix. Rating values (12 V, 50 Ah, 13,500 BTU, 6,000 lb) are never model numbers. Evidence is ranked by specificity: exact model in the doc fields, exact model in keywords or page text, series, then brand; brand alone never picks a manual. Two different manuals that match equally are not guessed between: no pick, and the official web lookup runs. Every library category maps to product types; an unmapped category or a model that only exists under another type asks the tech to confirm the unit type. A doc whose file or text cannot be reached is skipped for the next one. Brand-, page- and doc-keyed page rankers (Thetford, Coleman, MaxxFan page 9) are replaced by one page ranker; no toilet job assumes Thetford. Manager Tools has a library category audit (dry run, confirm, backup, rollback) and uploads warn when the category does not match the title.
 - v4.19.64: One manual selector for every search (GD and the library/Bay search): an exact model number from the model field, complaint or label wins outright; category product type and brand are hard filters, so another product's or brand's manual is never pinned; "No <brand> <model> <type> manual found" counts as not found and the official web lookup runs. Label/diagram text and photos drive the walk. The warranty story records the final correction.
 - v4.19.63: Guided Diagnostics official method (GD_OFFICIAL_METHOD=True). GD identifies the unit, pins its own-brand manual (library, then official OEM sites), reads the full troubleshooting section, and walks the tech one labeled step at a time. Verify the complaint first or call No Problem Found. Reported facts are never asked again. The Unity selector drives the OneControl controller path. Warranty-shop OEM escalation with a findings block. The warranty story is built from recorded readings only. Groq fallback is labeled reduced mode.
@@ -215,7 +216,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.19.65"
+_GDC_REQUIRED_REVISION = "v4.20.0"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -3146,10 +3147,35 @@ def _gd_page_finder():
     if _gd_finder is None:
         import gd_pages
 
+        import index_fetch
+
         flag = str(_secret("TT_PAGEFINDER_MEANING") or "on").strip().lower()
-        _gd_finder = gd_pages.LibraryPageFinder(app_db=os.path.abspath(DB_PATH),
+        # v4.20.0: the index is the build pinned in pagefinder/INDEX_MANIFEST.json, fetched from R2 and verified
+        # (index_fetch). Raises index_fetch.IndexLoading / IndexUnavailable instead of running on a wrong library.
+        index_dir = index_fetch.ready_dir(get_r2_client, _index_bucket())
+        _gd_finder = gd_pages.LibraryPageFinder(index_dir=index_dir, app_db=os.path.abspath(DB_PATH),
                                                 meaning=flag not in ("0", "off", "false", "no"))
     return _gd_finder
+
+
+def _index_bucket():
+    try:
+        return st.secrets["R2_BUCKET_NAME"] if r2_configured() else None
+    except Exception:
+        return None
+
+
+def _start_index_fetch():
+    """Start the background index download at app start (idempotent on every rerun; no-op with TT_PAGEFINDER_DIR)."""
+    try:
+        import index_fetch
+
+        index_fetch.start(get_r2_client, _index_bucket())
+    except Exception:
+        pass
+
+
+_start_index_fetch()
 
 
 def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None):
@@ -3169,10 +3195,19 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             return _gd_official_chat(items, None, None)
         return gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=_secret)
 
+    import index_fetch
+
+    try:
+        finder = _gd_page_finder()
+    except index_fetch.IndexLoading:
+        return index_fetch.LOADING_LINE
+    except Exception:
+        # Not "could not reach the AI": the manual library itself is not ready (named reason on the manager page).
+        return index_fetch.UNAVAILABLE_LINE
     try:
         result = gd_turn.run_turn(
             user_msg, category_name, model_text, history,
-            finder=_gd_page_finder(), respond_fn=respond_fn, store=pin_store,
+            finder=finder, respond_fn=respond_fn, store=pin_store,
             log_path=GD_USAGE_LOG or None,   # None = gd_turn.DEFAULT_LOG_PATH (GD_TURN_LOG or the temp dir)
         )
     except Exception:
@@ -4033,6 +4068,13 @@ if is_manager and tab_mgr is not None:
         )
         doc_count = session.query(Document).count()
         st.info(f"Library right now: **{doc_count}** document record(s) in the database.")
+        try:
+            import index_fetch
+
+            _ix_note = index_fetch.status_note()
+            (st.error if index_fetch.STATE.status == "failed" else st.caption)(_ix_note)
+        except Exception:
+            pass
 
         try:
             _bulk_open = library_bulk_import.latest_open_job(session)
