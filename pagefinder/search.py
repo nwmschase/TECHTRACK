@@ -625,7 +625,10 @@ def _lib():
         if _L is None:
             _L = Library()
         elif _L.app_db and os.path.exists(_L.app_db) and app_signature(_L.app_db) != _L.app_sig:
-            _L = Library(_L.db_path, _L.vec_dir, _L.app_db)   # the app library changed: re-read it
+            # the app library changed: re-read it. The old Library (all page word counts, ~300 MB at 36k pages) is let go
+            # BEFORE the new one is built, so the two are not held at the same time.
+            args = (_L.db_path, _L.vec_dir, _L.app_db); _L = None; import gc; gc.collect()
+            _L = Library(*args)
         return _L
 
 
@@ -635,6 +638,7 @@ def use_library(db, vec_dir, app_db):
     global _L
     with _LOCK:
         if _L is None or (_L.db_path, _L.vec_dir, _L.app_db) != (db, vec_dir, app_db):
+            _L = None; import gc; gc.collect()   # let the old one go first (see _lib)
             _L = Library(db, vec_dir, app_db=app_db)
         return _L
 
