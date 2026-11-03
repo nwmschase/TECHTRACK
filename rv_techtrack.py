@@ -1617,9 +1617,32 @@ def apply_plate_read_to_model_key(model_key: str, image_file, button_key: str):
         filled = f"{brand} {model}".strip()
     elif brand and not model:
         filled = brand
-    st.session_state[model_key] = filled
-    st.success(f"Model set to: {filled}")
+    # The Model text box is already on the page this run, so Streamlit refuses a direct write to its key
+    # (StreamlitWidgetAlreadyInstantiatedError, memory test 2026-11-03). Park the value; the next run puts it in the
+    # box before the box is drawn (apply_pending_plate_read).
+    st.session_state[_plate_pending_key(model_key)] = filled
     st.rerun()
+
+
+def _plate_pending_key(model_key: str) -> str:
+    return f"_plate_read_pending_{model_key}"
+
+
+def apply_pending_plate_read(model_key: str, memory_key: str | None = None) -> None:
+    """Call BEFORE the Model text_input with key=model_key is created: copies a parked plate read into the box."""
+    filled = st.session_state.pop(_plate_pending_key(model_key), None)
+    if not isinstance(filled, str) or not filled:
+        return
+    st.session_state[model_key] = filled
+    if memory_key:
+        st.session_state[memory_key] = filled
+    st.session_state[f"_plate_read_note_{model_key}"] = filled
+
+
+def show_plate_read_note(model_key: str) -> None:
+    filled = st.session_state.pop(f"_plate_read_note_{model_key}", None)
+    if filled:
+        st.success(f"Model set to: {filled}")
 
 
 # ---------------- AI STORY ----------------
@@ -3552,6 +3575,7 @@ with tab_ask:
         st.session_state["ask_model"] = ""
         st.session_state["gd_model_memory"] = ""
         st.session_state.pop("gd_pin_store", None)
+    apply_pending_plate_read("ask_model", "gd_model_memory")
     _restore_widget("ask_model", "gd_model_memory")
     c1, c2 = st.columns(2)
     with c1:
@@ -3562,6 +3586,7 @@ with tab_ask:
             key="ask_model",
             placeholder="RM2652, Schwintek, Hydro-Hot…",
         )
+        show_plate_read_note("ask_model")
     with st.expander("📷 Read model from data plate photo", expanded=False):
         st.caption("Snap or upload the rating plate. TechTrack fills Model/System. Uses the shop AI already on this app.")
         plate_cam = st.camera_input("Snap data plate", key="ask_plate_cam")
