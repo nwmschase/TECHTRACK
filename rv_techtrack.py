@@ -1189,7 +1189,7 @@ def maybe_backup_db_to_r2(force: bool = False):
         dst_con.close()
         src_con.close()
         with open(tmp, "rb") as f:
-            ok = r2_upload(f.read(), R2_DB_KEY, "application/x-sqlite3")
+            ok = r2_upload(f, R2_DB_KEY, "application/x-sqlite3")   # streamed from disk, not read whole into RAM (memtest 2026-11-03)
         try:
             os.remove(tmp)
         except OSError:
