@@ -81,7 +81,10 @@ def shared_base_vectors(vec_dir):
     with _LOCK:
         if vec_dir not in _BASE_VEC:
             import numpy as np
-            V = np.load(os.path.join(vec_dir, 'passages.npy'))   # float16 kept as is (half the RAM); scored in float32 per query
+            # float16 kept as is (half the RAM); scored in float32 per query. Memory-mapped (TT_PAGEFINDER_MMAP, default on):
+            # the rows live in the OS file cache (clean, reclaimable) instead of private heap memory.
+            mm = 'r' if os.environ.get('TT_PAGEFINDER_MMAP', 'on').strip().lower() not in ('0', 'off', 'false', 'no') else None
+            V = np.load(os.path.join(vec_dir, 'passages.npy'), mmap_mode=mm)
             V.setflags(write=False)
             rows = collections.defaultdict(list)
             for i, (d, s) in enumerate(json.load(open(os.path.join(vec_dir, 'passages.json')))): rows[(d, s)].append(i)
@@ -221,7 +224,9 @@ class Library:
     @staticmethod
     def _page_row(r):
         r = dict(r)
-        r['tf'] = collections.Counter(tokens(r['text'] + ('\n' + r['topics'] if r.get('topics') else '')))   # + reviewed page topics
+        # + reviewed page topics. Word keys are interned: every page used to hold its own copy of each word string
+        # (3.3M keys at 36k pages); interned, all pages share one copy per distinct word. Same counts, same scores.
+        r['tf'] = collections.Counter(map(sys.intern, tokens(r['text'] + ('\n' + r['topics'] if r.get('topics') else ''))))
         r['len'] = sum(r['tf'].values())
         r['codes'] = json.loads(r['codes']) if isinstance(r['codes'], str) else r['codes']
         return r
@@ -297,6 +302,7 @@ def bm25(query, items, k1=1.2, b=0.75):
 # Meaning half on/off for this process. Off = whole-word (BM25) scores only: the embedding model (~260 MB RSS) and the
 # passage vectors (~64 MB) are never loaded. Offline sweep 10/20: manual picks identical either way (66 own / 0 wrong);
 # off changes only the order of pages inside the picked manual. Hosted app: Streamlit secret TT_PAGEFINDER_MEANING.
+MEANING_BLOCK = 16384   # passages scored per block in meaning()
 MEANING_ON = os.environ.get('TT_PAGEFINDER_MEANING', 'on').strip().lower() not in ('0', 'off', 'false', 'no')
 
 
@@ -315,7 +321,12 @@ def meaning(lib, query, keys):
     lib.meaning_error = ''
     idx = [(k, rows.get(k, [])) for k in keys]
     flat = [i for _, r in idx for i in r]
-    sims = dict(zip(flat, (V[flat].astype('float32') @ q).tolist())) if flat else {}
+    # Scored in blocks: V[flat].astype('float32') over every passage of the library made two full temporary copies
+    # (float16 + float32, ~240 MB at 105k passages) on each all-docs search; a block holds ~25 MB at most.
+    sims = {}
+    for b in range(0, len(flat), MEANING_BLOCK):
+        part = flat[b:b + MEANING_BLOCK]
+        sims.update(zip(part, (V[part].astype('float32') @ q).tolist()))
     return {k: max((sims[i] for i in r), default=0.0) for k, r in idx}
 
 def hybrid(lib, query_text, pages, extra_tokens=()):
