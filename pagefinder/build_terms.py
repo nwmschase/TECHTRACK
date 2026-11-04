@@ -29,7 +29,7 @@ MIN_BASE = 3        # a base form must be used at least this often in the librar
 MIN_COMPOUND = 2    # the joined word and the split pair must each appear at least this often
 MIN_ACRONYM = 2
 # prefixes and suffixes are not words of a compound: antifreeze is not 'anti freeze', tankless is not 'tank less'
-PREFIX_HALVES = set('anti sub pro inter multi pre non mis micro semi uni tri bi re de un super per over under counter'.split())
+PREFIX_HALVES = set('anti sub pro inter multi pre non mis micro semi uni tri bi re de un super per over under counter dis'.split())
 SUFFIX_HALVES = set('ing ed er less ful ness able ible ment wise ward'.split())
 COMPOUND_SHARE = 0.05   # split pair seen at least 5% as often as the joined word
 
@@ -72,7 +72,15 @@ def library_words(db, fixes_path=DF.DOC_FIXES):
             a = re.sub(r'[^A-Z]', '', m.group(1)); ws = m.group(2).split()
             if len(a) >= 2 and len(ws) == len(a) and ''.join(w[0].upper() for w in ws) == a:
                 k = ' '.join(ws).lower(); acr[a.lower()][k] += 1; ex.setdefault((a.lower(), k), f'{d} sheet {s}')
+    # OCR junk (v4.20.0): a word that is not in the shop dictionary and repeats a 3+ letter chunk back to back
+    # ('onionion', 'ionion') is a scan artifact, not a word of the library
+    dic = dictionary_words()
+    for w in [w for w in raw if JUNK_REPEAT.search(w) and w not in dic]:
+        del raw[w]
     return raw, bigrams, acr, ex
+
+
+JUNK_REPEAT = re.compile(r'([a-z]{3,})\1')
 
 
 def dictionary_words():

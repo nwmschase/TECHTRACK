@@ -474,6 +474,9 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
                 wtf = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in wider], b=0.3)
                 code_extra = sorted(wider, key=lambda d: -wtf.get(d['doc_id'], 0))[:2]
                 why.append(f'code {cc} not in the model manual; added {[d["doc_id"] for d in code_extra]} (same brand + unit docs that list it)')
+    if complaint or code:   # symptom / diagnostic job: diagnosis docs ahead of user, install and spec sheets (KIND_WEIGHT)
+        kw = kind_weights(cand)
+        ds = {k: v * kw.get(k, 1.0) for k, v in ds.items()}
     cand.sort(key=lambda d: (-ds.get(d['doc_id'], 0), d['doc_id']))
     pinned = cand[:max_docs]
     if pinned and ds.get(pinned[0]['doc_id'], 0) > 0:  # drop docs far behind the best complaint match
@@ -497,6 +500,12 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
             if ns.get(best['doc_id'], 0) > 0 or tier[0]:
                 pinned = pinned[:max_docs] + [best]
                 why.append(f'model docs are {sorted({d["doc_type"] for d in pinned[:-1]})} only; added {best["doc_type"]} {best["doc_id"]}')
+                # v4.20.0: the closest-model diagnosis doc can be a broad one (a whole-line training handout); the same
+                # brand + unit diagnosis doc that best matches the complaint words is offered too when it is a different doc
+                ws = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in pool2], b=0.3)
+                alt = max(pool2, key=lambda d: (ws.get(d['doc_id'], 0), d['doc_id']))
+                if alt is not best and ws.get(alt['doc_id'], 0) > 0 and ws[alt['doc_id']] >= ws.get(best['doc_id'], 0):
+                    pinned.append(alt); why.append(f'added {alt["doc_type"]} {alt["doc_id"]} (best complaint match among the brand\'s diagnosis docs)')
     # best title match is only a 1-2 page sheet: also search the product family (titles missing one model word)
     if ttop and not top_tag and sum(d['n_pages'] for d in pinned) < 3 and family:
         more = [d for d in family if d not in pinned]
@@ -520,6 +529,32 @@ def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None,
     return pinned, why, cc
 
 DOWN = ('is_toc', 'is_cover', 'is_safety', 'is_parts')
+
+# v4.20.0 (2026-11-03): with the full Lippert/Furrion load, a maker's user, install and spec sheets for the same unit
+# outscored its troubleshooting / service manual on symptom words (they repeat the product's own vocabulary). For a
+# symptom or diagnostic search, a doc's score is weighted by its kind, but only when the docs being ranked include a
+# diagnosis doc, so a unit whose only manual is an owner's manual ranks exactly as before.
+DIAG_KINDS = ('troubleshooting', 'service-manual')
+KIND_WEIGHT = {'troubleshooting': 1.0, 'service-manual': 1.0, 'tech-sheet': 1.0, 'wiring-diagram': 1.0, 'recall-bulletin': 1.0,
+               'shop-sheet': 1.0, 'owners-manual': float(os.environ.get('TT_KW_OWNER', '0.5')),
+               'install-manual': float(os.environ.get('TT_KW_INSTALL', '0.5')), 'reference': float(os.environ.get('TT_KW_REF', '0.5')),
+               'parts-list': float(os.environ.get('TT_KW_REF', '0.5')), 'other': float(os.environ.get('TT_KW_OTHER', '0.85')),
+               'warranty-form': float(os.environ.get('TT_KW_REF', '0.5'))}
+def kind_weights(docs):
+    """doc_id -> weight for a diagnostic ranking of these docs (all 1.0 when none of them is a diagnosis doc)."""
+    docs = list(docs)
+    if not any(d.get('doc_type') in DIAG_KINDS for d in docs):
+        return {d['doc_id']: 1.0 for d in docs}
+    out = {d['doc_id']: KIND_WEIGHT.get(d.get('doc_type') or '', 1.0) for d in docs}
+    # a whole-line diagnosis doc (a maker's "master training handout": no model list, or more than GENERIC_MODELS models)
+    # counts less than a diagnosis manual written for the unit, when such a manual is among the docs
+    specific = [d for d in docs if d.get('doc_type') in DIAG_KINDS and 0 < len(d.get('models_n') or ()) <= GENERIC_MODELS]
+    if specific:
+        for d in docs:
+            if d.get('doc_type') in DIAG_KINDS and d not in specific: out[d['doc_id']] = GENERIC_WEIGHT
+    return out
+GENERIC_MODELS = 8
+GENERIC_WEIGHT = float(os.environ.get('TT_KW_GENERIC', '0.7'))
 def code_pattern(cc):
     if cc.startswith('FLASH'): return re.compile(r'(?<![\d.])' + cc[5:] + r'\s*(?:flash|blink)\w*', re.I)
     return re.compile(r'(?<![A-Za-z0-9])' + r'\s?-?\s?'.join(re.findall(r'[A-Z]+|\d+', cc)) + r'(?![0-9])', re.I)
@@ -547,19 +582,25 @@ def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, 
     key = lambda p: (p['doc_id'], p['pdf_sheet'])
     query = (complaint or '') + (f' {cc}' if cc else '')
     entry, reasons = [], {}
+    kw = kind_weights(pinned)   # v4.20.0: a diagnosis manual's pages ahead of a user / install / spec sheet's (KIND_WEIGHT)
     if cc:   # fault code: the code-table page(s) listing it
         withc = [p for p in pages if cc in p['codes']]
-        fc = sorted([p for p in withc if p['is_fault_codes']], key=lambda p: -len(p['codes']))
+        fc = sorted([p for p in withc if p['is_fault_codes']], key=lambda p: (-kw.get(p['doc_id'], 1.0), -len(p['codes'])))
+        # v4.20.0: a diagnosis manual's page listing the code comes before a user / install sheet's code table
+        top_w = max((kw.get(p['doc_id'], 1.0) for p in withc), default=1.0)
+        if fc and kw.get(fc[0]['doc_id'], 1.0) < top_w:
+            fc = sorted([p for p in withc if kw.get(p['doc_id'], 1.0) == top_w], key=lambda p: (-p['is_fault_codes'], -len(p['codes']))) + fc
         for p in (fc or withc)[:n_entry]: entry.append(p); reasons[key(p)] = f'fault-code page listing {cc}'
         if not withc: why.append(f'code {cc} not found in the pinned manual(s); entry by symptom')
     if not entry:   # symptom: troubleshooting / sequence-chart pages, ranked by meaning + words
         ts = [p for p in pages if p['is_troubleshooting']] or pages
         hs = hybrid(lib, query, ts)
+        hs = {k: v * kw.get(k[0], 1.0) for k, v in hs.items()}
         for p in sorted(ts, key=lambda p: -hs[key(p)])[:n_entry]:
             entry.append(p); reasons[key(p)] = f'entry: troubleshooting page (hybrid {hs[key(p)]:.2f})' if p['is_troubleshooting'] else f'entry: no troubleshooting pages flagged; best page (hybrid {hs[key(p)]:.2f})'
     # supporting pages: hybrid rank over all pinned pages; contents/cover/safety/parts pages count less
     hs = hybrid(lib, query, pages)
-    sc = {key(p): hs[key(p)] * (0.3 if any(p[m] for m in DOWN) and not (p['is_troubleshooting'] or p['is_fault_codes']) else 1.0) for p in pages}
+    sc = {key(p): hs[key(p)] * kw.get(p['doc_id'], 1.0) * (0.3 if any(p[m] for m in DOWN) and not (p['is_troubleshooting'] or p['is_fault_codes']) else 1.0) for p in pages}
     chosen = list(entry)
     ranked = sorted(pages, key=lambda p: -sc[key(p)])
     top = sc[key(ranked[0])] if ranked else 0

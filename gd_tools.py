@@ -351,7 +351,9 @@ class LibraryTools:
             return {"hits": [], "pages_searched": 0, "documents_searched": len(docs)}
         hs = self.s.hybrid(self.lib, words, pages)
         key = lambda p: (p["doc_id"], p["pdf_sheet"])
-        sc = {key(p): hs.get(key(p), 0.0) * (0.3 if p.get("is_toc") or p.get("is_cover") else 1.0) for p in pages}
+        kw = self.s.kind_weights(docs)   # v4.20.0: diagnosis docs ahead of user / install / spec sheets of the same unit
+        sc = {key(p): hs.get(key(p), 0.0) * (0.3 if p.get("is_toc") or p.get("is_cover") else 1.0) * kw.get(p["doc_id"], 1.0)
+              for p in pages}
         ranked = sorted((p for p in pages if sc[key(p)] > 0), key=lambda p: (-sc[key(p)], p["doc_id"], p["pdf_sheet"]))
         hits = []
         for p in ranked[:limit]:
