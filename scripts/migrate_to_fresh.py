@@ -48,10 +48,45 @@ def diff_ids(a, b, t):
                 changed=sorted(k for k in set(ra) & set(rb) if ra[k] != rb[k])[:50])
 
 
+def accept_covered(live, base, accepted, drift):
+    """Drop drift that comes only from ACCEPTED live documents (added after the base, already covered by the clean library):
+    rows that are new in live and belong to those docs, plus the bulk-import jobs/items that imported them.
+    Anything deleted from live (only_base) or any other change stays as drift, so the script still stops on it."""
+    jobs = {r[0] for r in live.execute(f"select distinct job_id from bulk_import_items where document_id in ({','.join(map(str, accepted))})")}
+    def owned(t, rid):
+        if t == 'documents': return rid in accepted
+        if t in ('doc_chunks', 'doc_assets'):
+            r = live.execute(f'select document_id from "{t}" where id=?', (rid,)).fetchone(); return bool(r) and r[0] in accepted
+        if t == 'bulk_import_jobs': return rid in jobs
+        if t == 'bulk_import_items':
+            r = live.execute('select job_id from bulk_import_items where id=?', (rid,)).fetchone(); return bool(r) and r[0] in jobs
+        return False
+    left = {}
+    for t, d in drift.items():
+        full = diff_ids_all(live, base, t)
+        if full['only_base'] or t not in ('documents', 'doc_chunks', 'doc_assets', 'bulk_import_jobs', 'bulk_import_items'):
+            left[t] = d; continue
+        if t in ('documents', 'doc_chunks', 'doc_assets') and full['changed']:
+            left[t] = d; continue
+        bad = [i for i in full['only_live'] + full['changed'] if not owned(t, i)]
+        if bad: left[t] = dict(d, not_accepted=bad[:50])
+    return left
+
+
+def diff_ids_all(a, b, t):
+    cl = ','.join(f'"{x}"' for x in cols(a, t))
+    ra = {r[0]: r for r in a.execute(f'select {cl} from "{t}"')}
+    rb = {r[0]: r for r in b.execute(f'select {cl} from "{t}"')}
+    return dict(only_live=sorted(set(ra) - set(rb)), only_base=sorted(set(rb) - set(ra)),
+                changed=sorted(k for k in set(ra) & set(rb) if ra[k] != rb[k]))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--live', required=True); ap.add_argument('--library', required=True); ap.add_argument('--base', required=True)
     ap.add_argument('--out', required=True); ap.add_argument('--report'); ap.add_argument('--sources'); ap.add_argument('--r2-plan')
+    ap.add_argument('--accept-live-docs', default='', help='comma list of live document ids added after the base that the clean library already covers '
+                    '(checked by content); their rows and the bulk-import jobs that made them are allowed to differ from the base')
     a = ap.parse_args(argv)
     rep = dict(started=time.strftime('%Y-%m-%d %H:%M:%S %Z'), live=os.path.abspath(a.live), library=os.path.abspath(a.library),
                base=os.path.abspath(a.base), checks={}, ok=False)
@@ -77,6 +112,10 @@ def main(argv=None):
     for t in LIBRARY_TABLES:
         if table_hash(live, t)[0] != table_hash(base, t)[0]:
             drift[t] = diff_ids(live, base, t)
+    accepted = {int(x) for x in a.accept_live_docs.split(',') if x.strip()}
+    if drift and accepted:
+        rep['accepted_live_docs'] = sorted(accepted)
+        drift = accept_covered(live, base, accepted, drift)
     if not check('live library == base library (no uploads/edits since the clean library was built)', not drift, drift or None):
         print('STOP: the live library changed since the base. Re-run the library dial-in on this live DB first.', flush=True)
         return finish(3)
