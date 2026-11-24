@@ -1,0 +1,34 @@
+[
+ {
+  "role": "user",
+  "content": "CUSTOMER STATES THAT THE REFER IS NOT GETTING COLD. CUSTOMER WAS OUT IN 40 DEGREE WEATHER AND THE REFER WOULD NOT GET BELOW 42 DEGREES.\n(The file did not count as a finding.)"
+ },
+ {
+  "role": "assistant",
+  "content": "**Furrion FCR16DCASA-SS (15.6 cu.ft. 12V side-by-side Arctic refrigerator).** Complaint: will not cool below 42°F (default fridge setting is 41°F per the manual).\n\n**Library documents found**  \n- Troubleshooting/service manual: CCD-0009616 (L284, rev 04.24.26) – covers electrical, cleaning, defrost, normal phenomena, and basic troubleshooting.  \n- User manual: IM-FHA00108 V5.0 / CCD-0005509 (L1687) – full operation, controls, and troubleshooting.\n\n**Next step for the tech**  \nVerify the basics before deeper diagnosis (per CCD-0009616 pages 9–10 and the user manual):  \n1. Confirm the unit is powered on and not in Low Power mode (hold Function button 5 seconds to exit if display shows “--”).  \n2. Check DC voltage at the appliance connection (must be stable 12V nominal; voltage drop ≤ 0.4V from source; circuit min 15A, properly fused, dedicated). Measure with your meter.  \n3. Verify fridge compartment setting (cycle Fridge button: 41°F default; try 39°F or lower).  \n4. Inspect door seals/gaskets for proper seal (paper test or visual). Clean if needed.  \n5. Ensure vents/air outlets inside are not blocked and food is not overloading.  \n6. Note any alarm sounds, display issues, or compressor behavior (listen for it running).\n\nReport back the voltage reading, current settings, any error indicators, and whether the compressor runs. We’ll pull the exact next test or page from the manual once we have that."
+ },
+ {
+  "role": "user",
+  "content": "Cause: Verified customer concern. Removed refrigerator and performed electrical, mechanical and visual diagnostic inspections following Furrion warranty troubleshooting procedures. Verified compressor and condenser fan operation, interior lighting and control panel operation. Inspected main control board, wiring and refrigerant connections. No obvious control board damage observed. Observed discoloration around refrigerant fittings and filter-drier; however, no refrigerant leak was confirmed. settings are correct, not in low pwoerr mode, seals are all good, everything you asked me to check looks fine"
+ },
+ {
+  "role": "assistant",
+  "content": "**Next step**  \nThe basics (power, settings, seals, compressor/condenser fan running, control panel, no obvious board damage) are all good per CCD-0009616.  \n\nThe discoloration around the refrigerant fittings and filter-drier is a red flag even without a confirmed leak—common sign of oil residue from a slow leak or prior service.  \n\n**Immediate next checks (still per the same troubleshooting doc and standard 12 V Arctic practice):**  \n1. With the unit running, open the freezer and feel the evaporator coil (or listen/feel for frost buildup). Is it getting cold? Any frost pattern?  \n2. Check freezer compartment temperature (should be well below 0 °F when set properly).  \n3. Note any evaporator fan operation (separate from condenser fan).  \n4. If you have access to the thermistor(s), report the resistance reading at the current compartment temp (we can cross-reference the chart once we confirm the exact sensor).  \n\nReport those observations and we’ll move to the next targeted test or page."
+ },
+ {
+  "role": "user",
+  "content": "Battery power only:\n\n\n\n* Battery voltage: 13.34V DC.\n\n* Refrigerator terminal voltage: 12.07V DC.\n\n* Compressor controller voltage: 11.73V DC.\n\n* Supply voltage drop: 1.27V DC.\n\n* Initial compressor starting amperage: 6.81A DC.\n\n* Compressor controller voltage at startup: 12.26V DC.\n\n* Observed compressor operating amperage: 7.28-12.50A DC.\nShore power connected:\n\n\n\n* Battery voltage: 13.48V DC.\n\n* Refrigerator terminal voltage: 12.64V DC.\n\n* Compressor controller voltage: 12.30V DC.\n\n* Supply voltage drop: 0.84V DC.\n\n* Compressor operating amperage: 11.21A DC.\nDuring preliminary cooling testing, freezer temperature decreased from approximately 48F to 5F, while fresh-food compartment temperature decreased from approximately 60F to 48F. Further operation revealed insufficient cold-air circulation into the fresh-food compartment."
+ },
+ {
+  "role": "assistant",
+  "content": "**Diagnosis so far (CCD-0009616, p.5 & 9–10)**  \nVoltage drop exceeds the manual limit (max 0.4 V DC) on both battery-only (1.27 V) and shore power (0.84 V). Compressor is running and drawing normal amperage; freezer is cooling properly. Fresh-food compartment is not receiving adequate cold air.\n\n**Next step**  \nCheck evaporator fan operation and air circulation:  \n- With the unit running and freezer door open, confirm the evaporator fan (inside freezer compartment) is spinning and moving air across the coil.  \n- Verify all internal air outlets/vents between freezer and fresh-food sections are clear and unobstructed.  \n- Feel for airflow into the fresh-food compartment (lower vents or mullion).  \n\nReport fan operation and airflow results. If the fan is not running or airflow is blocked, that is the immediate cause. We will then address the voltage drop as a separate wiring/installation issue."
+ },
+ {
+  "role": "user",
+  "content": "Removed freezer upper air duct assembly and found evaporator circulation fan not operating. Performed additional fan activation testing following Furrion troubleshooting guidance. Fan failed to start, indicating a suspected internal evaporator fan assembly failure, preventing adequate cold-air distribution into the fresh-food compartment. I am not too worried about the electrical drop. I want to recommend a replacement of the evaporator fan assembly"
+ },
+ {
+  "role": "assistant",
+  "content": "**Cause confirmed:** Evaporator circulation fan assembly failure (not operating after activation testing). This prevents cold-air distribution from the freezer to the fresh-food compartment while the sealed system and compressor function normally.\n\n**Recommendation:** Replace the evaporator fan assembly (part number not listed in the troubleshooting manual pages read; order the correct Furrion assembly for FCR16DCASA-SS).  \n\nOnce replaced, re-test airflow, temperatures, and verify the repair. The voltage drop issue can be addressed separately if desired (wiring upgrade per CCD-0009616 p.5).  \n\nReady to write the story once you confirm the repair is complete and verified."
+ }
+]

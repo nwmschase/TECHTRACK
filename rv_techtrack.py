@@ -3264,11 +3264,18 @@ ASK_TECHTRACK_SYSTEM = ""  # removed 2026-10-23 (Chase order): the Ask prompt is
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
     # Rule 10: on the official GD path the story comes from the session's recorded facts only.
     if GD_OFFICIAL_METHOD:
+        # 2026-11-24 (Chase, M1066): a real Complaint / Cause / Correction story written from the whole chat; a job not
+        # repaired gets the correction as a recommendation. Grok writes it (checked in gd_story); the stored-state
+        # template is the fallback. A case left from another chat is not used.
         try:
             import gd_story
             _case = (st.session_state.get("gd_pin_store") or {}).get("gd_case")
-            if _case:
-                return gd_story.warranty_story(_case, history, model_text)
+            _cid = st.session_state.get("ask_chat_id")
+            if not _case or (_cid and st.session_state.get("gd_case_chat_id") not in (None, _cid)):
+                _case = {"unit": {"category": category_name or "", "model_text": model_text or ""}, "complaint": "",
+                         "state": {}}
+            _chat = (lambda msgs: ai_chat(msgs, temperature=0.2, max_tokens=1600)) if ai_available() else None
+            return gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat)
         except Exception:
             pass
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
