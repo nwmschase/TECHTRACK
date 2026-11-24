@@ -30,7 +30,7 @@ from datetime import datetime, timedelta
 WORK_ORDER_RETENTION_DAYS = 30      # Chase 2026-10-24: 30 days
 LIST_LIMIT = 50
 STATUS_CLOSED, STATUS_STORY, STATUS_SAVED = "closed", "story written", "saved"
-STATE_FIELDS = ("fault_code", "pending_test", "part_working", "cause", "order_part")
+STATE_FIELDS = ("fault_code", "pending_test", "part_working", "cause", "order_part", "recommendation", "help_mode")
 
 
 def default_wo_number(chat_id) -> str:
@@ -202,7 +202,8 @@ def render_html(row) -> str:
             + "</li>" for f in facts if isinstance(f, dict)) + "</ul>")
     rows = []
     for key, label in (("fault_code", "Fault code"), ("part_working", "Part being worked on"), ("pending_test", "Pending test"),
-                       ("cause", "Cause"), ("order_part", "Part to order")):
+                       ("cause", "Cause"), ("order_part", "Part to order"), ("recommendation", "Recommended repair"),
+                       ("help_mode", "Help asked for")):
         if isinstance(findings, dict) and findings.get(key):
             rows.append(f"<tr><td><b>{label}</b></td><td>{e(findings[key])}</td></tr>")
     rep = findings.get("repair") if isinstance(findings, dict) else None

@@ -1,7 +1,7 @@
 """2026-11-24 live M1066 (FCR16DCASA-SS, evaporator fan): a photo was attached to the opening message, the photo did not
 count, and history_user_text replaced the typed complaint with "The file did not count." The saved chat, its title and the
 warranty story's CUSTOMER COMPLAINT all read that note. Offline only."""
-import json, pathlib, sys, unittest
+import html, json, pathlib, re, sys, unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import gd_story  # noqa: E402
@@ -28,97 +28,209 @@ class TestOpeningMessageKeepsTheComplaint(unittest.TestCase):
         self.assertIn("history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)", src)
 
 
-M1066 = json.loads((ROOT / "tests" / "fixtures" / "m1066_chat_2026_11_24.json").read_text(encoding="utf-8"))
-M1066_CASE = {"unit": {"category": "Refrigerators", "model_text": "FCR16DCASA-SS"},
-              "complaint": M1066[0]["content"].split("\n")[0],
-              "state": {"facts": [{"item": "Supply voltage drop", "value": "1.27 V DC on battery, 0.84 V DC on shore power"},
-                                  {"item": "Freezer / fresh-food pull-down", "value": "freezer 48F to 5F; fresh food 60F to 48F"},
-                                  {"item": "Evaporator circulation fan", "value": "not operating; failed to start on activation test"}],
-                        "cause": "Evaporator circulation fan assembly failure",
-                        "order_part": "evaporator fan assembly",
+def load_work_order(path):
+    """The chat and complaint from a TechTrack work-order export (the real live M1066 download)."""
+    t = path.read_text(encoding="utf-8")
+    msgs = re.findall(r"<div class='msg (tech|gd)'><div class='who'>[^<]*</div>(.*?)</div>\n", t, re.S)
+    hist = [{"role": "user" if r == "tech" else "assistant", "content": html.unescape(c)} for r, c in msgs]
+    complaint = html.unescape(re.search(r"<h2>Complaint</h2>\s*<p>(.*?)</p>", t, re.S).group(1))
+    return hist, complaint
+
+
+M1066, M1066_COMPLAINT = load_work_order(ROOT / "tests" / "fixtures" / "m1066_work_order_2026_11_24.html")
+# The live record as saved: stale part / pending test, no cause, no repair (what the export shows).
+M1066_CASE = {"unit": {"category": "", "model_text": "FCR16DCASA-SS"}, "complaint": M1066_COMPLAINT,
+              "state": {"part_working": "sealed system / thermistors",
+                        "pending_test": "evaporator temp/frost, freezer temp, evaporator fan", "cause": "",
                         "repair": {"done": False, "verified": False, "what": "", "quote": ""}}}
-GROK_OK = """**COMPLAINT:**
-Customer states the refrigerator is not getting cold; in 40 degree weather it would not go below 42 degrees.
+REAL_COMPLAINT = "Customer states refrigerator does not maintain proper cooling temperatures and will not cool below 42F"
+READINGS = ["13.34", "12.07", "11.73", "1.27", "6.81", "12.26", "7.28", "12.50", "13.48", "12.64", "12.30", "0.84", "11.21",
+            "48", "5", "60"]
 
-**CAUSE:**
-Verified customer concern. Checked power, settings, low power mode and door seals - all good.
-Measured 12.07 V DC at the refrigerator terminals on battery (1.27 V DC drop) and 0.84 V DC drop on shore power.
-Freezer pulled down from 48F to 5F while the fresh-food compartment only reached 48F.
-Removed the freezer upper air duct assembly and found the evaporator circulation fan not operating; fan failed activation testing.
+GROK_OK = """1. CONCERN
+Customer states refrigerator does not maintain proper cooling temperatures and will not cool below 42F. Technician verified the concern.
 
-**CORRECTION:**
-Recommend replacing the evaporator fan assembly and verifying proper cooling operation."""
+2. CAUSE - DIAGNOSTIC TEST LOG
+1. Verified customer concern; the fresh-food compartment would not cool below 42F.
+2. Removed the refrigerator and performed electrical, mechanical and visual diagnostic inspections following Furrion warranty troubleshooting procedures.
+3. Verified compressor and condenser fan operation, interior lighting and control panel operation. Settings correct, not in low power mode, door seals good.
+4. Inspected the main control board, wiring and refrigerant connections. No control board damage. Discoloration observed around the refrigerant fittings and filter-drier; no refrigerant leak confirmed.
+5. On battery power only, measured battery voltage 13.34V DC, refrigerator terminal voltage 12.07V DC and compressor controller voltage 11.73V DC, a supply voltage drop of 1.27V DC. Initial compressor starting amperage was 6.81A DC with 12.26V DC at the controller at startup; operating amperage was 7.28-12.50A DC.
+6. With shore power connected, measured battery voltage 13.48V DC, terminal voltage 12.64V DC and controller voltage 12.30V DC, a drop of 0.84V DC; compressor operating amperage 11.21A DC. The supply voltage drop is above the maker's limit and is a noted finding, not the cause.
+7. During cooling testing the freezer pulled down from approximately 48F to 5F while the fresh-food compartment only went from 60F to 48F, showing insufficient cold-air circulation into the fresh-food side.
+8. Removed the freezer upper air duct assembly and found the evaporator circulation fan not operating.
+9. Performed fan activation testing per Furrion troubleshooting guidance; the fan failed to start.
+
+The evaporator circulation fan assembly has failed, so cold air from the freezer evaporator is not distributed into the fresh-food compartment while the compressor and sealed system operate normally.
+
+3. MANUFACTURER REFERENCES
+- Furrion CCD-0009616 troubleshooting manual
+
+4. CORRECTION
+Recommend replacing the evaporator fan assembly, then re-test airflow and compartment temperatures to verify repair."""
 
 
-class TestStoryComplaintAndRecommendation(unittest.TestCase):
-    def test_story_skips_the_photo_note_as_complaint(self):
-        hist = [{"role": "user", "content": "The file did not count."}, {"role": "assistant", "content": "x"},
-                {"role": "user", "content": "fan not running"}]
-        s = gd_story.warranty_story({"complaint": COMPLAINT, "state": {"cause": "Evaporator fan failed"}}, hist, "FCR16DCASA-SS")
-        self.assertNotIn("did not count", s)
-        self.assertIn("COMPLAINT:\n" + COMPLAINT + "\n", s)
-        s0 = gd_story.warranty_story({"state": {"cause": "c"}}, hist, "M")
-        self.assertIn("COMPLAINT:\nNot recorded.", s0)      # never the tech's later findings
-        s2 = gd_story.warranty_story({"state": {"cause": "c"}},
-                                     [{"role": "user", "content": COMPLAINT + "\n(The file did not count as a finding.)"}], "M")
-        self.assertIn("COMPLAINT:\n" + COMPLAINT + "\n", s2)
-        self.assertNotIn("did not count", s2)
+def numbered(section):
+    return [l for l in section.split("\n") if re.match(r"\s*\d+[.)]\s", l)]
 
-    def test_template_diagnosis_only_is_a_recommendation(self):
-        s = gd_story.warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS")
-        self.assertIn("CORRECTION:\nRecommend replacing the evaporator fan assembly and verifying proper operation.", s)
-        self.assertIn("Evaporator circulation fan: not operating", s)
-        for bad in ("OPEN", "not yet performed", "did not count", "state", "session"):
-            self.assertNotIn(bad, s)
-        self.assertTrue(s.startswith("COMPLAINT:\nCUSTOMER STATES THAT THE REFER IS NOT GETTING COLD."))
 
-    def test_template_repair_done(self):
+def terse_label_lines(lines):
+    """Bare 'Label: value' lines (the rejected 11/24 sample): short, a colon, no verb sentence."""
+    return [l for l in lines if re.match(r"\s*\d+[.)]\s+[A-Za-z /-]{2,40}:\s+[^.]{1,60}\.?$", l)]
+
+
+class TestRealM1066Story(unittest.TestCase):
+    """The real live M1066 chat through the story path, no Grok call (chat_fn=None = Grok not available)."""
+
+    def setUp(self):
+        self.s = gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=None)
+        self.sec = gd_story.parse_story(self.s)
+
+    def test_complaint_is_the_real_complaint(self):
+        self.assertIn(REAL_COMPLAINT, self.sec["CONCERN"])
+        self.assertNotIn("did not count", self.s)
+        self.assertNotIn("Label/photo", self.s)
+
+    def test_cause_names_the_evaporator_fan_failure(self):
+        low = self.sec["CAUSE"].lower()
+        self.assertIn("evaporator circulation fan", low)
+        self.assertIn("failure", low)
+        self.assertNotIn("not determined", low)
+
+    def test_correction_is_a_recommendation(self):
+        self.assertTrue(self.sec["CORRECTION"].startswith("Recommend replacing the evaporator fan assembly"), self.sec["CORRECTION"])
+        for bad in ("OPEN", "no correction recorded", "not yet performed"):
+            self.assertNotIn(bad, self.s)
+
+    def test_all_tech_work_is_carried(self):
+        for want in ("Removed refrigerator", "electrical, mechanical and visual", "discoloration around refrigerant fittings and filter-drier",
+                     "no refrigerant leak was confirmed", "Removed freezer upper air duct assembly", "fan activation testing",
+                     "Fan failed to start", "48F to 5F", "60F to 48F"):
+            self.assertIn(want, self.s)
+        self.assertIn("Noted finding: Voltage drop exceeds the manual limit", self.s)
+        self.assertNotIn("page", self.sec.get("REFERENCES", "").lower())
+
+
+class TestStoryGuard(unittest.TestCase):
+    """Chase 10/23 story spec + Brinkley 11/4 format: a numbered Cause log carrying every reading the tech reported,
+    full sentences, never terse label lines. Both the fallback and the Grok path (via its check) are held to it."""
+
+    def assert_guard(self, story):
+        sec = gd_story.parse_story(story)
+        for s in ("CONCERN", "CAUSE", "CORRECTION"):
+            self.assertTrue(sec.get(s), f"no {s}")
+        steps = numbered(sec["CAUSE"])
+        self.assertGreaterEqual(len(steps), 5)
+        self.assertEqual(terse_label_lines(steps), [], "terse label lines in the Cause log")
+        for r in READINGS:
+            self.assertIn(r, story, f"reading {r} missing")
+
+    def test_reading_extractor_finds_every_reported_reading(self):
+        self.assertEqual(gd_story.readings(M1066), READINGS)
+
+    def test_fallback_meets_the_guard(self):
+        self.assert_guard(gd_story.warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS"))
+
+    def test_grok_story_meeting_the_spec_is_used(self):
+        self.assertEqual(gd_story.story_problems(GROK_OK, M1066_CASE, M1066), [])
+        out = gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=lambda m: GROK_OK)
+        self.assertEqual(out, GROK_OK)
+        self.assert_guard(out)
+
+    def test_grok_story_dropping_a_reading_is_retried_then_falls_back(self):
+        short = GROK_OK.replace("compressor operating amperage 11.21A DC", "compressor running normally")
+        self.assertIn("missing readings: 11.21", gd_story.story_problems(short, M1066_CASE, M1066))
+        seen = []
+        out = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or short)
+        self.assertEqual(len(seen), 2)
+        self.assertIn("left out these readings the tech reported: 11.21", seen[1][1]["content"])
+        self.assertEqual(out, gd_story.warranty_story(M1066_CASE, M1066, ""))
+        fixed = []
+        out2 = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: (fixed.append(1), short if len(fixed) == 1 else GROK_OK)[1])
+        self.assertEqual(out2, GROK_OK)
+
+    def test_terse_label_story_is_rejected(self):
+        terse = ("COMPLAINT:\n" + REAL_COMPLAINT + "\n\nCAUSE:\nSupply voltage drop: 1.27V DC.\nCompressor amps: 11.21A DC.\n\n"
+                 "CORRECTION:\nRecommend replacing the evaporator fan assembly.")
+        self.assertIn("cause is not a numbered test log", gd_story.story_problems(terse, M1066_CASE, M1066))
+        self.assertNotEqual(gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: terse), terse)
+
+    def test_other_bad_grok_text_falls_back(self):
+        fb = gd_story.warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS")
+        for bad in ("Just replace the fan.",
+                    GROK_OK.replace("Recommend replacing", "Replaced"),
+                    GROK_OK.replace("fan assembly, then", "fan assembly (Furrion PN 2025064999), then")):
+            self.assertEqual(gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=lambda m, b=bad: b), fb)
+        self.assertEqual(gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=lambda m: 1 / 0), fb)
+
+    def test_open_tag_is_scrubbed_not_over_stripped(self):
+        txt = GROK_OK.replace("Recommend replacing", "OPEN - Recommend replacing")
+        out = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: txt)
+        self.assertNotIn("OPEN", out)
+        self.assertEqual(out, GROK_OK)
+
+
+class TestStoryPrompt(unittest.TestCase):
+    def test_prompt_carries_the_spec(self):
+        p = gd_story.STORY_SYSTEM
+        for want in ("1. CONCERN", "2. CAUSE - DIAGNOSTIC TEST LOG", "3. MANUFACTURER REFERENCES", "4. CORRECTION", "5. REQUEST",
+                     "every test, inspection and action", "with its units", "no page numbers", "noted finding",
+                     "Recommend replacing the evaporator fan assembly, then re-test airflow and compartment temperatures to verify repair.",
+                     "same story goes on customer-pay work"):
+            self.assertIn(want, p)
+
+    def test_messages_carry_complaint_status_readings_refs(self):
+        seen = []
+        gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK, references=["L284"])
+        user = seen[0][1]["content"]
+        self.assertIn("CUSTOMER COMPLAINT (job start): " + REAL_COMPLAINT, user)
+        self.assertIn("REPAIR STATUS: not performed", user)
+        self.assertIn("13.34, 12.07", user)
+        self.assertIn("OFFICIAL DOCUMENTS CITED IN THE JOB: L284", user)
+        self.assertNotIn("did not count", user)
+
+    def test_repair_done(self):
         case = json.loads(json.dumps(M1066_CASE))
         case["state"]["repair"] = {"done": True, "verified": True, "what": "Replaced the evaporator fan assembly; fresh food reached 38F",
                                    "quote": "new fan in"}
-        s = gd_story.warranty_story(case, M1066, "FCR16DCASA-SS")
-        self.assertIn("CORRECTION:\nReplaced the evaporator fan assembly; fresh food reached 38F. Repair verified working.", s)
-        self.assertNotIn("Recommend replacing", s)
-
-
-class TestGrokWrittenStory(unittest.TestCase):
-    def test_grok_story_is_used_and_cleaned(self):
-        seen = []
-        out = gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=lambda m: seen.append(m) or GROK_OK)
-        self.assertTrue(out.startswith("COMPLAINT:\nCustomer states"))
-        self.assertIn("CORRECTION:\nRecommend replacing the evaporator fan assembly and verifying proper cooling operation.", out)
-        self.assertNotIn("**", out)
-        user = seen[0][1]["content"]
-        self.assertIn("REPAIR STATUS: not performed", user)
-        self.assertIn("CUSTOMER COMPLAINT (job start): CUSTOMER STATES THAT THE REFER IS NOT GETTING COLD", user)
-        self.assertNotIn("did not count", user)
-        self.assertIn("Recommend", seen[0][0]["content"])
-
-    def test_open_tag_and_parenthetical_are_scrubbed(self):
-        txt = GROK_OK.replace("Recommend replacing", "OPEN - Recommend replacing").replace("operation.", "operation (not yet performed).")
-        out = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: txt)
-        self.assertNotIn("OPEN", out)
-        self.assertNotIn("not yet performed", out)
-        self.assertIn("Recommend replacing", out)
-
-    def test_bad_grok_text_falls_back_to_template(self):
-        for bad in ("Just replace the fan.",                                             # no sections
-                    GROK_OK.replace("Recommend replacing", "Replaced"),                  # claims a repair not done
-                    GROK_OK.replace("assembly and", "assembly (Furrion PN 2025064999) and")):  # invented part number
-            out = gd_story.write_warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS", chat_fn=lambda m, b=bad: b)
-            self.assertEqual(out, gd_story.warranty_story(M1066_CASE, M1066, "FCR16DCASA-SS"))
-        boom = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: 1 / 0)
-        self.assertIn("Recommend replacing the evaporator fan assembly", boom)
-
-    def test_repair_done_story_status(self):
-        case = json.loads(json.dumps(M1066_CASE)); case["state"]["repair"]["done"] = True
         seen = []
         gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK)
         self.assertIn("REPAIR STATUS: performed", seen[0][1]["content"])
+        fb = gd_story.warranty_story(case, M1066, "FCR16DCASA-SS")
+        self.assertIn("Replaced the evaporator fan assembly; fresh food reached 38F. Repair verified working.", fb)
+        self.assertNotIn("Recommend replacing", fb)
 
-    def test_app_button_uses_the_story_writer(self):
+    def test_stored_story_used_only_when_it_meets_the_spec(self):
+        case = json.loads(json.dumps(M1066_CASE))
+        case["state"]["story"] = GROK_OK
+        self.assertEqual(gd_story.write_warranty_story(case, M1066, ""), GROK_OK)
+        case["state"]["story"] = "Fan bad. Replaced."
+        self.assertEqual(gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: GROK_OK), GROK_OK)   # rewritten to spec
+        self.assertEqual(gd_story.write_warranty_story(case, M1066, ""), "Fan bad. Replaced.")   # no Grok: Grok's own text kept
+
+
+class TestRecordCapture(unittest.TestCase):
+    def test_reply_that_confirms_cause_fills_the_record(self):
+        case = json.loads(json.dumps(M1066_CASE))
+        gd_story.record_reply_findings(case, M1066[-1]["content"])
+        st = case["state"]
+        self.assertTrue(st["cause"].startswith("Evaporator circulation fan assembly failure"))
+        self.assertTrue(st["recommendation"].startswith("Replace the evaporator fan assembly"))
+        import gd_work_orders as wo
+        snap = wo.snapshot(history=M1066, case=case, chat_id=7)
+        f = json.loads(snap["findings"])
+        self.assertIn("Evaporator circulation fan", f["cause"])
+        self.assertIn("evaporator fan assembly", f["recommendation"])
+
+    def test_record_cause_from_state_block_is_kept(self):
+        case = {"state": {"cause": "Grok's own cause"}}
+        gd_story.record_reply_findings(case, "**Cause confirmed:** something else")
+        self.assertEqual(case["state"]["cause"], "Grok's own cause")
+
+    def test_app_wires_capture_and_story_writer(self):
         src = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
-        self.assertIn("gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat)", src)
+        self.assertIn("gd_story.record_reply_findings(pin_store.get(gd_turn.STORE_KEY)", src)
+        self.assertIn("gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat, references=_refs)", src)
 
 
 if __name__ == "__main__":

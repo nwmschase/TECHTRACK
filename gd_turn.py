@@ -74,6 +74,15 @@ FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community"
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
 USD_PER_TICK = 1e-10
 
+# What the tech picked at the start of the job (app buttons), told to Grok as session context, not as a rule.
+HELP_PAGES, HELP_WALKTHROUGH = "pages", "walkthrough"
+HELP_MODE_LINES = {
+    HELP_PAGES: ("HOW THE TECH WANTS HELP ON THIS JOB: the manual pages. He picked having the right manual pages and diagrams "
+                 "found and shown, with a short pointer to what on them fits this unit and complaint, and he works the steps "
+                 "himself. A step-by-step walkthrough from where he is is there whenever he asks for help or says he is stuck."),
+    HELP_WALKTHROUGH: "HOW THE TECH WANTS HELP ON THIS JOB: a full walkthrough of the diagnosis and the repair, one step at a time.",
+}
+
 CEILING_REPLY = "I ran out of lookups for this message. Send it again and I will pick up from what I found."
 
 
@@ -180,7 +189,7 @@ def _web_query(action):
 
 
 def run_turn(user_msg, category, model_text, history, *, store, finder=None, library=None, chat_fn=None, respond_fn=None,
-             usage_fn=None, web_fetch=None, log_path=None, tools=None, **_old):
+             usage_fn=None, web_fetch=None, log_path=None, tools=None, help_mode=None, **_old):
     """One turn. library: a gd_tools.LibraryTools (default: built over finder's library). respond_fn(items, tools,
     tool_choice) -> gd_llm.respond()-shaped dict or a plain reply string; chat_fn(messages, max_tokens, effort) -> str is the
     older text-only form (no tool calls). log_path: JSON-lines turn log ("" = off, None = DEFAULT_LOG_PATH).
@@ -204,6 +213,12 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         case["read"], case["read_order"], case["web_sources"], case["searches"] = {}, [], [], []
     case.setdefault("notes_next", []); case.setdefault("log", [])
     notes = list(case["notes_next"]); case["notes_next"] = []
+    # The tech's up-front choice (Chase 2026-11-24): manual pages or a walkthrough. Stored in the job state and passed as
+    # one plain line of session context; the primer is unchanged. A later choice (e.g. "Walk me through it") replaces it.
+    if help_mode in HELP_MODE_LINES:
+        case["state"]["help_mode"] = help_mode
+    if case["state"].get("help_mode") in HELP_MODE_LINES:
+        notes = [HELP_MODE_LINES[case["state"]["help_mode"]]] + notes
     msgs = gd_prompt.build_messages(user_msg=user_msg, history=history, category=case["unit"]["category"],
                                     model_text=case["unit"]["model_text"], pages=_read_pages(case),
                                     web_sources=case["web_sources"], searches=case["searches"], state=case["state"], notes=notes)

@@ -2627,6 +2627,8 @@ def reset_guided_diagnostics_session():
     st.session_state["ask_input"] = ""
     st.session_state.pop("ask_pending_answer", None)
     st.session_state.pop("ask_force_send", None)
+    st.session_state["gd_help_mode"] = None       # the next job asks again: manual pages or a walkthrough
+    st.session_state.pop("gd_help_choice", None)
     st.session_state["ask_model"] = ""
     st.session_state["gd_model_memory"] = ""
     st.session_state["ask_cat"] = "(any)"
@@ -3136,6 +3138,10 @@ _gd_official_respond = None
 
 
 _gd_finder = None  # test hook: a gd_pages finder (e.g. StubPageFinder). None = the fresh library's page-finder.
+GD_HELP_QUESTION = "How do you want help on this job?"
+GD_HELP_OPTIONS = {"📖 Pull up the manual pages": "pages", "🧭 Walk me through the repair": "walkthrough"}
+GD_WALK_ME_BUTTON = "🧭 Walk me through it"
+GD_WALK_ME_MESSAGE = "I'm stuck. Walk me through it from here."
 GD_UNAVAILABLE_LINE = "Guided Diagnostics could not reach the AI right now. Nothing was guessed. Send the same message again in a minute."
 GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothing was guessed."
 
@@ -3178,7 +3184,7 @@ def _start_index_fetch():
 _start_index_fetch()
 
 
-def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None):
+def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None, help_mode=None):
     """One GD turn on the fresh core (gd_turn). The brain decides; this wrapper only wires the app to it."""
     import gd_turn
 
@@ -3209,10 +3215,18 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             user_msg, category_name, model_text, history,
             finder=finder, respond_fn=respond_fn, store=pin_store,
             log_path=GD_USAGE_LOG or None,   # None = gd_turn.DEFAULT_LOG_PATH (GD_TURN_LOG or the temp dir)
+            help_mode=help_mode,
         )
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
         return GD_UNAVAILABLE_LINE
+    try:
+        # 2026-11-24 (M1066): a reply that confirms a cause or a recommendation puts it in the job record even when the
+        # state block did not carry it, so the work order and the warranty story have it.
+        import gd_story
+        gd_story.record_reply_findings(pin_store.get(gd_turn.STORE_KEY), result.get("reply") or "")
+    except Exception:
+        pass
     for c in result.get("cited") or []:
         try:
             # The warranty story and source ledger are keyed by manual TITLE (parse_cited_pages_from_text), so the
@@ -3233,6 +3247,7 @@ def guided_diagnostics_reply(
     photo: tuple | None = None,
     photo_review: dict | None = None,
     pin_store: dict | None = None,
+    help_mode: str | None = None,
 ):
     """Guided Diagnostics on the fresh core. Returns (reply_text, None).
 
@@ -3251,7 +3266,7 @@ def guided_diagnostics_reply(
     sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
     if sees:
         official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
-    return _gd_official_reply(official_msg, category_name, model_text, history, pin_store), None
+    return _gd_official_reply(official_msg, category_name, model_text, history, pin_store, help_mode=help_mode), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -3274,8 +3289,22 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
             if not _case or (_cid and st.session_state.get("gd_case_chat_id") not in (None, _cid)):
                 _case = {"unit": {"category": category_name or "", "model_text": model_text or ""}, "complaint": "",
                          "state": {}}
-            _chat = (lambda msgs: ai_chat(msgs, temperature=0.2, max_tokens=1600)) if ai_available() else None
-            return gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat)
+            if not (_case.get("complaint") or "").strip() and _cid:
+                # a reopened job without its case: the complaint its work order recorded
+                _job = session.query(DiagnosticJob).filter_by(ask_chat_id=_cid).first()
+                if _job is not None and (_job.concern or "").strip():
+                    _case = {**_case, "complaint": _job.concern}
+            _refs = []
+            try:
+                import gd_work_orders as _wo
+                for _p in _wo.cited_pages(_case, st.session_state.get("ask_cited_log") or []):
+                    _t = (_p.get("title") or "").strip()
+                    if _t and _t not in _refs:
+                        _refs.append(_t)
+            except Exception:
+                _refs = []
+            _chat = (lambda msgs: ai_chat(msgs, temperature=0.2, max_tokens=3000)) if ai_available() else None
+            return gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat, references=_refs)
         except Exception:
             pass
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
@@ -3699,6 +3728,21 @@ with tab_ask:
                 st.session_state["ask_force_send"] = True
                 st.rerun()
 
+    # Up-front choice (Chase 2026-11-24): manual pages or a full walkthrough. Stored in the job state (gd_turn, help_mode)
+    # and told to Grok as session context. In pages mode the tech can switch to a walkthrough any time, by the button or by
+    # typing that he is stuck; Grok keeps the whole job either way. Sending without a pick works as before (walkthrough).
+    if not history:
+        _pick = st.radio(GD_HELP_QUESTION, list(GD_HELP_OPTIONS), index=None, key="gd_help_choice", horizontal=True)
+        st.session_state["gd_help_mode"] = GD_HELP_OPTIONS.get(_pick) if _pick else None
+    elif st.session_state.get("gd_help_mode") == "pages":
+        hc1, hc2 = st.columns([2, 1])
+        hc1.caption("Help on this job: manual pages. Stuck? Ask any time, or tap the button.")
+        if hc2.button(GD_WALK_ME_BUTTON, key="gd_walk_me", use_container_width=True):
+            st.session_state["gd_help_mode"] = "walkthrough"
+            st.session_state["ask_pending_answer"] = GD_WALK_ME_MESSAGE
+            st.session_state["ask_force_send"] = True
+            st.rerun()
+
     # Ctrl+Enter in a bare text_area only commits the widget and reruns.
     # It does not click Send, so the draft stayed in the box. A form submits
     # on Ctrl+Enter and sends the text with that same click (no lost first click).
@@ -3754,6 +3798,7 @@ with tab_ask:
         st.session_state.pop("ask_force_send", None)
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
+        st.session_state["gd_help_mode"] = None
         st.session_state["ask_photo_gen"] = int(st.session_state.get("ask_photo_gen") or 0) + 1
         st.rerun()
 
@@ -3766,6 +3811,7 @@ with tab_ask:
             photo_mime = getattr(ask_photo, "type", None) or "image/jpeg"
         if not msg and not photo_bytes:
             st.warning("Type what you see, or add a photo.")
+
         else:
             import gd_step_photo as _photos
 
@@ -3790,6 +3836,7 @@ with tab_ask:
                     ask_flow=st.session_state.get("ask_flow"),
                     photo_review=photo_review,
                     pin_store=st.session_state.setdefault("gd_pin_store", {}),
+                    help_mode=st.session_state.get("gd_help_mode") or None,
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
