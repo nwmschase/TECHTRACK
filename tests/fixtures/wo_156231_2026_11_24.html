@@ -1,0 +1,97 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Work order 156231</title><style>body{font-family:Arial,Helvetica,sans-serif;max-width:860px;margin:24px auto;padding:0 16px;color:#111;line-height:1.45}h1{font-size:22px;margin-bottom:4px}h2{font-size:17px;border-bottom:1px solid #bbb;padding-bottom:3px;margin-top:26px}table.meta td{padding:2px 12px 2px 0;vertical-align:top}.msg{border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin:8px 0;white-space:pre-wrap}.tech{background:#f4f7fb}.gd{background:#fff}.who{font-size:12px;color:#555;font-weight:bold;margin-bottom:3px}.story{white-space:pre-wrap;border:1px solid #999;padding:10px}@media print{.msg{break-inside:avoid}}</style></head><body>
+<h1>Work order 156231</h1><p>TechTrack Guided Diagnostics</p>
+<table class='meta'>
+<tr><td><b>Status</b></td><td>story written</td></tr>
+<tr><td><b>Category</b></td><td>-</td></tr>
+<tr><td><b>Unit / model</b></td><td>NT-20SEQT</td></tr>
+<tr><td><b>Started</b></td><td>2026-11-24 09:16 PM</td></tr>
+<tr><td><b>Last saved</b></td><td>2026-11-24 09:16 PM</td></tr>
+</table>
+<h2>Complaint</h2>
+<p>CUSTOMER STATES THAT THE FURNACE WILL NOT BLOW WARM. CUSTOMER STATES THAT THE FAN WILL TURN ON AND THEN SHUT OFF.</p>
+<h2>Readings and findings</h2>
+<ul><li><b>complaint</b>: FURNACE WILL NOT BLOW WARM. FAN WILL TURN ON AND THEN SHUT OFF. <i>(tech: “CUSTOMER STATES THAT THE FURNACE WILL NOT BLOW WARM. CUSTOMER STATES THAT THE FAN WILL TURN ON AND THEN SHUT OFF.”)</i></li><li><b>test result</b>: bypassed RED-BLUE at furnace and furnace runs normally <i>(tech: “bypassed thermostat and it works”)</i></li></ul>
+<table class='meta'><tr><td><b>Part being worked on</b></td><td>thermostat circuit</td></tr><tr><td><b>Cause</b></td><td>wall thermostat or its wiring not closing the call-for-heat circuit</td></tr><tr><td><b>Help asked for</b></td><td>walkthrough</td></tr><tr><td><b>Repair</b></td><td>inspect/clean/replace thermostat and wiring — done: no, verified: no</td></tr></table>
+<p><b>Summary:</b> Thermostat bypass test passed; fault isolated to thermostat circuit per L120 p.31 flowchart.</p>
+<h2>Pages and sources cited</h2>
+<ul><li>Suburban Furnace Service and Training Manual — page 30 (sheet 30)</li><li>Suburban Furnace Service and Training Manual — page 31 (sheet 31)</li><li>Suburban Furnace Service and Training Manual — page 4</li></ul>
+<h2>Technician story</h2>
+<div class='story'>CONCERN
+Customer states that the furnace will not blow warm and that the fan will turn on and then shut off. On verification the blower started immediately when the thermostat called for heat but produced no ignition or heat and shut down after a short run time.
+
+CAUSE - DIAGNOSTIC TEST LOG
+1. Turned the thermostat to call for heat and confirmed the blower started immediately with no ignition or heat produced.  
+2. Checked voltage at the Molex edge connector on the module board and found 12 VDC present on the RED wire.  
+3. Checked voltage on the BLUE wire at the same connector with the thermostat calling for heat and found 0 VDC.  
+4. Temporarily jumpered the RED wire to the BLUE wire at the furnace to bypass the wall thermostat circuit.  
+5. Observed that the furnace then completed the full operating sequence and ran normally.  
+
+The test results confirmed that the wall thermostat or its wiring was not closing the call-for-heat circuit to the module board.
+
+MANUFACTURER REFERENCES
+Suburban Furnace Service and Training Manual
+
+CORRECTION
+Recommend inspecting the thermostat wiring and connections for damage or loose terminals, cleaning or replacing the wall thermostat as needed, and re-testing the furnace operation without the jumper to verify normal ignition and heat output.</div>
+<h2>Full chat</h2>
+<div class='msg tech'><div class='who'>Tech</div>CUSTOMER STATES THAT THE FURNACE WILL NOT BLOW WARM. CUSTOMER STATES THAT THE FAN WILL TURN ON AND THEN SHUT OFF.</div>
+<div class='msg gd'><div class='who'>Guided Diagnostics</div>**Next step: Confirm the exact symptom on this NT-20SEQT.**
+
+Turn the thermostat to call for heat and observe:
+
+- Does the blower start immediately?
+- Does it run for roughly 10–30 seconds and then shut off completely (no heat produced)?
+- Any fault codes, clicking, or other behavior?
+
+Report back exactly what you see (and any voltage readings if you already have the meter on it). This matches the sail-switch lockout sequence in the manual.
+
+**Source:** L120 (Suburban Furnace Service and Training Manual), pages 26, 28, and 31.</div>
+<div class='msg tech'><div class='who'>Tech</div>blower will start immediately but doesnt ignite at all.</div>
+<div class='msg gd'><div class='who'>Guided Diagnostics</div>**Next step (per L120 p.31 flowchart for fan-control module boards):**
+
+With the thermostat calling for heat and the blower running, use your meter to check for **12 VDC at the BLUE wire on the Molex edge connector** at the module board.
+
+- If **no 12 VDC** at BLUE: trace back to the thermostat circuit (wiring, connections, thermostat itself).
+- If **yes 12 VDC** at BLUE: next check voltage through the **limit switch and sail switch** circuit to the module board. The sail-switch circuit must close within ~30 seconds or the board locks out and shuts the blower down.
+
+Report the exact voltage reading(s) and whether the blower stays running or shuts off.
+
+**Source:** Suburban Furnace Service and Training Manual (L120), p.31.</div>
+<div class='msg tech'><div class='who'>Tech</div>no 12 v on that wire from thermostat</div>
+<div class='msg gd'><div class='who'>Guided Diagnostics</div>**Next step (L120 p.31):**
+
+At the furnace, locate the RED (+12 VDC) and BLUE (thermostat) wires on the Molex edge connector or terminal block.
+
+- Confirm you have **12 VDC on the RED wire** (power in).
+- Then **temporarily jumper RED to BLUE** (bypass the wall thermostat).
+
+Report what happens:
+- Does the blower stay running and proceed to the 15-second purge / ignition attempt?
+- Any voltage change on the BLUE wire?
+
+If the jumper makes it work, the fault is in the wall thermostat, its wiring, or connections. If it still fails, we move to the limit/sail switch circuit.
+
+**Source:** Suburban Furnace Service and Training Manual (L120), p.31.</div>
+<div class='msg tech'><div class='who'>Tech</div>bypassed thermostat and it works</div>
+<div class='msg gd'><div class='who'>Guided Diagnostics</div>**Diagnosis complete.**  
+Bypassing the thermostat (RED to BLUE jumper) makes the furnace run normally → the wall thermostat circuit is not delivering the call-for-heat signal to the module board. This matches the exact lockout sequence on L120 p.31: blower starts, sail-switch circuit never closes properly because the thermostat leg is open, board times out and shuts down.
+
+**Next / repair steps (L120 p.30–31):**
+1. Inspect the thermostat wiring and connections at both ends for loose/corroded terminals or broken wires.
+2. Check/clean the thermostat contact points and heat anticipator.
+3. If the anticipator is shorted or contacts are pitted, replace the thermostat.
+
+Once the thermostat circuit is restored, re-test without the jumper. The furnace should now complete the full sequence (blower → 15 s purge → ignition).
+
+**Source:** Suburban Furnace Service and Training Manual (L120), pages 30 and 31.
+
+---</div>
+<div class='msg tech'><div class='who'>Tech</div>Ok diagnostic complete then I will recommend a new thermostat</div>
+<div class='msg gd'><div class='who'>Guided Diagnostics</div>**Repair recommendation confirmed.**  
+
+Replace the wall thermostat (and inspect/repair any damaged wiring or connections). After installation, re-test the full sequence without the jumper to confirm normal operation (blower starts, 15 s purge, ignition, heat, and proper shutdown).
+
+If you want to verify the repair now or need help writing the job record, let me know.
+
+**Source:** Suburban Furnace Service and Training Manual (L120), pages 30–31.</div>
+</body></html>

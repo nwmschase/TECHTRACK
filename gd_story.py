@@ -134,7 +134,8 @@ def reply_findings(text: str) -> dict:
     verify = ""
     for s in _sentences(" ".join(_plain(x) for x in (text or "").split("\n"))):
         low = s.lower()
-        if low.startswith(("once replaced", "once repaired", "after replacement", "after the repair")):
+        if low.startswith(("once replaced", "once repaired", "after replacement", "after the repair", "after installation",
+                           "once installed")):
             verify = s
             break
     return {"cause": cause, "recommendation": rec, "verify": verify}
@@ -197,7 +198,8 @@ def _recommendation(st: dict, found: dict) -> str:
             rec = "Recommend " + first[0].lower() + first[1:]
         if verify:
             v = verify[0].lower() + verify[1:]
-            for lead in ("once replaced, ", "once repaired, ", "after replacement, ", "after the repair, "):
+            for lead in ("once replaced, ", "once repaired, ", "after replacement, ", "after the repair, ", "after installation, ",
+                         "once installed, "):
                 if v.startswith(lead):
                     v = v[len(lead):]
             return f"{rec}, then {v.rstrip('.')}."
@@ -206,6 +208,351 @@ def _recommendation(st: dict, found: dict) -> str:
         return "Recommend repairing or replacing the failed component identified above, then re-test and verify proper operation."
     return "Recommend further diagnosis to confirm the cause before repair."
 
+
+# ---------------------------------------------------------------- the tech's own recommendation (11/24, WO 156231)
+_REC_LEADS = ("recommend a replacement of ", "recommend replacement of ", "recommend replacing ", "recommend a new ",
+              "recommend new ", "recommend to replace ", "recommend replace ", "recommend repairing ", "recommend repair of ",
+              "recommend a repair of ", "recommend ")
+
+
+def tech_recommendation(history) -> str:
+    """The repair the tech said he recommends ('I will recommend a new thermostat'), newest first, as
+    'Replace the thermostat' / 'Repair the ...' / the tech's words; '' when he did not state one."""
+    for t in reversed(_tech_msgs(history)):
+        low = t.lower()
+        i = low.rfind("recommend")
+        if i < 0:
+            continue
+        tail = t[i:]
+        tl = tail.lower()
+        for lead in _REC_LEADS:
+            if tl.startswith(lead):
+                rest = _sentences(tail[len(lead):])[0].rstrip(".!?, ").strip() if tail[len(lead):].strip() else ""
+                for art in ("the ", "a new ", "a ", "an ", "new "):
+                    if rest.lower().startswith(art):
+                        rest = rest[len(art):]
+                if not rest:
+                    break
+                if lead.startswith(("recommend repair", "recommend a repair")):
+                    return "Repair the " + rest
+                if lead == "recommend " and not tl.startswith(("recommend the ", "recommend a ", "recommend an ")):
+                    return rest[0].upper() + rest[1:]
+                return "Replace the " + rest
+    return ""
+
+
+def _rec_verb_and_part(rec: str):
+    """('replacing', 'thermostat') from 'Replace the thermostat'."""
+    low = (rec or "").strip().lower()
+    for verb, ing in (("replace ", "replacing"), ("repair ", "repairing"), ("install ", "installing")):
+        if low.startswith(verb):
+            part = low[len(verb):].strip()
+            if part.startswith("the "):
+                part = part[4:]
+            return ing, part
+    return "", low
+
+
+def record_tech_findings(case: dict, tech_msg: str) -> dict:
+    """App side, after the tech sends: a recommendation he states goes into the job record (state.tech_recommendation)."""
+    if not case:
+        return case
+    rec = tech_recommendation([{"role": "user", "content": tech_msg or ""}])
+    if rec:
+        case.setdefault("state", {})["tech_recommendation"] = rec
+    return case
+
+
+# ---------------------------------------------------------------- end-of-job access / teardown question (11/24, Chase)
+WRAPUP_DIAG = "diag"
+WRAPUP_REPAIR = "repair"
+_DONE_PHRASES = ("diagnostic complete", "diagnostics complete", "diagnosis complete", "diag complete", "diag is complete",
+                 "diagnosis is complete", "diagnostic is complete", "diag done", "diagnosis done", "done diagnosing")
+_REPAIR_PHRASES = ("repair complete", "repair is complete", "repair done", "repair is done", "job complete", "job is complete",
+                   "repair verified", "fixed and verified", "all fixed", "working now")
+
+
+ACCESS_ASK = ("Before I write the warranty story: what did you have to remove or move to get access (for example the fridge "
+              "pulled out, battery box covers off, panels, ducts, counters, drawers)? And anything else that took extra time, "
+              "or that the repair itself will need removed? Just list it out, a run-on sentence is fine. If nothing was "
+              "removed, say \"nothing removed\".")
+
+
+def access_question(kind: str) -> str:
+    head = ("Got it, logging this as repair complete." if kind == WRAPUP_REPAIR
+            else "Got it, logging this as diag complete for now.")
+    return head + " " + ACCESS_ASK
+
+
+def wrapup_due(case: dict, tech_msg: str = "") -> str:
+    """'repair' / 'diag' when the job just reached its end and the access question has not been asked, else ''.
+    Driven by the job record (repair done / closed, the tech's stated recommendation) and the tech saying the diagnosis or
+    repair is complete; Grok's own wording is not the trigger."""
+    st = (case or {}).get("state") or {}
+    if st.get("access_asked") or st.get("access_answer"):
+        return ""
+    low = (tech_msg or "").lower()
+    rep = st.get("repair") or {}
+    if rep.get("done") or st.get("closed") or any(p in low for p in _REPAIR_PHRASES):
+        return WRAPUP_REPAIR
+    if any(p in low for p in _DONE_PHRASES) or tech_recommendation([{"role": "user", "content": tech_msg or ""}]):
+        return WRAPUP_DIAG
+    return ""
+
+
+_NOTHING = ("nothing", "nothing removed", "none", "no", "n/a", "na", "skip", "nothing was removed", "didn't remove anything",
+            "did not remove anything", "nothing to remove")
+_NEED_MARKS = ("will need", "will have to", "would need", "would have to", "need to", "needs to", "needs ", "have to be",
+               "has to be", "for the repair", "for repair", "to do the repair", "for replacement", "when replacing",
+               "repair will", "replacement will", "required for")
+_SPLITS = (";", ", and then ", ", then ", " and then ", " then ", ", plus ", " plus ", " also ", ", and ", " and ", ", ", "\n", ". ")
+_FILLERS = ("for the repair ", "for repair ", "the repair will need ", "repair will need ", "it will need ", "they will need ",
+            "we will need ", "will need to ", "will need ", "will have to ", "would need to ", "would need ", "would have to ",
+            "need to ", "needs to ", "needs ", "i had to ", "we had to ", "had to ", "i have to ", "have to ", "i ", "we ",
+            "they ", "then ", "also ", "so ", "and ", "plus ", "to be ", "be ", "to ")
+_PAST = {"pull": "pulled", "take": "took", "remove": "removed", "move": "moved", "open": "opened", "drop": "dropped",
+         "lift": "lifted", "disconnect": "disconnected", "unscrew": "unscrewed", "unbolt": "unbolted", "slide": "slid",
+         "cut": "cut", "lower": "lowered", "raise": "raised", "unplug": "unplugged", "detach": "detached"}
+_PAST_FORMS = set(_PAST.values()) | {"taken", "pulled", "removed"}
+_TAIL_WORDS = (" removed", " pulled", " off", " out", " moved", " taken", " opened", " dropped", " lowered", " disconnected",
+               " for access", " to access it", " all the way", " first")
+_STATEMENT = (" is ", " are ", " was ", " were ", " seems ", " looks ")
+
+
+def _split_items(text: str) -> list:
+    t = " " + (text or "") + " "
+    for joined in (" remove and reinstall ", " remove and replace ", " pull and reinstall ", " r&r ", " r and r "):
+        t = t.replace(joined, " remove ").replace(joined.title(), " remove ")
+    parts = [t]
+    for sep in _SPLITS:
+        nxt = []
+        for p in parts:
+            nxt += p.split(sep)
+        parts = nxt
+    return [p.strip(" .,;:-") for p in parts if p.strip(" .,;:-")]
+
+
+def _strip_fillers(chunk: str) -> str:
+    out = chunk.strip(" .,;:-")
+    changed = True
+    while changed:
+        changed = False
+        for f in _FILLERS:
+            if out.lower().startswith(f):
+                out = out[len(f):].strip(" .,;:-")
+                changed = True
+    return out
+
+
+def _item_noun(item: str) -> str:
+    """'Pulled the fridge out' -> 'fridge'; 'all the drawers removed to replace the floor' -> 'drawers'."""
+    low = _strip_fillers(item)
+    i = low.lower().find(" to ")
+    if i > 0:
+        low = low[:i]
+    first = low.split(" ", 1)
+    if first and (first[0].lower() in _PAST or first[0].lower() in _PAST_FORMS) and len(first) > 1:
+        low = first[1]
+        if low.lower().startswith(("off ", "out ")):
+            low = low[4:]
+    changed = True
+    while changed:
+        changed = False
+        for t in _TAIL_WORDS:
+            if low.lower().endswith(t):
+                low = low[: -len(t)]
+                changed = True
+    for art in ("all of the ", "all the ", "the ", "a ", "an ", "all "):
+        if low.lower().startswith(art):
+            low = low[len(art):]
+            break
+    return low.strip(" .,")
+
+
+def _done_step(chunk: str, last_verb: str) -> tuple:
+    """An access step already done, in the past tense ('take the battery box covers off' -> 'Took the battery box covers
+    off'). A bare item after one with a verb takes that verb ('removed 2 panels and the water heater door'). Statements
+    ('the floor is rotted') are not access items. Returns (step or '', verb)."""
+    c = _strip_fillers(chunk)
+    if not c or any(w in " " + c.lower() + " " for w in _STATEMENT):
+        return "", last_verb
+    head, _, rest = c.partition(" ")
+    h = head.lower()
+    if h in _PAST:
+        return (_PAST[h] + (" " + rest if rest else "")).capitalize(), _PAST[h]
+    if h in _PAST_FORMS:
+        return c[0].upper() + c[1:], h
+    return ((last_verb or "removed") + " " + c).capitalize(), last_verb
+
+
+def parse_access_answer(text: str) -> dict:
+    """The tech's answer to the access question as {'done': [...], 'needed': [...], 'raw': text, 'nothing': bool}. 'done'
+    is access work already done during the diagnosis (past-tense steps); 'needed' is what the recommended repair will need
+    removed (item names). Once the tech's words turn to what the repair will need ('for the repair it will need the
+    furnace pulled ...'), the items after that are 'needed'. Only the tech's own words; nothing is added."""
+    raw = (text or "").strip()
+    if raw.lower().strip(" .!") in _NOTHING:
+        return {"done": [], "needed": [], "raw": raw, "nothing": True}
+    done, needed, future, verb = [], [], False, ""
+    for chunk in _split_items(raw):
+        if any(m in " " + chunk.lower() + " " for m in _NEED_MARKS):
+            future = True
+        if future:
+            noun = _item_noun(chunk)
+            if noun and not any(w in " " + chunk.lower() + " " for w in _STATEMENT) and noun.lower() not in ("repair", "it", "them"):
+                if noun.lower() not in [n.lower() for n in needed]:
+                    needed.append(noun)
+        else:
+            step, verb = _done_step(chunk, verb)
+            if step:
+                done.append(step)
+    return {"done": done, "needed": needed, "raw": raw, "nothing": False}
+
+
+def record_access_answer(case: dict, text: str) -> dict:
+    """The tech's access answer into the job record (state.access_answer / access_done / access_needed)."""
+    if case is None:
+        return case
+    st = case.setdefault("state", {})
+    a = parse_access_answer(text)
+    st["access_asked"] = True
+    st["access_answer"] = a["raw"] or "nothing removed"
+    st["access_done"] = a["done"]
+    st["access_needed"] = a["needed"]
+    return case
+
+
+# ---------------------------------------------------------------- where the test procedures came from (11/24, Chase)
+_KEEP_CAPS = ("RV", "VDC", "VAC", "DC", "AC", "LP", "DSI", "GFCI", "OEM", "USB", "LED", "PCB", "BTU", "CO", "12V", "120V")
+
+
+def _pretty_heading(line: str) -> str:
+    words = []
+    for w in line.split():
+        words.append(w.capitalize() if (w.isupper() and w.isalpha() and len(w) > 2 and w not in _KEEP_CAPS) else w)
+    return " ".join(words)
+
+
+def page_heading(text: str) -> str:
+    """The section / flowchart heading printed at the top of a manual page (the first capital-letter lines), as printed."""
+    lines = [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
+    out = []
+    for l in lines[:8]:
+        if l.isdigit() and not out:
+            continue
+        letters = [c for c in l if c.isalpha()]
+        if not letters or len(l) > 80:
+            break
+        if sum(c.isupper() for c in letters) / len(letters) < 0.6 or l.endswith(":"):
+            break
+        out.append(_pretty_heading(l))
+        if len(out) == 3:
+            break
+    return " - ".join(out)
+
+
+def _page_numbers(seg: str) -> list:
+    """Page numbers from words such as 'pages 26, 28, and 31', 'p.31', 'p.30–31', 'page 4'."""
+    out = []
+    t = seg.replace("–", "-").replace("—", "-")
+    low = t.lower()
+    i = 0
+    while i < len(low):
+        hit = None
+        for w in ("pages ", "page ", "pp. ", "pp.", "p. ", "p."):
+            if low.startswith(w, i) and (i == 0 or not low[i - 1].isalpha()):
+                hit = w
+                break
+        if not hit:
+            i += 1
+            continue
+        j = i + len(hit)
+        while j < len(low) and (low[j].isdigit() or low[j] in " ,-&" or low.startswith("and ", j)):
+            if low.startswith("and ", j):
+                j += 4
+                continue
+            j += 1
+        span = low[i + len(hit):j]
+        for piece in span.replace("&", ",").replace(" and ", ",").split(","):
+            piece = piece.strip()
+            if "-" in piece:
+                a, _, b = piece.partition("-")
+                if a.strip().isdigit() and b.strip().isdigit() and 0 <= int(b) - int(a) <= 5:
+                    out += [str(n) for n in range(int(a), int(b) + 1)]
+                    continue
+            if piece.isdigit():
+                out.append(piece)
+        i = j
+    return out
+
+
+def _library_ids(text: str) -> list:
+    """Library doc ids such as L120 named in a line."""
+    out = []
+    for tok in text.replace("(", " ").replace(")", " ").replace(",", " ").replace("*", " ").split():
+        tok = tok.strip(".:;")
+        if len(tok) >= 2 and tok[0] == "L" and tok[1:].isdigit() and tok not in out:
+            out.append(tok)
+    return out
+
+
+def source_mentions(history) -> list:
+    """(doc_id, page) pairs from Guided Diagnostics' own 'Source:' lines and 'per L120 p.31' notes, in order."""
+    out = []
+    for text in _gd_msgs(history):
+        for line in text.split("\n"):
+            ids = _library_ids(line)
+            if not ids:
+                continue
+            for pg in _page_numbers(line):
+                pair = (ids[0], pg)
+                if pair not in out:
+                    out.append(pair)
+    return out
+
+
+def procedure_references(case: dict, history=None, cited=(), page_lookup=None) -> list:
+    """Official documents the job's test steps came from, each as 'Title (doc number): section heading; ...', with no page
+    numbers and no library ids. Pages are the ones Guided Diagnostics cited (state.cited, the app's cited log, its Source
+    lines); the heading comes from the page's own text. page_lookup(doc_ref, page) -> {title, doc_number, text, source}
+    reads a page the job did not keep. Web pages are not official and are left out."""
+    case = case or {}
+    read = case.get("read") or {}
+    by_id, by_title = {}, {}
+    for d in read.values():
+        if (d.get("source") or "library") != "library":
+            continue
+        by_id[(str(d.get("doc_id")), str(d.get("page")))] = d
+        by_title[((d.get("title") or "").strip().lower(), str(d.get("page")))] = d
+    wanted = []
+    for c in ((case.get("state") or {}).get("cited") or []):
+        wanted.append((str(c.get("doc_id") or ""), "", str(c.get("page") or "")))
+    for c in cited or []:
+        wanted.append(("", (c.get("title") or "").strip(), str(c.get("page") or "")))
+    for doc_id, pg in source_mentions(history):
+        wanted.append((doc_id, "", pg))
+    docs, order = {}, []
+    for doc_id, title, pg in wanted:
+        d = by_id.get((doc_id, pg)) if doc_id else by_title.get((title.lower(), pg))
+        if d is None and page_lookup is not None:
+            try:
+                d = page_lookup(doc_id or title, pg)
+            except Exception:
+                d = None
+        if not d or (d.get("source") or "library") != "library":
+            continue
+        name = (d.get("title") or title or "").strip()
+        if not name or _library_ids(name) == [name]:
+            continue
+        if d.get("doc_number"):
+            name = f"{name} ({d['doc_number']})"
+        head = page_heading(d.get("text") or "")
+        if name not in docs:
+            docs[name] = []
+            order.append(name)
+        if head and head not in docs[name]:
+            docs[name].append(head)
+    return [f"{n}: {'; '.join(docs[n])}" if docs[n] else n for n in order]
 
 # ---------------------------------------------------------------- readings (for the check)
 def readings(history) -> list:
@@ -240,12 +587,15 @@ def missing_readings(story: str, history) -> list:
 
 
 # ---------------------------------------------------------------- fallback narrative (no AI)
-def _cause_steps(history) -> list:
-    """Every test / action the tech reported, in order, as full sentences; bullet readings become one sentence each group."""
+def _cause_steps(history, skip=()) -> list:
+    """Every test / action the tech reported, in order, as full sentences; bullet readings become one sentence each group.
+    skip: messages that are not test work (the tech's access answer)."""
     steps = []
     users = [m for m in history or [] if m.get("role") == "user" and (m.get("content") or "").strip()]
     for m in users[1:]:                       # the first message is the complaint (CONCERN)
         t = _clean_user(m.get("content"))
+        if t.strip() in skip:
+            continue
         lines = [ln.rstrip() for ln in t.split("\n") if ln.strip()]
         prose, i = [], 0
         while i < len(lines):
@@ -279,6 +629,8 @@ def _cause_steps(history) -> list:
                 low = x.lower()
             if low.startswith(("i ", "i'm ", "im ")):      # remarks to the assistant, not work performed
                 continue
+            if "recommend" in low or any(ph in low for ph in _DONE_PHRASES):   # the wrap-up, not a test (goes to CORRECTION)
+                continue
             if " you " in f" {low} ":                       # drop a clause spoken to the assistant ("everything you asked ...")
                 x = ", ".join(c for c in x.rstrip(".").split(", ") if " you " not in f" {c.lower()} ")
             if x:
@@ -311,6 +663,22 @@ def _doc_numbers(texts) -> list:
     return out
 
 
+def _correction_lines(st: dict, found: dict, rec_tech: str) -> list:
+    rep = st.get("repair") or {}
+    if rep.get("done"):
+        corr = _sentence(rep.get("what") or "Repair performed")
+        return [corr + (" Repair verified working." if rep.get("verified") else " Recommend verifying proper operation.")]
+    st2 = dict(st)
+    if rec_tech:                       # the tech's own call wins over the assistant's wording (11/24, WO 156231)
+        st2["recommendation"] = rec_tech
+    out = [_recommendation(st2, found)]
+    needed = st.get("access_needed") or []
+    if needed:
+        out.append("Removal and reinstallation the repair will require, as reported by the technician:")
+        out += [f"{n}. Remove and reinstall the {_item_noun(x)}." for n, x in enumerate(needed, 1)]
+    return out
+
+
 def warranty_story(case: dict, history: list = None, model_text: str = "", references=()) -> str:
     """The Brinkley-format story built from the tech's own messages and the record (used when Grok is not available or
     its text fails the check). Nothing is added that the chat or record does not hold."""
@@ -323,33 +691,31 @@ def warranty_story(case: dict, history: list = None, model_text: str = "", refer
         return "No session recorded."
     unit = (case.get("unit") or {}).get("model_text") or model_text or ""
     found = chat_findings(history)
-    steps = _cause_steps(history)
+    access_done = [_sentence(x) for x in st.get("access_done") or []]
+    steps = _cause_steps(history, skip={(st.get("access_answer") or "").strip()} - {""})
     if not steps:
         for f in st.get("facts") or []:
             item, value = (f.get("item") or "").strip(), (f.get("value") or "").strip()
             if item or value:
                 steps.append(f"Recorded {item}: {value}." if item and value else _sentence(item or value))
+    steps = access_done + steps        # access work comes before the tests it opened up
     cause = (st.get("cause") or "").strip() or found["cause"]
     out = []
     if unit:
         out += [f"UNIT: {unit}", ""]
     out += ["1. CONCERN", _period(complaint) if complaint else "Not recorded.", "",
             "2. CAUSE - DIAGNOSTIC TEST LOG", "Every test and action is listed in the order performed, as the technician reported it."]
-    out += [f"{n}. {s}" for n, s in enumerate(steps, 1)] or ["1. No testing was recorded in this job."]
+    out += [f"{n}. {x}" for n, x in enumerate(steps, 1)] or ["1. No testing was recorded in this job."]
     for x in noted_findings(history):
         out.append(f"Noted finding: {_sentence(x)}")
     out += ["", "Confirmed cause: " + (_period(_drop_parens(cause) if found["cause"] == cause else cause) if cause
                                        else "Not confirmed during diagnosis.")]
-    refs = [r for r in references if r] + [d for d in _doc_numbers(_gd_msgs(history)) if d not in references]
+    refs = [r for r in references or [] if r]
+    refs += [d for d in _doc_numbers(_gd_msgs(history)) if not any(d in r for r in refs)]   # maker doc numbers GD named
     if refs:
         out += ["", "3. MANUFACTURER REFERENCES"] + [f"- {r}" for r in refs]
-    rep = st.get("repair") or {}
     out += ["", "4. CORRECTION" if refs else "3. CORRECTION"]
-    if rep.get("done"):
-        corr = _sentence(rep.get("what") or "Repair performed")
-        out.append(corr + (" Repair verified working." if rep.get("verified") else " Recommend verifying proper operation."))
-    else:
-        out.append(_recommendation(st, found))
+    out += _correction_lines(st, found, (st.get("tech_recommendation") or "") or tech_recommendation(history))
     return "\n".join(out)
 
 
@@ -362,13 +728,13 @@ The story follows the shop's approved format:
 A short paragraph with the customer's complaint as the job started ("Customer states ..."), and the conditions or pattern the tech observed when verifying it.
 
 2. CAUSE - DIAGNOSTIC TEST LOG
-A numbered list of every test, inspection and action the tech reported, in the order performed. Each step says what was done, the readings and results exactly as the tech gave them (every voltage, amperage, temperature, resistance and pressure, with its units), and what the step ruled in or out. Disassembly and access work (removing the unit, panels, ducts, covers) is listed as its own step, because it is labor on the job. Steps the assistant only suggested belong here when the tech reported doing them. A reading out of the maker's specification that the tech chose not to pursue is listed as a noted finding, and is not the cause. After the list, a short paragraph names the confirmed cause and why the tests point to it.
+A numbered list of every test, inspection and action the tech reported, in the order performed. Each step says what was done, the readings and results exactly as the tech gave them (every voltage, amperage, temperature, resistance and pressure, with its units), and what the step ruled in or out. Disassembly and access work (removing the unit, panels, ducts, covers, battery box covers) is listed as its own step, because it is labor on the job; the tech's list of access work is given below, and each item goes in the log where it fits the order of the job, before the tests it opened up. A step that followed a manual procedure can say so briefly (for example "per the Suburban fan control module board troubleshooting flowchart"). Steps the assistant only suggested belong here when the tech reported doing them. A reading out of the maker's specification that the tech chose not to pursue is listed as a noted finding, and is not the cause. After the list, a short paragraph names the confirmed cause and why the tests point to it.
 
 3. MANUFACTURER REFERENCES
-The official documents used in the job: library documents and the maker's own manuals and bulletins, named by title or document number, with no page numbers. Web pages, forum posts and other unofficial sources are left out of this list, and the steps they informed stay in the test log.
+The official documents the test procedures came from, each named by title or maker document number together with the procedure, section or flowchart used, as listed below under OFFICIAL PROCEDURE SOURCES, with no page numbers and no library codes. Web pages, forum posts and other unofficial sources are left out of this list, and the steps they informed stay in the test log.
 
 4. CORRECTION
-When the job's repair status says the repair was performed: the repair and how it was verified, in full sentences (numbered when there were several actions). When it says the repair was not performed (diagnosis only): the recommended repair in general terms, starting with "Recommend", for example "Recommend replacing the evaporator fan assembly, then re-test airflow and compartment temperatures to verify repair." A secondary issue the tech left can be a separate recommendation.
+When the job's repair status says the repair was performed: the repair and how it was verified, in full sentences (numbered when there were several actions). When it says the repair was not performed (diagnosis only): the recommended repair in general terms, starting with "Recommend"; when the tech stated his own recommendation, the correction is that recommendation, for example "Recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair." When the tech listed items the repair will need removed, they follow as a numbered list of removal and reinstallation work. A secondary issue the tech left can be a separate recommendation.
 
 5. REQUEST (optional)
 One or two sentences asking for authorization of the repair and the diagnostic time, when that fits the job.
@@ -376,33 +742,38 @@ One or two sentences asking for authorization of the repair and the diagnostic t
 Everything in the story comes from the session: readings, part names, results and document names as they appear there. Part numbers, labor times and operation codes appear when the tech gave them. Words about the software (OPEN, state, session, assistant, GD, TechTrack) stay out of the story."""
 
 
-def story_messages(case: dict, history: list = None, model_text: str = "", references=(), missing=()) -> list:
+def story_messages(case: dict, history: list = None, model_text: str = "", references=(), problems=()) -> list:
     case = case or {}
     st = case.get("state") or {}
     unit = (case.get("unit") or {}).get("model_text") or model_text or "not recorded"
     category = (case.get("unit") or {}).get("category") or ""
+    skip = (st.get("access_answer") or "").strip()
     lines = []
     for m in history or []:
         role, text = m.get("role"), (m.get("content") or "").strip()
         if role == "user":
             text = _clean_user(text)
-            if text:
+            if text and text != skip:
                 lines.append("TECH: " + text)
         elif role == "assistant" and text:
             lines.append("ASSISTANT (suggestions and analysis; work counts as done when the tech reported it): " + text)
     keep = {k: st.get(k) for k in ("facts", "cause", "repair", "order_part", "recommendation") if st.get(k)}
+    rec_tech = (st.get("tech_recommendation") or "") or tech_recommendation(history)
     status = ("REPAIR STATUS: performed (the CORRECTION is the repair done and its verification)."
               if repair_done(case, history) else
               "REPAIR STATUS: not performed - diagnosis only (the CORRECTION is a general recommendation starting with \"Recommend\").")
     parts = [f"UNIT: {category + ' / ' if category else ''}{unit}",
              "CUSTOMER COMPLAINT (job start): " + (complaint_of(case, history) or "not recorded"),
              status,
+             "TECH'S STATED RECOMMENDATION: " + (rec_tech or "none stated"),
              "READINGS THE TECH REPORTED (each one belongs in the test log): " + (", ".join(readings(history)) or "none"),
-             "OFFICIAL DOCUMENTS CITED IN THE JOB: " + ("; ".join(r for r in references if r) or "see the session"),
+             "ACCESS WORK DONE DURING THE DIAGNOSIS (the tech's words): " + ("; ".join(st.get("access_done") or []) or "none reported"),
+             "REMOVAL THE RECOMMENDED REPAIR WILL NEED (the tech's words): " + ("; ".join(st.get("access_needed") or []) or "none reported"),
+             "OFFICIAL PROCEDURE SOURCES: " + ("; ".join(r for r in references if r) or "none recorded"),
              "CASE RECORD: " + json.dumps(keep, ensure_ascii=False),
              "SESSION:\n" + "\n\n".join(lines)]
-    if missing:
-        parts.append("The last draft left out these readings the tech reported: " + ", ".join(missing) + ". They go in the test log.")
+    if problems:
+        parts.append("The last draft needs these fixed: " + "; ".join(problems) + ".")
     parts.append("Write the story now.")
     return [{"role": "system", "content": STORY_SYSTEM}, {"role": "user", "content": "\n\n".join(parts)}]
 
@@ -483,16 +854,26 @@ def _long_numbers(t: str, n: int = 6) -> list:
 
 def story_problems(text: str, case: dict, history: list = None) -> list:
     """What keeps a story from being used ([] = good): a missing concern / cause / correction, a cause that is not a
-    numbered test log, a correction that is not a recommendation on a diagnosis-only job, a long number (part number)
-    nowhere in the session, or a reading the tech reported that is not in the story."""
+    numbered test log, a correction that is not a recommendation on a diagnosis-only job or does not follow the tech's own
+    recommendation, a long number (part number) nowhere in the session, a reading the tech reported that is not in the
+    story, a library code or page number, or an access item the tech listed that is not in the story."""
     sec = parse_story(text)
     probs = [f"no {s} section" for s in ("CONCERN", "CAUSE", "CORRECTION") if not sec.get(s)]
     if probs:
         return probs
+    st = (case or {}).get("state") or {}
     if _numbered_lines(sec["CAUSE"]) < 2:
         probs.append("cause is not a numbered test log")
-    if not repair_done(case, history) and "recommend" not in sec["CORRECTION"].lower():
-        probs.append("diagnosis-only correction is not a recommendation")
+    corr = sec["CORRECTION"].lower()
+    if not repair_done(case, history):
+        if "recommend" not in corr:
+            probs.append("diagnosis-only correction is not a recommendation")
+        verb, part = _rec_verb_and_part((st.get("tech_recommendation") or "") or tech_recommendation(history))
+        if verb:
+            after = corr[corr.find("recommend"):]
+            word = part.split()[-1] if part else ""
+            if not after.startswith(f"recommend {verb}") or (word and word not in after.split(".")[0]):
+                probs.append(f"correction does not follow the tech's recommendation (recommend {verb} the {part})")
     source = json.dumps(case or {}, ensure_ascii=False) + " ".join(m.get("content") or "" for m in history or [])
     for num in _long_numbers(text):
         if num not in source:
@@ -500,6 +881,17 @@ def story_problems(text: str, case: dict, history: list = None) -> list:
     miss = missing_readings(text, history)
     if miss:
         probs.append("missing readings: " + ", ".join(miss))
+    ids = _library_ids(text)
+    if ids:
+        probs.append("library codes in the story: " + ", ".join(ids))
+    if _page_numbers(text):
+        probs.append("page numbers in the story")
+    low = text.lower()
+    for x in (st.get("access_done") or []) + (st.get("access_needed") or []):
+        noun = _item_noun(x).lower()
+        key = noun.split()[-1] if noun else ""
+        if key and key not in low:
+            probs.append(f"access item left out: {x}")
     return probs
 
 
@@ -518,14 +910,14 @@ def write_warranty_story(case: dict, history: list = None, model_text: str = "",
     if stored and check_story(stored, case, history):
         return check_story(stored, case, history)
     if chat_fn is not None and (history or complaint_of(case, history)):
-        missing = ()
+        problems = ()
         for _ in range(2):
             try:
-                text = chat_fn(story_messages(case, history, model_text, references, missing)) or ""
+                text = chat_fn(story_messages(case, history, model_text, references, problems)) or ""
             except Exception:
                 break
             ok = check_story(text, case, history)
             if ok:
                 return ok
-            missing = tuple(missing_readings(text, history))
+            problems = tuple(story_problems(text, case, history))
     return warranty_story(case, history, model_text, references)

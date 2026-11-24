@@ -30,7 +30,8 @@ from datetime import datetime, timedelta
 WORK_ORDER_RETENTION_DAYS = 30      # Chase 2026-10-24: 30 days
 LIST_LIMIT = 50
 STATUS_CLOSED, STATUS_STORY, STATUS_SAVED = "closed", "story written", "saved"
-STATE_FIELDS = ("fault_code", "pending_test", "part_working", "cause", "order_part", "recommendation", "help_mode")
+STATE_FIELDS = ("fault_code", "pending_test", "part_working", "cause", "order_part", "recommendation", "help_mode",
+                "tech_recommendation", "wrapup", "access_answer", "access_done", "access_needed")
 
 
 def default_wo_number(chat_id) -> str:
@@ -203,9 +204,14 @@ def render_html(row) -> str:
     rows = []
     for key, label in (("fault_code", "Fault code"), ("part_working", "Part being worked on"), ("pending_test", "Pending test"),
                        ("cause", "Cause"), ("order_part", "Part to order"), ("recommendation", "Recommended repair"),
-                       ("help_mode", "Help asked for")):
+                       ("help_mode", "Help asked for"), ("tech_recommendation", "Tech's recommendation"),
+                       ("wrapup", "Logged as"), ("access_answer", "Access / teardown (tech's words)"),
+                       ("access_done", "Removed for access"), ("access_needed", "Repair will need removed")):
         if isinstance(findings, dict) and findings.get(key):
-            rows.append(f"<tr><td><b>{label}</b></td><td>{e(findings[key])}</td></tr>")
+            val = findings[key]
+            val = "; ".join(str(v) for v in val) if isinstance(val, list) else (
+                {"diag": "diag complete", "repair": "repair complete"}.get(val, val) if key == "wrapup" else val)
+            rows.append(f"<tr><td><b>{label}</b></td><td>{e(val)}</td></tr>")
     rep = findings.get("repair") if isinstance(findings, dict) else None
     if isinstance(rep, dict) and (rep.get("what") or rep.get("done")):
         rows.append(f"<tr><td><b>Repair</b></td><td>{e(rep.get('what') or '')} — done: {'yes' if rep.get('done') else 'no'}, "

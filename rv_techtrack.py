@@ -2638,6 +2638,8 @@ def reset_guided_diagnostics_session():
     st.session_state.pop("ask_plate_read_btn", None)
     st.session_state["ask_wo_number"] = ""
     st.session_state.pop("gd_case_chat_id", None)
+    st.session_state.pop("gd_access_prompt", None)
+    st.session_state.pop("gd_access_text", None)
 
 
 def render_library_page_image(src: dict, key_suffix: str):
@@ -3138,6 +3140,52 @@ _gd_official_respond = None
 
 
 _gd_finder = None  # test hook: a gd_pages finder (e.g. StubPageFinder). None = the fresh library's page-finder.
+GD_ACCESS_PROMPT = "What did you have to remove or move to get access (for example the fridge pulled out, battery box covers off, panels, ducts, counters, drawers)? And anything else that took extra time, or that the repair itself will need removed? Just list it out, a run-on sentence is fine."
+GD_ACCESS_BOX = "Removed or moved for access, extra time, and what the repair will need removed"
+GD_ACCESS_SAVE = "Save and write story"
+GD_ACCESS_NONE = "Nothing removed, write story"
+GD_ACCESS_LOGGED = "Logged. That goes into the warranty story. Tap Write warranty story when you're ready."
+GD_ACCESS_NOTHING = "Logged: nothing removed. Tap Write warranty story when you're ready."
+
+
+def _gd_record():
+    """The job record (the gd_turn case in gd_pin_store) for this chat; a light one is started when GD has not made one yet
+    (offline, or a reopened chat), so the tech's recommendation and access answer always have a place."""
+    pin = st.session_state.setdefault("gd_pin_store", {})
+    case = pin.get("gd_case")
+    cid = st.session_state.get("ask_chat_id")
+    if case is None or (cid and st.session_state.get("gd_case_chat_id") not in (None, cid)):
+        import gd_state as _gs
+        first = next((m.get("content") or "" for m in (st.session_state.get("ask_chat") or [])
+                      if (m.get("role") or "") == "user"), "")
+        case = {"unit": {"category": "", "model_text": st.session_state.get("gd_model_memory") or ""}, "complaint": first,
+                "state": _gs.new_state()}
+        pin["gd_case"] = case
+        if cid:
+            st.session_state["gd_case_chat_id"] = cid
+    case.setdefault("state", {})
+    return case
+
+
+def _gd_page_lookup(doc_ref, page):
+    """A library page by doc id or title and printed page / sheet, for the story's procedure references."""
+    lib = _gd_page_finder().lib
+    doc = lib.docs.get(str(doc_ref))
+    doc_id = str(doc_ref)
+    if not doc:
+        for k, d in lib.docs.items():
+            if (d.get("title") or "").strip().lower() == str(doc_ref).strip().lower():
+                doc, doc_id = d, k
+                break
+    if not doc:
+        return None
+    for p in lib.pages(doc_id):
+        if str(p.get("printed_page") or "") == str(page) or str(p.get("pdf_sheet")) == str(page):
+            return {"doc_id": doc_id, "title": doc.get("title") or "", "doc_number": doc.get("doc_number") or "",
+                    "text": p.get("text") or "", "page": str(page), "source": "library"}
+    return None
+
+
 GD_HELP_QUESTION = "How do you want help on this job?"
 GD_HELP_OPTIONS = {"📖 Pull up the manual pages": "pages", "🧭 Walk me through the repair": "walkthrough"}
 GD_WALK_ME_BUTTON = "🧭 Walk me through it"
@@ -3294,13 +3342,11 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
                 _job = session.query(DiagnosticJob).filter_by(ask_chat_id=_cid).first()
                 if _job is not None and (_job.concern or "").strip():
                     _case = {**_case, "complaint": _job.concern}
-            _refs = []
+            # 2026-11-24 (Chase, WO 156231): the documents AND the procedure / flowchart the test steps came from, read from
+            # the cited pages' own text; no page numbers, no library codes.
             try:
-                import gd_work_orders as _wo
-                for _p in _wo.cited_pages(_case, st.session_state.get("ask_cited_log") or []):
-                    _t = (_p.get("title") or "").strip()
-                    if _t and _t not in _refs:
-                        _refs.append(_t)
+                _refs = gd_story.procedure_references(_case, history, st.session_state.get("ask_cited_log") or [],
+                                                      page_lookup=_gd_page_lookup)
             except Exception:
                 _refs = []
             _chat = (lambda msgs: ai_chat(msgs, temperature=0.2, max_tokens=3000)) if ai_available() else None
@@ -3826,18 +3872,38 @@ with tab_ask:
                     photo_review = _photos.review_step_photo(
                         photo_bytes, photo_mime, asked, msg
                     )
-            with st.spinner("Searching manuals and thinking…"):
-                reply, new_flow = guided_diagnostics_reply(
-                    msg,
-                    category_name,
-                    ask_model or "",
-                    history,
-                    unity_gate=unity_gate,
-                    ask_flow=st.session_state.get("ask_flow"),
-                    photo_review=photo_review,
-                    pin_store=st.session_state.setdefault("gd_pin_store", {}),
-                    help_mode=st.session_state.get("gd_help_mode") or None,
-                )
+            import gd_story as _story
+            _rst = ((st.session_state.get("gd_pin_store") or {}).get("gd_case") or {}).get("state") or {}
+            _access_turn = bool(history and _rst.get("access_asked") and not _rst.get("access_answer"))
+            if _access_turn:
+                _rec = _gd_record()
+                # the tech's answer to the end-of-job access question goes into the job record (no AI call)
+                _story.record_access_answer(_rec, msg)
+                reply = GD_ACCESS_NOTHING if not (_rec["state"]["access_done"] or _rec["state"]["access_needed"]) else GD_ACCESS_LOGGED
+                new_flow = st.session_state.get("ask_flow")
+            else:
+                with st.spinner("Searching manuals and thinking…"):
+                    reply, new_flow = guided_diagnostics_reply(
+                        msg,
+                        category_name,
+                        ask_model or "",
+                        history,
+                        unity_gate=unity_gate,
+                        ask_flow=st.session_state.get("ask_flow"),
+                        photo_review=photo_review,
+                        pin_store=st.session_state.setdefault("gd_pin_store", {}),
+                        help_mode=st.session_state.get("gd_help_mode") or None,
+                    )
+            if not _access_turn:
+                # 2026-11-24 (Chase, WO 156231): the tech's stated recommendation goes into the record, and when the job just
+                # reached its end (diag complete / repair complete) GD logs it and asks what had to come off for access.
+                _rec = _gd_record()
+                _story.record_tech_findings(_rec, msg)
+                _kind = _story.wrapup_due(_rec, msg)
+                if _kind:
+                    _rec["state"]["access_asked"] = True
+                    _rec["state"]["wrapup"] = _kind
+                    reply = (reply.rstrip() + "\n\n" if (reply or "").strip() else "") + _story.access_question(_kind)
             st.session_state["ask_flow"] = new_flow
             history = list(history)
             stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)
@@ -3927,6 +3993,28 @@ with tab_ask:
             st.session_state["ask_reset_input"] = True
             st.rerun()
 
+    if write_story and history and not _gd_record()["state"].get("access_answer"):
+        # 2026-11-24 (Chase): the access / teardown question comes before the story when it was not answered in the chat
+        st.session_state["gd_access_prompt"] = True
+        write_story = False
+    if st.session_state.get("gd_access_prompt") and history:
+        with st.container(border=True):
+            st.markdown("**Before I write the warranty story**")
+            st.caption(GD_ACCESS_PROMPT)
+            st.text_area(GD_ACCESS_BOX, key="gd_access_text", height=90)
+            a1, a2 = st.columns(2)
+            _ans = ""
+            if a1.button(GD_ACCESS_SAVE, key="gd_access_save", use_container_width=True):
+                _ans = (st.session_state.get("gd_access_text") or "").strip()
+                if not _ans:
+                    st.warning("List what you removed, or tap Nothing removed.")
+            if a2.button(GD_ACCESS_NONE, key="gd_access_none", use_container_width=True):
+                _ans = "nothing removed"
+            if _ans:
+                import gd_story as _story
+                _story.record_access_answer(_gd_record(), _ans)
+                st.session_state.pop("gd_access_prompt", None)
+                write_story = True
     if write_story:
         draft = (st.session_state.get("ask_input") or "").strip()
         if draft:

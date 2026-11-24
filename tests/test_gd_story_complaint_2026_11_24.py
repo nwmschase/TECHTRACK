@@ -143,7 +143,7 @@ class TestStoryGuard(unittest.TestCase):
         seen = []
         out = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or short)
         self.assertEqual(len(seen), 2)
-        self.assertIn("left out these readings the tech reported: 11.21", seen[1][1]["content"])
+        self.assertIn("The last draft needs these fixed: missing readings: 11.21", seen[1][1]["content"])
         self.assertEqual(out, gd_story.warranty_story(M1066_CASE, M1066, ""))
         fixed = []
         out2 = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: (fixed.append(1), short if len(fixed) == 1 else GROK_OK)[1])
@@ -175,18 +175,19 @@ class TestStoryPrompt(unittest.TestCase):
         p = gd_story.STORY_SYSTEM
         for want in ("1. CONCERN", "2. CAUSE - DIAGNOSTIC TEST LOG", "3. MANUFACTURER REFERENCES", "4. CORRECTION", "5. REQUEST",
                      "every test, inspection and action", "with its units", "no page numbers", "noted finding",
-                     "Recommend replacing the evaporator fan assembly, then re-test airflow and compartment temperatures to verify repair.",
+                     "Recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair.",
                      "same story goes on customer-pay work"):
             self.assertIn(want, p)
 
     def test_messages_carry_complaint_status_readings_refs(self):
         seen = []
-        gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK, references=["L284"])
+        gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK, references=["Furrion CCD-0009616: Troubleshooting"])
         user = seen[0][1]["content"]
         self.assertIn("CUSTOMER COMPLAINT (job start): " + REAL_COMPLAINT, user)
         self.assertIn("REPAIR STATUS: not performed", user)
         self.assertIn("13.34, 12.07", user)
-        self.assertIn("OFFICIAL DOCUMENTS CITED IN THE JOB: L284", user)
+        self.assertIn("OFFICIAL PROCEDURE SOURCES: Furrion CCD-0009616: Troubleshooting", user)
+        self.assertIn("TECH'S STATED RECOMMENDATION: Replace the evaporator fan assembly", user)
         self.assertNotIn("did not count", user)
 
     def test_repair_done(self):
