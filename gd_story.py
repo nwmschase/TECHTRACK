@@ -12,7 +12,11 @@ def warranty_story(case: dict, history: list = None, model_text: str = "") -> st
     if (st.get("story") or "").strip():
         return st["story"].strip()
     first_user = next(((m.get("content") or "").strip() for m in (history or []) if m.get("role") == "user"
-                       and (m.get("content") or "").strip()), "") or case.get("complaint", "")
+                       and (m.get("content") or "").strip()), "")
+    first_user = first_user.replace("\n(The file did not count as a finding.)", "").strip()
+    if first_user == "The file did not count.":       # the photo note, not the complaint (M1066, 2026-11-24)
+        first_user = ""
+    first_user = first_user or case.get("complaint", "")
     if not first_user and not st:
         return "No session recorded."
     unit = (case.get("unit") or {}).get("model_text") or model_text or "not recorded"
@@ -23,6 +27,8 @@ def warranty_story(case: dict, history: list = None, model_text: str = "") -> st
     if rep.get("done"):
         corr = (rep.get("what") or "Repair recorded") + (f' (tech: "{rep["quote"]}")' if rep.get("quote") else "") + \
                (" - verified working." if rep.get("verified") else " - not yet verified.")
+    elif (st.get("order_part") or "").strip():
+        corr = f"OPEN - recommended: replace {st['order_part'].strip()} (not yet performed)."
     else:
         corr = "OPEN - no correction recorded in this session."
     return "\n".join([

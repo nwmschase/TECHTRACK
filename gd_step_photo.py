@@ -255,8 +255,15 @@ def present_photo_review(reply: str, review) -> str:
     ).strip()
 
 
-def history_user_text(typed: str, had_photo: bool, review) -> str:
-    """What the next turn may treat as a typed finding."""
+PHOTO_NOT_COUNTED = "The file did not count."
+
+
+def history_user_text(typed: str, had_photo: bool, review, asked: str | None = None) -> str:
+    """What the next turn may treat as a typed finding.
+
+    A photo that contradicts a step the tech was asked to check drops the typed finding. The tech's opening message
+    (asked == "": no step asked yet, so it is the complaint) keeps the typed words, with a note that the photo did not count (2026-11-24 M1066: the complaint had been replaced by the note, so the
+    warranty story's CUSTOMER COMPLAINT read "The file did not count.")."""
     text = (typed or "").strip()
     if not had_photo or not review:
         return text
@@ -269,4 +276,6 @@ def history_user_text(typed: str, had_photo: bool, review) -> str:
             if part not in kept:
                 kept.append(part)
         return "\n".join(kept)
-    return "The file did not count."
+    if text and asked == "":
+        return f"{text}\n({PHOTO_NOT_COUNTED[:-1]} as a finding.)"
+    return PHOTO_NOT_COUNTED

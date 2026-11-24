@@ -3763,12 +3763,12 @@ with tab_ask:
             import gd_step_photo as _photos
 
             photo_review = None
+            asked = ""
+            for message in reversed(history or []):
+                if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
+                    asked = message.get("content") or ""
+                    break
             if photo_bytes:
-                asked = ""
-                for message in reversed(history or []):
-                    if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
-                        asked = message.get("content") or ""
-                        break
                 with st.spinner("Reading the photo…"):
                     photo_review = _photos.review_step_photo(
                         photo_bytes, photo_mime, asked, msg
@@ -3786,7 +3786,7 @@ with tab_ask:
                 )
             st.session_state["ask_flow"] = new_flow
             history = list(history)
-            stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review)
+            stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)
             history.append({"role": "user", "content": stored_msg})
             import manual_figures as _mf
             _asked_image = wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg)
