@@ -66,15 +66,32 @@ def cited_pages(case, cited_log=()):
     return out
 
 
+def _gd_text(history) -> str:
+    return "\n".join((m.get("content") or "") for m in history or [] if (m.get("role") or "") == "assistant")
+
+
+def cited_web(web_sources, history) -> list:
+    """Web pages GD actually cited to the tech (the link is in one of its replies), not every search result it saw (GD-4
+    listed ~50, a Lada wiring page and a Zoeller pump manual among them)."""
+    said = _gd_text(history)
+    out, seen = [], set()
+    for w in web_sources or []:
+        url = (w.get("url") or "").strip()
+        if url and url not in seen and url in said:
+            seen.add(url)
+            out.append({"url": url, "title": w.get("title") or ""})
+    return out
+
+
 def snapshot(*, history, case=None, category="", model_text="", story="", cited_log=(), wo_number="", chat_id=None):
     """The work-order fields from the GD session (pure). case: the gd_turn case (store['gd_case']) or None."""
     case = case or {}
     state = dict(case.get("state") or {})
     closed = bool(state.get("closed"))
-    story = (story or state.get("story") or "").strip()
+    story = (story or "").strip()      # GD-4 (11/24): the work order's story is the Write warranty story one, not GD's mid-chat text
     unit = case.get("unit") or {}
     pages = cited_pages(case, cited_log)
-    web = [{"url": w.get("url"), "title": w.get("title") or ""} for w in case.get("web_sources") or [] if w.get("url")]
+    web = cited_web(case.get("web_sources") or [], history)
     chat = [{"role": m.get("role") or "user", "content": m.get("content") or ""} for m in history or []]
     findings = {k: state[k] for k in ("facts", "summary", "repair", *STATE_FIELDS) if state.get(k) not in (None, "", [], {})}
     lines = [f"{p.get('title') or p.get('doc_id')} - page {p.get('page')}" for p in pages] + [w["url"] for w in web]
@@ -227,8 +244,10 @@ def render_html(row) -> str:
     items = [f"<li>{e(p.get('title') or p.get('doc_id'))} — page {e(p.get('page'))}"
              + (f" (sheet {e(p.get('sheet'))})" if p.get("sheet") not in (None, "") else "") + "</li>"
              for p in src.get("pages") or [] if isinstance(p, dict)]
+    in_pages = {str(p.get(k) or "") for p in src.get("pages") or [] if isinstance(p, dict) for k in ("doc_id", "url")}
+    web = [w for w in cited_web([w for w in src.get("web") or [] if isinstance(w, dict)], chat) if w["url"] not in in_pages]
     items += [f"<li>Web: <a href='{e(w.get('url'))}'>{e(w.get('title') or w.get('url'))}</a> — {e(w.get('url'))}</li>"
-              for w in src.get("web") or [] if isinstance(w, dict) and w.get("url")]
+              for w in web]
     out.append("<ul>" + "".join(items) + "</ul>" if items else f"<p>{e(row.sources_text or 'None cited.')}</p>")
     out.append("<h2>Technician story</h2>")
     out.append(f"<div class='story'>{e(row.final_story)}</div>" if (row.final_story or "").strip() else "<p>Not written yet.</p>")

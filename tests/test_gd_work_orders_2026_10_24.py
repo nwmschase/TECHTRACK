@@ -56,7 +56,8 @@ def gd_job(closed=False):
               cause="freezer fan" if closed else "", cited=[{"doc_id": "L1", "page": "29"}], summary="E2; fan at 10.4 V.",
               repair={"done": closed, "verified": closed, "what": "replaced freezer fan" if closed else "", "quote": "cools now" if closed else ""},
               closed=closed, story="Verified E2. Fan read 10.4 V. Replaced the freezer fan." if closed else "")
-    chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["29"]})], "Test the fan at F+ F- [Acme p.29].\n" + block(**st)])
+    chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["29"]})],
+                        "Test the fan at F+ F- [Acme p.29]. See https://acme.example/bulletin.pdf\n" + block(**st)])
     r = gd_turn.run_turn("Fridge freezes food, E2 blinking", "Refrigerators", "Acme X1", [], finder=finder(), respond_fn=chat,
                          store=store, log_path="")
     store["gd_case"]["web_sources"].append({"url": "https://acme.example/bulletin.pdf", "title": "Acme bulletin"})
@@ -89,7 +90,8 @@ class TestRetention(unittest.TestCase):
 class TestSnapshotAndSave(unittest.TestCase):
     def test_snapshot_has_everything_the_file_needs(self):
         history, case = gd_job(closed=True)
-        snap = wo.snapshot(history=history, case=case, wo_number="4471", chat_id=9)
+        snap = wo.snapshot(history=history, case=case, wo_number="4471", chat_id=9, story=case["state"]["story"])
+        self.assertEqual(wo.snapshot(history=history, case=case, chat_id=9)["final_story"], "")   # GD-4: GD's own text is not it
         self.assertEqual((snap["wo_number"], snap["status"], snap["category_name"], snap["model_text"]),
                          ("4471", "closed", "Refrigerators", "Acme X1"))
         self.assertEqual(snap["concern"], "Fridge freezes food, E2 blinking")
@@ -112,7 +114,8 @@ class TestSnapshotAndSave(unittest.TestCase):
     def test_one_row_per_chat_number_kept_closed_sticks_reopen_keeps_findings(self):
         s = db()
         history, case = gd_job(closed=True)
-        r1 = wo.save(s, Job, 7, 3, wo.snapshot(history=history, case=case, wo_number="4471", chat_id=3))
+        r1 = wo.save(s, Job, 7, 3, wo.snapshot(history=history, case=case, wo_number="4471", chat_id=3,
+                                               story=case["state"]["story"]))      # the Write warranty story text (GD-4)
         self.assertEqual(r1.status, "closed")
         # a later save of the reopened chat (its case is gone) with no WO # typed
         r2 = wo.save(s, Job, 7, 3, wo.snapshot(history=history + [{"role": "user", "content": "thanks"}], case=None, chat_id=3))
@@ -147,7 +150,8 @@ class TestListAndDownload(unittest.TestCase):
         s = db()
         history, case = gd_job(closed=True)
         history[0]["content"] += " <script>alert(1)</script>"
-        row = wo.save(s, Job, 7, 3, wo.snapshot(history=history, case=case, wo_number="44/71", chat_id=3),
+        row = wo.save(s, Job, 7, 3, wo.snapshot(history=history, case=case, wo_number="44/71", chat_id=3,
+                                                story=case["state"]["story"]),
                       now=datetime(2026, 10, 24, 14, 5))
         page = wo.render_html(row)
         for want in ("Work order 44/71", "Complaint", "Fridge freezes food, E2 blinking", "Refrigerators", "Acme X1",

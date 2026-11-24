@@ -451,4 +451,6 @@ class TestGrokWrittenStory(unittest.TestCase):
         case = gd_turn.new_case("Refrigerators", "Acme X1", "freezes, E2")
         case["state"] = gd_state.merge(case["state"], {"story": "Complaint: ... Cause: ... Correction: ...",
                                                        "repair": {"done": True, "verified": True, "what": "x", "quote": "y"}})
-        self.assertEqual(gd_story.warranty_story(case, []), "Complaint: ... Cause: ... Correction: ...")
+        self.assertEqual(case["state"]["story"], "Complaint: ... Cause: ... Correction: ...")     # stored in the state
+        # GD-4 (11/24): the story comes from the Write warranty story button, built from the whole chat, not GD's text
+        self.assertNotEqual(gd_story.warranty_story(case, []), "Complaint: ... Cause: ... Correction: ...")

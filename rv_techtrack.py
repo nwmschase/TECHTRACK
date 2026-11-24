@@ -3144,8 +3144,6 @@ GD_ACCESS_PROMPT = "What did you have to remove or move to get access (for examp
 GD_ACCESS_BOX = "Removed or moved for access, extra time, and what the repair will need removed"
 GD_ACCESS_SAVE = "Save and write story"
 GD_ACCESS_NONE = "Nothing removed, write story"
-GD_ACCESS_LOGGED = "Logged. That goes into the warranty story. Tap Write warranty story when you're ready."
-GD_ACCESS_NOTHING = "Logged: nothing removed. Tap Write warranty story when you're ready."
 
 
 def _gd_record():
@@ -3878,8 +3876,8 @@ with tab_ask:
             if _access_turn:
                 _rec = _gd_record()
                 # the tech's answer to the end-of-job access question goes into the job record (no AI call)
-                _story.record_access_answer(_rec, msg)
-                reply = GD_ACCESS_NOTHING if not (_rec["state"]["access_done"] or _rec["state"]["access_needed"]) else GD_ACCESS_LOGGED
+                _story.record_access_answer(_rec, msg, history)
+                reply = _story.access_logged_reply(_rec)
                 new_flow = st.session_state.get("ask_flow")
             else:
                 with st.spinner("Searching manuals and thinking…"):
@@ -3903,7 +3901,9 @@ with tab_ask:
                 if _kind:
                     _rec["state"]["access_asked"] = True
                     _rec["state"]["wrapup"] = _kind
-                    reply = (reply.rstrip() + "\n\n" if (reply or "").strip() else "") + _story.access_question(_kind)
+                    # GD-4 (11/24): the access question comes first; a story GD wrote in this reply is cut off (the story
+                    # comes from the Write warranty story button)
+                    reply = _story.wrapup_reply(reply, _kind)
             st.session_state["ask_flow"] = new_flow
             history = list(history)
             stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)
@@ -4012,7 +4012,7 @@ with tab_ask:
                 _ans = "nothing removed"
             if _ans:
                 import gd_story as _story
-                _story.record_access_answer(_gd_record(), _ans)
+                _story.record_access_answer(_gd_record(), _ans, history)
                 st.session_state.pop("gd_access_prompt", None)
                 write_story = True
     if write_story:

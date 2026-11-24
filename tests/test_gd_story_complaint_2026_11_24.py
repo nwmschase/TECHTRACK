@@ -201,13 +201,13 @@ class TestStoryPrompt(unittest.TestCase):
         self.assertIn("Replaced the evaporator fan assembly; fresh food reached 38F. Repair verified working.", fb)
         self.assertNotIn("Recommend replacing", fb)
 
-    def test_stored_story_used_only_when_it_meets_the_spec(self):
+    def test_gd_mid_chat_story_is_not_the_story(self):
+        # GD-4 (11/24): the story is written by the Write warranty story button from the whole chat; a story GD put in its
+        # state block mid-chat is not returned
         case = json.loads(json.dumps(M1066_CASE))
-        case["state"]["story"] = GROK_OK
-        self.assertEqual(gd_story.write_warranty_story(case, M1066, ""), GROK_OK)
         case["state"]["story"] = "Fan bad. Replaced."
-        self.assertEqual(gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: GROK_OK), GROK_OK)   # rewritten to spec
-        self.assertEqual(gd_story.write_warranty_story(case, M1066, ""), "Fan bad. Replaced.")   # no Grok: Grok's own text kept
+        self.assertEqual(gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: GROK_OK), GROK_OK)
+        self.assertNotIn("Fan bad. Replaced.", gd_story.write_warranty_story(case, M1066, ""))
 
 
 class TestRecordCapture(unittest.TestCase):
