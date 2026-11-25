@@ -47,26 +47,13 @@ REAL_COMPLAINT = "Customer states refrigerator does not maintain proper cooling 
 READINGS = ["13.34", "12.07", "11.73", "1.27", "6.81", "12.26", "7.28", "12.50", "13.48", "12.64", "12.30", "0.84", "11.21",
             "48", "5", "60"]
 
-GROK_OK = """1. CONCERN
-Customer states refrigerator does not maintain proper cooling temperatures and will not cool below 42F. Technician verified the concern.
+GROK_OK = """CONCERN
+Customer states refrigerator does not maintain proper cooling temperatures and will not cool below 42F. Technician verified the concern; the fresh-food compartment would not cool below 42F.
 
-2. CAUSE - DIAGNOSTIC TEST LOG
-1. Verified customer concern; the fresh-food compartment would not cool below 42F.
-2. Removed the refrigerator and performed electrical, mechanical and visual diagnostic inspections following Furrion warranty troubleshooting procedures.
-3. Verified compressor and condenser fan operation, interior lighting and control panel operation. Settings correct, not in low power mode, door seals good.
-4. Inspected the main control board, wiring and refrigerant connections. No control board damage. Discoloration observed around the refrigerant fittings and filter-drier; no refrigerant leak confirmed.
-5. On battery power only, measured battery voltage 13.34V DC, refrigerator terminal voltage 12.07V DC and compressor controller voltage 11.73V DC, a supply voltage drop of 1.27V DC. Initial compressor starting amperage was 6.81A DC with 12.26V DC at the controller at startup; operating amperage was 7.28-12.50A DC.
-6. With shore power connected, measured battery voltage 13.48V DC, terminal voltage 12.64V DC and controller voltage 12.30V DC, a drop of 0.84V DC; compressor operating amperage 11.21A DC. The supply voltage drop is above the maker's limit and is a noted finding, not the cause.
-7. During cooling testing the freezer pulled down from approximately 48F to 5F while the fresh-food compartment only went from 60F to 48F, showing insufficient cold-air circulation into the fresh-food side.
-8. Removed the freezer upper air duct assembly and found the evaporator circulation fan not operating.
-9. Performed fan activation testing per Furrion troubleshooting guidance; the fan failed to start.
+CAUSE
+The technician removed the refrigerator and performed electrical, mechanical and visual diagnostic inspections following Furrion warranty troubleshooting procedures. Compressor and condenser fan operation, interior lighting and control panel operation were verified; settings were correct, the unit was not in low power mode and the door seals were good. The main control board, wiring and refrigerant connections were inspected with no control board damage found; discoloration was observed around the refrigerant fittings and filter-drier, with no refrigerant leak confirmed. On battery power only, the technician measured battery voltage 13.34V DC, refrigerator terminal voltage 12.07V DC and compressor controller voltage 11.73V DC, a supply voltage drop of 1.27V DC; initial compressor starting amperage was 6.81A DC with 12.26V DC at the controller at startup, and operating amperage was 7.28-12.50A DC. With shore power connected, battery voltage was 13.48V DC, terminal voltage 12.64V DC and controller voltage 12.30V DC, a drop of 0.84V DC, with compressor operating amperage of 11.21A DC. The supply voltage drop is above the maker's limit and is a noted finding, not the cause. During cooling testing the freezer pulled down from approximately 48F to 5F while the fresh-food compartment only went from 60F to 48F, showing insufficient cold-air circulation into the fresh-food side. The technician removed the freezer upper air duct assembly and found the evaporator circulation fan not operating, and fan activation testing per the Furrion CCD-0009616 troubleshooting manual showed the fan failed to start. The evaporator circulation fan assembly has failed, so cold air from the freezer evaporator is not distributed into the fresh-food compartment while the compressor and sealed system operate normally.
 
-The evaporator circulation fan assembly has failed, so cold air from the freezer evaporator is not distributed into the fresh-food compartment while the compressor and sealed system operate normally.
-
-3. MANUFACTURER REFERENCES
-- Furrion CCD-0009616 troubleshooting manual
-
-4. CORRECTION
+CORRECTION
 Recommend replacing the evaporator fan assembly, then re-test airflow and compartment temperatures to verify repair."""
 
 
@@ -103,25 +90,26 @@ class TestRealM1066Story(unittest.TestCase):
             self.assertNotIn(bad, self.s)
 
     def test_all_tech_work_is_carried(self):
-        for want in ("Removed refrigerator", "electrical, mechanical and visual", "discoloration around refrigerant fittings and filter-drier",
-                     "no refrigerant leak was confirmed", "Removed freezer upper air duct assembly", "fan activation testing",
-                     "Fan failed to start", "48F to 5F", "60F to 48F"):
+        for want in ("removed the refrigerator", "electrical, mechanical and visual", "discoloration around refrigerant fittings and filter-drier",
+                     "no refrigerant leak was confirmed", "removed the freezer upper air duct assembly", "fan activation testing",
+                     "The fan failed to start", "48F to 5F", "60F to 48F"):
             self.assertIn(want, self.s)
-        self.assertIn("Noted finding: Voltage drop exceeds the manual limit", self.s)
+        self.assertIn("Also noted: the voltage drop exceeded the manual limit", self.s)
         self.assertNotIn("page", self.sec.get("REFERENCES", "").lower())
 
 
 class TestStoryGuard(unittest.TestCase):
-    """Chase 10/23 story spec + Brinkley 11/4 format: a numbered Cause log carrying every reading the tech reported,
-    full sentences, never terse label lines. Both the fallback and the Grok path (via its check) are held to it."""
+    """Chase 10/23 story spec, 11/25 "A STORY IS A WELL WRITTEN CONCERN CAUSE AND CORRECTION": paragraphs (no numbered or
+    bulleted log) carrying every reading the tech reported, full sentences, never terse label lines. Both the fallback and the Grok path (via its check) are held to it."""
 
     def assert_guard(self, story):
         sec = gd_story.parse_story(story)
         for s in ("CONCERN", "CAUSE", "CORRECTION"):
             self.assertTrue(sec.get(s), f"no {s}")
-        steps = numbered(sec["CAUSE"])
-        self.assertGreaterEqual(len(steps), 5)
-        self.assertEqual(terse_label_lines(steps), [], "terse label lines in the Cause log")
+        self.assertEqual(numbered(sec["CAUSE"]), [], "a story is paragraphs, not a numbered list (Chase 11/25)")
+        self.assertFalse([l for l in sec["CAUSE"].split("\n") if l.strip().startswith(("- ", "* ", "• "))])
+        self.assertGreaterEqual(len(gd_story._sentences(sec["CAUSE"])), 5)
+        self.assertEqual(terse_label_lines(sec["CAUSE"].split("\n")), [], "terse label lines in the Cause")
         for r in READINGS:
             self.assertIn(r, story, f"reading {r} missing")
 
@@ -138,7 +126,7 @@ class TestStoryGuard(unittest.TestCase):
         self.assert_guard(out)
 
     def test_grok_story_dropping_a_reading_is_retried_then_falls_back(self):
-        short = GROK_OK.replace("compressor operating amperage 11.21A DC", "compressor running normally")
+        short = GROK_OK.replace("with compressor operating amperage of 11.21A DC", "with the compressor running normally")
         self.assertIn("missing readings: 11.21", gd_story.story_problems(short, M1066_CASE, M1066))
         seen = []
         out = gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: seen.append(m) or short)
@@ -152,7 +140,7 @@ class TestStoryGuard(unittest.TestCase):
     def test_terse_label_story_is_rejected(self):
         terse = ("COMPLAINT:\n" + REAL_COMPLAINT + "\n\nCAUSE:\nSupply voltage drop: 1.27V DC.\nCompressor amps: 11.21A DC.\n\n"
                  "CORRECTION:\nRecommend replacing the evaporator fan assembly.")
-        self.assertIn("cause is not a numbered test log", gd_story.story_problems(terse, M1066_CASE, M1066))
+        self.assertTrue(any(p.startswith("missing readings") for p in gd_story.story_problems(terse, M1066_CASE, M1066)))
         self.assertNotEqual(gd_story.write_warranty_story(M1066_CASE, M1066, "", chat_fn=lambda m: terse), terse)
 
     def test_other_bad_grok_text_falls_back(self):
@@ -173,7 +161,8 @@ class TestStoryGuard(unittest.TestCase):
 class TestStoryPrompt(unittest.TestCase):
     def test_prompt_carries_the_spec(self):
         p = gd_story.STORY_SYSTEM
-        for want in ("1. CONCERN", "2. CAUSE - DIAGNOSTIC TEST LOG", "3. MANUFACTURER REFERENCES", "4. CORRECTION", "5. REQUEST",
+        for want in ("\nCONCERN\n", "\nCAUSE\n", "\nCORRECTION\n", "no bullet points or numbered lists",
+                     "well-written Concern, Cause and Correction", "reasonably draw",
                      "every test, inspection and action", "with its units", "no page numbers", "noted finding",
                      "Recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair.",
                      "same story goes on customer-pay work"):
@@ -198,7 +187,8 @@ class TestStoryPrompt(unittest.TestCase):
         gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK)
         self.assertIn("REPAIR STATUS: performed", seen[0][1]["content"])
         fb = gd_story.warranty_story(case, M1066, "FCR16DCASA-SS")
-        self.assertIn("Replaced the evaporator fan assembly; fresh food reached 38F. Repair verified working.", fb)
+        self.assertIn("Replaced the evaporator fan assembly; fresh food reached 38F. After the repair, the unit was operated and "
+                      "verified working properly.", fb)
         self.assertNotIn("Recommend replacing", fb)
 
     def test_gd_mid_chat_story_is_not_the_story(self):

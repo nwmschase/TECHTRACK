@@ -85,8 +85,8 @@ class Test1AccessAnswer(unittest.TestCase):
     def test_fallback_logs_the_trim(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        self.assertIn("2. " + TRIM_STEP.replace("cieling", "ceiling"), s)   # spelling tidied in the story (11/25)
-        self.assertEqual(s.count("removed trim"), 1)
+        self.assertIn("The technician then removed the trim at the control box ceiling assembly to gain access.", s)  # 11/25 prose
+        self.assertEqual(s.count("trim"), 1)
 
 
 class Test2WholeChat(unittest.TestCase):
@@ -116,13 +116,13 @@ class Test2WholeChat(unittest.TestCase):
     def test_fallback_has_every_test_with_readings(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        for want in ("Measured 122 VAC input.", "On Fan High, the board output tester doesn't light.",
-                     "Read 0.000 to 0.048 VAC on black/white at the 9-pin connector.",
-                     "The fan run capacitor reads 15.11 µF (rated 15 µF ±5%, so it's good).",
-                     "It draws about 1.91 A at 122 V, and the shaft is locked.",
-                     "It's the fan motor that's running that bad voltage and locked shaft.",   # tidied 11/25
-                     "Customer states the unit ran about 2 minutes then dead / no response."):
-            self.assertIn(want, s)
+        for want in ("measured 122 VAC input at the control box.", "On Fan High, the board output tester did not light.",
+                     "read 0.000 to 0.048 VAC on the high fan black/white at the 9-pin connector.",
+                     "The fan run capacitor read 15.11 µF (rated 15 µF ±5%), within specification.",
+                     "The fan motor drew about 1.91 A at 122 V, and its shaft was locked.",
+                     "Customer states the unit ran for about 2 minutes and then went dead with no response."):
+            self.assertIn(want, s)                      # 11/25: rewritten into professional past-tense prose
+        self.assertNotIn("It's the fan motor", s)      # his conclusion is folded into the cause
         self.assertNotIn("?", s.split("CORRECTION")[0])
         self.assertEqual(gd_story.story_problems(s, c, HIST), [])
 
@@ -131,7 +131,8 @@ class Test3NoEmptyReferences(unittest.TestCase):
     def test_fallback_leaves_the_section_out(self):
         s = gd_story.write_warranty_story(gd_story.record_access_answer(case_gd4(), ANSWER, HIST), HIST, "")
         self.assertNotIn("MANUFACTURER REFERENCES", s)
-        self.assertIn("3. CORRECTION", s)
+        self.assertNotIn("Testing followed", s)
+        self.assertIn("\nCORRECTION\n", s)
 
     def test_grok_draft_with_an_empty_header_is_cleaned(self):
         draft = ("1. CONCERN\nCustomer states the unit ran about 2 minutes then went dead.\n\n2. CAUSE - DIAGNOSTIC TEST LOG\n"
@@ -148,7 +149,7 @@ class Test3NoEmptyReferences(unittest.TestCase):
         self.assertIn("5. The fan run capacitor", out)
 
     def test_prompt_says_leave_it_out(self):
-        self.assertIn("When no official source is listed, the section is left out.", gd_story.STORY_SYSTEM)
+        self.assertIn("web pages, forum posts and other unofficial sources are not named", gd_story.STORY_SYSTEM)
         msg = gd_story.story_messages(case_gd4(), HIST, "")[1]["content"]
         self.assertIn("OFFICIAL PROCEDURE SOURCES: none recorded", msg)
 

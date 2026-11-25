@@ -73,7 +73,7 @@ class TestStoryWorksInBothModes(unittest.TestCase):
             sec = gd_story.parse_story(s)
             self.assertIn("furnace will not light", sec["CONCERN"])
             self.assertIn("12.6", s)
-            self.assertIn("Failed igniter", sec["CAUSE"])
+            self.assertIn("the igniter had failed", sec["CAUSE"])   # prose story (11/25)
             self.assertTrue(sec["CORRECTION"].startswith("Recommend"))
 
 

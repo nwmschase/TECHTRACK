@@ -85,8 +85,8 @@ class Test156231(unittest.TestCase):
         self.assertIn("Recommend replacing the thermostat, then re-test the full sequence without the jumper", corr)
         self.assertNotIn("L120", s)
         self.assertNotIn("page", s.lower())
-        self.assertIn("1. Blower will start immediately but doesn't ignite at all.", s)   # apostrophe back in (11/25)
-        self.assertIn("3. Bypassed thermostat and it works.", s)
+        self.assertIn("The blower started immediately but the burner did not ignite at all.", s)   # prose story (11/25)
+        self.assertIn("bypassed the thermostat and the unit operated", s)
         self.assertNotIn("recommend a new thermostat", s.split("CORRECTION", 1)[0])
         self.assertEqual(gd_story.story_problems(s, case_156231(), HIST), [])
 
@@ -160,18 +160,19 @@ class TestAccessAnswer(unittest.TestCase):
         gd_story.record_tech_findings(c, h[-1]["content"])
         s = gd_story.warranty_story(c, h, "")
         cause, corr = s.split("CORRECTION", 1)
-        self.assertIn("1. Pulled the fridge out.", cause)
+        self.assertIn("The technician first pulled the fridge out.", cause)
         self.assertIn("Recommend replacing the slide floor", corr)
-        for n, item in enumerate(("fridge", "stove", "counters", "drawers"), 1):
-            self.assertIn(f"{n}. Remove and reinstall the {item}.", corr)
-        self.assertNotIn("Remove and reinstall the floor", corr)
+        self.assertIn("the repair will require removal and reinstallation of the fridge, the stove, the counters and the "
+                      "drawers.", corr)
+        self.assertNotIn("the floor", corr)
 
     def test_grok_story_missing_an_access_item_is_flagged(self):
         c = case_156231()
         gd_story.record_access_answer(c, "had to pull the furnace out, the repair will need the wall panel removed")
         s = gd_story.warranty_story(c, HIST, "")
         self.assertEqual(gd_story.story_problems(s, c, HIST), [])
-        self.assertTrue(gd_story.story_problems(s.replace("Remove and reinstall the wall panel.", ""), c, HIST))
+        self.assertIn("removal and reinstallation of the wall panel", s)
+        self.assertTrue(gd_story.story_problems(s.replace("wall panel", ""), c, HIST))
 
     def test_work_order_shows_access_and_recommendation(self):
         c = case_156231(tech_recommendation="Replace the thermostat", wrapup="diag")
