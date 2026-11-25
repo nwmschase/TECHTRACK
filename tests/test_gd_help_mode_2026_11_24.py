@@ -74,7 +74,7 @@ class TestStoryWorksInBothModes(unittest.TestCase):
             self.assertIn("furnace will not light", sec["CONCERN"])
             self.assertIn("12.6", s)
             self.assertIn("the igniter had failed", sec["CAUSE"])   # prose story (11/25)
-            self.assertTrue(sec["CORRECTION"].startswith("Recommend"))
+            self.assertTrue(sec["CORRECTION"].startswith("I recommend"))   # first person (11/25)
 
 
 class TestAppChoice(unittest.TestCase):

@@ -15,6 +15,7 @@ Source of truth (Chase's decisions, not invented here):
 - 11/25 (Chase): "A STORY IS A WELL WRITTEN CONCERN CAUSE AND CORRECTION ... NOT A ... BULLETPOINT LIST"; "REWRITE THE
   WORDS INTO THE BEST POSSIBLE STORY IT CAN"; reasonably inferred findings are fine. Supersedes the numbered test log:
   CONCERN / CAUSE / CORRECTION as paragraphs, references named inside the cause, for Grok and the fallback alike.
+  Later 11/25: "It needs to be first person. its the technicians story not a narration by a third party."
 
 write_warranty_story(): a story Grok already wrote into the state block (repair verified) when it passes the check, else
 Grok writes it with STORY_SYSTEM from the whole chat (checked by check_story; one retry naming what was missing), else
@@ -1120,7 +1121,7 @@ _FAIL_WORDS = {"failed": "had failed", "seized": "was seized", "shorted": "was s
                "damaged": "was damaged", "locked": "was locked", "inoperative": "was inoperative"}
 _CONCLUSION_LEADS = ("it was the ", "it's the ", "its the ", "it is the ", "the problem is ", "problem is ", "the issue is ",
                      "issue is ", "the problem was ", "the issue was ")
-_CONNECTORS = ("Next, the technician", "The technician then", "After that, the technician", "The technician also")
+_CONNECTORS = ("Next, I", "I then", "From there, I", "After that, I", "I also")
 
 
 def _cap(s: str) -> str:
@@ -1190,7 +1191,7 @@ def _professional(s: str) -> str:
     if low.startswith("recorded the following readings (") and "): " in t:          # bullet readings -> one sentence
         label, items = t[len("recorded the following readings ("):].split("): ", 1)
         lead = "With" if "connected" in label.lower() or label.lower().startswith(("shore", "generator")) else "On"
-        return f"{lead} {label}, the technician recorded " + _join_list([x.strip() for x in items.split(", ")]) + "."
+        return f"{lead} {label}, I recorded " + _join_list([x.strip() for x in items.split(", ")]) + "."
     if low.startswith("when i ") and " i found " in low:                                 # 'When I checked X I found Y'
         k = low.index(" i found ")
         t = _cap(t[len("when i "):k].strip(" ,")) + " and found " + t[k + len(" i found "):]
@@ -1204,10 +1205,10 @@ def _professional(s: str) -> str:
                 if prep in rest:
                     a, b = rest.split(prep, 1)
                     place = b.split(" but ", 1)[0].split(",", 1)[0].strip()
-                    t = f"{_cap(a)} was present at the {b}".replace(f"{place} but it ", f"{place}, but the {place} ", 1)
+                    t = f"I had {_low1(a)} at the {b}".replace(f"{place} but it ", f"{place}, but the {place} ", 1)
                     break
             else:
-                t = _cap(rest) + " was present"
+                t = "I had " + _low1(rest)
             break
     words = t.split(" ")
     if len(words) > 2 and words[0] in ("I", "i") and _is_past(words[1]):
@@ -1222,7 +1223,7 @@ def _professional(s: str) -> str:
                  (" and it worked", " and the unit operated"), (" but did not ignite", " but the burner did not ignite"), (", not in ", ", the unit was not in ")):
         t = t.replace(a, b)
     if t.lower().startswith("no ") and t.endswith((" observed", " found", " noted")) and " was " not in t:
-        t = t.rsplit(" ", 1)[0] + " was " + t.rsplit(" ", 1)[1]                        # 'No damage observed'
+        t = f"I {t.rsplit(' ', 1)[1]} no {t[3:].rsplit(' ', 1)[0]}"                     # 'No damage observed' -> 'I observed no damage'
     parts = t.split(", ")
     if len(parts) >= 3 and any(w in (" " + parts[-1] + " ") for w in (" was ", " were ", " are ", " is ")) \
             and not parts[-1].lower().startswith(("and ", "but ", "however")):
@@ -1356,18 +1357,39 @@ def _cause_clause(cause: str) -> str:
     return out[0] if len(out) == 1 else ", ".join(out[:-1]) + ", and " + out[-1]
 
 
+def _front_place(rest: str) -> str:
+    """'read 0.000 to 0.048 VAC on the high fan black/white at the 9-pin connector.' -> 'At the 9-pin connector, I read
+    0.000 to 0.048 VAC on the high fan black/white.' ('' when the step does not end on where it was read)."""
+    body = rest.rstrip(".")
+    k = body.rfind(" at the ")
+    if k < 0 or " to gain access" in body or " for access" in body:
+        return ""
+    place, head = body[k + 1:], body[:k]
+    if "," in place or " and " in place or len(place.split()) > 6 or not head.strip():
+        return ""
+    return f"{_cap(place)}, I {head}."
+
+
 def _narrate(steps: list) -> str:
-    """The steps as one paragraph: a step that starts with what was done gets the technician as its subject, with
-    plain connectors so the order of the job reads through."""
-    out, n = [], 0
+    """The steps as one paragraph in the tech's own voice (Chase 11/25: "It needs to be first person. its the
+    technicians story"): a step that starts with what was done gets 'I', and the openings vary (connectors, or where a
+    reading was taken put first) so the order of the job reads through without I / I / I."""
+    out, n, last_i = [], 0, False
     for s in steps:
         w = s.split(" ", 1)
         if len(w) == 2 and _is_past(w[0]) and w[0][:1].isupper():
+            rest = f"{w[0].lower()} {w[1]}"
+            fronted = _front_place(rest) if last_i and _has_reading(rest) else ""
             if not out:
-                s = f"The technician first {w[0].lower()} {w[1]}"
+                s = f"I first {rest}"
+            elif fronted:
+                s = fronted
             else:
-                s = f"{_CONNECTORS[n % len(_CONNECTORS)]} {w[0].lower()} {w[1]}"
-            n += 1
+                s = f"{_CONNECTORS[n % len(_CONNECTORS)]} {rest}"
+                n += 1
+            last_i = s.startswith("I ") or s.split(", ", 1)[-1].startswith("I ") and not fronted
+        else:
+            last_i = False
         out.append(s)
     return " ".join(out)
 
@@ -1450,7 +1472,7 @@ def warranty_story(case: dict, history: list = None, model_text: str = "", refer
         concern = " ".join(_cap(x[len("customer states that "):]) if k and x.lower().startswith("customer states that ")
                            else x for k, x in enumerate(sents))
     if verified_concern:
-        concern += " The technician verified the concern."
+        concern += " I verified the concern."
     para = _narrate(steps) if steps else "No testing was recorded in this job."
     if cause:
         first, _, more = cause.partition(". ")
@@ -1469,40 +1491,48 @@ def warranty_story(case: dict, history: list = None, model_text: str = "", refer
         if more:
             para += " " + _past_tense(_sentence(more))
     elif tech_cause:
-        para += " The testing pointed to " + _low1(_past_tense(tech_cause)) + " as the cause."
+        para += " My testing pointed to " + _low1(_past_tense(tech_cause)) + " as the cause."
     else:
-        para += " The cause was not confirmed during diagnosis."
+        para += " I was not able to confirm the cause during diagnosis."
     for x in noted_findings(history):
         nf = _low1(_professional(x))
         if nf.split(" ", 1)[0] not in ("the", "a", "an") and nf[:1].islower():
             nf = "the " + nf
-        para += " Also noted: " + nf + " This was recorded as a finding and was not the cause."
+        para += " I also noted that " + nf.rstrip(".") + "; I recorded it as a finding, and it was not the cause."
     refs = [r for r in references or [] if r]
     docs = [d for d in _doc_numbers(_gd_msgs(history)) if not any(d in r for r in refs)]   # maker doc numbers GD named
     for r in refs:
         if ": " in r:
             title, secs = r.split(": ", 1)
-            para += f" Testing followed the {title} ({secs.replace('; ', '; ')})."
+            para += f" My testing followed the {title} ({secs})."
         else:
-            para += f" Testing followed the {r}."
+            para += f" My testing followed the {r}."
     if docs:
-        para += " Manufacturer documents referenced: " + _join_list(docs) + "."
+        para += " I referenced manufacturer documents " + _join_list(docs) + "."
     if rep.get("done"):
-        corr = _sentence(_professional(rep.get("what") or "Repair performed"))
+        corr = _sentence(_professional(rep.get("what") or "Performed the repair"))
+        if _is_past(corr.split(" ", 1)[0]):
+            corr = "I " + _low1(corr)
         if rep.get("verified"):
-            corr += (" After the repair, the unit was operated and verified working as designed." if "designed" in verify_words
-                     else " After the repair, the unit was operated and verified working properly.")
+            corr += (" After the repair, I operated the unit and verified it was working as designed." if "designed" in verify_words
+                     else " After the repair, I operated the unit and verified it was working properly.")
         else:
-            corr += " Recommend verifying proper operation."
+            corr += " I recommend verifying proper operation."
     else:
         st2 = dict(st)
         rec_tech = (st.get("tech_recommendation") or "") or tech_recommendation(history)
         if rec_tech:                   # the tech's own call wins over the assistant's wording (11/24, WO 156231)
             st2["recommendation"] = rec_tech
         corr = _recommendation(st2, found)
+        if corr.startswith("Recommend "):
+            corr = "I recommend " + corr[len("Recommend "):]
+            for a, b in ((", then re-test ", ", then re-testing "), (", then verify ", ", then verifying "),
+                         (", then test ", ", then testing "), (", then check ", ", then checking "),
+                         (", then confirm ", ", then confirming "), (" and verify ", " and verifying ")):
+                corr = corr.replace(a, b)
         needed = st.get("access_needed") or []
         if needed:
-            corr += (" As reported by the technician, the repair will require removal and reinstallation of "
+            corr += (" The repair will also require removing and reinstalling "
                      + _join_list(["the " + _item_noun(x) for x in needed]) + ".")
     out = [f"UNIT: {unit}", ""] if unit else []
     out += ["CONCERN", concern, "", "CAUSE", para, "", "CORRECTION", corr]
@@ -1510,18 +1540,18 @@ def warranty_story(case: dict, history: list = None, model_text: str = "", refer
 
 
 # ---------------------------------------------------------------- Grok writes it
-STORY_SYSTEM = """You write the technician / warranty story for an RV repair job from a Guided Diagnostics session. The shop sends it to the maker or the coach builder (Furrion, Dometic, Lippert, Keystone, Brinkley and others) to justify the diagnosis and the time on the job, and the same story goes on customer-pay work. A story is a well-written Concern, Cause and Correction: it reads like an experienced warranty technician wrote it, in well-written professional paragraphs, past tense, shop language, plain text with no markdown, and no bullet points or numbered lists. The tech's notes are rewritten into the best story they can make: his spelling and shorthand cleaned up, restated steps told once, his first-person remarks turned into what was done and found, and conclusions a good technician would reasonably draw from the results stated plainly.
+STORY_SYSTEM = """You write the technician / warranty story for an RV repair job from a Guided Diagnostics session. The shop sends it to the maker or the coach builder (Furrion, Dometic, Lippert, Keystone, Brinkley and others) to justify the diagnosis and the time on the job, and the same story goes on customer-pay work. A story is a well-written Concern, Cause and Correction, and it is the technician's own story: written in the first person as the tech ("I confirmed 12 V at the thermostat. Next, I removed the trim ..."; "I replaced ..."), never "the technician" or a third-party narration, in well-written professional paragraphs, past tense, shop language, plain text with no markdown, and no bullet points or numbered lists. Sentence openings vary ("Next, ...", "With the ...", "At the 9-pin connector, I read ...") so it does not read I, I, I. The tech's notes are rewritten into the best story they can make: his spelling and shorthand cleaned up, restated steps told once, his remarks to the assistant turned into what he did and found, and conclusions a good technician would reasonably draw from the results stated plainly.
 
 The story has three parts, each headed by its name on its own line:
 
 CONCERN
-A short paragraph with the customer's complaint as the job started ("Customer states ..."), and the conditions or pattern the tech observed when verifying it.
+A short paragraph with the customer's complaint as the job started ("Customer states ..."), and the conditions or pattern the tech observed when verifying it ("I verified the concern ...").
 
 CAUSE
 A paragraph (two when the job is long) telling the diagnosis in the order it was done: every test, inspection and action the tech reported, with the readings and results exactly as the tech gave them (every voltage, amperage, temperature, resistance and pressure, with its units), and what each result ruled in or out. Disassembly and access work (removing the unit, panels, trim, ducts, covers, battery box covers) is told where it happened, before the tests it opened up, because it is labor on the job; the access work the tech described anywhere in the session and his answer to the access question are given below. When the tech corrected the assistant during the session, the tech's version is what happened. A test that followed a manual procedure says so (for example "following the Suburban fan control module board troubleshooting flowchart"), and the official documents the procedures came from, listed below under OFFICIAL PROCEDURE SOURCES, are named in the paragraph by title or maker document number with the procedure or section used, with no page numbers and no library codes; web pages, forum posts and other unofficial sources are not named, and the steps they informed stay. Steps the assistant only suggested are told when the tech reported doing them. A reading out of the maker's specification that the tech chose not to pursue is mentioned as a noted finding, and is not the cause. The paragraph ends by naming the confirmed cause and why the tests point to it.
 
 CORRECTION
-When the job's repair status says the repair was performed: the repair and how it was verified, in full sentences. When it says the repair was not performed (diagnosis only): the recommended repair in general terms, starting with "Recommend"; when the tech stated his own recommendation, the correction is that recommendation, for example "Recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair." When the tech listed items the repair will need removed, the removal and reinstallation work is named in the paragraph. A secondary issue the tech left can be a separate recommendation. A sentence asking for authorization of the repair and the diagnostic time can close it when that fits the job.
+When the job's repair status says the repair was performed: the repair and how it was verified, in full sentences. When it says the repair was not performed (diagnosis only): the recommended repair in general terms, as "I recommend ..."; when the tech stated his own recommendation, the correction is that recommendation, for example "I recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair." When the tech listed items the repair will need removed, the removal and reinstallation work is named in the paragraph. A secondary issue the tech left can be a separate recommendation. A sentence asking for authorization of the repair and the diagnostic time can close it when that fits the job.
 
 Readings, part names, results and document names come from the session as they appear there. Part numbers, labor times and operation codes appear when the tech gave them. Words about the software (OPEN, state, session, assistant, GD, TechTrack) stay out of the story."""
 

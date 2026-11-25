@@ -192,7 +192,7 @@ class TestStateRoundTrip(unittest.TestCase):
             "facts": [{"item": "fan volts", "value": "10.4 V", "quote": "10.4"}], "cause": "fan motor [Acme p.29]",
             "repair": {"done": True, "verified": True, "what": "Replaced freezer fan", "quote": "new fan in, cooling"}})
         txt = gd_story.warranty_story(case, [{"role": "user", "content": "freezes, E2"}])
-        for want in ("freezes, E2", "fan volts of 10.4 V", "fan motor [Acme p.29]", "Replaced the freezer fan", "verified working"):
+        for want in ("freezes, E2", "fan volts of 10.4 V", "fan motor [Acme p.29]", "I replaced the freezer fan", "verified it was working"):
             self.assertIn(want, txt)
 
 

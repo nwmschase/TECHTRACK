@@ -64,7 +64,7 @@ class TestBRepeatedReading(unittest.TestCase):
         self.assertEqual(s.count("1.91 A at 122 V"), 1, s)
         self.assertIn("The fan motor drew about 1.91 A at 122 V, and its shaft was locked.", s)
         self.assertEqual(cause(s).count("122 VAC"), 1)
-        self.assertIn("measured 122 VAC input at the control box", s)
+        self.assertIn("At the control box, I measured 122 VAC input.", s)
         self.assertEqual(gd_story.missing_readings(s, g4.HIST), [])
 
     def test_order_kept(self):
@@ -104,11 +104,21 @@ class TestProseStory(unittest.TestCase):
                 self.assertEqual(m.numbered(v), [])
                 self.assertFalse(v.lstrip().startswith(("- ", "* ", "• ")))
 
-    def test_no_first_person_no_present_tech_talk(self):
+    def test_first_person_past_tense_varied(self):
+        # Chase 11/25: "It needs to be first person. its the technicians story not a narration by a third party"
         for s in (gd4_story(), wo_story(), m1066_story()):
             c = " " + cause(s) + " "
-            for bad in (" I ", " I'm ", " my ", " will ", " doesn't ", " won't ", " draws ", " reads ", " is locked"):
+            self.assertNotIn("technician", s.lower())
+            self.assertIn(" I ", c)
+            for bad in (" I'm ", " will ", " doesn't ", " won't ", " draws ", " reads ", " is locked", " am getting"):
                 self.assertNotIn(bad, c)
+            starts = [x.split(" ", 1)[0] for x in gd_story._sentences(cause(s))]
+            run = max((len(list(g)) for k, g in __import__("itertools").groupby(starts) if k == "I"), default=0)
+            self.assertLessEqual(run, 2, starts)                    # no I / I / I monotony
+        c = cause(gd4_story())
+        self.assertIn("I first confirmed 12 V at the thermostat. Next, I removed the trim", c)
+        self.assertIn("I had power at the board, but the board was not commanding the fans", c)
+        self.assertTrue(gd_story.parse_story(gd4_story())["CORRECTION"].startswith("I replaced"))
 
     def test_conclusion_folded_and_repair_told_once(self):
         s = gd4_story()
@@ -116,7 +126,7 @@ class TestProseStory(unittest.TestCase):
         self.assertIn("These results confirmed that the ceiling control/relay board had failed and was not commanding the "
                       "fans, and the fan motor was seized (locked shaft, 1.91 A draw).", s)
         self.assertNotIn("Replaced", cause(s))
-        self.assertTrue(gd_story.parse_story(s)["CORRECTION"].startswith("Replaced the ceiling control/relay board and fan motor."))
+        self.assertTrue(gd_story.parse_story(s)["CORRECTION"].startswith("I replaced the ceiling control/relay board and fan motor."))
 
     def test_every_reading_and_the_checks_pass(self):
         c = gd_story.record_access_answer(g4.case_gd4(), g4.ANSWER, g4.HIST)
@@ -126,8 +136,8 @@ class TestProseStory(unittest.TestCase):
         self.assertEqual(gd_story.story_problems(wo_story(), a.case_156231(), a.HIST), [])
 
     def test_references_named_in_the_cause(self):
-        self.assertIn("Testing followed the Suburban Furnace Service and Training Manual (", cause(wo_story()))
-        self.assertIn("Manufacturer documents referenced: CCD-0009616", cause(m1066_story()))
+        self.assertIn("My testing followed the Suburban Furnace Service and Training Manual (", cause(wo_story()))
+        self.assertIn("I referenced manufacturer documents CCD-0009616", cause(m1066_story()))
 
 
 if __name__ == "__main__":

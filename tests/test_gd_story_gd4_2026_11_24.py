@@ -85,7 +85,7 @@ class Test1AccessAnswer(unittest.TestCase):
     def test_fallback_logs_the_trim(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        self.assertIn("The technician then removed the trim at the control box ceiling assembly to gain access.", s)  # 11/25 prose
+        self.assertIn("Next, I removed the trim at the control box ceiling assembly to gain access.", s)  # 11/25 first-person prose
         self.assertEqual(s.count("trim"), 1)
 
 
@@ -116,7 +116,7 @@ class Test2WholeChat(unittest.TestCase):
     def test_fallback_has_every_test_with_readings(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        for want in ("measured 122 VAC input at the control box.", "On Fan High, the board output tester did not light.",
+        for want in ("At the control box, I measured 122 VAC input.", "On Fan High, the board output tester did not light.",
                      "read 0.000 to 0.048 VAC on the high fan black/white at the 9-pin connector.",
                      "The fan run capacitor read 15.11 µF (rated 15 µF ±5%), within specification.",
                      "The fan motor drew about 1.91 A at 122 V, and its shaft was locked.",

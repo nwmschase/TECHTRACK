@@ -85,16 +85,16 @@ class TestRealM1066Story(unittest.TestCase):
         self.assertNotIn("not determined", low)
 
     def test_correction_is_a_recommendation(self):
-        self.assertTrue(self.sec["CORRECTION"].startswith("Recommend replacing the evaporator fan assembly"), self.sec["CORRECTION"])
+        self.assertTrue(self.sec["CORRECTION"].startswith("I recommend replacing the evaporator fan assembly"), self.sec["CORRECTION"])
         for bad in ("OPEN", "no correction recorded", "not yet performed"):
             self.assertNotIn(bad, self.s)
 
     def test_all_tech_work_is_carried(self):
-        for want in ("removed the refrigerator", "electrical, mechanical and visual", "discoloration around refrigerant fittings and filter-drier",
-                     "no refrigerant leak was confirmed", "removed the freezer upper air duct assembly", "fan activation testing",
+        for want in ("I first removed the refrigerator", "electrical, mechanical and visual", "discoloration around refrigerant fittings and filter-drier",
+                     "no refrigerant leak was confirmed", "I removed the freezer upper air duct assembly", "fan activation testing",
                      "The fan failed to start", "48F to 5F", "60F to 48F"):
             self.assertIn(want, self.s)
-        self.assertIn("Also noted: the voltage drop exceeded the manual limit", self.s)
+        self.assertIn("I also noted that the voltage drop exceeded the manual limit", self.s)
         self.assertNotIn("page", self.sec.get("REFERENCES", "").lower())
 
 
@@ -164,7 +164,7 @@ class TestStoryPrompt(unittest.TestCase):
         for want in ("\nCONCERN\n", "\nCAUSE\n", "\nCORRECTION\n", "no bullet points or numbered lists",
                      "well-written Concern, Cause and Correction", "reasonably draw",
                      "every test, inspection and action", "with its units", "no page numbers", "noted finding",
-                     "Recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair.",
+                     "I recommend replacing the wall thermostat, then re-test the full heating sequence to verify repair.", "first person",
                      "same story goes on customer-pay work"):
             self.assertIn(want, p)
 
@@ -187,9 +187,9 @@ class TestStoryPrompt(unittest.TestCase):
         gd_story.write_warranty_story(case, M1066, "", chat_fn=lambda m: seen.append(m) or GROK_OK)
         self.assertIn("REPAIR STATUS: performed", seen[0][1]["content"])
         fb = gd_story.warranty_story(case, M1066, "FCR16DCASA-SS")
-        self.assertIn("Replaced the evaporator fan assembly; fresh food reached 38F. After the repair, the unit was operated and "
-                      "verified working properly.", fb)
-        self.assertNotIn("Recommend replacing", fb)
+        self.assertIn("I replaced the evaporator fan assembly; fresh food reached 38F. After the repair, I operated the unit "
+                      "and verified it was working properly.", fb)
+        self.assertNotIn("recommend replacing", fb.lower())
 
     def test_gd_mid_chat_story_is_not_the_story(self):
         # GD-4 (11/24): the story is written by the Write warranty story button from the whole chat; a story GD put in its

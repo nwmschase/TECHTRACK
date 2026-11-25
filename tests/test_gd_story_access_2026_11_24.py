@@ -82,7 +82,7 @@ class Test156231(unittest.TestCase):
         refs = gd_story.procedure_references(case_156231(), HIST, CITED, page_lookup=lookup)
         s = gd_story.write_warranty_story(case_156231(), HIST, "NT-20SEQT", references=refs)
         corr = s.split("CORRECTION", 1)[1]
-        self.assertIn("Recommend replacing the thermostat, then re-test the full sequence without the jumper", corr)
+        self.assertIn("I recommend replacing the thermostat, then re-testing the full sequence without the jumper", corr)
         self.assertNotIn("L120", s)
         self.assertNotIn("page", s.lower())
         self.assertIn("The blower started immediately but the burner did not ignite at all.", s)   # prose story (11/25)
@@ -160,9 +160,9 @@ class TestAccessAnswer(unittest.TestCase):
         gd_story.record_tech_findings(c, h[-1]["content"])
         s = gd_story.warranty_story(c, h, "")
         cause, corr = s.split("CORRECTION", 1)
-        self.assertIn("The technician first pulled the fridge out.", cause)
-        self.assertIn("Recommend replacing the slide floor", corr)
-        self.assertIn("the repair will require removal and reinstallation of the fridge, the stove, the counters and the "
+        self.assertIn("I first pulled the fridge out.", cause)
+        self.assertIn("I recommend replacing the slide floor", corr)
+        self.assertIn("The repair will also require removing and reinstalling the fridge, the stove, the counters and the "
                       "drawers.", corr)
         self.assertNotIn("the floor", corr)
 
@@ -171,7 +171,7 @@ class TestAccessAnswer(unittest.TestCase):
         gd_story.record_access_answer(c, "had to pull the furnace out, the repair will need the wall panel removed")
         s = gd_story.warranty_story(c, HIST, "")
         self.assertEqual(gd_story.story_problems(s, c, HIST), [])
-        self.assertIn("removal and reinstallation of the wall panel", s)
+        self.assertIn("The repair will also require removing and reinstalling the wall panel.", s)
         self.assertTrue(gd_story.story_problems(s.replace("wall panel", ""), c, HIST))
 
     def test_work_order_shows_access_and_recommendation(self):
