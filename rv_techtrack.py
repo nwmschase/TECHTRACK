@@ -374,7 +374,7 @@ def _reload_stale_app_modules_locked(required_revision):
 # content hash with the one last loaded in this process and, when any changed, drops the whole stack from sys.modules so
 # the next import executes the files that shipped with this deploy (together, so none keeps an older sibling).
 _GD_PLAIN_MODULES = ("gd_state", "gd_pages", "gd_prompt", "gd_official", "gd_tools", "gd_turn", "gd_story",
-                     "gd_work_orders")
+                     "gd_work_orders", "gd_page_links")
 
 
 def _drop_changed_gd_modules():
@@ -2576,6 +2576,135 @@ def _figures_for_session(offers) -> list:
     return kept
 
 
+def _gd_doc_file_path(doc_id) -> str:
+    """Storage key of a library doc's PDF (Document.file_path) for a page-finder id L<Document.id>; "" when unknown."""
+    m = re.match(r"^L(\d+)$", str(doc_id or "").strip())
+    if not m:
+        return ""
+    try:
+        d = session.get(Document, int(m.group(1)))
+    except Exception:
+        return ""
+    return (d.file_path or "") if d is not None else ""
+
+
+def _gd_cited_page_refs(cited) -> list:
+    """The cited pages of one GD reply as page-row data (gd_page_links.page_refs): PDF sheet (looked up from the printed
+    label when Grok did not open the page), title, storage key. Stored on the chat message; links are built when drawn."""
+    if not cited:
+        return []
+    import gd_page_links
+
+    pages_fn = title_fn = None
+    try:
+        finder = _gd_page_finder()
+        lib = getattr(finder, "lib", None)
+        pages_fn = getattr(lib, "pages", None)
+        title_fn = finder.doc_title
+    except Exception:
+        pass
+    try:
+        return gd_page_links.page_refs(cited, pages_fn=pages_fn, file_fn=_gd_doc_file_path, title_fn=title_fn)
+    except Exception:
+        return []
+
+
+def _gd_pdf_in_storage(key: str) -> bool:
+    """The cited PDF is in R2 (HEAD, yes/no remembered 10 minutes in gd_page_links; no bytes are cached)."""
+    import gd_page_links
+
+    try:
+        bucket = st.secrets["R2_BUCKET_NAME"]
+    except Exception:
+        return False
+    return gd_page_links.object_exists_cached(get_r2_client, bucket, key)
+
+
+def _render_cited_sheet(doc_id, sheet: int, file_path: str, caption: str) -> bool:
+    """Draw exactly the cited PDF sheet: the page image indexing stored in R2 (library-pages/<id>/p<sheet>-page.png) when
+    there is one, else that sheet rendered from the PDF (render_pdf_page_png). Unlike render_library_page_image this never
+    swaps in a bundled kit figure, so the tech always sees the page that was cited."""
+    import manual_figures as mf
+
+    m = re.match(r"^L(\d+)$", str(doc_id or "").strip())
+    png = None
+    if m:
+        try:
+            import library_figure_backfill as fb
+
+            png = fb.fetch_png(mf.asset_path(int(m.group(1)), int(sheet), "page", "page"), download=r2_download_bytes)
+        except Exception:
+            png = None
+    if not png or mf.png_is_blank(png):
+        local = Path(str(file_path or ""))
+        data = None
+        if file_path and local.is_file():
+            try:
+                data = local.read_bytes()
+            except Exception:
+                data = None
+        elif file_path:
+            data = r2_download_bytes(file_path)
+        png = render_pdf_page_png(data, int(sheet)) if data else None
+    if png and not mf.png_is_blank(png):
+        st.image(png, caption=caption, use_container_width=True)
+        return True
+    return False
+
+
+def _render_gd_page_links(pages, key_prefix: str) -> None:
+    """One compact row per cited page under a GD reply: 📄 Open PDF (short-lived link, opens at the cited sheet) and
+    🖼 Show page (draws the page only when tapped). Nothing when nothing was cited; no expanders."""
+    if not pages:
+        return
+    import gd_page_links
+
+    for i, ref in enumerate(pages[: gd_page_links.MAX_PAGE_LINKS]):
+        if not isinstance(ref, dict):
+            continue
+        label = ref.get("label") or ref.get("title") or "Manual page"
+        if ref.get("kind") == "web":
+            c1, c2 = st.columns([3, 2])
+            c1.caption(f"🌐 {label}")
+            if ref.get("url"):
+                c2.link_button("🌐 Open page", ref["url"], use_container_width=True)
+            continue
+        key = ref.get("file_path") or ""
+        local = Path(key).is_file() if key else False
+        in_storage = bool(key) and (local or _gd_pdf_in_storage(key))
+        if not in_storage:
+            st.caption(f"📖 {label} — the PDF for this page is not in the shop library storage.")
+            continue
+        sheet = ref.get("sheet")
+        c1, c2, c3 = st.columns([3, 2, 2])
+        c1.caption(f"📖 {label}")
+        url = ""
+        if not local:
+            try:
+                url = gd_page_links.pdf_link(get_r2_client(), st.secrets["R2_BUCKET_NAME"], key, sheet)
+            except Exception:
+                url = ""
+        if url:
+            c2.link_button("📄 Open PDF", url, use_container_width=True)
+        show_key = f"{key_prefix}_show_{i}"
+        if sheet:
+            def _flip(k=show_key):
+                st.session_state[k] = not st.session_state.get(k)
+
+            shown = bool(st.session_state.get(show_key))
+            c3.button("✖ Hide page" if shown else "🖼 Show page", key=f"{show_key}_btn", on_click=_flip,
+                      use_container_width=True)
+            if shown:
+                try:
+                    ok = _render_cited_sheet(ref.get("doc_id"), int(sheet), key, label)
+                except Exception:
+                    ok = False
+                if not ok:
+                    st.caption("Couldn't draw that page here. Use Open PDF.")
+        else:
+            c3.caption("Page not found in the index; the PDF opens at page 1.")
+
+
 def _render_gd_figures_under_step(figures, key_prefix: str) -> None:
     """Full-width figures directly under this step. A missing file stays blank."""
     import library_figure_backfill as fb
@@ -3276,6 +3405,10 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
     """One GD turn on the fresh core (gd_turn). The brain decides; this wrapper only wires the app to it."""
     import gd_turn
 
+    # 2026-11-25 (Chase, "love it build it"): the pages Grok cited this turn are kept for the clickable page row under the
+    # reply (gd_page_links). Cleared first so an offline or failed turn never shows the previous turn's pages.
+    st.session_state.pop("gd_last_cited", None)
+
     if pin_store is None:
         try:
             pin_store = st.session_state.setdefault("gd_pin_store", {})
@@ -3322,6 +3455,7 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             record_cited_pages(f"📖 Source: {_gd_page_finder().doc_title(c.get('doc_id'))} - page {c.get('page')}")
         except Exception:
             pass
+    st.session_state["gd_last_cited"] = list(result.get("cited") or [])
     return result["reply"]
 
 
@@ -3777,6 +3911,8 @@ with tab_ask:
                 # does not pull a manual image until the tech asks.
                 step_figs = (m.get("figures") or []) if isinstance(m, dict) else []
                 _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
+                # 2026-11-25: the pages this reply cited, as a compact clickable row (nothing when none were cited).
+                _render_gd_page_links((m.get("pages") or []) if isinstance(m, dict) else [], f"gd_pages_{index}")
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
@@ -3966,6 +4102,7 @@ with tab_ask:
                 "role": "assistant",
                 "content": reply,
                 "figures": _figures_for_session(_step_figs),
+                "pages": _gd_cited_page_refs(st.session_state.pop("gd_last_cited", None)),
             })
             st.session_state["ask_chat"] = history
             st.session_state["ask_photo_gen"] = _photo_gen + 1
