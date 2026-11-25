@@ -85,7 +85,7 @@ class Test156231(unittest.TestCase):
         self.assertIn("Recommend replacing the thermostat, then re-test the full sequence without the jumper", corr)
         self.assertNotIn("L120", s)
         self.assertNotIn("page", s.lower())
-        self.assertIn("1. Blower will start immediately but doesnt ignite at all.", s)
+        self.assertIn("1. Blower will start immediately but doesn't ignite at all.", s)   # apostrophe back in (11/25)
         self.assertIn("3. Bypassed thermostat and it works.", s)
         self.assertNotIn("recommend a new thermostat", s.split("CORRECTION", 1)[0])
         self.assertEqual(gd_story.story_problems(s, case_156231(), HIST), [])

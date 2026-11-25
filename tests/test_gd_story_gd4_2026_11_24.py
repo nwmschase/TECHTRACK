@@ -85,7 +85,7 @@ class Test1AccessAnswer(unittest.TestCase):
     def test_fallback_logs_the_trim(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        self.assertIn("2. " + TRIM_STEP, s)
+        self.assertIn("2. " + TRIM_STEP.replace("cieling", "ceiling"), s)   # spelling tidied in the story (11/25)
         self.assertEqual(s.count("removed trim"), 1)
 
 
@@ -116,11 +116,11 @@ class Test2WholeChat(unittest.TestCase):
     def test_fallback_has_every_test_with_readings(self):
         c = gd_story.record_access_answer(case_gd4(), ANSWER, HIST)
         s = gd_story.write_warranty_story(c, HIST + [CHAT[ACCESS_Q_AT + 1]], "")
-        for want in ("I measured 122 VAC input.", "On Fan High, the board output tester doesn't light.",
+        for want in ("Measured 122 VAC input.", "On Fan High, the board output tester doesn't light.",
                      "Read 0.000 to 0.048 VAC on black/white at the 9-pin connector.",
                      "The fan run capacitor reads 15.11 µF (rated 15 µF ±5%, so it's good).",
                      "It draws about 1.91 A at 122 V, and the shaft is locked.",
-                     "Its the fan motor thats running that bad voltage and locked shaft.",
+                     "It's the fan motor that's running that bad voltage and locked shaft.",   # tidied 11/25
                      "Customer states the unit ran about 2 minutes then dead / no response."):
             self.assertIn(want, s)
         self.assertNotIn("?", s.split("CORRECTION")[0])

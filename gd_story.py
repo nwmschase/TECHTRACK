@@ -20,6 +20,7 @@ warranty_story(), the numbered narrative built from the tech's own messages. No 
 from __future__ import annotations
 
 import json
+import os
 
 PHOTO_NOTE = "The file did not count."
 PHOTO_NOTE_LINE = "(The file did not count as a finding.)"
@@ -654,36 +655,44 @@ def procedure_references(case: dict, history=None, cited=(), page_lookup=None) -
     return [f"{n}: {'; '.join(docs[n])}" if docs[n] else n for n in order]
 
 # ---------------------------------------------------------------- readings (for the check)
+def _reading_pairs(text: str) -> list:
+    """(number, unit) for each number the tech gave with a unit in one text (13.34V, 6.81A, 0.000 to 0.048 VAC ...)."""
+    out = []
+    t = text or ""
+    low = t.lower()
+    i, n = 0, len(low)
+    while i < n:
+        if low[i].isdigit() and (i == 0 or not (low[i - 1].isalnum() or low[i - 1] in "-/")):
+            j = i
+            while j < n and (low[j].isdigit() or (low[j] in ".-" and j + 1 < n and low[j + 1].isdigit())):
+                j += 1
+            nums = t[i:j].split("-")
+            if low.startswith(" to ", j) and j + 4 < n and low[j + 4].isdigit():     # a range: 0.000 to 0.048 VAC
+                j2 = j + 4
+                while j2 < n and (low[j2].isdigit() or (low[j2] == "." and j2 + 1 < n and low[j2 + 1].isdigit())):
+                    j2 += 1
+                nums, j = nums + [t[j + 4:j2]], j2
+            k = j + 1 if j < n and low[j] == " " else j
+            unit = ""
+            for u in _UNITS:
+                if low.startswith(u, k) and (k + len(u) >= n or not low[k + len(u)].isalpha()):
+                    unit = u
+                    break
+            if unit:
+                out += [(part, unit) for part in nums if part]
+            i = j
+        else:
+            i += 1
+    return out
+
+
 def readings(history) -> list:
     """Numbers the tech reported with a unit (13.34V, 6.81A, 48F, 7.28-12.50A ...), as the number strings."""
     out = []
     for t in _tech_msgs(history):
-        low = t.lower()
-        i, n = 0, len(low)
-        while i < n:
-            if low[i].isdigit() and (i == 0 or not (low[i - 1].isalnum() or low[i - 1] in "-/")):
-                j = i
-                while j < n and (low[j].isdigit() or (low[j] in ".-" and j + 1 < n and low[j + 1].isdigit())):
-                    j += 1
-                nums = t[i:j].split("-")
-                if low.startswith(" to ", j) and j + 4 < n and low[j + 4].isdigit():     # a range: 0.000 to 0.048 VAC
-                    j2 = j + 4
-                    while j2 < n and (low[j2].isdigit() or (low[j2] == "." and j2 + 1 < n and low[j2 + 1].isdigit())):
-                        j2 += 1
-                    nums, j = nums + [t[j + 4:j2]], j2
-                k = j + 1 if j < n and low[j] == " " else j
-                unit = ""
-                for u in _UNITS:
-                    if low.startswith(u, k) and (k + len(u) >= n or not low[k + len(u)].isalpha()):
-                        unit = u
-                        break
-                if unit:
-                    for part in nums:
-                        if part and part not in out:
-                            out.append(part)
-                i = j
-            else:
-                i += 1
+        for part, _unit in _reading_pairs(t):
+            if part not in out:
+                out.append(part)
     return out
 
 
@@ -729,6 +738,223 @@ def _is_work(text: str) -> bool:
     return _has_reading(text) or any(w in low for w in _WORK_WORDS)
 
 
+# The fallback log is the tech's own words, tidied (11/25, GD-4 'clean it up'): his misspellings are matched against the
+# words the session itself spells (the assistant's replies), missing apostrophes go back in, 'I measured' reads
+# 'Measured'. Nothing is added: a word the session never spells is left as he typed it.
+_CONTRACTIONS = {"doesnt": "doesn't", "dont": "don't", "didnt": "didn't", "isnt": "isn't", "wasnt": "wasn't",
+                 "arent": "aren't", "werent": "weren't", "cant": "can't", "couldnt": "couldn't", "wouldnt": "wouldn't",
+                 "shouldnt": "shouldn't", "thats": "that's", "theres": "there's", "hasnt": "hasn't", "havent": "haven't",
+                 "ive": "I've", "im": "I'm"}
+_ITS_NEXT = ("the", "a", "an", "not", "been", "going", "running", "working", "good", "bad", "fine", "called", "getting",
+             "still", "just", "only", "probably", "definitely", "now")
+_I_PAST = {"found", "took", "ran", "read", "saw", "got", "put", "set", "had", "did", "made", "went", "left", "heard", "felt",
+           "kept", "held", "cut", "slid"}
+_SUFFIXES = ("s", "es", "ed", "d", "ing", "er", "ers", "ly")
+_PARTICIPLE = {"plug": "plugged", "connect": "connected", "hook": "hooked", "clip": "clipped", "attach": "attached",
+               "insert": "inserted"}
+
+
+def _tokens(text: str) -> list:
+    """[(token, is_word)] covering the text: letter runs (with inner apostrophes) and everything between them."""
+    out, cur, word = [], "", None
+    t = text or ""
+    for k, ch in enumerate(t):
+        w = ch.isalpha() or (ch in "'’" and cur and word and k + 1 < len(t) and t[k + 1].isalpha())
+        if word is None or w == word:
+            cur += ch
+        else:
+            out.append((cur, word))
+            cur = ch
+        word = w
+    if cur:
+        out.append((cur, bool(word)))
+    return out
+
+
+def _session_vocab(texts) -> tuple:
+    """Words as the session spells them: {lower: count}, {lower: proper form} for words only ever written capitalized
+    mid-sentence (Peacemaker), and the two-word pairs used (fan motor)."""
+    count, caps, lower_seen, pairs = {}, {}, set(), set()
+    for text in texts:
+        prev_word, prev_gap = "", "."
+        for tok, is_word in _tokens(text):
+            if not is_word:
+                prev_gap = tok
+                if tok.strip():
+                    prev_word = ""
+                continue
+            low = tok.lower()
+            count[low] = count.get(low, 0) + 1
+            mid = not any(ch in prev_gap for ch in ".!?:\n*-#") and prev_word != ""
+            if tok[0].isupper() and not tok.isupper() and mid:
+                caps.setdefault(low, tok)
+            elif tok[0].islower():
+                lower_seen.add(low)
+            if prev_word and prev_gap == " ":
+                pairs.add(prev_word + " " + low)
+            prev_word, prev_gap = low, ""
+    return count, {k: v for k, v in caps.items() if k not in lower_seen}, pairs
+
+
+def _distance(a: str, b: str) -> int:
+    """Edits between two words (insert, delete, change, swap of two neighbours)."""
+    d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
+    for i in range(len(a) + 1):
+        d[i][0] = i
+    for j in range(len(b) + 1):
+        d[0][j] = j
+    for i in range(1, len(a) + 1):
+        for j in range(1, len(b) + 1):
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[len(a)][len(b)]
+
+
+_ENGLISH = None
+
+
+def _english() -> set:
+    """The English word list the page finder already uses (bay_words.txt); empty when the file is missing."""
+    global _ENGLISH
+    if _ENGLISH is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "bay_words.txt"), encoding="utf-8") as f:
+                _ENGLISH = {w.strip().lower() for w in f if w.strip()}
+        except OSError:
+            _ENGLISH = set()
+    return _ENGLISH
+
+
+def _session_spelling(low: str, vocab: tuple) -> str:
+    """The session's spelling of a word the tech misspelled ('cieling' -> 'ceiling', 'fanmotor' -> 'fan motor'), else ''.
+    A real English word is never changed, and nothing changes without the word list."""
+    count, _caps, pairs = vocab
+    words = _english()
+    if len(low) < 5 or low in count or not words or low in words:
+        return ""
+    if any(low.endswith(x) and low[:-len(x)] in count for x in _SUFFIXES) or any(low + x in count for x in _SUFFIXES):
+        return ""                                         # another form of a word the session uses: his word stands
+    for k in range(3, len(low) - 2):
+        if f"{low[:k]} {low[k:]}" in pairs:
+            return f"{low[:k]} {low[k:]}"
+    best, hits = 9, []
+    for w in count:
+        if w[0] != low[0] or w[-1] != low[-1] or abs(len(w) - len(low)) > 2 or len(w) < 4:
+            continue
+        dist = _distance(low, w)
+        if dist < best:
+            best, hits = dist, [w]
+        elif dist == best:
+            hits.append(w)
+    return hits[0] if len(hits) == 1 and best <= (1 if len(low) < 6 else 2) else ""
+
+
+def _tidy(text: str, vocab: tuple) -> str:
+    """The tech's sentence with his spelling tidied against the session's words (see above)."""
+    toks = _tokens(text)
+    out = []
+    for n, (tok, is_word) in enumerate(toks):
+        if not is_word:
+            out.append(tok)
+            continue
+        low = tok.lower()
+        nxt = toks[n + 2][0].lower() if n + 2 < len(toks) and toks[n + 1][0] == " " else ""
+        new = tok
+        if low == "i":
+            new = "I"
+        elif low in _CONTRACTIONS:
+            new = _CONTRACTIONS[low]
+        elif low == "its" and nxt in _ITS_NEXT:
+            new = "it's"
+        elif tok.isupper() and len(tok) > 1:
+            new = tok
+        elif low in ("v", "vac", "vdc") and n and toks[n - 1][0].strip(" ")[-1:].isdigit():
+            new = tok.upper()                                  # '12 v' -> '12 V' (a unit after a number)
+        elif low in vocab[1] and tok.islower():
+            new = vocab[1][low]
+        else:
+            fix = _session_spelling(low, vocab)
+            if fix:
+                new = vocab[1].get(fix, fix)
+        if new != tok and tok[0].isupper() and not new[0].isupper():
+            new = new[0].upper() + new[1:]
+        out.append(new)
+    t = "".join(out)
+    words = t.split(" ", 2)
+    if len(words) > 2 and words[0] == "I" and (words[1].lower().endswith("ed") or words[1].lower() in _I_PAST):
+        t = words[1][0].upper() + words[1][1:] + " " + words[2]       # 'I measured 122 VAC input.' -> 'Measured ...'
+    return t
+
+
+def _setup_sentence(x: str) -> str:
+    """'I have peacemaker tool its called that I can plug into the control board' (the tool he set up, said before the
+    result) -> 'With the peacemaker tool plugged into the control board', else ''."""
+    t = x.strip().rstrip(".").strip()
+    low = t.lower()
+    lead = next((ld for ld in ("i have ", "i've got ", "ive got ", "i got ") if low.startswith(ld)), "")
+    if not lead or _has_reading(t):
+        return ""
+    rest, rl = t[len(lead):], low[len(lead):]
+    sep = " that i can " if " that i can " in rl else (" i can " if " i can " in rl else "")
+    if not sep:
+        return ""
+    k = rl.index(sep)
+    obj, vp = rest[:k].strip(), rest[k + len(sep):].strip()
+    for tail in (" its called", " it's called", " called"):
+        if obj.lower().endswith(tail):
+            obj = obj[:-len(tail)].strip(" ,")
+    for art in ("a ", "an ", "the ", "my ", "this "):
+        if obj.lower().startswith(art):
+            obj = obj[len(art):]
+    verb, _, more = vp.partition(" ")
+    past = _PARTICIPLE.get(verb.lower()) or _PAST.get(verb.lower())
+    return f"With the {obj} {past} {more}".strip() if obj and past else ""
+
+
+def _join_setups(sentences: list) -> list:
+    """A setup sentence and the result that follows it in the same message are one step."""
+    out, i = [], 0
+    while i < len(sentences):
+        x = sentences[i]
+        bare = x
+        for lead in ("ok so ", "ok, ", "ok ", "so ", "and "):
+            if bare.lower().startswith(lead):
+                bare = bare[len(lead):].strip()
+        pre = _setup_sentence(bare)
+        if pre and i + 1 < len(sentences):
+            nxt = sentences[i + 1].strip()
+            for lead in ("ok so ", "ok, ", "ok ", "so ", "and ", "then "):
+                if nxt.lower().startswith(lead):
+                    nxt = nxt[len(lead):].strip()
+            out.append(pre + ", " + nxt[:1].lower() + nxt[1:])
+            i += 2
+            continue
+        out.append(x)
+        i += 1
+    return out
+
+
+def _drop_repeated_readings(steps: list) -> list:
+    """A step repeating readings already logged (the tech's recap of the same test) is logged once, at the place the test
+    was first reported: the recap's wording when it holds more readings or carries the first sentence further (adds 'and
+    the shaft is locked'), else the first wording. Every reading is kept."""
+    out, sets = [], []
+    for x in steps:
+        p = set(_reading_pairs(x))
+        if p:
+            hit = next((k for k, q in enumerate(sets) if q and q <= p), None)
+            if hit is not None:                  # more readings, or the same sentence carried further: this wording
+                if p != sets[hit] or out[hit].rstrip(".").lower() in x.lower():
+                    out[hit], sets[hit] = x, p
+                continue
+            if any(q and p <= q for q in sets):
+                continue
+        out.append(x)
+        sets.append(p)
+    return out
+
+
 def _cause_steps(history, skip=()) -> list:
     """Every test / action the tech reported, in order, as full sentences; bullet readings become one sentence each group.
     skip: messages that are not test work (the tech's access answer)."""
@@ -763,7 +989,7 @@ def _cause_steps(history, skip=()) -> list:
             if s:
                 prose.append(s.lstrip("*-• ").strip())
             i += 1
-        for x in _sentences(" ".join(prose)):
+        for x in _join_setups(_sentences(" ".join(prose))):
             x = x.rstrip(".").strip(" \\/,;")
             for lead in ("ok so ", "ok, ", "ok ", "so ", "and "):
                 if x.lower().startswith(lead):
@@ -794,7 +1020,12 @@ def _cause_steps(history, skip=()) -> list:
             if x:
                 x = x[0].upper() + x[1:]
                 steps.append(_sentence(x.rstrip(" ,;/")))
-    return steps
+    count, caps, pairs = _session_vocab(_gd_msgs(history))
+    tech_caps = {tok.lower() for t in _tech_msgs(history) for line in t.split("\n") for tok in line.split()[1:]
+                 if tok[:1].isupper() and not tok.isupper()}
+    tech_caps = {w.strip(".,;:!?()\"'") for w in tech_caps}
+    vocab = (count, {k: v for k, v in caps.items() if k in tech_caps}, pairs)   # a name as the tech also wrote it (Peacemaker)
+    return _drop_repeated_readings([_tidy(x, vocab) for x in steps])
 
 
 def noted_findings(history) -> list:
