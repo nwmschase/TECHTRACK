@@ -26,3 +26,6 @@ venv/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Cloud sync sidecar (which R2 copy the local DB came from)
+*.db.cloud.json

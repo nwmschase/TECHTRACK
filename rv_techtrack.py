@@ -1159,14 +1159,169 @@ def restore_db_from_bytes(data: bytes) -> str:
     return ""
 
 
+# ---------------- CLOUD DB SYNC GUARD (2026-11-25) ----------------
+# 2026-11-25: the 11/24 library label fix written to R2 was overwritten at 2:06 PM PT by the running app. Restore pulls
+# R2 only when the local DB is (nearly) empty, and the backup's "no changes" check lived in per-browser-session
+# st.session_state, so the first run of every new session uploaded this server's local file over whatever R2 held,
+# including a newer copy written after this server loaded its library. The sidecar below remembers which cloud copy
+# (ETag) this local file came from or was last saved as, and the local file's mtime at that moment, across sessions.
+DB_CLOUD_STATE = DB_PATH + ".cloud.json"
+
+
+def _db_cloud_state() -> dict:
+    try:
+        data = json.loads(Path(DB_CLOUD_STATE).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _db_cloud_state_save(etag, mtime) -> None:
+    try:
+        Path(DB_CLOUD_STATE).write_text(json.dumps({
+            "etag": str(etag or "").strip('"'),
+            "mtime": float(mtime or 0),
+            "at": datetime.now().isoformat(timespec="seconds"),
+        }), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _r2_db_etag(client, bucket):
+    """ETag of the cloud DB: '' when there is no cloud copy, None when it could not be checked."""
+    try:
+        return str(client.head_object(Bucket=bucket, Key=R2_DB_KEY).get("ETag") or "").strip('"')
+    except Exception as exc:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+        if code in ("404", "NoSuchKey", "NotFound"):
+            return ""
+        return None
+
+
+def cloud_db_conflict(known_etag, remote_etag) -> str:
+    """'' when this server may upload over the cloud DB, else why not.
+
+    known_etag: the cloud copy this local file was restored from or last saved as ('' = not recorded yet: a server that
+    started before this check, or a local run). remote_etag: what R2 holds now ('' = nothing, None = could not check).
+    """
+    if remote_etag is None:
+        return "Could not check the cloud copy, so nothing was overwritten. It will try again on the next save."
+    known = str(known_etag or "").strip('"')
+    if not remote_etag or not known or known == remote_etag:
+        return ""
+    return ("Not saved to cloud: the cloud copy changed after this app loaded its library (another save, or a fix "
+            "uploaded to the cloud). Saving now would undo that change. Reboot the app from Manage app so it loads the "
+            "cloud copy. Anything done here since the last cloud save is only on this server until then.")
+
+
+# ---------------- LIBRARY LABEL FIXES (2026-11-25) ----------------
+# Library label corrections ship with the code (data/label_fixes/<name>.csv: id,field,before,after,evidence) and are
+# applied to whatever DB this server has: a fresh restore, an older backup, or a running server's local file. Each
+# file runs once per DB (marker row in app_data_migrations). A field is changed only while it still holds the
+# recorded `before`; a value already at `after` is counted, and a value someone edited since is kept.
+LABEL_FIX_DIR = Path(__file__).resolve().parent / "data" / "label_fixes"
+LABEL_FIX_FIELDS = ("title", "clean_title", "brand", "models", "product_line")
+
+
+def apply_label_fixes(db_path=None, fix_dir=None) -> dict:
+    import csv
+    import sqlite3
+
+    db_path = db_path or DB_PATH
+    fix_dir = Path(fix_dir or LABEL_FIX_DIR)
+    out = {"applied": [], "changed": 0, "already": 0, "kept": 0, "missing": 0}
+    files = sorted(fix_dir.glob("*.csv")) if fix_dir.is_dir() else []
+    if not files or not Path(db_path).exists():
+        return out
+    con = sqlite3.connect(db_path, timeout=30)
+    try:
+        tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+        if not {"documents", "categories"} <= tables:
+            return out
+        if not con.execute("select count(*) from documents").fetchone()[0]:
+            return out          # empty library (restore not done yet): run later, against the real one
+        con.execute("create table if not exists app_data_migrations (name varchar(200) primary key, "
+                    "applied_at varchar(40), changed integer, already integer, kept integer, missing integer)")
+        con.commit()
+        done = {r[0] for r in con.execute("select name from app_data_migrations")}
+        chunk_cols = {r[1] for r in con.execute("pragma table_info(doc_chunks)")} if "doc_chunks" in tables else set()
+        for path in files:
+            name = f"label-fix:{path.stem}"
+            if name in done:
+                continue
+            with path.open(encoding="utf-8", newline="") as fh:
+                rows = list(csv.DictReader(fh))
+            cats = {n: i for n, i in con.execute("select name, id from categories")}
+            order_file = path.with_suffix(".categories.txt")
+            wanted = [ln.strip() for ln in order_file.read_text(encoding="utf-8").splitlines()] if order_file.exists() else []
+            wanted += [r.get("after") or "" for r in rows if r.get("field") == "category"]
+            n = {"changed": 0, "already": 0, "kept": 0, "missing": 0}
+            try:
+                for cat in wanted:
+                    if cat and cat not in cats:
+                        cats[cat] = con.execute("insert into categories (name) values (?)", (cat,)).lastrowid
+                for r in rows:
+                    field = (r.get("field") or "").strip()
+                    before, after = r.get("before") or "", r.get("after") or ""
+                    try:
+                        doc_id = int(r.get("id") or "")
+                    except ValueError:
+                        continue
+                    if field == "category":
+                        cur = con.execute("select c.name from documents d left join categories c on c.id = d.category_id "
+                                          "where d.id = ?", (doc_id,)).fetchone()
+                    elif field in LABEL_FIX_FIELDS:
+                        cur = con.execute(f"select {field} from documents where id = ?", (doc_id,)).fetchone()
+                    else:
+                        continue
+                    if cur is None:
+                        n["missing"] += 1
+                        continue
+                    value = cur[0] or ""
+                    if value == after:
+                        n["already"] += 1
+                        continue
+                    if value != before:
+                        n["kept"] += 1          # edited since the fix was made: the newer value wins
+                        continue
+                    if field == "category":
+                        con.execute("update documents set category_id = ? where id = ?", (cats[after], doc_id))
+                        if "category_id" in chunk_cols and "document_id" in chunk_cols:
+                            con.execute("update doc_chunks set category_id = ? where document_id = ?", (cats[after], doc_id))
+                    else:
+                        con.execute(f"update documents set {field} = ? where id = ?", (after, doc_id))
+                    n["changed"] += 1
+                con.execute("insert into app_data_migrations (name, applied_at, changed, already, kept, missing) "
+                            "values (?, ?, ?, ?, ?, ?)", (name, datetime.now().isoformat(timespec="seconds"),
+                                                          n["changed"], n["already"], n["kept"], n["missing"]))
+                con.commit()
+            except Exception:
+                con.rollback()
+                raise
+            out["applied"].append(name)
+            for k, v in n.items():
+                out[k] += v
+        return out
+    finally:
+        con.close()
+
+
 def maybe_restore_db_from_r2() -> bool:
-    """If Streamlit wiped the local DB, pull the last good copy from R2."""
+    """If Streamlit wiped the local DB, pull the last good copy from R2 and remember which cloud copy it was."""
     if not r2_available():
         return False
     local_n = _local_doc_count()
     if local_n >= MIN_DOCS_TO_BACKUP:
         return False
-    data = r2_download_bytes(R2_DB_KEY)
+    client = get_r2_client()
+    if not client:
+        return False
+    try:
+        obj = client.get_object(Bucket=st.secrets["R2_BUCKET_NAME"], Key=R2_DB_KEY)
+        data = obj["Body"].read()
+        etag = str(obj.get("ETag") or "").strip('"')
+    except Exception:
+        return False
     if not data or len(data) < 50000 or not data.startswith(b"SQLite format 3"):
         return False
     try:
@@ -1181,6 +1336,7 @@ def maybe_restore_db_from_r2() -> bool:
                 shutil.copy(DB_PATH + ".pre_restore", DB_PATH)
                 _reopen_db()
             return False
+        _db_cloud_state_save(etag, Path(DB_PATH).stat().st_mtime)
         try:
             st.session_state["_db_restored_from_r2"] = True
             st.session_state["_db_restored_docs"] = restored_n
@@ -1192,7 +1348,8 @@ def maybe_restore_db_from_r2() -> bool:
 
 
 def maybe_backup_db_to_r2(force: bool = False):
-    """Upload the full SQLite file to R2. Never overwrite a good cloud copy with an empty local DB."""
+    """Upload the full SQLite file to R2. Never overwrite a good cloud copy with an empty local DB, and never overwrite
+    a cloud copy that changed after this server loaded or last saved its library (cloud_db_conflict)."""
     if not r2_available():
         return False, "Storage not configured"
     local_n = _local_doc_count()
@@ -1201,11 +1358,17 @@ def maybe_backup_db_to_r2(force: bool = False):
     if not Path(DB_PATH).exists():
         return False, "No local database file"
     now = time.time()
+    state = _db_cloud_state()
     try:
         last = float(st.session_state.get("_db_backup_ts") or 0)
         last_mtime = float(st.session_state.get("_db_backup_mtime") or 0)
     except Exception:
         last, last_mtime = 0.0, 0.0
+    # The sidecar survives across browser sessions; session_state alone made every new session's first run upload.
+    try:
+        last_mtime = max(last_mtime, float(state.get("mtime") or 0))
+    except Exception:
+        pass
     if not force and (now - last) < BACKUP_DEBOUNCE_SEC:
         return False, "Recently saved"
     mtime = Path(DB_PATH).stat().st_mtime
@@ -1214,13 +1377,20 @@ def maybe_backup_db_to_r2(force: bool = False):
     client = get_r2_client()
     if not client:
         return False, "Storage not configured"
+    bucket = st.secrets["R2_BUCKET_NAME"]
+    remote = _r2_db_etag(client, bucket)
+    why = cloud_db_conflict(state.get("etag"), remote)
+    if why:
+        try:
+            st.session_state["_db_cloud_conflict"] = why
+            st.session_state["_db_backup_ts"] = now      # do not re-check R2 on every rerun
+        except Exception:
+            pass
+        return False, why
     try:
         try:
-            client.copy_object(
-                Bucket=st.secrets["R2_BUCKET_NAME"],
-                CopySource={"Bucket": st.secrets["R2_BUCKET_NAME"], "Key": R2_DB_KEY},
-                Key=R2_DB_PREV_KEY,
-            )
+            if remote:
+                client.copy_object(Bucket=bucket, CopySource={"Bucket": bucket, "Key": R2_DB_KEY}, Key=R2_DB_PREV_KEY)
         except Exception:
             pass
         tmp = DB_PATH + ".r2snap"
@@ -1231,24 +1401,47 @@ def maybe_backup_db_to_r2(force: bool = False):
             src_con.backup(dst_con)
         dst_con.close()
         src_con.close()
-        with open(tmp, "rb") as f:
-            ok = r2_upload(f, R2_DB_KEY, "application/x-sqlite3")   # streamed from disk, not read whole into RAM (memtest 2026-11-03)
+        resp = None
         try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        if ok:
+            with open(tmp, "rb") as f:   # streamed from disk, not read whole into RAM (memtest 2026-11-03)
+                put = {"Bucket": bucket, "Key": R2_DB_KEY, "Body": f, "ContentType": "application/x-sqlite3"}
+                if remote:
+                    put["IfMatch"] = '"' + remote + '"'     # R2 refuses (412) if another save landed since the check
+                try:
+                    resp = client.put_object(**put)
+                except Exception as exc:
+                    code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+                    if code in ("412", "PreconditionFailed"):
+                        why = cloud_db_conflict(remote, "changed-during-save")
+                        try:
+                            st.session_state["_db_cloud_conflict"] = why
+                        except Exception:
+                            pass
+                        return False, why
+                    if "IfMatch" in put and type(exc).__name__ == "ParamValidationError":   # older boto3: HEAD check only
+                        put.pop("IfMatch")
+                        f.seek(0)
+                        resp = client.put_object(**put)
+                    else:
+                        raise
+        finally:
             try:
-                st.session_state["_db_backup_ts"] = now
-                st.session_state["_db_backup_mtime"] = mtime
-                st.session_state["_db_backup_ok"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                st.session_state["_db_backup_docs"] = local_n
-            except Exception:
+                os.remove(tmp)
+            except OSError:
                 pass
-            return True, f"Saved {local_n} documents to cloud"
-        return False, "Upload failed"
+        new_etag = str((resp or {}).get("ETag") or "").strip('"') or (_r2_db_etag(client, bucket) or "")
+        _db_cloud_state_save(new_etag, mtime)
+        try:
+            st.session_state.pop("_db_cloud_conflict", None)
+            st.session_state["_db_backup_ts"] = now
+            st.session_state["_db_backup_mtime"] = mtime
+            st.session_state["_db_backup_ok"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+            st.session_state["_db_backup_docs"] = local_n
+        except Exception:
+            pass
+        return True, f"Saved {local_n} documents to cloud"
     except Exception as e:
-        return False, str(e)
+        return False, f"Upload failed: {e}"
 
 
 def purge_old_ask_chats(days: int = 30):
@@ -3474,6 +3667,11 @@ def seed_data():
 
 maybe_restore_db_from_r2()
 seed_data()
+try:
+    if apply_label_fixes().get("changed"):     # shipped library label corrections (data/label_fixes), once per DB
+        session.expire_all()
+except Exception:
+    pass
 purge_old_ask_chats(30)
 try:
     import gd_work_orders as _gd_wo
@@ -4740,6 +4938,8 @@ if is_manager and tab_mgr is not None:
                     f"Restored library from cloud backup "
                     f"({st.session_state.get('_db_restored_docs') or '?'} documents)."
                 )
+            if st.session_state.get("_db_cloud_conflict"):
+                st.error(st.session_state["_db_cloud_conflict"])
             if last_ok:
                 st.info(f"Last automatic cloud save: **{last_ok}** · {last_n or '?'} documents")
             else:
@@ -4781,4 +4981,7 @@ if is_manager and tab_mgr is not None:
                 st.write(f"**{cert.title}** - {u.full_name if u else 'Unknown'} ({cert.issuer or '-'})")
 
 maybe_backup_db_to_r2(force=False)
+if st.session_state.get("_db_cloud_conflict"):
+    st.sidebar.warning("Cloud save paused: the cloud library changed since this app loaded it. Reboot the app from "
+                       "Manage app to load it.")
 st.sidebar.caption(f"{APP_VERSION} • Tacoma RV Center • Open library coach • Auto DB backup")
