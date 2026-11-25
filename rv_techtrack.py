@@ -367,11 +367,53 @@ def _reload_stale_app_modules_locked(required_revision):
     return coach
 
 
+# 2026-11-25 (live crash, WO SW6DE): the Guided Diagnostics stack below is imported with a plain `import` inside the
+# functions that use it and carries no MODULE_REVISION, and APP_VERSION has not changed since v4.20.0. On a redeploy
+# Streamlit re-executes this file but keeps sys.modules, so the new rv_techtrack.py called the previous gd_story
+# (record_access_answer(_rec, msg, history) against the old 2-argument one: TypeError). Each run compares every file's
+# content hash with the one last loaded in this process and, when any changed, drops the whole stack from sys.modules so
+# the next import executes the files that shipped with this deploy (together, so none keeps an older sibling).
+_GD_PLAIN_MODULES = ("gd_state", "gd_pages", "gd_prompt", "gd_official", "gd_tools", "gd_turn", "gd_story",
+                     "gd_work_orders")
+
+
+def _drop_changed_gd_modules():
+    """Drop the plain-imported GD modules from sys.modules when any of their files changed since they were loaded.
+    Returns the names dropped (empty when nothing changed)."""
+    import hashlib
+    import sys
+    import types
+
+    root = Path(__file__).resolve().parent
+    with _app_module_lock():
+        holder = sys.modules.get("_techtrack_src_stamps")
+        if holder is None:
+            fresh = types.ModuleType("_techtrack_src_stamps")
+            fresh.stamps = {}
+            holder = sys.modules.setdefault("_techtrack_src_stamps", fresh)
+        stamps = holder.stamps
+        current = {}
+        for name in _GD_PLAIN_MODULES:
+            try:
+                current[name] = hashlib.sha256((root / f"{name}.py").read_bytes()).hexdigest()
+            except OSError:
+                current[name] = ""
+        stale = [n for n in _GD_PLAIN_MODULES if n in sys.modules and stamps.get(n) != current[n]]
+        dropped = []
+        if stale:
+            for name in _GD_PLAIN_MODULES:
+                if sys.modules.pop(name, None) is not None:
+                    dropped.append(name)
+        stamps.update(current)
+        return dropped
+
+
 _gdc = _load_gd_library_coach()
 # After the loader slice tests exec. APP_VERSION is this deploy's header.
 # Rebind the coach after the ordered reload. An earlier pass can bind it
 # before manual_figures is current.
 _gdc = _reload_stale_app_modules(APP_VERSION)
+_drop_changed_gd_modules()
 # Import after the reload so this script binds the new function objects.
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
