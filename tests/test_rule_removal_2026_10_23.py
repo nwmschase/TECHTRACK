@@ -28,7 +28,7 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
     def test_primer_loads_and_is_about_one_page(self):
         text = (ROOT / "gd_primer.md").read_text(encoding="utf-8")
         self.assertEqual(gd_prompt.PRIMER, text.strip())
-        self.assertLess(len(text.split()), 1800)   # 2026-11-24: + "How a diagnosis goes in the trade" (reefer miss); 2026-11-27: + page images / web photos / cited page lines (test1); v4.20.4: + library-first line (test6, Chase t1647u)
+        self.assertLess(len(text.split()), 1875)   # 2026-11-24: + "How a diagnosis goes in the trade" (reefer miss); 2026-11-27: + page images / web photos / cited page lines (test1); v4.20.4: + library-first line (test6, Chase t1647u); v4.20.5: + open-the-page and opened-pages-only lines (test7, Chase t1653u)
         for want in ("RV and trailer repair techs", "Page topics", "diagram / drawing / illustration / picture / pic / image / figure",
                      "photo / photograph / picture / pic / image / figure of the actual", "next_part_to_fetch", "web_lookup",
                      "maker's own site first", "forum", "natural first place to look", "does not need to know what is in the library"):
@@ -44,7 +44,15 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
         self.assertFalse(hasattr(gd_prompt, "RULES") or hasattr(gd_prompt, "GUIDANCE") or hasattr(gd_prompt, "HISTORY_TURNS"))
 
     def test_primer_has_no_behavioral_instruction_words(self):
-        for name, text in (("gd_primer.md", gd_prompt.PRIMER), ("STATE_FORMAT", gd_prompt.STATE_FORMAT)):
+        # v4.20.5: the two sentences Chase approved (t1653u, test7) are exempt by exact text ("only", and a descriptive
+        # "don't cover it"); the same words anywhere else still fail.
+        approved = ("Grok describes only what is on pages it opened in this job; a page seen only in a table of contents is not yet read.",
+                    "when the pages open so far don't cover it,")
+        primer = gd_prompt.PRIMER
+        for a in approved:
+            self.assertIn(a, primer)
+            primer = primer.replace(a, "")
+        for name, text in (("gd_primer.md", primer), ("STATE_FORMAT", gd_prompt.STATE_FORMAT)):
             for pat in RULE_WORDS:
                 self.assertIsNone(re.search(pat, text, re.I if pat.islower() else 0), f"{name}: {pat}")
 

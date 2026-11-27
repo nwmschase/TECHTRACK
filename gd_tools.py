@@ -268,14 +268,15 @@ class LibraryTools:
 
     def _labels(self):
         """Per doc: the searchable label words (title, alt titles, brand, product line, models, doc number, keywords)."""
-        if self._label_tf is None:
-            self._label_tf = {}
-            for k, d in self.lib.docs.items():
+        if self._label_tf is None:   # built whole, then published, so a half-built dict is never seen
+            built = {}
+            for k, d in list(self.lib.docs.items()):
                 txt = " ".join([d.get("title") or "", " ".join(json.loads(d.get("alt_titles") or "[]") if d.get("alt_titles") else []),
                                 d.get("brand") or "", d.get("product_line") or "", " ".join(_models(d)),
                                 d.get("doc_number") or "", self.keywords.get(k, "")])
                 tf = collections.Counter(self.s.tokens(txt))
-                self._label_tf[k] = (tf, sum(tf.values()))
+                built[k] = (tf, sum(tf.values()))
+            self._label_tf = built
         return self._label_tf
 
     # -- find_documents
@@ -584,11 +585,12 @@ class StubLibrary:
         return self._pages.get(doc_id, [])
 
     def doc_tf(self):
-        if self._doc_tf is None:
-            self._doc_tf = {}
-            for k in self.docs:
+        if self._doc_tf is None:   # built whole, then published (same as pagefinder Library.doc_tf)
+            built = {}
+            for k in list(self.docs):
                 tf = collections.Counter()
                 for p in self.pages(k):
                     tf.update(p["tf"])
-                self._doc_tf[k] = (tf, sum(tf.values()))
+                built[k] = (tf, sum(tf.values()))
+            self._doc_tf = built
         return self._doc_tf

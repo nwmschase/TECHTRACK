@@ -268,13 +268,20 @@ class Library:
                                    if _fixes.page_kept(doc_id, fp, r['pdf_sheet'])]
         return self._pages[doc_id]
     def doc_tf(self):
-        if self._doc_tf is None:
-            self._doc_tf = {}
-            for doc_id in self.docs:
-                tf = collections.Counter()
-                for p in self.pages(doc_id): tf.update(p['tf'])
-                self._doc_tf[doc_id] = (tf, sum(tf.values()))
-        return self._doc_tf
+        # Built whole, then published: a second turn running at the same time used to see the half-filled dict and
+        # fail with KeyError (test7 2026-11-27, 'L166'). The lock makes the other thread wait for the finished one.
+        d = self._doc_tf
+        if d is not None:
+            return d
+        with _LOCK:
+            if self._doc_tf is None:
+                built = {}
+                for doc_id in list(self.docs):
+                    tf = collections.Counter()
+                    for p in self.pages(doc_id): tf.update(p['tf'])
+                    built[doc_id] = (tf, sum(tf.values()))
+                self._doc_tf = built
+            return self._doc_tf
 
 def bm25(query, items, k1=1.2, b=0.75):
     """query: tokens (weight 1 each) or {token or phrase tuple: weight}. items: list of (key, Counter tf, length).

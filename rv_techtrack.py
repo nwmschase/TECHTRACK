@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.4
+RV TechTrack v4.20.5
+- v4.20.5: GD test7 fixes (Chase 2026-11-27 t1653u). (1) pagefinder Library.doc_tf (and gd_tools label / stub caches) built whole and published under the lock: two runs on a cold library read a half-built cache, KeyError 'L166', and turn 1 fell to the web. (2) Primer: Grok describes only pages it opened in this job; a contents-page listing is not a read. (3) Primer: before giving a test, reading or picture Grok opens the page that has it, searching the library again (other manuals for the unit) before the web. Rules 2 and 3 approved by Chase. (4) Double-send guard: a repeat Send while Grok is answering waits for and reuses that reply (gd_send_key / gd_wait_for_kept_reply). Web search stays on.
 - v4.20.4: Guided Diagnostics library first (Chase 2026-11-27, test6: Grok went straight to the web with the library tools offered). Primer: "Each job starts in the library: a document or page search for the unit comes before any web search; the web is for what the library does not have." and "then, when the library has nothing that fits, goes to the internet". One new rule, approved by Chase.
 - v4.20.3: Guided Diagnostics library lookup fix (Chase 2026-11-27, test3): find_documents compared unit types letter for letter, so Grok's "Slide-outs" missed the library category "Slideouts" and every slide-out manual was filtered out (Grok then went to the web). Unit types now ignore spaces, dashes, case and a plural s, as brands already did, and maker / unit-type filters that leave nothing widen (maker kept, then the whole library) instead of returning an empty list. Each turn's context also reminds Grok that the reply ends with the <state> block. Primer: a diagnosis is worked "until a test or measurement shows the fault; what the tech sees points to the next test" (wording only). The published turn log (Manage app GD_TURN line and R2 gd-turn-logs/) also carries the tech's message and Grok's reply, each capped near 8 KB with a cut marker. No new rules.
 - v4.20.2: Guided Diagnostics wording (Chase 2026-11-27, test2): the primer no longer says the internet is open at any point or that a cited web address opens the whole document; a good answer is built on (not led by) the maker manual's pages; a fault code table is for reference and for help planning the diagnostic steps, the checks come from the manual's test pages for that part; a walkthrough step is the check to make, the reading to expect, and what each result means. The per-turn tool log also prints to the Manage app logs (GD_TURN ...) and is saved to R2 gd-turn-logs/<date>/. No new rules.
@@ -220,7 +221,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.4"
+_GDC_REQUIRED_REVISION = "v4.20.5"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -3739,6 +3740,33 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
     return result["reply"]
 
 
+def gd_send_key(chat_id, turns, msg, photo_len=0):
+    """One GD send: the chat, how many turns came before it, the message and the photo size (v4.20.5 double-send guard)."""
+    import hashlib
+    raw = f"{chat_id}|{int(turns)}|{(msg or '').strip()}|{int(photo_len or 0)}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+GD_SEND_WAIT_SECONDS = 240   # a repeat send waits this long at most for the first one's reply
+
+
+def gd_wait_for_kept_reply(state, key, wait_s=GD_SEND_WAIT_SECONDS, poll_s=0.5, clock=None, sleep=None):
+    """The kept reply for this send, waiting while the same send is still in flight in another run; None = ask Grok."""
+    import time as _t
+    clock, sleep = clock or _t.time, sleep or _t.sleep
+    end = clock() + wait_s
+    while True:
+        kept = state.get("gd_last_send")
+        if isinstance(kept, dict) and kept.get("key") == key:
+            return kept
+        busy = state.get("gd_send_inflight")
+        if not (isinstance(busy, dict) and busy.get("key") == key and clock() - float(busy.get("t") or 0) < wait_s):
+            return None
+        if clock() >= end:
+            return None
+        sleep(poll_s)
+
+
 def guided_diagnostics_reply(
     user_msg: str,
     category_name: str,
@@ -4303,6 +4331,8 @@ with tab_ask:
         clear_ask_source_state()
         st.session_state.pop("ask_pending_answer", None)
         st.session_state.pop("ask_force_send", None)
+        st.session_state.pop("gd_last_send", None)   # a new chat never reuses the last chat's reply
+        st.session_state.pop("gd_send_inflight", None)
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
         st.session_state["gd_help_mode"] = None
@@ -4343,18 +4373,35 @@ with tab_ask:
                 reply = _story.access_logged_reply(_rec)
                 new_flow = st.session_state.get("ask_flow")
             else:
+                # v4.20.5 (test7 2026-11-27): a second Send / Ctrl+Enter while Grok is answering starts a new run at once
+                # (Streamlit fast reruns) while the first run's Grok call keeps going in its own thread; the first run is then
+                # stopped at its next screen update and the new run sent the same text to Grok again (the form keeps it).
+                # Now the send is marked in flight, the reply is kept the moment it arrives (keyed by chat, turn, message and
+                # photo), and a repeat of the same send waits for that reply instead of asking Grok a second time.
+                _send_key = gd_send_key(st.session_state.get("ask_chat_id"), len(history or []), msg, len(photo_bytes))
                 with st.spinner("Searching manuals and thinking…"):
-                    reply, new_flow = guided_diagnostics_reply(
-                        msg,
-                        category_name,
-                        ask_model or "",
-                        history,
-                        unity_gate=unity_gate,
-                        ask_flow=st.session_state.get("ask_flow"),
-                        photo_review=photo_review,
-                        pin_store=st.session_state.setdefault("gd_pin_store", {}),
-                        help_mode=st.session_state.get("gd_help_mode") or None,
-                    )
+                    _kept = gd_wait_for_kept_reply(st.session_state, _send_key)
+                if _kept is not None:
+                    reply, new_flow = _kept["reply"], _kept["flow"]
+                else:
+                    st.session_state["gd_send_inflight"] = {"key": _send_key, "t": time.time()}
+                    try:
+                        with st.spinner("Searching manuals and thinking…"):
+                            reply, new_flow = guided_diagnostics_reply(
+                                msg,
+                                category_name,
+                                ask_model or "",
+                                history,
+                                unity_gate=unity_gate,
+                                ask_flow=st.session_state.get("ask_flow"),
+                                photo_review=photo_review,
+                                pin_store=st.session_state.setdefault("gd_pin_store", {}),
+                                help_mode=st.session_state.get("gd_help_mode") or None,
+                            )
+                            st.session_state["gd_last_send"] = {"key": _send_key, "reply": reply, "flow": new_flow}
+                    finally:
+                        if (st.session_state.get("gd_send_inflight") or {}).get("key") == _send_key:
+                            st.session_state.pop("gd_send_inflight", None)
             if not _access_turn:
                 # 2026-11-24 (Chase, WO 156231): the tech's stated recommendation goes into the record, and when the job just
                 # reached its end (diag complete / repair complete) GD logs it and asks what had to come off for access.
