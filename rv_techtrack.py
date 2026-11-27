@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.3
+RV TechTrack v4.20.4
+- v4.20.4: Guided Diagnostics library first (Chase 2026-11-27, test6: Grok went straight to the web with the library tools offered). Primer: "Each job starts in the library: a document or page search for the unit comes before any web search; the web is for what the library does not have." and "then, when the library has nothing that fits, goes to the internet". One new rule, approved by Chase.
 - v4.20.3: Guided Diagnostics library lookup fix (Chase 2026-11-27, test3): find_documents compared unit types letter for letter, so Grok's "Slide-outs" missed the library category "Slideouts" and every slide-out manual was filtered out (Grok then went to the web). Unit types now ignore spaces, dashes, case and a plural s, as brands already did, and maker / unit-type filters that leave nothing widen (maker kept, then the whole library) instead of returning an empty list. Each turn's context also reminds Grok that the reply ends with the <state> block. Primer: a diagnosis is worked "until a test or measurement shows the fault; what the tech sees points to the next test" (wording only). The published turn log (Manage app GD_TURN line and R2 gd-turn-logs/) also carries the tech's message and Grok's reply, each capped near 8 KB with a cut marker. No new rules.
 - v4.20.2: Guided Diagnostics wording (Chase 2026-11-27, test2): the primer no longer says the internet is open at any point or that a cited web address opens the whole document; a good answer is built on (not led by) the maker manual's pages; a fault code table is for reference and for help planning the diagnostic steps, the checks come from the manual's test pages for that part; a walkthrough step is the check to make, the reading to expect, and what each result means. The per-turn tool log also prints to the Manage app logs (GD_TURN ...) and is saved to R2 gd-turn-logs/<date>/. No new rules.
 - v4.20.1: Guided Diagnostics sees the library pages it opens (Chase 2026-11-27, test1 Schwintek slide): read_pages also hands Grok each page as a picture, drawn from the library PDF the same way Show page draws it, picture-labelled pages first, up to 6 per read and 12 per turn (logged). Grok's web search can find and show photos (image search and image understanding on). The primer no longer says a page is only text; it says a cited library page shows the tech that exact page while a web address opens the whole document, and that a web photo may be a different model.
@@ -219,7 +220,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.3"
+_GDC_REQUIRED_REVISION = "v4.20.4"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.

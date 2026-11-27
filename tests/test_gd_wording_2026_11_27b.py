@@ -37,9 +37,13 @@ class TestPrimerWording(unittest.TestCase):
         self.assertIn("A fault code table is for reference and for help planning the diagnostic steps; the checks themselves "
                       "come from the manual's test pages for that part.", self.p)
 
-    def test_no_library_first_rule(self):
-        for bad in ("before any web search", "library first, always", "must search the library"):
-            self.assertNotIn(bad, self.p)
+    def test_library_first_line_v4_20_4(self):
+        # v4.20.2 kept the library-first rule out; Chase approved it for v4.20.4 (test6, 2026-11-27 t1647u).
+        self.assertIn("Each job starts in the library: a document or page search for the unit comes before any web search; "
+                      "the web is for what the library does not have.", self.p)
+        self.assertIn("then, when the library has nothing that fits, goes to the internet, until it has an answer.", self.p)
+        self.assertNotIn("other filters, then goes to the internet", self.p)
+        self.assertEqual(self.p.count("before any web search"), 1)
 
     def test_walkthrough_line(self):
         line = gd_turn.HELP_MODE_LINES[gd_turn.HELP_WALKTHROUGH]
