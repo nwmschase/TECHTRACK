@@ -62,7 +62,7 @@ class TestBundledThetfordFigures(unittest.TestCase):
         self.assertTrue(offers[0].get("png"))
         self.assertNotIn("will display the shop", " ".join(item.get("caption") or "" for item in offers).lower())
         note = figure_render_honesty_note("Thetford Water Valve Kit 42109", True)
-        self.assertIn("could not load", note.lower())
+        self.assertIn("didn't load", note.lower())
         miss = fb.offers_for_turn(
             [],
             "No document in the shop library for this unit.",

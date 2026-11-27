@@ -174,6 +174,24 @@ def _cited_with_pages(cited, case):
     return out
 
 
+MAX_CITED_FROM_OPENED = 8
+
+
+def cited_from_opened(pages, limit=MAX_CITED_FROM_OPENED):
+    """[{doc_id, page}] for the library pages opened this turn, in the order read (each once; web pages left out)."""
+    out, seen = [], set()
+    for p in pages or []:
+        if getattr(p, "source", "") == "web":
+            continue
+        page = str(p.page) if p.page not in (None, "") else f"sheet {p.sheet}"
+        key = (str(p.doc_id), page)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"doc_id": str(p.doc_id), "page": page})
+    return out[:limit] if limit else out
+
+
 def _has_picture_label(p: Page) -> bool:
     t = (p.topics or "").lower()
     return any(w in t for w in PICTURE_LABEL_WORDS)
@@ -292,7 +310,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     while True:
         last = calls + 1 >= SAFETY_CEILING_CALLS
         tc = time.time()
-        got = _as_result(respond_fn(items, tool_specs, "none" if last else None))
+        got = _as_result(respond_fn(items + [gd_prompt.reminder_item()], tool_specs, "none" if last else None))
         calls += 1
         if usage_fn and not got["usage"]:
             got["usage"] = usage_fn() or {}
@@ -369,7 +387,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             for p in pages:
                 brand = library.doc_brand(p.doc_id) if library is not None and p.source != "web" else ""
                 o = {"doc_id": p.doc_id, "title": p.title, "page": p.page, "sheet": p.sheet, "brand": brand,
-                     "chars": len(p.text or ""), "url": p.url, "call": calls}
+                     "chars": len(p.text or ""), "url": p.url, "call": calls, "topics": p.topics or ""}
                 opened.append(o)
                 if p.source == "web":
                     if _is_forum(p.url):
@@ -421,13 +439,21 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         text = CEILING_REPLY
     prose, update, probs = gd_state.parse(text)
     problems += probs
-    if any(p == "no <state> block in reply" for p in probs):
+    state_missing = any(p == "no <state> block in reply" for p in probs)
+    if state_missing:
         trig(T_STATE_MISSING)
     elif probs:
         trig(T_STATE_BROKEN, problems=probs)
     if (update.get("story") or "").strip():
         trig(T_STORY, chars=len(update["story"]))
     update = dict(update)
+    if state_missing:
+        # v4.20.6 (test7b): no block, so no cited list from Grok. The library pages Grok opened this turn stand in, so the
+        # page buttons, the picture and the story's sources still have them.
+        opened_cited = cited_from_opened(turn_pages)
+        if opened_cited:
+            update["cited"] = opened_cited
+            problems.append(f"cited filled from {len(opened_cited)} page(s) opened this turn (no <state> block)")
     if update:
         update.setdefault("order_part", "")   # per turn field: an order is not carried into a later turn
     case["state"] = gd_state.merge(case["state"], update)
@@ -477,4 +503,5 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     return {"reply": prose, "mode": mode, "state": case["state"], "pages_used": rec["pages_used"], "not_shown": [],
             "usage": usage, "seconds": rec["seconds"], "context_chars": ctx, "problems": problems, "calls": calls,
             "cited": cited, "tool_calls": tool_log, "web_sources": list(case["web_sources"]), "pages_read": opened,
-            "triggers": triggers, "page_images": rec["page_images"], "log": rec}
+            "triggers": triggers, "page_images": rec["page_images"], "log": rec,
+            "turn_pages": [p for p in turn_pages if p.source != "web"]}   # this turn's opened library pages (not logged)

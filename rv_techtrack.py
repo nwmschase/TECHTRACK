@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.5
+RV TechTrack v4.20.6
+- v4.20.6: GD test7b fixes (Chase 2026-11-27 pt1664u). (1) Picture: when the tech asks for a photo or diagram the reply shows the one page that best shows it, picked from the pages Grok opened this turn (gd_picture: the page Grok names for that item, then its cited pages, then the page label and text), drawn the same way as the page images Grok was given (only the page reference is kept in the session, no image bytes); the old figure lookups and the long 'could not load' note are gone from this path ('That page didn't load; tap Open PDF.' + Open PDF only when nothing could be drawn). (2) No <state> block: the pages Grok opened this turn fill cited, so the page buttons and story sources stay. (3) The REPLY FORMAT reminder (same words) is the last item of every model round, after the tool results. (4) Double send: server-side guard (gd_sends) keyed by tech + turn + message + photo, 10-minute TTL; the reply is put in the chat and the database as soon as Grok returns; a kept reply no screen drew is shown on the next run. (5) Meaning search: pagefinder/build_index sets HF_HUB_OFFLINE only in its own main(), so the live app can download the model again.
 - v4.20.5: GD test7 fixes (Chase 2026-11-27 t1653u). (1) pagefinder Library.doc_tf (and gd_tools label / stub caches) built whole and published under the lock: two runs on a cold library read a half-built cache, KeyError 'L166', and turn 1 fell to the web. (2) Primer: Grok describes only pages it opened in this job; a contents-page listing is not a read. (3) Primer: before giving a test, reading or picture Grok opens the page that has it, searching the library again (other manuals for the unit) before the web. Rules 2 and 3 approved by Chase. (4) Double-send guard: a repeat Send while Grok is answering waits for and reuses that reply (gd_send_key / gd_wait_for_kept_reply). Web search stays on.
 - v4.20.4: Guided Diagnostics library first (Chase 2026-11-27, test6: Grok went straight to the web with the library tools offered). Primer: "Each job starts in the library: a document or page search for the unit comes before any web search; the web is for what the library does not have." and "then, when the library has nothing that fits, goes to the internet". One new rule, approved by Chase.
 - v4.20.3: Guided Diagnostics library lookup fix (Chase 2026-11-27, test3): find_documents compared unit types letter for letter, so Grok's "Slide-outs" missed the library category "Slideouts" and every slide-out manual was filtered out (Grok then went to the web). Unit types now ignore spaces, dashes, case and a plural s, as brands already did, and maker / unit-type filters that leave nothing widen (maker kept, then the whole library) instead of returning an empty list. Each turn's context also reminds Grok that the reply ends with the <state> block. Primer: a diagnosis is worked "until a test or measurement shows the fault; what the tech sees points to the next test" (wording only). The published turn log (Manage app GD_TURN line and R2 gd-turn-logs/) also carries the tech's message and Grok's reply, each capped near 8 KB with a cut marker. No new rules.
@@ -221,7 +222,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.5"
+_GDC_REQUIRED_REVISION = "v4.20.6"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -379,7 +380,7 @@ def _reload_stale_app_modules_locked(required_revision):
 # content hash with the one last loaded in this process and, when any changed, drops the whole stack from sys.modules so
 # the next import executes the files that shipped with this deploy (together, so none keeps an older sibling).
 _GD_PLAIN_MODULES = ("gd_state", "gd_pages", "gd_prompt", "gd_official", "gd_tools", "gd_turn", "gd_story",
-                     "gd_work_orders", "gd_page_links")
+                     "gd_work_orders", "gd_page_links", "gd_picture", "gd_sends")
 
 
 def _drop_changed_gd_modules():
@@ -2858,10 +2859,15 @@ def _gd_page_image_fn():
     """page_image_fn for gd_turn.run_turn (Chase 2026-11-27, test1): the library page Grok opened, as the same picture the
     tech's "Show page" button draws. A fresh one per turn (its PDF cache lives only for that turn)."""
     pdf_cache: dict = {}
+    drawn: set = set()
 
     def fn(doc_id, sheet):
-        return _gd_sheet_png(doc_id, int(sheet), _gd_doc_file_path(doc_id), pdf_cache)
+        png = _gd_sheet_png(doc_id, int(sheet), _gd_doc_file_path(doc_id), pdf_cache)
+        if png:
+            drawn.add((str(doc_id), int(sheet)))   # v4.20.6: which sheets drew (the tech's picture is the same drawing)
+        return png
 
+    fn.drawn = drawn
     return fn
 
 
@@ -3737,6 +3743,8 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         except Exception:
             pass
     st.session_state["gd_last_cited"] = list(result.get("cited") or [])
+    st.session_state["gd_last_turn_pages"] = list(result.get("turn_pages") or [])   # v4.20.6: for the tech's picture
+    st.session_state["gd_last_drawn"] = list(getattr(page_image_fn, "drawn", None) or ())   # (doc_id, sheet) keys only
     return result["reply"]
 
 
@@ -3747,24 +3755,180 @@ def gd_send_key(chat_id, turns, msg, photo_len=0):
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
-GD_SEND_WAIT_SECONDS = 240   # a repeat send waits this long at most for the first one's reply
+def _gd_reply_is_failure(reply) -> bool:
+    """The turn did not happen (AI offline / unreachable, library loading or unavailable): never kept for reuse."""
+    lines = {GD_UNAVAILABLE_LINE, GD_OFFLINE_LINE}
+    try:
+        import index_fetch
+
+        lines |= {index_fetch.LOADING_LINE, index_fetch.UNAVAILABLE_LINE}
+    except Exception:
+        pass
+    return (reply or "").strip() in {x.strip() for x in lines if x}
 
 
-def gd_wait_for_kept_reply(state, key, wait_s=GD_SEND_WAIT_SECONDS, poll_s=0.5, clock=None, sleep=None):
-    """The kept reply for this send, waiting while the same send is still in flight in another run; None = ask Grok."""
-    import time as _t
-    clock, sleep = clock or _t.time, sleep or _t.sleep
-    end = clock() + wait_s
-    while True:
-        kept = state.get("gd_last_send")
-        if isinstance(kept, dict) and kept.get("key") == key:
-            return kept
-        busy = state.get("gd_send_inflight")
-        if not (isinstance(busy, dict) and busy.get("key") == key and clock() - float(busy.get("t") or 0) < wait_s):
-            return None
-        if clock() >= end:
-            return None
-        sleep(poll_s)
+def _gd_case_copy():
+    """A copy of this chat's job record (gd_turn case) to keep with a send on the server."""
+    import copy
+    try:
+        return copy.deepcopy((st.session_state.get("gd_pin_store") or {}).get("gd_case"))
+    except Exception:
+        return None
+
+
+def _gd_restore_case(entry):
+    """A reply reused in a fresh session (a reload) brings its job record along when this session has none."""
+    case = (entry or {}).get("case")
+    pin = st.session_state.setdefault("gd_pin_store", {})
+    if case is not None and pin.get("gd_case") is None:
+        import copy
+        pin["gd_case"] = copy.deepcopy(case)
+
+
+def _gd_turn_picture(msg, reply, entry):
+    """The one page shown when the tech asked for a picture (v4.20.6): gd_picture picks it from the pages Grok opened this
+    turn (else the pages it cited earlier). Only the page reference is stored on the reply (no PNG bytes in the session,
+    see TestNoPngCache); it is drawn by _render_gd_picture with the same sheet drawing Grok was given.
+    {ref, label, drawn_for_grok}; ref is {} when no page was opened or cited."""
+    import gd_picture
+
+    cited = list((entry or {}).get("cited") or [])
+    pages = list((entry or {}).get("turn_pages") or [])
+    if not pages:
+        pages = [c for c in cited if isinstance(c, dict) and c.get("sheet")]
+    try:
+        pick = gd_picture.pick_picture_page(msg, reply, pages, cited)
+    except Exception:
+        pick = None
+    if pick is None:
+        refs = _gd_cited_page_refs(cited)
+        return {"ref": dict(refs[0], sheet=None) if refs else {}, "label": "", "drawn_for_grok": False}
+    get = (lambda k: pick.get(k)) if isinstance(pick, dict) else (lambda k: getattr(pick, k, None))
+    doc_id, sheet = str(get("doc_id") or ""), int(get("sheet") or 0)
+    title, page = get("title") or "", get("page") or sheet
+    label = f"{title} — page {page}" if title else f"page {page}"
+    ref = {"doc_id": doc_id, "sheet": sheet, "file_path": _gd_doc_file_path(doc_id), "label": label, "title": title,
+           "page": page}
+    drawn = (doc_id, sheet) in set((entry or {}).get("drawn_keys") or ())
+    return {"ref": ref, "label": label, "drawn_for_grok": drawn}
+
+
+def _render_gd_picture(pic, key_prefix: str) -> None:
+    """The picture stored on a GD reply: that one PDF sheet (_render_cited_sheet, the drawing Grok was given); when it cannot
+    be drawn, one plain line and an Open PDF button."""
+    if not isinstance(pic, dict):
+        return
+    ref = pic.get("ref") or {}
+    if ref.get("sheet") and ref.get("doc_id"):
+        try:
+            if _render_cited_sheet(ref["doc_id"], int(ref["sheet"]), ref.get("file_path") or "", pic.get("label") or ""):
+                return
+        except Exception:
+            pass
+    import gd_picture
+
+    st.caption(gd_picture.FAIL_NOTE)
+    url = ""
+    if ref.get("file_path"):
+        try:
+            import gd_page_links
+
+            url = gd_page_links.pdf_link(get_r2_client(), st.secrets["R2_BUCKET_NAME"], ref["file_path"], ref.get("sheet"))
+        except Exception:
+            url = ""
+    if url:
+        st.link_button("📄 Open PDF", url, use_container_width=False)
+
+
+def _gd_commit_send(entry, user_id, persist=True, story=True):
+    """Put one finished send in the chat: the job record's findings and wrap-up (story), the user line and the reply (with
+    its cited pages and, when asked, its picture) in this session's chat, and, when persist, the saved chat in the
+    database. Draws nothing, so a rerun cannot stop it halfway. A send already in this session's chat is left alone."""
+    import gd_step_photo as _photos
+    import gd_story as _story
+
+    history = list(st.session_state.get("ask_chat") or [])
+    key = entry.get("key")
+    if key and any(isinstance(m, dict) and m.get("send_key") == key for m in history):
+        return history
+    msg = entry.get("msg") or ""
+    reply = entry.get("reply") or ""
+    if persist and story:
+        # 2026-11-24 (Chase, WO 156231): the tech's stated recommendation goes into the record, and when the job just
+        # reached its end (diag complete / repair complete) GD logs it and asks what had to come off for access.
+        _rec = _gd_record()
+        _story.record_tech_findings(_rec, msg)
+        _kind = _story.wrapup_due(_rec, msg)
+        if _kind:
+            _rec["state"]["access_asked"] = True
+            _rec["state"]["wrapup"] = _kind
+            # GD-4 (11/24): the access question comes first; a story GD wrote in this reply is cut off (the story
+            # comes from the Write warranty story button)
+            reply = _story.wrapup_reply(reply, _kind)
+    st.session_state["ask_flow"] = entry.get("flow")
+    stored_msg = entry.get("stored_msg") or _photos.history_user_text(
+        msg, bool(entry.get("photo")), entry.get("photo_review"), asked=entry.get("asked") or "")
+    picture = _gd_turn_picture(msg, reply, entry) if entry.get("asked_image") and not _gd_reply_is_failure(reply) else None
+    history.append({"role": "user", "content": stored_msg})
+    history.append({
+        "role": "assistant",
+        "content": reply,
+        "figures": [],
+        "pages": _gd_cited_page_refs(entry.get("cited")),
+        "picture": picture,
+        "send_key": key,
+    })
+    st.session_state["ask_chat"] = history
+    if persist:
+        st.session_state["ask_chat_id"] = persist_ask_turn(
+            user_id,
+            st.session_state.get("ask_chat_id"),
+            entry.get("category") or "",
+            entry.get("model") or "",
+            stored_msg,
+            reply,
+        )
+        st.session_state["gd_case_chat_id"] = st.session_state["ask_chat_id"]
+        save_gd_work_order(user_id, only_if_closed_or_saved=True,
+                           wo_number=st.session_state.get("ask_wo_number") or "")
+    elif entry.get("chat_id") and not st.session_state.get("ask_chat_id"):
+        st.session_state["ask_chat_id"] = entry["chat_id"]
+        st.session_state["gd_case_chat_id"] = entry["chat_id"]
+    if key:
+        import gd_sends
+        gd_sends.store().update(user_id, key, reply=reply, stored_msg=stored_msg,
+                                chat_id=st.session_state.get("ask_chat_id"))
+    return history
+
+
+def _gd_show_unseen_replies(user_id):
+    """v4.20.6 (1c): a reply kept on the server that no screen has drawn (its run was stopped, or the page reloaded) goes
+    into this chat when it belongs here: same saved chat, or this session is at the same turn of a fresh chat."""
+    import gd_sends
+
+    store = gd_sends.store()
+    for e in store.unseen(user_id):
+        hist = st.session_state.get("ask_chat") or []
+        if any(isinstance(m, dict) and m.get("send_key") == e.get("key") for m in hist):
+            continue
+        cid = st.session_state.get("ask_chat_id")
+        if e.get("turns") != len(hist) or cid not in (None, e.get("chat_id")):
+            continue
+        _gd_restore_case(e)
+        _gd_commit_send(e, user_id, persist=store.take_commit(user_id, e.get("key")))
+
+
+def _gd_mark_seen(user_id, history):
+    """The replies this run drew are no longer waiting to be shown."""
+    try:
+        import gd_sends
+
+        store = gd_sends.store()
+        for m in history or []:
+            if isinstance(m, dict) and m.get("send_key"):
+                store.mark_seen(user_id, m["send_key"])
+    except Exception:
+        pass
 
 
 def guided_diagnostics_reply(
@@ -4208,6 +4372,10 @@ with tab_ask:
     _remember_widget("ask_model", "gd_model_memory")
     category_name = "" if ask_cat == "(any)" else ask_cat
 
+    try:
+        _gd_show_unseen_replies(user["id"])   # v4.20.6: a reply kept on the server whose run was stopped before drawing it
+    except Exception:
+        pass
     history = st.session_state.get("ask_chat") or []
     if history:
         st.markdown("#### Conversation")
@@ -4225,7 +4393,10 @@ with tab_ask:
                 step_figs = (m.get("figures") or []) if isinstance(m, dict) else []
                 _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
                 # 2026-11-25: the pages this reply cited, as a compact clickable row (nothing when none were cited).
+                # v4.20.6: the one page that shows what the tech asked a picture of (gd_picture), right under the reply.
+                _render_gd_picture(m.get("picture") if isinstance(m, dict) else None, f"gd_pic_{index}")
                 _render_gd_page_links((m.get("pages") or []) if isinstance(m, dict) else [], f"gd_pages_{index}")
+        _gd_mark_seen(user["id"], history)
     else:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
@@ -4237,9 +4408,7 @@ with tab_ask:
     if auto_pages and not _last_has_figures:
         render_on_demand_library_pages(auto_pages)
     elif st.session_state.pop("ask_auto_show_failed", None):
-        fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note(
-            "", True
-        )
+        fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note("", True)
         st.warning(fail_note)
 
     # Hard-tree Yes/No buttons are off on the open-coach product path.
@@ -4331,8 +4500,11 @@ with tab_ask:
         clear_ask_source_state()
         st.session_state.pop("ask_pending_answer", None)
         st.session_state.pop("ask_force_send", None)
-        st.session_state.pop("gd_last_send", None)   # a new chat never reuses the last chat's reply
-        st.session_state.pop("gd_send_inflight", None)
+        try:
+            import gd_sends
+            gd_sends.store().clear_user(user["id"])   # a new chat never reuses the last chat's reply
+        except Exception:
+            pass
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
         st.session_state["gd_help_mode"] = None
@@ -4372,21 +4544,40 @@ with tab_ask:
                 _story.record_access_answer(_rec, msg, history)
                 reply = _story.access_logged_reply(_rec)
                 new_flow = st.session_state.get("ask_flow")
+            _asked_image = False
+            try:
+                import manual_figures as _mf
+                _asked_image = bool(wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg))
+            except Exception:
+                _asked_image = False
+            _entry = {"key": None, "msg": msg, "photo": bool(photo_bytes), "photo_review": photo_review, "asked": asked,
+                      "category": category_name, "model": ask_model or "", "turns": len(history or []),
+                      "asked_image": _asked_image}
+            if _access_turn:
+                _gd_commit_send({**_entry, "reply": reply, "flow": new_flow, "cited": []}, user["id"], story=False)
             else:
-                # v4.20.5 (test7 2026-11-27): a second Send / Ctrl+Enter while Grok is answering starts a new run at once
-                # (Streamlit fast reruns) while the first run's Grok call keeps going in its own thread; the first run is then
-                # stopped at its next screen update and the new run sent the same text to Grok again (the form keeps it).
-                # Now the send is marked in flight, the reply is kept the moment it arrives (keyed by chat, turn, message and
-                # photo), and a repeat of the same send waits for that reply instead of asking Grok a second time.
-                _send_key = gd_send_key(st.session_state.get("ask_chat_id"), len(history or []), msg, len(photo_bytes))
+                # v4.20.6 (test7b, Chase go pt1664u): the double-send guard lives on the server (gd_sends), keyed by the
+                # tech, the turns before this one, the message and the photo size. A second press, a second tab or a page
+                # reload waits for or reuses the first reply instead of asking Grok again, and the reply is put in the chat
+                # and the database the moment Grok returns, before anything is drawn (a run stopped by a rerun no longer
+                # loses it; the next run shows a reply that was kept but never drawn).
+                import gd_sends
+                _sends = gd_sends.store()
+                _send_user = user["id"]
+                _send_key = gd_send_key(f"user:{_send_user}", len(history or []), msg, len(photo_bytes))
+                _entry["key"] = _send_key
                 with st.spinner("Searching manuals and thinking…"):
-                    _kept = gd_wait_for_kept_reply(st.session_state, _send_key)
+                    _status, _kept = _sends.claim(_send_user, _send_key)
+                    if _status == "wait":
+                        _kept = _sends.wait(_send_user, _send_key)
                 if _kept is not None:
-                    reply, new_flow = _kept["reply"], _kept["flow"]
+                    _gd_restore_case(_kept)
+                    _gd_commit_send(_kept, _send_user, persist=_sends.take_commit(_send_user, _send_key))
                 else:
-                    st.session_state["gd_send_inflight"] = {"key": _send_key, "t": time.time()}
                     try:
                         with st.spinner("Searching manuals and thinking…"):
+                            st.session_state.pop("gd_last_turn_pages", None)
+                            st.session_state.pop("gd_last_drawn", None)
                             reply, new_flow = guided_diagnostics_reply(
                                 msg,
                                 category_name,
@@ -4398,109 +4589,25 @@ with tab_ask:
                                 pin_store=st.session_state.setdefault("gd_pin_store", {}),
                                 help_mode=st.session_state.get("gd_help_mode") or None,
                             )
-                            st.session_state["gd_last_send"] = {"key": _send_key, "reply": reply, "flow": new_flow}
+                            _done = _sends.finish(
+                                _send_user, _send_key, **{k: v for k, v in _entry.items() if k != "key"}, reply=reply, flow=new_flow,
+                                cited=list(st.session_state.pop("gd_last_cited", None) or []),
+                                turn_pages=list(st.session_state.pop("gd_last_turn_pages", None) or []),
+                                drawn_keys=list(st.session_state.pop("gd_last_drawn", None) or ()),
+                                case=_gd_case_copy(),
+                                chat_id=st.session_state.get("ask_chat_id"),
+                            )
+                            _gd_commit_send(_done, _send_user, persist=_sends.take_commit(_send_user, _send_key))
+                            if _gd_reply_is_failure(reply):
+                                _sends.forget(_send_user, _send_key)   # "send the same message again" must ask again
                     finally:
-                        if (st.session_state.get("gd_send_inflight") or {}).get("key") == _send_key:
-                            st.session_state.pop("gd_send_inflight", None)
-            if not _access_turn:
-                # 2026-11-24 (Chase, WO 156231): the tech's stated recommendation goes into the record, and when the job just
-                # reached its end (diag complete / repair complete) GD logs it and asks what had to come off for access.
-                _rec = _gd_record()
-                _story.record_tech_findings(_rec, msg)
-                _kind = _story.wrapup_due(_rec, msg)
-                if _kind:
-                    _rec["state"]["access_asked"] = True
-                    _rec["state"]["wrapup"] = _kind
-                    # GD-4 (11/24): the access question comes first; a story GD wrote in this reply is cut off (the story
-                    # comes from the Write warranty story button)
-                    reply = _story.wrapup_reply(reply, _kind)
-            st.session_state["ask_flow"] = new_flow
-            history = list(history)
-            stored_msg = _photos.history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)
-            history.append({"role": "user", "content": stored_msg})
-            import manual_figures as _mf
-            _asked_image = wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg)
-            _step_figs = []
-            if _asked_image:
-                try:
-                    import library_figure_backfill as fb
-
-                    _step_figs = fb.gd_figures_under_step(
-                        fb.meta_rows(session), reply, msg, category_name, ask_model or ""
-                    )
-                except Exception:
-                    _step_figs = []
-            history.append({
-                "role": "assistant",
-                "content": reply,
-                "figures": _figures_for_session(_step_figs),
-                "pages": _gd_cited_page_refs(st.session_state.pop("gd_last_cited", None)),
-            })
-            st.session_state["ask_chat"] = history
+                        _sends.abandon(_send_user, _send_key)
             st.session_state["ask_photo_gen"] = _photo_gen + 1
-            st.session_state["ask_chat_id"] = persist_ask_turn(
-                user["id"],
-                st.session_state.get("ask_chat_id"),
-                category_name,
-                ask_model or "",
-                stored_msg,
-                reply,
-            )
-            st.session_state["gd_case_chat_id"] = st.session_state["ask_chat_id"]
-            save_gd_work_order(user["id"], only_if_closed_or_saved=True,
-                               wo_number=st.session_state.get("ask_wo_number") or "")
-            _offers = _stored_figure_matches(reply, msg, category_name, ask_model or "")
-            if _step_figs:
-                st.session_state.pop("ask_auto_show", None)
-                st.session_state["ask_auto_show_failed"] = False
-                st.session_state.pop("ask_auto_show_fail_note", None)
-            elif _asked_image and _offers:
-                st.session_state["ask_auto_show"] = _figures_for_session(
-                    _offers[:3] if _asked_image else _offers[:1]
-                )
-                st.session_state["ask_auto_show_failed"] = False
-                st.session_state.pop("ask_auto_show_fail_note", None)
-            elif _asked_image:
-                # Prefer current reply cites; else fall back to prior coach Source lines
-                coach_for_pages = reply or ""
-                if not parse_cited_pages_from_text(coach_for_pages):
-                    for m in reversed(history[:-1] if history else []):
-                        if (m.get("role") or "") == "assistant":
-                            coach_for_pages = m.get("content") or coach_for_pages
-                            break
-                pages = resolve_requested_library_pages(msg, coach_for_pages)
-                st.session_state["ask_auto_show"] = _figures_for_session(pages)
-                st.session_state["ask_auto_show_failed"] = not bool(pages)
-                if not pages:
-                    cited = parse_cited_pages_from_text(coach_for_pages)
-                    fail_title = (cited[-1].get("title") if cited else "") or ""
-                    if is_unity_board_manual(fail_title) or is_level_up_advantage_context(
-                        category_name, ask_model or "", msg
-                    ):
-                        seed_lu = resolve_level_up_document_seed()
-                        fail_title = (seed_lu or {}).get("title") or fail_title
-                    if is_air_conditioning_context(category_name, ask_model or "", msg) or (
-                        is_unity_board_manual(fail_title)
-                        and is_air_conditioning_context(category_name, ask_model or "", msg)
-                    ):
-                        seed_ac = resolve_ac_document_seed()
-                        if seed_ac:
-                            fail_title = seed_ac.get("title") or fail_title
-                    if is_water_heater_context(category_name, ask_model or "", msg) or (
-                        is_unity_board_manual(fail_title)
-                        and is_water_heater_context(category_name, ask_model or "", msg)
-                    ):
-                        seed_wh = resolve_water_heater_document_seed()
-                        if seed_wh:
-                            fail_title = seed_wh.get("title") or fail_title
-                    st.session_state["ask_auto_show_fail_note"] = figure_render_honesty_note(
-                        fail_title, True
-                    )
-                else:
-                    st.session_state.pop("ask_auto_show_fail_note", None)
-            else:
-                st.session_state.pop("ask_auto_show", None)
-                st.session_state.pop("ask_auto_show_failed", None)
+            # v4.20.6: the old figure lookups (pre-indexed figures, stored figure offers, "Source: ... page N" text) are gone
+            # from this path; the picture is chosen from the pages Grok opened and stored on the reply (_gd_turn_picture).
+            st.session_state.pop("ask_auto_show", None)
+            st.session_state.pop("ask_auto_show_failed", None)
+            st.session_state.pop("ask_auto_show_fail_note", None)
             st.session_state["ask_reset_input"] = True
             st.rerun()
 

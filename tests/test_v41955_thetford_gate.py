@@ -134,8 +134,10 @@ class TestGdStepLayout(unittest.TestCase):
         )[0]
         self.assertLess(loop.find("st.markdown"), loop.find("_render_gd_figures_under_step"))
         self.assertNotIn("fb.gd_figures_under_step", loop)
-        send = source.split("if _asked_image:", 1)[1].split("history.append", 1)[0]
-        self.assertIn("gd_figures_under_step", send)
+        # v4.20.6: one picture from the pages Grok opened (gd_picture), not the pre-indexed figure lookup
+        send = source.split('_send_key = gd_send_key(f"user:{_send_user}"', 1)[1].split("st.rerun()", 1)[0]
+        self.assertNotIn("gd_figures_under_step", send)
+        self.assertIn('picture = _gd_turn_picture(msg, reply, entry) if entry.get("asked_image") and not _gd_reply_is_failure(reply) else None', source)
         self.assertIn("tech_asked_for_manual_figure", source)
         image = source.split("def render_library_page_image", 1)[1].split("\ndef ", 1)[0]
         self.assertIn("use_container_width=True", image)

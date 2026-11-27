@@ -25,7 +25,9 @@ class TestOpeningMessageKeepsTheComplaint(unittest.TestCase):
 
     def test_send_path_passes_what_was_asked(self):
         src = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
-        self.assertIn("history_user_text(msg, bool(photo_bytes), photo_review, asked=asked)", src)
+        # v4.20.6: the send is kept with what was asked (gd_sends entry) and the chat line is built from it
+        self.assertIn('_entry = {"key": None, "msg": msg, "photo": bool(photo_bytes), "photo_review": photo_review, "asked": asked,', src)
+        self.assertIn('msg, bool(entry.get("photo")), entry.get("photo_review"), asked=entry.get("asked") or "")', src)
 
 
 def load_work_order(path):

@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.20.5"
+COACH_REVISION = "v4.20.6"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -1178,14 +1178,8 @@ def figure_render_honesty_note(manual_title: str = "", render_failed: bool = Fal
             "Girard GSWH-2 / CCD-0009390 PDF. "
             "If the page image did not render, download that OEM PDF or ask for a reindex."
         )
-    return (
-        "You asked for a figure/page. TechTrack could not load a matching shop-library PDF page "
-        "(missing file path, download failed, unindexed PDF, or page render unavailable). "
-        "If a Level-Up / TI-005 / QR-092, Furrion/Dometic rooftop AC, or Girard GSWH-2 "
-        "water heater title is on the Document Library catalog, the figure is in that PDF — "
-        "say so and ask for reindex. "
-        "Do not invent a Unity substitute."
-    )
+    # v4.20.6 (Chase, test7b): one plain line; the reply's Open PDF button sits under it.
+    return "That page didn't load; tap Open PDF."
 
 
 def _page_text_blob(page) -> str:

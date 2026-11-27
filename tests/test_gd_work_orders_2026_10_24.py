@@ -218,7 +218,7 @@ class TestAppSavesFinishedJobs(unittest.TestCase):
     def test_closed_turn_and_story_save_the_work_order(self):
         src = (ROOT / "rv_techtrack.py").read_text()
         send = src[src.index('st.session_state["gd_case_chat_id"] = st.session_state["ask_chat_id"]'):][:400]
-        self.assertIn("save_gd_work_order(user[\"id\"], only_if_closed_or_saved=True", send)
+        self.assertIn("save_gd_work_order(user_id, only_if_closed_or_saved=True", send)   # v4.20.6: in _gd_commit_send
         story = src[src.index("chat_row.final_story = story"):][:400]
         self.assertIn("save_gd_work_order(user[\"id\"]", story)
         fn = src[src.index("def save_gd_work_order("):src.index("def _render_past_work_orders(")]

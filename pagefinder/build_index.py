@@ -15,7 +15,8 @@
 sources.json: {"<app doc id>": {"src": "<pdf path>", "sha": "<sha256>"}}.
 No network (HF_HUB_OFFLINE=1), no API calls."""
 import argparse, collections, csv, hashlib, json, os, re, sqlite3, sys, time
-os.environ.setdefault('HF_HUB_OFFLINE', '1')
+# v4.20.6: HF_HUB_OFFLINE=1 is set in main() only. Set here at import, it also turned model downloads off for the live app
+# (search.Library.sync_with_app imports this module), so a fresh server could never fetch the meaning-search model.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pagefinder import pagetext as PT
 from pagefinder import doc_fixes as DF
@@ -178,6 +179,7 @@ def embed_texts(texts, model_dir, threads=None):
 
 
 def main(argv=None):
+    os.environ.setdefault('HF_HUB_OFFLINE', '1')   # the standalone index build runs with no network
     ap = argparse.ArgumentParser()
     ap.add_argument('--app-db', required=True); ap.add_argument('--sources'); ap.add_argument('--out', required=True)
     ap.add_argument('--page-cache'); ap.add_argument('--page-cache-manifest'); ap.add_argument('--no-embed', action='store_true')

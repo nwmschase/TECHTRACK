@@ -97,12 +97,35 @@ class TestRealIndex(unittest.TestCase):
 
 
 class TestStateReminder(unittest.TestCase):
-    def test_reminder_every_turn_last_in_context(self):
-        ctx = gd_prompt.context_block(category="", model_text="X", state={"summary": "s"})
-        self.assertTrue(ctx.endswith(gd_prompt.STATE_REMINDER))
+    def test_reminder_is_last_item_of_every_round(self):
+        # v4.20.6 (Chase go, pt1664u): same words, moved from the session context to the end of each round's input.
         self.assertIn("<state>", gd_prompt.STATE_REMINDER)
-        msgs = gd_prompt.build_messages(user_msg="hi", history=[], category="", model_text="")
-        self.assertIn(gd_prompt.STATE_REMINDER, msgs[1]["content"])
+        self.assertEqual(gd_prompt.STATE_REMINDER,
+                         "REPLY FORMAT: as always, the reply ends with the <state> block described in the instructions.")
+        ctx = gd_prompt.context_block(category="", model_text="X", state={"summary": "s"})
+        self.assertNotIn(gd_prompt.STATE_REMINDER, ctx)
+        import gd_turn
+        seen = []
+
+        def respond(items, tools, tool_choice=None):
+            seen.append(list(items))
+            if len(seen) == 1:
+                return {"text": "", "calls": [{"call_id": "c1", "name": "find_documents", "arguments": "{}"}], "output": []}
+            return "ok <state>{}</state>"
+
+        class Lib:
+            last_dropped, last_read = [], {}
+            def call(self, name, args, max_pages=None): return "{}", [], None
+            def unit_brands(self, t): return set()
+            def doc_brand(self, d): return ""
+            def doc_brand_names(self, d): return set()
+
+        gd_turn.run_turn("hi", "", "X", [], store={}, library=Lib(), respond_fn=respond, log_path="")
+        self.assertEqual(len(seen), 2)
+        for items in seen:
+            self.assertEqual(items[-1], {"role": "system", "content": gd_prompt.STATE_REMINDER})
+            self.assertEqual(sum(1 for i in items if i.get("content") == gd_prompt.STATE_REMINDER), 1)
+        self.assertEqual(seen[1][-2]["type"], "function_call_output")
 
     def test_primer_line9_test_or_measurement(self):
         # Fix 3 (Chase "yes", 2026-11-27): wording only; what the tech sees is a lead to the next test.

@@ -100,6 +100,9 @@ def embedding_model(cache_dir=None, threads=None):
         os.environ['HF_HUB_OFFLINE'] = '1'
     elif os.environ.get('TT_OFFLINE') == '1':
         raise RuntimeError(f'embedding model not in {cache_dir} and TT_OFFLINE=1')
+    else:
+        # v4.20.6: not cached, so the one download has to be allowed (a leftover HF_HUB_OFFLINE=1 blocked it on the live app).
+        os.environ.pop('HF_HUB_OFFLINE', None)
     from fastembed import TextEmbedding
     return TextEmbedding(MODEL_NAME, cache_dir=cache_dir, threads=threads)
 

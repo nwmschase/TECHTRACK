@@ -36,6 +36,12 @@ SYSTEM = "\n\n".join([PRIMER, STATE_FORMAT])
 STATE_REMINDER = "REPLY FORMAT: as always, the reply ends with the <state> block described in the instructions."
 
 
+def reminder_item():
+    """The REPLY FORMAT reminder as the last input item of a model round (v4.20.6, test7b: placed before the history and
+    the tool results it was far behind what Grok read last, and both turns came back without the block)."""
+    return {"role": "system", "content": STATE_REMINDER}
+
+
 def _doc_line(p) -> str:
     bits = []
     if getattr(p, "url", ""):
@@ -89,8 +95,8 @@ def context_block(*, category, model_text, pages=(), web_sources=(), searches=()
     blocks.append("CASE STATE SO FAR (from the earlier state blocks):\n" + json.dumps(st, ensure_ascii=False, sort_keys=True))
     if (state or {}).get("summary"):
         blocks.append("RUNNING SUMMARY OF EARLIER TURNS:\n" + state["summary"])
-    # 2026-11-27 (Chase, test3: the block was missing on every turn): a reminder of the existing response format, every turn.
-    blocks.append(STATE_REMINDER)
+    # The REPLY FORMAT reminder (STATE_REMINDER) is no longer here: since v4.20.6 it is the last item of every round's
+    # input (reminder_item(), added by gd_turn.run_turn after the tool results).
     return "\n\n".join(b for b in blocks if b)
 
 

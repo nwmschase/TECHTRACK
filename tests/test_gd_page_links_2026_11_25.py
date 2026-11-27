@@ -171,9 +171,10 @@ class TestCitedPagesReachHistory(unittest.TestCase):
 
     def test_history_message_stores_pages_and_each_reply_draws_its_row(self):
         src = (ROOT / "rv_techtrack.py").read_text(encoding="utf-8")
-        self.assertIn('"pages": _gd_cited_page_refs(st.session_state.pop("gd_last_cited", None)),', src)
+        self.assertIn('"pages": _gd_cited_page_refs(entry.get("cited")),', src)   # v4.20.6: the send's kept cited pages
+        self.assertIn('cited=list(st.session_state.pop("gd_last_cited", None) or [])', src)
         self.assertIn('_render_gd_page_links((m.get("pages") or []) if isinstance(m, dict) else [], f"gd_pages_{index}")', src)
-        self.assertIn('"gd_page_links")', src)                       # reloaded with the GD stack on a redeploy
+        self.assertIn('"gd_page_links", "gd_picture", "gd_sends")', src)                       # reloaded with the GD stack on a redeploy
         row = _slice(src, "def _render_gd_page_links(", "\ndef _render_gd_figures_under_step(")
         self.assertNotIn("st.expander", row)                          # Aug 20: no dropdowns
         self.assertIn("gd_page_links.pdf_link(get_r2_client(), st.secrets[\"R2_BUCKET_NAME\"], key, sheet)", row)
