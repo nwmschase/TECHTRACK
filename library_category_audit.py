@@ -13,7 +13,7 @@ from datetime import datetime
 
 import legacy_selector as go  # until FIX-PLAN phase 7 (library intake moves to the fresh library build)
 
-MODULE_REVISION = "v4.20.1"
+MODULE_REVISION = "v4.20.2"
 MIN_BODY_HITS = 5
 # Component types: controls, wiring/power, chassis and running gear show up inside every product's docs (a jack controller,
 # an A/C thermostat board, a leveling chassis hookup). A doc whose OWN type is only a component is consistent with its

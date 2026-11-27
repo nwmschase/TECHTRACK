@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.1
+RV TechTrack v4.20.2
+- v4.20.2: Guided Diagnostics wording (Chase 2026-11-27, test2): the primer no longer says the internet is open at any point or that a cited web address opens the whole document; a good answer is built on (not led by) the maker manual's pages; a fault code table is for reference and for help planning the diagnostic steps, the checks come from the manual's test pages for that part; a walkthrough step is the check to make, the reading to expect, and what each result means. The per-turn tool log also prints to the Manage app logs (GD_TURN ...) and is saved to R2 gd-turn-logs/<date>/. No new rules.
 - v4.20.1: Guided Diagnostics sees the library pages it opens (Chase 2026-11-27, test1 Schwintek slide): read_pages also hands Grok each page as a picture, drawn from the library PDF the same way Show page draws it, picture-labelled pages first, up to 6 per read and 12 per turn (logged). Grok's web search can find and show photos (image search and image understanding on). The primer no longer says a page is only text; it says a cited library page shows the tech that exact page while a web address opens the whole document, and that a web photo may be a different model.
 - v4.20.0: Go-live package (2026-11-03). Full manual library: 2,848 new docs (Lippert, Furrion, Onan/Truma, InVision; Chase's 10/31 content decisions) plus the 6 Lippert masters split per product. The page-finder index is no longer shipped in git: the build pinned in pagefinder/INDEX_MANIFEST.json is downloaded from R2 at app start (index_fetch.py: stream to disk, size+sha256 check, build_id and fingerprint check, 3 retries, disk cache); while it loads GD says the library is loading, and if it cannot load GD says so plainly (never a silent keyword-only or empty library), with the reason on Manager Tools. Plate-read crash fixed (the read model is applied on the next run before the Model box is drawn). Grok default model grok-4.3. Memory: the passage vectors are memory-mapped and page caches trimmed.
 - v4.19.65: Manual selector root fix. Rating values (12 V, 50 Ah, 13,500 BTU, 6,000 lb) are never model numbers. Evidence is ranked by specificity: exact model in the doc fields, exact model in keywords or page text, series, then brand; brand alone never picks a manual. Two different manuals that match equally are not guessed between: no pick, and the official web lookup runs. Every library category maps to product types; an unmapped category or a model that only exists under another type asks the tech to confirm the unit type. A doc whose file or text cannot be reached is skipped for the next one. Brand-, page- and doc-keyed page rankers (Thetford, Coleman, MaxxFan page 9) are replaced by one page ranker; no toilet job assumes Thetford. Manager Tools has a library category audit (dry run, confirm, backup, rollback) and uploads warn when the category does not match the title.
@@ -217,7 +218,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.1"
+_GDC_REQUIRED_REVISION = "v4.20.2"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -3620,6 +3621,33 @@ def _start_index_fetch():
 _start_index_fetch()
 
 
+def _gd_publish_turn_log(log):
+    """2026-11-27 (Chase, "find its tool log"): the per-turn tool log (gd_turn's record: tool calls, pages opened, web
+    searches, page images, tokens, cost) also goes to the Manage app logs (stdout) and to R2 gd-turn-logs/<date>/, so a
+    test job can be read after the fact. No reply text, no secrets. A failure here never touches the turn."""
+    if not log:
+        return
+    try:
+        line = json.dumps(log, default=str)
+    except Exception:
+        return
+    try:
+        print("GD_TURN " + line, flush=True)
+    except Exception:
+        pass
+    try:
+        now = time.gmtime()
+        try:
+            chat = st.session_state.get("ask_chat_id") or "new"
+        except Exception:
+            chat = "new"
+        key = (f"gd-turn-logs/{time.strftime('%Y-%m-%d', now)}/"
+               f"{time.strftime('%Y%m%dT%H%M%SZ', now)}-{int(time.time() * 1000) % 1000:03d}-{chat}.json")
+        r2_put_bytes(line.encode("utf-8"), key, "application/json")
+    except Exception:
+        pass
+
+
 def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None, help_mode=None):
     """One GD turn on the fresh core (gd_turn). The brain decides; this wrapper only wires the app to it."""
     import gd_turn
@@ -3667,6 +3695,10 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
         return GD_UNAVAILABLE_LINE
+    try:
+        _gd_publish_turn_log(result.get("log"))   # Manage app logs + R2 gd-turn-logs/ (never breaks the turn)
+    except Exception:
+        pass
     try:
         # 2026-11-24 (M1066): a reply that confirms a cause or a recommendation puts it in the job record even when the
         # state block did not carry it, so the work order and the warranty story have it.

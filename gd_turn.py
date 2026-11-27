@@ -90,7 +90,8 @@ HELP_MODE_LINES = {
     HELP_PAGES: ("HOW THE TECH WANTS HELP ON THIS JOB: the manual pages. He picked having the right manual pages and diagrams "
                  "found and shown, with a short pointer to what on them fits this unit and complaint, and he works the steps "
                  "himself. A step-by-step walkthrough from where he is is there whenever he asks for help or says he is stuck."),
-    HELP_WALKTHROUGH: "HOW THE TECH WANTS HELP ON THIS JOB: a full walkthrough of the diagnosis and the repair, one step at a time.",
+    HELP_WALKTHROUGH: ("HOW THE TECH WANTS HELP ON THIS JOB: a full walkthrough of the diagnosis and the repair, one step at a time: "
+                       "the check to make, the reading to expect, and what each result means."),
 }
 
 CEILING_REPLY = "I ran out of lookups for this message. Send it again and I will pick up from what I found."
