@@ -33,6 +33,7 @@ tells the tech to order or replace this turn, and `cited` lists the document and
 source: its address as the doc_id)."""
 
 SYSTEM = "\n\n".join([PRIMER, STATE_FORMAT])
+STATE_REMINDER = "REPLY FORMAT: as always, the reply ends with the <state> block described in the instructions."
 
 
 def _doc_line(p) -> str:
@@ -88,6 +89,8 @@ def context_block(*, category, model_text, pages=(), web_sources=(), searches=()
     blocks.append("CASE STATE SO FAR (from the earlier state blocks):\n" + json.dumps(st, ensure_ascii=False, sort_keys=True))
     if (state or {}).get("summary"):
         blocks.append("RUNNING SUMMARY OF EARLIER TURNS:\n" + state["summary"])
+    # 2026-11-27 (Chase, test3: the block was missing on every turn): a reminder of the existing response format, every turn.
+    blocks.append(STATE_REMINDER)
     return "\n\n".join(b for b in blocks if b)
 
 

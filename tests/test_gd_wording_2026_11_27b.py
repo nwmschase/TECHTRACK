@@ -48,14 +48,15 @@ class TestPrimerWording(unittest.TestCase):
 
 def _ns_publish():
     tree = ast.parse(SRC)
-    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_gd_publish_turn_log")
+    keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in ("_gd_publish_turn_log", "_gd_log_text"))
+            or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "GD_TURN_LOG_TEXT_CAP" for t in n.targets))]
     puts = []
 
     class St:
         session_state = {"ask_chat_id": 7}
     ns = {"json": json, "time": __import__("time"), "st": St,
           "r2_put_bytes": lambda body, key, ct: puts.append((body, key, ct)) or True}
-    exec(compile(ast.Module(body=[fn], type_ignores=[]), "x", "exec"), ns)
+    exec(compile(ast.Module(body=keep, type_ignores=[]), "x", "exec"), ns)
     return ns["_gd_publish_turn_log"], puts
 
 
@@ -91,12 +92,13 @@ class TestTurnLogPublished(unittest.TestCase):
 
     def test_wired_after_run_turn_and_guarded(self):
         body = SRC.split("def _gd_official_reply(", 1)[1].split("\ndef ", 1)[0]
-        self.assertLess(body.index("gd_turn.run_turn("), body.index('_gd_publish_turn_log(result.get("log"))'))
-        seg = body[body.index('_gd_publish_turn_log(result.get("log"))') - 40:]
+        call = '_gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))'
+        self.assertLess(body.index("gd_turn.run_turn("), body.index(call))
+        seg = body[body.index(call) - 40:]
         self.assertIn("try:", seg[:60])
 
     def test_no_secret_names_in_publisher(self):
-        fn_src = SRC.split("def _gd_publish_turn_log(", 1)[1].split("\ndef ", 1)[0]
+        fn_src = SRC.split("def _gd_log_text(", 1)[1].split("\ndef _gd_official_reply", 1)[0]
         for s in ("XAI_API_KEY", "R2_SECRET", "R2_RW_", "st.secrets"):
             self.assertNotIn(s, fn_src)
 

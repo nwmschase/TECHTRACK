@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.2
+RV TechTrack v4.20.3
+- v4.20.3: Guided Diagnostics library lookup fix (Chase 2026-11-27, test3): find_documents compared unit types letter for letter, so Grok's "Slide-outs" missed the library category "Slideouts" and every slide-out manual was filtered out (Grok then went to the web). Unit types now ignore spaces, dashes, case and a plural s, as brands already did, and maker / unit-type filters that leave nothing widen (maker kept, then the whole library) instead of returning an empty list. Each turn's context also reminds Grok that the reply ends with the <state> block. Primer: a diagnosis is worked "until a test or measurement shows the fault; what the tech sees points to the next test" (wording only). The published turn log (Manage app GD_TURN line and R2 gd-turn-logs/) also carries the tech's message and Grok's reply, each capped near 8 KB with a cut marker. No new rules.
 - v4.20.2: Guided Diagnostics wording (Chase 2026-11-27, test2): the primer no longer says the internet is open at any point or that a cited web address opens the whole document; a good answer is built on (not led by) the maker manual's pages; a fault code table is for reference and for help planning the diagnostic steps, the checks come from the manual's test pages for that part; a walkthrough step is the check to make, the reading to expect, and what each result means. The per-turn tool log also prints to the Manage app logs (GD_TURN ...) and is saved to R2 gd-turn-logs/<date>/. No new rules.
 - v4.20.1: Guided Diagnostics sees the library pages it opens (Chase 2026-11-27, test1 Schwintek slide): read_pages also hands Grok each page as a picture, drawn from the library PDF the same way Show page draws it, picture-labelled pages first, up to 6 per read and 12 per turn (logged). Grok's web search can find and show photos (image search and image understanding on). The primer no longer says a page is only text; it says a cited library page shows the tech that exact page while a web address opens the whole document, and that a web photo may be a different model.
 - v4.20.0: Go-live package (2026-11-03). Full manual library: 2,848 new docs (Lippert, Furrion, Onan/Truma, InVision; Chase's 10/31 content decisions) plus the 6 Lippert masters split per product. The page-finder index is no longer shipped in git: the build pinned in pagefinder/INDEX_MANIFEST.json is downloaded from R2 at app start (index_fetch.py: stream to disk, size+sha256 check, build_id and fingerprint check, 3 retries, disk cache); while it loads GD says the library is loading, and if it cannot load GD says so plainly (never a silent keyword-only or empty library), with the reason on Manager Tools. Plate-read crash fixed (the read model is applied on the next run before the Model box is drawn). Grok default model grok-4.3. Memory: the passage vectors are memory-mapped and page caches trimmed.
@@ -218,7 +219,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.2"
+_GDC_REQUIRED_REVISION = "v4.20.3"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -3621,13 +3622,33 @@ def _start_index_fetch():
 _start_index_fetch()
 
 
-def _gd_publish_turn_log(log):
+GD_TURN_LOG_TEXT_CAP = 8192   # bytes per text field in the published turn log (tech message, Grok reply)
+
+
+def _gd_log_text(text, cap=GD_TURN_LOG_TEXT_CAP):
+    """Text for the turn log, cut at about `cap` UTF-8 bytes with a marker saying where and how much was cut."""
+    text = text if isinstance(text, str) else ("" if text is None else str(text))
+    raw = text.encode("utf-8")
+    if len(raw) <= cap:
+        return text
+    kept = raw[:cap].decode("utf-8", errors="ignore")
+    return kept + f" [...cut here: {len(kept)} of {len(text)} characters kept]"
+
+
+def _gd_publish_turn_log(log, user_msg=None, reply=None):
     """2026-11-27 (Chase, "find its tool log"): the per-turn tool log (gd_turn's record: tool calls, pages opened, web
     searches, page images, tokens, cost) also goes to the Manage app logs (stdout) and to R2 gd-turn-logs/<date>/, so a
-    test job can be read after the fact. No reply text, no secrets. A failure here never touches the turn."""
+    test job can be read after the fact. Since v4.20.3 (Chase "yes", 2026-11-27) it also carries the tech's message and
+    Grok's reply for the turn (tech_message / reply, each capped near 8 KB with a cut marker). No secrets. A failure here
+    never touches the turn."""
     if not log:
         return
     try:
+        log = dict(log)
+        if user_msg is not None:
+            log["tech_message"] = _gd_log_text(user_msg)
+        if reply is not None:
+            log["reply"] = _gd_log_text(reply)
         line = json.dumps(log, default=str)
     except Exception:
         return
@@ -3696,7 +3717,7 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
         return GD_UNAVAILABLE_LINE
     try:
-        _gd_publish_turn_log(result.get("log"))   # Manage app logs + R2 gd-turn-logs/ (never breaks the turn)
+        _gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))   # Manage app logs + R2 gd-turn-logs/ (never breaks the turn)
     except Exception:
         pass
     try:

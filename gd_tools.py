@@ -103,6 +103,11 @@ def _phrase(text):
     return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
 
 
+def _unit_key(text):
+    """A unit type / category compared without spaces, dashes, case or a plural s: Slide-outs = Slide Outs = Slideouts."""
+    return _phrase(text).replace(" ", "").rstrip("s")
+
+
 def _marks(p):
     return [m[3:] for m in ("is_toc", "is_cover", "is_safety", "is_parts", "is_fault_codes", "is_troubleshooting", "is_wiring")
             if p.get(m)]
@@ -242,12 +247,14 @@ class LibraryTools:
         return bool(pl) and (pl == b)
 
     def _unit_ok(self, d, unit_type):
-        u = _phrase(unit_type).rstrip("s")
+        # Spaces, dashes, case and a plural s are ignored, as _brand_ok does for brands (Chase 2026-11-27, test3: Grok sent
+        # "Slide-outs" and the library category is "Slideouts", so every slide-out manual was filtered out).
+        u = _unit_key(unit_type)
         if not u:
             return True
         uts = [d.get("unit_type") or ""] + [x.strip() for x in str(d.get("also_unit_types") or "").split(",") if x.strip()]
         uts += sorted(d.get("title_units") or [])
-        return any(_phrase(x).rstrip("s") == u for x in uts)
+        return any(_unit_key(x) == u for x in uts)
 
     def _docs(self, brand=None, unit_type=None, doc_ids=None):
         out = []
@@ -275,6 +282,15 @@ class LibraryTools:
     def find_documents(self, brand=None, model=None, unit_type=None, words=None, limit=None):
         limit = int(limit or DEFAULT_DOCS)
         cand = self._docs(brand=brand, unit_type=unit_type)
+        widened = ""
+        # Filters that leave nothing never return an empty list: drop the unit type (keep the maker), then both, and score
+        # the model / words across what is left (Chase 2026-11-27, test3: an empty result read as "the library has nothing").
+        if not cand and unit_type:
+            cand = self._docs(brand=brand)
+            widened = f"no document has unit type {unit_type!r}" + ("; listed by maker and words instead" if brand else "; listed by words instead")
+        if not cand and brand:
+            cand = self._docs()
+            widened = (widened + "; " if widened else "") + f"no document matches maker {brand!r}; listed across the whole library"
         ms = {}
         if model:
             q_models = list(dict.fromkeys(n for n in (self.s.nmodel(t) for t in re.findall(r"[A-Za-z0-9][A-Za-z0-9\-/\.]*", model))
@@ -315,8 +331,11 @@ class LibraryTools:
             if ws.get(d["doc_id"]):
                 bits.append(f"words {ws[d['doc_id']]:.2f}")
             return "; ".join(bits)
-        return {"documents": [self._doc_card(d, why(d)) for d in cand[:limit]], "total": len(cand),
-                "filters": {k: v for k, v in (("brand", brand), ("model", model), ("unit_type", unit_type), ("words", words)) if v}}
+        out = {"documents": [self._doc_card(d, why(d)) for d in cand[:limit]], "total": len(cand),
+               "filters": {k: v for k, v in (("brand", brand), ("model", model), ("unit_type", unit_type), ("words", words)) if v}}
+        if widened:
+            out["filters_widened"] = widened
+        return out
 
     # -- table_of_contents
     def table_of_contents(self, doc_id):
