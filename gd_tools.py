@@ -75,7 +75,9 @@ FUNCTION_SPECS = [
          "limit": {"type": "integer", "description": "How many hits (default 8)"}}, "required": ["words"]}},
     {"type": "function", "name": "read_pages",
      "description": "Open whole pages of one document: full text, page topics and picture labels, page notes (DOC DEFECT, "
-                    "MISPRINTED PAGE, NEEDS OCR), the document number, revision and document note. pages are printed page "
+                    "MISPRINTED PAGE, NEEDS OCR), the document number, revision and document note. The app also sends the "
+                    "opened pages as page images (drawn from the PDF) in a message right after the result, picture-labelled "
+                    "pages first. pages are printed page "
                     "numbers as the manual prints them; sheets are PDF sheet numbers. One read opens up to 10 pages; when more are "
                     "asked for, the result names the pages left for another read.",
      "parameters": {"type": "object", "properties": {
@@ -88,7 +90,10 @@ FUNCTION_SPECS = [
                     "from the document.",
      "parameters": {"type": "object", "properties": {"url": _STR, "words": _STR}, "required": ["url"]}},
 ]
-WEB_SEARCH_SPEC = {"type": "web_search"}
+# Image search and image understanding on (Chase 2026-11-27, test1): Grok can find a real photo and put it in the reply as
+# a Markdown image (docs.x.ai web-search: enable_image_search), and look at images on the pages it browses
+# (enable_image_understanding, view_image: billed as image tokens). Image search is billed as a normal web search.
+WEB_SEARCH_SPEC = {"type": "web_search", "enable_image_search": True, "enable_image_understanding": True}
 TOOL_SPECS = FUNCTION_SPECS + [WEB_SEARCH_SPEC]
 FUNCTION_NAMES = tuple(t["name"] for t in FUNCTION_SPECS)
 

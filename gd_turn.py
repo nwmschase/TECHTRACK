@@ -12,8 +12,9 @@ Turn flow
   2. Build messages (gd_prompt): the primer, the unit as typed, the pages Grok read earlier in this job, the web sources
      it used, the searches it ran, the case state, the conversation and the tech's message.
   3. Call Grok with the tools. When the reply holds function calls, run each one here (free, local library) and call
-     again with the results; web searches already ran on xAI's side inside the call. Repeat until a reply comes back
-     with no function call.
+     again with the results; web searches already ran on xAI's side inside the call. Pages opened with read_pages are
+     also sent as page images in one message after the results (page_image_fn; caps MAX_PAGE_IMAGES_*). Repeat until a
+     reply comes back with no function call.
   4. Cut off the state block and store it (gd_state). Pages Grok read are kept in the case for later turns, and the
      pages it cites are matched to the pages it read (title, sheet) for the app's source lines and figures.
   5. Return Grok's prose unchanged.
@@ -49,6 +50,15 @@ SAFETY_CEILING_CALLS = 6
 # (~$0.17 uncached). A normal job reads 2-8 pages; 30 is three full reads at gd_tools.READ_MAX_PAGES (10), with room to
 # read past a wrong manual, so a real job never meets it.
 MAX_PAGES_READ_PER_TURN = 30
+# Page images (Chase 2026-11-27, test1: "the library HALF useless because it thinks its all text"). When Grok opens library
+# pages with read_pages, the app also hands it each page as a picture, drawn from the library PDF (the same drawing the
+# "Show page" button uses), in one message right after the tool results (xAI docs: images go in a message as input_image
+# data URLs; a function_call_output carries text). Pages carrying a picture label go first. App-side caps, logged, not in
+# the primer: at most MAX_PAGE_IMAGES_PER_READ images per tool round and MAX_PAGE_IMAGES_PER_TURN per turn. Web pages get
+# no image here (Grok's own web search can view and show web images). None turns a cap off; image_fn=None sends none.
+MAX_PAGE_IMAGES_PER_READ = 6
+MAX_PAGE_IMAGES_PER_TURN = 12
+PICTURE_LABEL_WORDS = ("diagram / drawing", "photo / photograph", "wiring diagram", "schematic", "figure")
 # Turn log (Chase 2026-10-24, "log triggers galore"): one JSON line per turn, app-side, never shown to Grok. run_turn writes
 # to log_path; log_path=None (the default) means GD_TURN_LOG from the environment, else this file in the temp dir.
 DEFAULT_LOG_PATH = os.environ.get("GD_TURN_LOG") or os.path.join(tempfile.gettempdir(), "techtrack-gd-turns.jsonl")
@@ -163,6 +173,50 @@ def _cited_with_pages(cited, case):
     return out
 
 
+def _has_picture_label(p: Page) -> bool:
+    t = (p.topics or "").lower()
+    return any(w in t for w in PICTURE_LABEL_WORDS)
+
+
+def page_image_order(pages):
+    """Library pages that can get an image, picture-labelled pages first, each (doc_id, sheet) once, read order kept."""
+    seen, lib = set(), []
+    for p in pages or []:
+        if p.source == "web" or not p.doc_id or not p.sheet or (p.doc_id, p.sheet) in seen:
+            continue
+        seen.add((p.doc_id, p.sheet))
+        lib.append(p)
+    return [p for p in lib if _has_picture_label(p)] + [p for p in lib if not _has_picture_label(p)]
+
+
+def page_image_message(pages, image_fn, limit=None):
+    """One input message with the page images for library pages just read, or (None, sent, failed).
+    image_fn(doc_id, sheet) -> PNG/JPEG bytes or None. sent / failed: page labels."""
+    import base64
+
+    msg_parts, sent, failed = [], [], []
+    for p in page_image_order(pages):
+        if limit is not None and len(sent) >= limit:
+            break
+        try:
+            data = image_fn(p.doc_id, int(p.sheet))
+        except Exception:
+            data = None
+        if not data:
+            failed.append(p.label())
+            continue
+        mime = "image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/png"
+        msg_parts.append({"type": "input_text", "text": f"Page image: {p.label()} (PDF sheet {p.sheet})"})
+        msg_parts.append({"type": "input_image", "image_url": f"data:{mime};base64," + base64.b64encode(data).decode("ascii"),
+                          "detail": "high"})
+        sent.append(p.label())
+    if not sent:
+        return None, sent, failed
+    head = {"type": "input_text", "text": "The app attached the page images of the library pages just opened with read_pages, "
+                                          "drawn from the library PDF, in the same order as labelled below."}
+    return {"role": "user", "content": [head] + msg_parts}, sent, failed
+
+
 def _is_forum(url):
     u = (url or "").lower()
     host = (urlparse(u).hostname or "")
@@ -189,7 +243,7 @@ def _web_query(action):
 
 
 def run_turn(user_msg, category, model_text, history, *, store, finder=None, library=None, chat_fn=None, respond_fn=None,
-             usage_fn=None, web_fetch=None, log_path=None, tools=None, help_mode=None, **_old):
+             usage_fn=None, web_fetch=None, log_path=None, tools=None, help_mode=None, page_image_fn=None, **_old):
     """One turn. library: a gd_tools.LibraryTools (default: built over finder's library). respond_fn(items, tools,
     tool_choice) -> gd_llm.respond()-shaped dict or a plain reply string; chat_fn(messages, max_tokens, effort) -> str is the
     older text-only form (no tool calls). log_path: JSON-lines turn log ("" = off, None = DEFAULT_LOG_PATH).
@@ -228,6 +282,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     calls, usage, problems, tool_log, turn_pages, triggers = 0, {}, [], [], [], []
     rounds, web_log, opened = [], [], []
     library_used_this_turn = False
+    images_sent, images_failed, images_skipped = [], [], []
     text = ""
 
     def trig(name, **info):
@@ -272,6 +327,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             break
         items += got["output"] or [{"type": "function_call", "call_id": c["call_id"], "name": c["name"],
                                     "arguments": c["arguments"]} for c in got["calls"]]
+        round_lib_pages = []
         for c in got["calls"]:
             room = None if MAX_PAGES_READ_PER_TURN is None else max(0, MAX_PAGES_READ_PER_TURN - len(turn_pages))
             sig = json.dumps([c["name"], c["arguments"]], sort_keys=True, default=str)
@@ -307,6 +363,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             items.append({"type": "function_call_output", "call_id": c["call_id"], "output": out})
             _remember_pages(case, pages)
             turn_pages += pages
+            if c["name"] == "read_pages":
+                round_lib_pages += [p for p in pages if p.source != "web"]
             for p in pages:
                 brand = library.doc_brand(p.doc_id) if library is not None and p.source != "web" else ""
                 o = {"doc_id": p.doc_id, "title": p.title, "page": p.page, "sheet": p.sheet, "brand": brand,
@@ -332,6 +390,23 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                 rec["error"] = err
             tool_log.append(rec)
             case["searches"].append({"tool": c["name"], "args": c["arguments"]})
+        if page_image_fn is not None and round_lib_pages and not last:
+            left = None if MAX_PAGE_IMAGES_PER_TURN is None else max(0, MAX_PAGE_IMAGES_PER_TURN - len(images_sent))
+            caps = [x for x in (MAX_PAGE_IMAGES_PER_READ, left) if x is not None]
+            cap = min(caps) if caps else None
+            ordered = page_image_order(round_lib_pages)
+            if cap == 0:
+                images_skipped += [p.label() for p in ordered]
+            else:
+                msg, sent, failed = page_image_message(round_lib_pages, page_image_fn, limit=cap)
+                if msg is not None:
+                    items.append(msg)
+                images_sent += sent
+                images_failed += failed
+                if cap is not None:
+                    images_skipped += [p.label() for p in ordered if p.label() not in sent and p.label() not in failed]
+            if images_failed:
+                problems.append(f"page images not drawn: {', '.join(images_failed[:10])}")
         if last:
             # App-side backstop only (Chase 2026-10-24): never shown to Grok. Grok still asked for tools on the call made
             # with tool_choice "none"; the turn ends here and is logged.
@@ -372,6 +447,9 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     usage["pages_backstop"] = MAX_PAGES_READ_PER_TURN
     usage["page_chars_opened"] = sum(len(p.text or "") for p in turn_pages)
     usage["web_search_calls"] = sum(1 for t in tool_log if t.get("side") == "xai")
+    usage["page_images_sent"] = len(images_sent)
+    usage["page_images_failed"] = len(images_failed)
+    usage["page_images_skipped"] = len(images_skipped)
     if usage.get("cost_in_usd_ticks"):
         usage["cost_usd"] = round(usage["cost_in_usd_ticks"] * USD_PER_TICK, 6)
     cited = _cited_with_pages(case["state"].get("cited") or [], case)
@@ -382,6 +460,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
            "model_calls": calls, "rounds": rounds, "pages_requested": usage["pages_requested"],
            "pages_served": usage["pages_served"], "pages_backstop": MAX_PAGES_READ_PER_TURN, "context_chars": ctx, "tool_calls": tool_log, "pages_opened": opened,
            "web": web_log, "triggers": triggers, "problems": problems, "usage": usage,
+           "page_images": {"sent": images_sent, "failed": images_failed, "skipped": images_skipped},
            "tokens_in": usage.get("prompt_tokens", 0), "tokens_out": usage.get("completion_tokens", 0),
            "cost_usd": usage.get("cost_usd"), "cited": cited, "pages_used": [p.label() for p in _read_pages(case)],
            "web_sources": [w["url"] for w in case["web_sources"]], "seconds": round(time.time() - t0, 3)}
@@ -397,4 +476,4 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     return {"reply": prose, "mode": mode, "state": case["state"], "pages_used": rec["pages_used"], "not_shown": [],
             "usage": usage, "seconds": rec["seconds"], "context_chars": ctx, "problems": problems, "calls": calls,
             "cited": cited, "tool_calls": tool_log, "web_sources": list(case["web_sources"]), "pages_read": opened,
-            "triggers": triggers, "log": rec}
+            "triggers": triggers, "page_images": rec["page_images"], "log": rec}

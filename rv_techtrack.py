@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.0
+RV TechTrack v4.20.1
+- v4.20.1: Guided Diagnostics sees the library pages it opens (Chase 2026-11-27, test1 Schwintek slide): read_pages also hands Grok each page as a picture, drawn from the library PDF the same way Show page draws it, picture-labelled pages first, up to 6 per read and 12 per turn (logged). Grok's web search can find and show photos (image search and image understanding on). The primer no longer says a page is only text; it says a cited library page shows the tech that exact page while a web address opens the whole document, and that a web photo may be a different model.
 - v4.20.0: Go-live package (2026-11-03). Full manual library: 2,848 new docs (Lippert, Furrion, Onan/Truma, InVision; Chase's 10/31 content decisions) plus the 6 Lippert masters split per product. The page-finder index is no longer shipped in git: the build pinned in pagefinder/INDEX_MANIFEST.json is downloaded from R2 at app start (index_fetch.py: stream to disk, size+sha256 check, build_id and fingerprint check, 3 retries, disk cache); while it loads GD says the library is loading, and if it cannot load GD says so plainly (never a silent keyword-only or empty library), with the reason on Manager Tools. Plate-read crash fixed (the read model is applied on the next run before the Model box is drawn). Grok default model grok-4.3. Memory: the passage vectors are memory-mapped and page caches trimmed.
 - v4.19.65: Manual selector root fix. Rating values (12 V, 50 Ah, 13,500 BTU, 6,000 lb) are never model numbers. Evidence is ranked by specificity: exact model in the doc fields, exact model in keywords or page text, series, then brand; brand alone never picks a manual. Two different manuals that match equally are not guessed between: no pick, and the official web lookup runs. Every library category maps to product types; an unmapped category or a model that only exists under another type asks the tech to confirm the unit type. A doc whose file or text cannot be reached is skipped for the next one. Brand-, page- and doc-keyed page rankers (Thetford, Coleman, MaxxFan page 9) are replaced by one page ranker; no toilet job assumes Thetford. Manager Tools has a library category audit (dry run, confirm, backup, rollback) and uploads warn when the category does not match the title.
 - v4.19.64: One manual selector for every search (GD and the library/Bay search): an exact model number from the model field, complaint or label wins outright; category product type and brand are hard filters, so another product's or brand's manual is never pinned; "No <brand> <model> <type> manual found" counts as not found and the official web lookup runs. Label/diagram text and photos drive the walk. The warranty story records the final correction.
@@ -216,7 +217,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.0"
+_GDC_REQUIRED_REVISION = "v4.20.1"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -2813,10 +2814,10 @@ def _gd_pdf_in_storage(key: str) -> bool:
     return gd_page_links.object_exists_cached(get_r2_client, bucket, key)
 
 
-def _render_cited_sheet(doc_id, sheet: int, file_path: str, caption: str) -> bool:
-    """Draw exactly the cited PDF sheet: the page image indexing stored in R2 (library-pages/<id>/p<sheet>-page.png) when
-    there is one, else that sheet rendered from the PDF (render_pdf_page_png). Unlike render_library_page_image this never
-    swaps in a bundled kit figure, so the tech always sees the page that was cited."""
+def _gd_sheet_png(doc_id, sheet: int, file_path: str, pdf_cache: dict | None = None):
+    """PNG bytes of exactly one library PDF sheet: the page image indexing stored in R2 (library-pages/<id>/p<sheet>-page.png)
+    when there is one, else that sheet rendered from the PDF (render_pdf_page_png). Never a bundled kit figure. None when
+    neither works. pdf_cache (optional, per turn) keeps a downloaded PDF for the next sheet of the same file."""
     import manual_figures as mf
 
     m = re.match(r"^L(\d+)$", str(doc_id or "").strip())
@@ -2831,15 +2832,40 @@ def _render_cited_sheet(doc_id, sheet: int, file_path: str, caption: str) -> boo
     if not png or mf.png_is_blank(png):
         local = Path(str(file_path or ""))
         data = None
-        if file_path and local.is_file():
+        if pdf_cache is not None and file_path in pdf_cache:
+            data = pdf_cache[file_path]
+        elif file_path and local.is_file():
             try:
                 data = local.read_bytes()
             except Exception:
                 data = None
         elif file_path:
             data = r2_download_bytes(file_path)
+        if pdf_cache is not None and file_path and data:
+            pdf_cache.clear()          # one PDF at a time: memory stays bounded
+            pdf_cache[file_path] = data
         png = render_pdf_page_png(data, int(sheet)) if data else None
     if png and not mf.png_is_blank(png):
+        return png
+    return None
+
+
+def _gd_page_image_fn():
+    """page_image_fn for gd_turn.run_turn (Chase 2026-11-27, test1): the library page Grok opened, as the same picture the
+    tech's "Show page" button draws. A fresh one per turn (its PDF cache lives only for that turn)."""
+    pdf_cache: dict = {}
+
+    def fn(doc_id, sheet):
+        return _gd_sheet_png(doc_id, int(sheet), _gd_doc_file_path(doc_id), pdf_cache)
+
+    return fn
+
+
+def _render_cited_sheet(doc_id, sheet: int, file_path: str, caption: str) -> bool:
+    """Draw exactly the cited PDF sheet (_gd_sheet_png). Unlike render_library_page_image this never swaps in a bundled kit
+    figure, so the tech always sees the page that was cited."""
+    png = _gd_sheet_png(doc_id, sheet, file_path)
+    if png:
         st.image(png, caption=caption, use_container_width=True)
         return True
     return False
@@ -3625,11 +3651,18 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         # Not "could not reach the AI": the manual library itself is not ready (named reason on the manager page).
         return index_fetch.UNAVAILABLE_LINE
     try:
+        # 2026-11-27 (test1): Grok sees the library pages it opens, not only their text. A failure here costs the images,
+        # never the turn.
+        page_image_fn = _gd_page_image_fn()
+    except Exception:
+        page_image_fn = None
+    try:
         result = gd_turn.run_turn(
             user_msg, category_name, model_text, history,
             finder=finder, respond_fn=respond_fn, store=pin_store,
             log_path=GD_USAGE_LOG or None,   # None = gd_turn.DEFAULT_LOG_PATH (GD_TURN_LOG or the temp dir)
             help_mode=help_mode,
+            page_image_fn=page_image_fn,
         )
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.

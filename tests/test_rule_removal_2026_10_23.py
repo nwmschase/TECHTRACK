@@ -28,7 +28,7 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
     def test_primer_loads_and_is_about_one_page(self):
         text = (ROOT / "gd_primer.md").read_text(encoding="utf-8")
         self.assertEqual(gd_prompt.PRIMER, text.strip())
-        self.assertLess(len(text.split()), 1700)   # 2026-11-24: + "How a diagnosis goes in the trade" (reefer miss)
+        self.assertLess(len(text.split()), 1750)   # 2026-11-24: + "How a diagnosis goes in the trade" (reefer miss); 2026-11-27: + page images / web photos / cited page lines (test1)
         for want in ("RV and trailer repair techs", "Page topics", "diagram / drawing / illustration / picture / pic / image / figure",
                      "photo / photograph / picture / pic / image / figure of the actual", "next_part_to_fetch", "web_lookup",
                      "maker's own site first", "forum", "natural first place to look", "does not need to know what is in the library"):
@@ -194,7 +194,8 @@ class TestWebTool(unittest.TestCase):
         self.assertNotIn("_gd_web_tool()", src)
         self.assertNotIn("gd_official.make_web_fn(secret_fn=_secret)", src)
         import gd_tools
-        self.assertIn({"type": "web_search"}, gd_tools.TOOL_SPECS)
+        self.assertIn({"type": "web_search", "enable_image_search": True, "enable_image_understanding": True},
+                      gd_tools.TOOL_SPECS)   # 2026-11-27: image search on (test1)
         self.assertTrue(callable(gd_official.fetch_pages))
 
     def test_html_page_from_any_host_comes_back_with_url_host_and_revision(self):

@@ -18,7 +18,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.0"
+MODULE_REVISION = "v4.20.1"
 
 # Guided Diagnostics ask turns: no token cap and no reasoning-effort setting (None = the provider's own defaults).
 GD_ASK_MAX_TOKENS = None
