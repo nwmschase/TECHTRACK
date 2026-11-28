@@ -17,7 +17,7 @@ import threading
 import time
 import types
 
-MODULE_REVISION = "v4.20.9"
+MODULE_REVISION = "v4.20.10"
 
 # v4.20.9 (audit M6, Chase t1727u): the guard covers the WHOLE turn. A turn is up to gd_turn.SAFETY_CEILING_CALLS model
 # calls, each up to gd_llm.TOOL_REQUEST_TIMEOUT_SEC + DEADLINE_SLACK_SEC, plus the photo read and the library tools

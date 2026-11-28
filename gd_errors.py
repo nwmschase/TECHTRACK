@@ -20,7 +20,7 @@ import json
 import threading
 import traceback
 
-MODULE_REVISION = "v4.20.9"
+MODULE_REVISION = "v4.20.10"
 
 ERROR_PREFIX = "Guided Diagnostics did not answer:"
 TAG_ERROR = "GD_ERROR"

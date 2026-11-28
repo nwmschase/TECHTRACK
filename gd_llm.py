@@ -19,7 +19,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.9"
+MODULE_REVISION = "v4.20.10"
 
 # Guided Diagnostics ask turns: no token cap and no reasoning-effort setting (None = the provider's own defaults).
 GD_ASK_MAX_TOKENS = None
@@ -540,7 +540,7 @@ GD_RESPOND_TEMPERATURE = 0.7
 
 
 def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_factory=None, model=None,
-            temperature: float = GD_RESPOND_TEMPERATURE) -> dict:
+            temperature: float = GD_RESPOND_TEMPERATURE, cache_key: str | None = None) -> dict:
     """One Grok call on the xAI Responses API with our function tools + built-in web search. Returns parse_response().
     No token cap and no reasoning-effort setting (the provider's defaults). xAI only: Groq has no built-in web search."""
     global _last_usage
@@ -559,6 +559,10 @@ def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_fact
               "include": list(RESPONSES_INCLUDE)}
     if tool_choice:
         kwargs["tool_choice"] = tool_choice
+    if cache_key:
+        # v4.20.10: xAI prompt_cache_key (docs.x.ai prompt caching): same key = same server = the cached prefix is found.
+        # A random per-job id, never a secret; sent through extra_body so older SDK versions accept it.
+        kwargs["extra_body"] = {"prompt_cache_key": str(cache_key)}
 
     def _call():
         return client.responses.create(**kwargs)

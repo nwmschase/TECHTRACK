@@ -11,7 +11,7 @@ from test_fresh_core import FakeRespond, block, finder  # noqa: E402
 
 
 def context(seen_items):
-    return seen_items[1]["content"]          # [system primer, system context, ...conversation]
+    return seen_items[-2]["content"]         # v4.20.10: [primer, ...conversation, new message, JOB CONTEXT, reply-format reminder]
 
 
 class TestHelpModeReachesGrok(unittest.TestCase):
@@ -41,7 +41,7 @@ class TestHelpModeReachesGrok(unittest.TestCase):
         items = chat.seen[0][0]
         self.assertIn(gd_turn.HELP_MODE_LINES["walkthrough"], context(items))
         self.assertNotIn(gd_turn.HELP_MODE_LINES["pages"], context(items))
-        self.assertEqual([m["content"] for m in items[2:4]], ["not cooling", r["reply"]])     # whole job carried
+        self.assertEqual([m["content"] for m in items[1:3]], ["not cooling", r["reply"]])     # whole job carried (v4.20.10: history follows the primer)
         self.assertEqual(store[gd_turn.STORE_KEY]["state"]["help_mode"], "walkthrough")
 
     def test_no_choice_is_the_old_behavior(self):

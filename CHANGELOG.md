@@ -720,6 +720,16 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Added: `gd_primer.md` (one plain description of TechTrack, loaded by `gd_prompt.py` as the only guidance text); `gd_official.py` web lookup tool (port of the live official-manual fetcher, no gate by library, tech ask or domain), wired as `web_fn`. Kept: library data and labels, page finder/search, state-block format, session handling, PDF rendering.
 - Profiles: GD-PROFILE and PDF-PROFILE are now short descriptive statements (v2.0); PROFILE-CHANGE-LOG row added.
 
+### v4.20.10 — 2026-11-28 — request order for xAI's prompt cache (Chase t1732u)
+- Built on v4.20.9 (`467315f`). No paid calls. What Grok is told is unchanged: same primer, same pages, same history, same state, same text; only the ORDER of what is sent changed, and each job now sends a cache key.
+- New request order (`gd_prompt.build_input`, replaces `build_messages`): primer, then the pages read earlier in the job (own item), then the conversation so far, then the tech's new message, then the rest of the job context last (unit line, notes, web sources, lookups, case state, running summary). Before, the whole context block (state and summary included, rewritten every turn) sat right after the primer, so xAI's cache stopped there and the history was re-sent at full price every turn.
+- Within a turn each model call is the previous call plus appended items (tool calls, results, page images); the REPLY FORMAT reminder is still last and is never stored. Pages read stay in first-read order (a re-read page no longer moves to the end), so the pages item only grows at its end.
+- Why the pages stay in front of the history: measured on the 11/27 test-log jobs (`scripts/cache_share_estimate.py`), putting everything that changes last, pages included, cached LESS (0.629 against 0.649 before) because the pages are most of the tokens; pages first, rest last cached 0.669.
+- Each job gets a random `prompt_cache_key` (`gd_pin_store["gd_cache_key"]`, new on New chat) sent to xAI so the turns of one job land on the same server (docs.x.ai prompt caching). `gd_llm.respond(cache_key=...)` sends it through `extra_body`.
+- GD turn log: `tokens_cached` and `cached_share` (cached / prompt tokens) per turn, next to `tokens_in` / `tokens_out` (per-round `cached_tokens` was already logged).
+- Not changed: tool list (the web tools still appear once the gate opens, one cache break per job), the primer, history length, page images, model, temperature.
+- Tests: `tests/test_gd_v42010_2026_11_28.py` (multi-round multi-turn prefix checks, same-content check against the old layout, cache key, logging, estimator); `test_fresh_core`, `test_rule_removal_2026_10_23`, `test_gd_help_mode_2026_11_24`, `test_grok_search_2026_10_24` updated for the new order.
+
 ### v4.20.9 — 2026-11-28 — code cleanup, real errors, dead-code guard (Chase t1727u / t1729u; audit 2026-11-28)
 - Built on v4.20.8 (`0d4b1eb`). No paid calls. Model unchanged (grok-4.3), temperature and thinking level unchanged.
 - New chat and Open clear the whole GD job record (`gd_state.clear_job_session`: job store, chat id, access prompt/answer, cited / drawn pages). A furnace job never carries into the next fridge job.

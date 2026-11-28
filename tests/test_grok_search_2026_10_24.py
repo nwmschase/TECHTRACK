@@ -209,7 +209,7 @@ class TestRespondAdapter(unittest.TestCase):
         src = (ROOT / "rv_techtrack.py").read_text()
         a = src.index("def _gd_official_reply(")
         body = src[a:src.index("\ndef guided_diagnostics_reply(", a)]
-        self.assertIn("gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=_secret)", body)
+        self.assertIn("gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=_secret,", body)
         self.assertNotIn("web_fn=", body)
 
 

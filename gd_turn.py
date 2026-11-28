@@ -28,6 +28,7 @@ import json
 import os
 import tempfile
 import time
+import uuid
 from urllib.parse import urlparse
 
 import gd_errors
@@ -37,6 +38,7 @@ import gd_tools
 from gd_pages import Page
 
 STORE_KEY = "gd_case"
+CACHE_KEY = "gd_cache_key"   # v4.20.10: one random id per job (New chat starts a new one); sent as xAI prompt_cache_key
 
 # Backstop on model calls in one turn (Chase 2026-10-24, "lets try it"). A normal job never reaches it; it only keeps a
 # turn that asks for a new, different search every round from running up cost. Not part of the prompt.
@@ -205,9 +207,8 @@ def _remember_pages(case, pages):
     for p in pages:
         k = _key(p)
         case["read"][k] = p.to_dict()
-        if k in case["read_order"]:
-            case["read_order"].remove(k)
-        case["read_order"].append(k)
+        if k not in case["read_order"]:       # first-read order, kept on a re-read: the pages block only ever grows at the end (prompt cache)
+            case["read_order"].append(k)
 
 
 def _read_pages(case):
@@ -441,6 +442,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         case["unit"] = {"category": category or "", "model_text": model_text or ""}
         case["read"], case["read_order"], case["web_sources"], case["searches"] = {}, [], [], []
         case["web_gate"], case["found_docs"] = new_web_gate(), []
+    store.setdefault(CACHE_KEY, uuid.uuid4().hex)   # set before the first round: the app's respond_fn reads it from the store
     case.setdefault("notes_next", []); case.setdefault("log", [])
     case.setdefault("web_gate", new_web_gate()); case.setdefault("found_docs", [])
     gate = case["web_gate"]
@@ -455,7 +457,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         case["state"]["help_mode"] = help_mode
     if case["state"].get("help_mode") in HELP_MODE_LINES:
         notes = [HELP_MODE_LINES[case["state"]["help_mode"]]] + notes
-    msgs = gd_prompt.build_messages(user_msg=user_msg, history=history, category=case["unit"]["category"],
+    msgs = gd_prompt.build_input(user_msg=user_msg, history=history, category=case["unit"]["category"],
                                     model_text=case["unit"]["model_text"], pages=_read_pages(case),
                                     web_sources=case["web_sources"], searches=case["searches"], state=case["state"], notes=notes)
     items = list(msgs)
@@ -708,6 +710,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
            "page_images": {"sent": images_sent, "failed": images_failed, "skipped": images_skipped},
            "web_gate": dict(gate), "picture_request": bool(picture_request),
            "tokens_in": usage.get("prompt_tokens", 0), "tokens_out": usage.get("completion_tokens", 0),
+           "tokens_cached": usage.get("cached_tokens", 0),   # v4.20.10: xAI's cached-input tokens (billed at the cached rate)
+           "cached_share": round(usage.get("cached_tokens", 0) / usage["prompt_tokens"], 3) if usage.get("prompt_tokens") else None,
            "cost_usd": usage.get("cost_usd"), "cited": cited, "pages_used": [p.label() for p in _read_pages(case)],
            "web_sources": [w["url"] for w in case["web_sources"]], "seconds": round(time.time() - t0, 3)}
     case["log"] = (case["log"] + [{k: rec[k] for k in ("ts", "turn", "model_calls", "triggers", "usage", "seconds")}])[-CASE_LOG_KEEP:]

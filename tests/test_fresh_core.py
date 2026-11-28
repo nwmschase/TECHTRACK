@@ -79,23 +79,24 @@ class TestPromptAssembly(unittest.TestCase):
         for i in range(10):
             hist += [{"role": "user", "content": f"tech {i}"}, {"role": "assistant", "content": f"gd {i}"}]
         f = finder()
-        msgs = gd_prompt.build_messages(user_msg="now what", history=hist, category="Refrigerators", model_text="Acme X1",
+        msgs = gd_prompt.build_input(user_msg="now what", history=hist, category="Refrigerators", model_text="Acme X1",
                                         pages=f._pages, web_sources=[{"url": "https://www.acme.com/m.pdf"}],
                                         searches=[{"tool": "search_pages", "args": '{"words": "E2"}'}], state=st)
-        sys_txt, ctx = msgs[0]["content"], msgs[1]["content"]
+        # v4.20.10: [primer, pages read, history..., new message, rest of the job context]
+        sys_txt, ctx = msgs[0]["content"], msgs[1]["content"] + "\n\n" + msgs[-1]["content"]
         # system text = the primer + the state-block format, nothing else
         self.assertEqual(sys_txt, gd_prompt.PRIMER + "\n\n" + gd_prompt.STATE_FORMAT)
         self.assertNotIn("RULE 1", sys_txt)
         self.assertIn("<state>", sys_txt)
-        # context: unit, manual, toc, pages with doc + page labels, state, summary - in that order
-        order = ["UNIT (as the tech typed it)", "=== PAGES READ EARLIER IN THIS JOB ===", "[Acme Fridge Service Manual (L1), p.25]",
+        # context: pages with doc + page labels (first), then unit, web sources, lookups, state, summary - in that order
+        order = ["=== PAGES READ EARLIER IN THIS JOB ===", "[Acme Fridge Service Manual (L1), p.25]", "UNIT (as the tech typed it)",
                  "WEB SOURCES USED EARLIER", "LOOKUPS RUN EARLIER", "CASE STATE SO FAR", "RUNNING SUMMARY"]
         idx = [ctx.index(o) for o in order]
         self.assertEqual(idx, sorted(idx))
         self.assertIn("10.4 V", ctx)
         self.assertIn("E2 on arrival", ctx)
         # the whole conversation, then the new message
-        body = msgs[2:]
+        body = msgs[2:-1]
         self.assertEqual(len(body), 2 * 10 + 1)
         self.assertEqual(body[0]["content"], "tech 0")
         self.assertEqual(body[-1], {"role": "user", "content": "now what"})
@@ -223,7 +224,7 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
         chat2 = FakeChat(["ok\n" + block(summary="c")])
         r2 = gd_turn.run_turn("10.4 V at the fan", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store, log_path="")
         self.assertEqual(r2["calls"], 1)
-        self.assertIn("Freezer fan motor test", chat2.seen[0][0][1]["content"])   # page read last turn comes along
+        self.assertIn("Freezer fan motor test", chat2.seen[0][0][1]["content"])   # page read last turn comes along (the pages item, right after the primer)
 
     def test_unit_change_clears_pages_read(self):
         f, store = finder(), {}
@@ -231,7 +232,7 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
                          respond_fn=FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["29"]})], "ok\n" + block(summary="a")]))
         chat = FakeChat(["ok\n" + block(summary="b")])
         gd_turn.run_turn("E2", "Refrigerators", "Acme X2", [], finder=f, store=store, chat_fn=chat, log_path="")
-        self.assertNotIn("Freezer fan motor test", chat.seen[0][0][1]["content"])
+        self.assertNotIn("Freezer fan motor test", chat.seen[0][0][-2]["content"])
 
     def test_no_library_hits_and_no_web(self):
         f, store = StubPageFinder(), {}

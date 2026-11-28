@@ -38,9 +38,9 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
     def test_system_text_is_primer_plus_state_format_only(self):
         self.assertEqual(gd_prompt.SYSTEM, gd_prompt.PRIMER + "\n\n" + gd_prompt.STATE_FORMAT)
         f = finder()
-        msgs = gd_prompt.build_messages(user_msg="hi", history=[], category="Refrigerators", model_text="Acme X1",
+        msgs = gd_prompt.build_input(user_msg="hi", history=[], category="Refrigerators", model_text="Acme X1",
                                         pages=f._pages, state=gd_state.new_state())
-        self.assertEqual([m["role"] for m in msgs], ["system", "system", "user"])
+        self.assertEqual([m["role"] for m in msgs], ["system", "system", "user", "system"])   # v4.20.10: primer, pages, message, rest of the context
         self.assertEqual(msgs[0]["content"], gd_prompt.SYSTEM)
         self.assertFalse(hasattr(gd_prompt, "RULES") or hasattr(gd_prompt, "GUIDANCE") or hasattr(gd_prompt, "HISTORY_TURNS"))
 
@@ -61,9 +61,9 @@ class TestPrimerIsTheOnlyGuidance(unittest.TestCase):
         hist = []
         for i in range(10):
             hist += [{"role": "user", "content": f"tech {i}"}, {"role": "assistant", "content": f"gd {i}"}]
-        msgs = gd_prompt.build_messages(user_msg="now", history=hist, category="", model_text="", pages=finder()._pages,
+        msgs = gd_prompt.build_input(user_msg="now", history=hist, category="", model_text="", pages=finder()._pages,
                                         state=gd_state.new_state())
-        self.assertEqual(len(msgs), 2 + 20 + 1)
+        self.assertEqual(len(msgs), 3 + 20 + 1)
 
 
 class TestNoRuleStringsLeft(unittest.TestCase):
@@ -95,7 +95,7 @@ class TestNoRuleStringsLeft(unittest.TestCase):
         chat = FakeChat([block(web_lookup="Brinkley Z3100 front jack bracket", summary="a")])
         r = gd_turn.run_turn("front jack", "Leveling", "Brinkley Model Z", [], finder=f, chat_fn=chat, store=store)
         self.assertEqual(r["calls"], 1)
-        self.assertNotIn("not available", chat.seen[0][0][1]["content"])
+        self.assertNotIn("not available", chat.seen[0][0][-2]["content"])
         self.assertEqual(r["mode"], "no_manual")
 
     def test_order_with_pending_test_is_not_policed(self):
@@ -254,7 +254,7 @@ class TestWebTool(unittest.TestCase):
         # next turn: the web pages read come along with their source lines
         chat2 = FakeChat(["ok\n" + block(summary="c")])
         gd_turn.run_turn("next", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store, log_path="")
-        ctx = chat2.seen[0][0][1]["content"]
+        ctx = chat2.seen[0][0][1]["content"]       # the pages item (v4.20.10: right after the primer)
         self.assertIn("source https://www.irv2.com/forum/t (host www.irv2.com)", ctx)
         self.assertIn("revision Rev 04/12/23", ctx)
 

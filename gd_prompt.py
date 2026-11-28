@@ -105,9 +105,32 @@ def recent_history(history):
     return [m for m in (history or []) if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()]
 
 
-def build_messages(*, user_msg, history, category, model_text, pages=(), web_sources=(), searches=(), state=None, notes=()):
-    return ([{"role": "system", "content": SYSTEM},
-             {"role": "system", "content": context_block(category=category, model_text=model_text, pages=pages,
-                                                         web_sources=web_sources, searches=searches, state=state, notes=notes)}]
+def pages_item(pages):
+    """The pages already read in this job as one system message, or None when there are none."""
+    txt = _pages_block("PAGES READ EARLIER IN THIS JOB", list(pages))
+    return {"role": "system", "content": txt} if txt else None
+
+
+def build_input(*, user_msg, history, category, model_text, pages=(), web_sources=(), searches=(), state=None, notes=()):
+    """The input list of one turn, ordered for xAI's prompt cache (v4.20.10, Chase t1732u; docs.x.ai prompt caching: the
+    cache matches the start of the request, so anything that changes turn to turn breaks it from that point on).
+    The same text as before, only reordered (the old single context block is split in two):
+      1. the primer (constant),
+      2. the pages read earlier in this job (the biggest part; only ever grows at the end, in first-read order),
+      3. the conversation so far (append-only: each turn adds two messages at the end),
+      4. the tech's new message,
+      5. the rest of the job context LAST: unit line, notes, web sources, lookups, case state, summary (all of it can
+         change every turn).
+    Within a turn gd_turn only appends to this list (tool calls, their results, page images) and puts the REPLY FORMAT
+    reminder after everything, so each round's request starts with the whole previous round's request. Across turns the
+    request starts with the previous turn's primer + pages + history up to the old user message, except where a turn read
+    a new page (the pages block then grows and the history after it is sent fresh once). Measured on the 11/27 jobs
+    (scripts/cache_share_estimate.py): putting the pages after the history instead would LOSE cache, since the pages are
+    most of the tokens, so they stay in front."""
+    head = pages_item(pages)
+    return ([{"role": "system", "content": SYSTEM}]
+            + ([head] if head else [])
             + [{"role": m["role"], "content": m["content"]} for m in recent_history(history)]
-            + [{"role": "user", "content": user_msg or ""}])
+            + [{"role": "user", "content": user_msg or ""},
+               {"role": "system", "content": context_block(category=category, model_text=model_text, pages=(),
+                                                           web_sources=web_sources, searches=searches, state=state, notes=notes)}])
