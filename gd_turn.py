@@ -4,8 +4,8 @@ Grok does the looking (Chase 2026-10-22 / 2026-10-24): it searches the library i
 find_documents, table_of_contents, search_pages, read_pages, open_web_document) and the internet with xAI's built-in
 web search inside its own call. Grok decides which manual and which pages fit the unit and the complaint. The app picks
 nothing, ranks nothing for Grok, and adds no rules: it runs the tool calls Grok makes, hands back what they return, and
-stores the state block. No keyword triggers, no guards, no rewrites of the reply, no limits on pages, characters, history
-or tokens.
+stores the state block. No keyword triggers and no rewrites of the reply. The app-side backstops (calls per turn, pages per
+turn, page images, the web gate) are below, each logged, none in the primer.
 
 Turn flow
   1. Load the case from the store (or start one). A changed unit clears the pages read for the old unit.
@@ -119,7 +119,7 @@ def _read_limit():
 def new_case(category, model_text, complaint):
     return {"unit": {"category": category or "", "model_text": model_text or ""}, "complaint": complaint or "",
             "read": {}, "read_order": [], "web_sources": [], "searches": [],
-            "state": gd_state.new_state(), "turns": 0, "problems": [], "notes_next": [],
+            "state": gd_state.new_state(), "turns": 0, "problems": [],
             "web_gate": new_web_gate(), "found_docs": []}
 
 
@@ -443,14 +443,15 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         case["read"], case["read_order"], case["web_sources"], case["searches"] = {}, [], [], []
         case["web_gate"], case["found_docs"] = new_web_gate(), []
     store.setdefault(CACHE_KEY, uuid.uuid4().hex)   # set before the first round: the app's respond_fn reads it from the store
-    case.setdefault("notes_next", []); case.setdefault("log", [])
+    case.pop("notes_next", None)   # v4.20.11: never filled by anything; an old record's empty field is dropped
+    case.setdefault("log", [])
     case.setdefault("web_gate", new_web_gate()); case.setdefault("found_docs", [])
     gate = case["web_gate"]
     if not gate["open"] and any(p.source != "web" for p in _read_pages(case)):
         gate.update(open=True, why="a library page was opened earlier in this job")
     if library is None and not gate["open"]:
         gate.update(open=True, why="the library is not loaded", library_empty=True)
-    notes = list(case["notes_next"]); case["notes_next"] = []
+    notes = []
     # The tech's up-front choice (Chase 2026-11-24): manual pages or a walkthrough. Stored in the job state and passed as
     # one plain line of session context; the primer is unchanged. A later choice (e.g. "Walk me through it") replaces it.
     if help_mode in HELP_MODE_LINES:
@@ -510,6 +511,13 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         if new_urls:
             web_log.append({"call": calls, "type": "sources", "sources": new_urls})
         if not got["calls"]:
+            break
+        if last:
+            # App-side backstop only (Chase 2026-10-24): never shown to Grok. Grok still asked for tools on the call made
+            # with tool_choice "none"; the turn ends here and is logged. v4.20.11 (audit L3): those calls are not run, so a
+            # page Grok never saw is not counted as opened, cited, pictured or used to open the web gate.
+            problems.append(f"safety ceiling: turn stopped after {calls} calls while still asking for tools (not run: "
+                            + ", ".join(c["name"] for c in got["calls"]) + ")")
             break
         items += got["output"] or [{"type": "function_call", "call_id": c["call_id"], "name": c["name"],
                                     "arguments": c["arguments"]} for c in got["calls"]]
@@ -590,7 +598,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                 rec["error"] = err
             tool_log.append(rec)
             case["searches"].append({"tool": c["name"], "args": c["arguments"]})
-        if page_image_fn is not None and round_lib_pages and not last:
+        if page_image_fn is not None and round_lib_pages:
             left = None if MAX_PAGE_IMAGES_PER_TURN is None else max(0, MAX_PAGE_IMAGES_PER_TURN - len(images_sent))
             caps = [x for x in (MAX_PAGE_IMAGES_PER_READ, left) if x is not None]
             cap = min(caps) if caps else None
@@ -607,11 +615,6 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                     images_skipped += [p.label() for p in ordered if p.label() not in sent and p.label() not in failed]
             if images_failed:
                 problems.append(f"page images not drawn: {', '.join(images_failed[:10])}")
-        if last:
-            # App-side backstop only (Chase 2026-10-24): never shown to Grok. Grok still asked for tools on the call made
-            # with tool_choice "none"; the turn ends here and is logged.
-            problems.append(f"safety ceiling: turn stopped after {calls} calls while still asking for tools")
-            break
     if calls >= SAFETY_CEILING_CALLS:
         if not any("safety ceiling" in p for p in problems):
             problems.append(f"safety ceiling: the last of {calls} calls was made with tools off")
@@ -624,8 +627,9 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         # picture-labelled page of the manuals already found for the unit. None (no library picture) leaves Grok's reply.
         try:
             app_page = app_open_picture_page(case, library, user_msg)
-        except Exception as exc:
+        except Exception as exc:   # v4.20.11: tagged GD_FALLBACK + turn log, not only a problems note
             problems.append(f"app picture page failed: {exc}")
+            gd_errors.fallback("picture_page", "the app's picture-page lookup crashed; no picture page opened", exc=exc)
             app_page = None
         if getattr(library, "last_search_pages", False):
             _note_meaning_off(case, library, triggers, trig)

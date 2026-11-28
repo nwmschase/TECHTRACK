@@ -2,7 +2,8 @@
 
 The brain (the LLM) ends every reply with one small JSON block between <state> and </state>.
 The code only cuts that block off the reply, checks the field types, and stores it.
-The code never reads the tech's words or the brain's prose to decide anything: no regex on prose.
+The state block itself is never read from prose. (The app does read prose elsewhere: gd_story.record_reply_findings /
+record_tech_findings and the wrap-up close statements.)
 
 Fields (all optional in each update; missing = unchanged):
   facts               [{item, value, quote}]  readings / observations the tech gave (upsert by item)
@@ -14,8 +15,8 @@ Fields (all optional in each update; missing = unchanged):
   order_part          str     a part the brain tells the tech to order / replace this turn ("" when none)
   cause               str     the brain's current diagnosis, with its doc + page
   repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words
-  cited               [{doc_id, page}]   pages the brain cited this turn
-  summary             str     running summary of the job so far (replaces old turns in the prompt)
+  cited               [{doc_id, page}]   pages the brain cited this turn (left out = cleared; gd_turn)
+  summary             str     running summary of the job so far (sent with the whole chat; it does not replace old turns)
   closed              bool    the brain closed the job (repair verified, incl. adjustments)
 
 v4.20.9: the old `story` field is gone (Grok was asked to write it and nothing read it; the story comes from the Write

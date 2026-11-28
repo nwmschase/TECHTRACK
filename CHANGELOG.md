@@ -720,6 +720,17 @@ Open issues/PRs beyond #12: GitHub once reported `open_issues_count: 5` — **wh
 - Added: `gd_primer.md` (one plain description of TechTrack, loaded by `gd_prompt.py` as the only guidance text); `gd_official.py` web lookup tool (port of the live official-manual fetcher, no gate by library, tech ask or domain), wired as `web_fn`. Kept: library data and labels, page finder/search, state-block format, session handling, PDF rendering.
 - Profiles: GD-PROFILE and PDF-PROFILE are now short descriptive statements (v2.0); PROFILE-CHANGE-LOG row added.
 
+### v4.20.11 — 2026-11-28 — audit fixes, no product change (Chase t1741u)
+- Built on v4.20.10 (`de7630c`). No paid calls. Model, temperature 0.7 (answer only), thinking level (not set), smart search (off), web gate, primer rules and request order unchanged.
+- Last round: when Grok still asks for tools on the call made with tool_choice "none" (the 6-call backstop), those calls are no longer run. Before, their pages were counted as opened, could be cited, pictured, and open the web gate although Grok never saw them (audit L3). Logged in problems with the tool names; SAFETY_CEILING_HIT as before.
+- No silent fallbacks: a crash in the app's picture-page lookup (`gd_turn`) and a crash inside a library tool (`gd_tools.call`, `tool_crash`) now print GD_FALLBACK with a traceback and go into the turn log (before: a problems note / TOOL_ERROR only).
+- The app's own "Guided Diagnostics did not answer" line stays in the tech's chat but is left out of the history sent to Grok (it was sent as if Grok had said it). Filtered every turn the same way, so the cached prefix is stable.
+- The GD turn log is published after the reply-findings and cited-ledger steps, so their fallbacks land in the same turn's log instead of the next one.
+- Deleted: `notes_next` (never filled; an old record's empty field is dropped). Guard test added.
+- State format text: "`summary` and `cited` are stored fresh each turn" was wrong for summary (a left-out summary is kept). Now: a left-out field keeps its value, except `cited` (left out = nothing cited this turn), which is what the code does.
+- Comments: gd_turn header ("no limits on pages... tokens"), gd_state header ("no regex on prose"; summary "replaces old turns"), the page-finder docstring. README: version, request order, cache key, tokens_cached.
+- Tests: `tests/test_gd_v42011_2026_11_28.py`; `test_gd_v4209` photo-fallback test made order-independent (it read a gd_errors module the app's redeploy guard had replaced and failed in the full suite).
+
 ### v4.20.10 — 2026-11-28 — request order for xAI's prompt cache (Chase t1732u)
 - Built on v4.20.9 (`467315f`). No paid calls. What Grok is told is unchanged: same primer, same pages, same history, same state, same text; only the ORDER of what is sent changed, and each job now sends a cache key.
 - New request order (`gd_prompt.build_input`, replaces `build_messages`): primer, then the pages read earlier in the job (own item), then the conversation so far, then the tech's new message, then the rest of the job context last (unit line, notes, web sources, lookups, case state, running summary). Before, the whole context block (state and summary included, rewritten every turn) sat right after the primer, so xAI's cache stopped there and the history was re-sent at full price every turn.

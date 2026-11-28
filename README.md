@@ -4,9 +4,9 @@ Shop app for Tacoma RV Center (`streamlit run rv_techtrack.py`). Guided Diagnost
 
 ## Live app version
 
-The sidebar caption starts with the version on the first line of `rv_techtrack.py` (currently `v4.20.9`). After a push to `main`, that caption should show the new version within a few minutes. That is the check that Community Cloud followed the commit. The shop word list has to stay plain text (`bay_words.txt`) in the repo root. A root-level `.gz` makes the GitHub sync skip the redeploy until someone reboots the app from the dashboard.
+The sidebar caption starts with the version on the first line of `rv_techtrack.py` (currently `v4.20.11`). After a push to `main`, that caption should show the new version within a few minutes. That is the check that Community Cloud followed the commit. The shop word list has to stay plain text (`bay_words.txt`) in the repo root. A root-level `.gz` makes the GitHub sync skip the redeploy until someone reboots the app from the dashboard.
 
-## Startup line (v4.20.9)
+## Startup line (since v4.20.9)
 
 Each app process prints one line to the Streamlit log when it starts:
 
@@ -20,7 +20,7 @@ The model is `grok-4.3`, set in one place: `DEFAULT_XAI_MODEL` in `gd_llm.py`. T
 
 ## Guided Diagnostics (GD) calls
 
-GD turns use the xAI Responses API with the library tools (`gd_llm.respond`). There is no Groq fallback on the GD path. Each round waits at most 240 seconds; a turn runs at most 6 rounds. The double-send guard (`gd_sends.py`) holds a repeated press for the whole turn, so the same message is never sent twice.
+GD turns use the xAI Responses API with the library tools (`gd_llm.respond`). Request order (v4.20.10, for xAI's prompt cache): the primer, the pages read earlier in the job, the conversation so far, the tech's new message, then the rest of the job context (unit, lookups, case state, summary); tool calls, results and page images are appended within a turn and the REPLY FORMAT reminder is always last. Each job sends one random `prompt_cache_key` (new on New chat / Open). The turn log shows `tokens_cached` and `cached_share`. The app's own failed-turn lines are not sent back to Grok. There is no Groq fallback on the GD path. Each round waits at most 240 seconds; a turn runs at most 6 rounds. The double-send guard (`gd_sends.py`) holds a repeated press for the whole turn, so the same message is never sent twice.
 
 When a GD turn fails, the tech sees one line that names the kind of failure (took too long / xAI error with its status code / a bug in the app / no AI key), the turn log gets an `error` record with a short traceback, and the Streamlit log gets a `GD_ERROR` line. Any step that falls back to a quieter path (photo read, plate read, story, state block, picture not drawn, page links) writes a `GD_FALLBACK` line and is listed under `fallbacks` in that turn's log.
 

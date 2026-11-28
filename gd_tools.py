@@ -527,6 +527,9 @@ class LibraryTools:
             else:   # listed in FUNCTION_SPECS but not dispatched here: an app bug
                 return json.dumps({"error": f"tool {name} has no handler"}), [], f"tool {name} has no handler"
         except Exception as exc:   # a tool fault is reported to Grok as what came back, never raised into the turn
+            # v4.20.11: a crash in our own tool code is an app bug, so it is a tagged GD_FALLBACK line with a traceback
+            # (Manage app logs + the turn log), not only a TOOL_ERROR trigger
+            gd_errors.fallback("tool_crash", f"library tool {name} crashed; Grok was told it failed", exc=exc, tool=name)
             return json.dumps({"error": f"{type(exc).__name__}: {exc}"}), [], f"{name} failed: {exc}"
         return json.dumps(res, ensure_ascii=False, default=str), pages, (res.get("error", "") if isinstance(res, dict) else "")
 

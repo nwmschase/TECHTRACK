@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.10
+RV TechTrack v4.20.11
+- v4.20.11: Audit fixes, no product change (Chase 2026-11-28 t1741u). Calls Grok still asks for on the last (tools off) round are not run, so a page Grok never saw is not counted as opened or cited; a crash in the app's picture-page lookup or in a library tool prints a GD_FALLBACK line and lands in the turn log; the app's own failed-turn line stays in the chat but is no longer sent to Grok as if Grok said it; the turn log is published after the reply-findings and cited-ledger steps so their fallbacks land in the same turn; the never-filled notes_next field is deleted; the state format now says what the code does (a left-out field keeps its value, except cited); stale comments and README fixed; an order-dependent test fixed.
 - v4.20.10: Request order for xAI's prompt cache (Chase 2026-11-28 t1732u). Grok gets the same text; the order is primer, pages read, history, the tech's new message, then the rest of the job context (unit, lookups, state, summary) last; each job sends a prompt_cache_key; the GD turn log shows tokens_cached and cached_share.
 - v4.20.9: Code cleanup and real errors (Chase 2026-11-28 t1727u / t1729u; audit 2026-11-28). (1) New chat and Open clear the whole GD job record (gd_state.clear_job_session): no cause, closed flag, access answer, cited pages or found manuals carry into the next job. (2) The wrap-up and the access question come only at a real end of job: the new Diagnosis complete / Repair complete buttons, Grok's repair.verified or closed (not done alone), or a plain close statement from the tech; questions, 'not working now' and conditional phrases never trigger it, and the next message is taken as the access answer only when the app asked and the reply answers it. The old substring phrase triggers are deleted. (3) A failed GD turn names its cause to the tech (took too long / xAI error with status / app bug / no key), always writes a turn log with the error type and a short traceback, and prints GD_ERROR. (4) Every fallback on the GD path (photo read, plate read, story, state block, picture not drawn, page links, page search) prints GD_FALLBACK and lands in that turn's log. (5) The double-send guard holds for the whole turn (6 rounds x 245 s + margin) and the paid photo read runs after the guard. (6) Deleted: legacy_selector.py, rv_techtrackpr4, scripts/picker_sweep.py, the manual pickers (gd_pages pick_manual/fetch_part/entry_pages/toc_pages, search pick_manual/fetch_by_part), the hard procedure trees, gd_official's old web search, the story state field, and every def or constant left with no caller. (7) Guardrails: tests/test_dead_code_guard.py fails on code with no caller; one TT_STARTUP line at start; the model is set in code only (grok-4.3, XAI_MODEL no longer read; the running model is unchanged).
 - v4.20.8: Meaning (smart) search off by default (Chase 2026-11-28 t1725u). The page search Grok uses is word-match only; the embedding model and passage vectors are never loaded, so there is no download, no ~300 MB, and nothing to fail. TT_PAGEFINDER_MEANING=on still turns it back on (environment only; the app no longer reads a Streamlit secret for this, so an old "on" secret cannot switch it back). When off or when the model fails, hybrid() is word-match only (no 0.5 blend toward zeros), so a page search with no matching words comes back empty and the v4.20.7 web gate can open. One tagged SMART_SEARCH_OFF line is printed to the Streamlit log at startup or when the state changes (never per query); the GD turn log records MEANING_SEARCH_OFF once per job and usage.meaning is on/off/failed. Manager Tools shows the same state. The index vectors stay in place. No new primer rule.
@@ -228,7 +229,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.10"
+_GDC_REQUIRED_REVISION = "v4.20.11"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -2625,7 +2626,7 @@ GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothi
 
 
 def _gd_page_finder():
-    """The ONE page-finder (GD and library search). Its index ships in pagefinder/index; the app DB is
+    """The one page-finder behind Guided Diagnostics (the Library tab filters the DB directly). Its index ships in pagefinder/index; the app DB is
     the source of truth for document metadata and for documents added after the index build."""
     global _gd_finder
     if _gd_finder is None:
@@ -2825,7 +2826,6 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         _gd_publish_turn_log({"event": "turn_failed", "error": rec,
                               "unit": {"category": category_name or "", "model_text": model_text or ""}}, user_msg, line)
         return line
-    _gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))   # Manage app logs + R2 gd-turn-logs/
     try:
         # 2026-11-24 (M1066): a reply that confirms a cause or a recommendation puts it in the job record even when the
         # state block did not carry it, so the work order and the warranty story have it.
@@ -2841,6 +2841,8 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
         except Exception as e:
             gd_errors.fallback("cited_ledger", "a cited page was left out of the source ledger", exc=e,
                                doc_id=str(c.get("doc_id")), page=str(c.get("page")))
+    # v4.20.11: published after the reply-findings and cited-ledger steps, so their fallbacks land in THIS turn's log
+    _gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))   # Manage app logs + R2 gd-turn-logs/
     st.session_state["gd_last_cited"] = list(result.get("cited") or [])
     st.session_state["gd_last_turn_pages"] = list(result.get("turn_pages") or [])   # v4.20.6: for the tech's picture
     st.session_state["gd_last_drawn"] = list(getattr(page_image_fn, "drawn", None) or ())   # (doc_id, sheet) keys only

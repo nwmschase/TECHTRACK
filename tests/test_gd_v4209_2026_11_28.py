@@ -228,14 +228,19 @@ class TestNoSilentFallbacks(unittest.TestCase):
         self.assertIn('log["fallbacks"] = fb', APP)
 
     def test_state_block_problems_and_photo_failures_are_logged(self):
-        gd_errors.take_fallbacks()
+        # v4.20.11: an earlier test that imports rv_techtrack drops the GD modules from sys.modules (the app's redeploy
+        # guard), so gd_step_photo's lazy `import gd_errors` can be a newer module than this file's. Both queues are read.
+        import importlib
+        queues = {id(m): m for m in (gd_errors, gd_turn.gd_errors, importlib.import_module("gd_errors"))}.values()
+        for q in queues:
+            q.take_fallbacks()
         with contextlib.redirect_stdout(io.StringIO()):
             gd_turn.run_turn("fridge warm", "Refrigerators", "Norcold N8", [], finder=_fridge_finder(),
                              respond_fn=FakeRespond(["no block here"]), store={}, log_path="", web_fetch=lambda u, w: [])
             import gd_step_photo
             r = gd_step_photo.review_step_photo(b"\xff\xd8\xff", "image/jpeg", "", "", complete_fn=lambda m: 1 / 0)
         self.assertEqual(r["verdict"], "unclear")
-        wheres = [f["where"] for f in gd_errors.take_fallbacks()]
+        wheres = [f["where"] for q in queues for f in q.take_fallbacks()]
         self.assertIn("state_block", wheres)
         self.assertIn("photo_read", wheres)
 

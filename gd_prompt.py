@@ -26,7 +26,7 @@ STATE_FORMAT = """**State block (response format).** A reply ends with one state
 "next_part_to_fetch": "", "web_lookup": "", "order_part": "", "cause": "",
 "repair": {"done": false, "verified": false, "what": "", "quote": ""},
 "cited": [{"doc_id": "", "page": ""}], "summary": "", "closed": false}</state>
-Every field is optional: a field that is left out keeps its stored value. `summary` and `cited` are stored fresh each turn.
+Every field is optional: a field that is left out keeps its stored value, except `cited`, which holds this turn's citations (left out = nothing cited this turn).
 `quote` fields hold the tech's exact words. `next_part_to_fetch` holds the words of the latest library search and `web_lookup` the words of the
 latest internet search (a record for the job; the searches themselves run through the tools), `order_part` is a part the reply
 tells the tech to order or replace this turn, and `cited` lists the document and page of each source the reply used (a web
@@ -100,9 +100,17 @@ def context_block(*, category, model_text, pages=(), web_sources=(), searches=()
     return "\n\n".join(b for b in blocks if b)
 
 
+def _app_failure_line(m) -> bool:
+    """v4.20.11: an assistant message that is the app's own "did not answer" line (gd_errors), not something Grok said."""
+    import gd_errors
+    return m.get("role") == "assistant" and gd_errors.is_error_line((m.get("content") or "").strip())
+
+
 def recent_history(history):
-    """The conversation so far, user and assistant messages with text."""
-    return [m for m in (history or []) if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()]
+    """The conversation so far, user and assistant messages with text. The app's failed-turn lines stay in the tech's chat
+    but are not sent to Grok as if Grok had said them (v4.20.11)."""
+    return [m for m in (history or []) if m.get("role") in ("user", "assistant") and (m.get("content") or "").strip()
+            and not _app_failure_line(m)]
 
 
 def pages_item(pages):
