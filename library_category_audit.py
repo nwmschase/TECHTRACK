@@ -11,7 +11,7 @@ import json
 import re
 from datetime import datetime
 
-MODULE_REVISION = "v4.20.11"
+MODULE_REVISION = "v4.20.12"
 
 # ---------------------------------------------------------------- product / category types
 # v4.20.9 (Chase t1729u "delete"): moved here from the old manual picker module (deleted). Only the type maps
