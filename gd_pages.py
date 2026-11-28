@@ -137,16 +137,19 @@ class LibraryPageFinder:
     app_db: the app's library DB; its documents table is the single source of truth for titles, brands, categories
             and models (docs deleted in the app leave the finder; docs added after the index build are read from the
             app's own page chunks). Default: TT_APP_DB.
-    meaning=False switches the embedding half off for the process (BM25 on whole words only; see search.MEANING_ON)."""
+    meaning=None follows the process default (TT_PAGEFINDER_MEANING, off unless set to on). Pass True or False to
+    force it for this process (BM25 on whole words only when off; see search.MEANING_ON)."""
 
-    def __init__(self, index_dir=None, meaning=True, app_db=None):
+    def __init__(self, index_dir=None, meaning=None, app_db=None):
         from pagefinder import search as _search
         self.search = _search
         if index_dir or app_db is not None:
             d = index_dir or _search.INDEX_DIR
             _search.use_library(os.path.join(d, "index.sqlite"), d, app_db)
-        self.meaning = meaning
-        self.search.MEANING_ON = bool(meaning)
+        if meaning is None:
+            meaning = _search.MEANING_ON
+        self.meaning = bool(meaning)
+        self.search.MEANING_ON = self.meaning
 
     @property
     def lib(self):

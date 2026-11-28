@@ -133,7 +133,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.7")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.8")
 
     def test_loader_reloads_when_revision_is_old_even_if_names_exist(self):
         """v4.19.4 kept the v4.19.3 coach: every old name existed, so the fan-only detector stayed."""
@@ -154,7 +154,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             ns,
         )
         loaded = ns["_gdc"]
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.7")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.8")
         self.assertIsNot(loaded, stale)
         self.assertTrue(
             loaded.is_fcr_e2_fan_fault_context(

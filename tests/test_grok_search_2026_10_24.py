@@ -154,7 +154,8 @@ class TestFullTurnLibraryThenWeb(unittest.TestCase):
         self.assertEqual(r["usage"]["web_search_calls"], 1)
         self.assertEqual(r["usage"]["pages_opened"], 3)
         self.assertAlmostEqual(r["usage"]["cost_usd"], 4 * 12_000_000 * gd_turn.USD_PER_TICK)
-        self.assertEqual(names(r), ["WEB_GATE_OPENED"])   # v4.20.7: the web tools opened after the page read
+        self.assertIn("WEB_GATE_OPENED", names(r))   # v4.20.7: the web tools opened after the page read
+        self.assertIn(gd_turn.T_MEANING_OFF, names(r))  # v4.20.8: meaning search is off by default
         # the JSON-lines turn log
         rec = json.loads(open(log).read().strip().splitlines()[-1])
         for k in ("model_calls", "rounds", "tool_calls", "pages_opened", "web", "triggers", "tokens_in", "tokens_out", "cost_usd", "seconds"):

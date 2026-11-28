@@ -29,8 +29,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX_DIR = os.environ.get('TT_PAGEFINDER_DIR', os.path.join(HERE, 'index'))
 DB = os.path.join(INDEX_DIR, 'index.sqlite')
 VEC = INDEX_DIR
-# Embedding model (BAAI/bge-small-en-v1.5, quantized ONNX, ~65 MB). Not in the repo: read from this cache dir, and fetched
-# once from Hugging Face into it when missing (hosted app). Offline tests point TT_MODEL_DIR at a pre-filled cache.
+# Embedding model (BAAI/bge-small-en-v1.5, quantized ONNX, ~65 MB). v4.20.8: off by default, so this is never loaded
+# unless TT_PAGEFINDER_MEANING=on. Not in the repo: when on, read from this cache dir, and fetched once from Hugging Face
+# into it when missing. Offline tests point TT_MODEL_DIR at a pre-filled cache.
 MODEL_NAME = 'BAAI/bge-small-en-v1.5'
 MODEL_DIR = os.environ.get('TT_MODEL_DIR', os.path.join(os.path.expanduser('~'), '.cache', 'techtrack-models'))
 APP_DB = os.environ.get('TT_APP_DB', '')   # the app library DB: its documents table overrides index metadata (single source of truth)
@@ -309,11 +310,65 @@ def bm25(query, items, k1=1.2, b=0.75):
         out[key] = s
     return out
 
-# Meaning half on/off for this process. Off = whole-word (BM25) scores only: the embedding model (~260 MB RSS) and the
-# passage vectors (~64 MB) are never loaded. Offline sweep 10/20: manual picks identical either way (66 own / 0 wrong);
-# off changes only the order of pages inside the picked manual. Hosted app: Streamlit secret TT_PAGEFINDER_MEANING.
+# Meaning half on/off for this process. v4.20.8 default is OFF: whole-word (BM25) scores only; the embedding model
+# (~260 MB RSS) and the passage vectors (~64 MB) are never imported or loaded. TT_PAGEFINDER_MEANING=on turns it back
+# on (env only; not a Streamlit secret). Offline 10/20 + 11/28: which manual is picked is the same either way; when
+# on, only the order of pages inside the picked manual changes, and a 11/28 answer-key run found no net gain.
 MEANING_BLOCK = 16384   # passages scored per block in meaning()
-MEANING_ON = os.environ.get('TT_PAGEFINDER_MEANING', 'on').strip().lower() not in ('0', 'off', 'false', 'no')
+
+
+def meaning_flag_on(value=None):
+    """True only for an explicit on (1/on/true/yes). Default, unset, empty or any other value is off."""
+    raw = os.environ.get('TT_PAGEFINDER_MEANING', 'off') if value is None else value
+    return str(raw or 'off').strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+MEANING_ON = meaning_flag_on()
+_ANNOUNCED = None       # last SMART_SEARCH_* state printed (process-wide; never per query)
+_ANNOUNCE_LOCK = threading.Lock()
+
+
+def meaning_status(lib=None):
+    """('on' | 'off_by_setting' | 'failed', error-or-empty). Reads lib.meaning_error and the process-wide fail cache."""
+    if not MEANING_ON:
+        return 'off_by_setting', ''
+    err = (getattr(lib, 'meaning_error', None) or '') if lib is not None else ''
+    if not err:
+        with _LOCK:
+            failed = next(iter(_MODEL_FAIL.values()), None)
+        if failed:
+            err = failed[1]
+    if err:
+        return 'failed', err
+    return 'on', ''
+
+
+def announce_meaning_state(lib=None, force=False):
+    """One tagged SMART_SEARCH_OFF (or _ON) line on stdout, only on a state change or force=True at startup.
+
+    force=True at app start prints the off-by-setting line; if the setting is on, it waits for a real load or failure.
+    """
+    global _ANNOUNCED
+    state, err = meaning_status(lib)
+    with _ANNOUNCE_LOCK:
+        if force and state == 'on':
+            return state, err
+        if _ANNOUNCED == state:
+            return state, err
+        _ANNOUNCED = state
+        if state == 'off_by_setting':
+            line = 'SMART_SEARCH_OFF reason=switched off by setting using=word-match-only'
+        elif state == 'failed':
+            detail = (err or 'model could not load').replace('\n', ' ').replace('\r', ' ')[:300]
+            line = f'SMART_SEARCH_OFF reason=download failed detail={detail} using=word-match-only'
+        else:
+            line = 'SMART_SEARCH_ON'
+        print(line, flush=True)
+        try:
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return state, err
 
 
 def meaning(lib, query, keys):
@@ -324,11 +379,12 @@ def meaning(lib, query, keys):
     try:
         V, rows = lib.vectors(); q = lib.embed_query(query)
     except Exception as e:
-        # The model is a download on first start. If it cannot load, manual picks stay on whole-word scores (the offline
-        # sweep gives the same picks: 66 own / 0 wrong both ways); only in-manual page order loses the meaning half.
+        # The model is a download on first start when meaning is on. If it cannot load, scores stay on whole words.
         lib.meaning_error = f'{type(e).__name__}: {e}'[:300]
+        announce_meaning_state(lib)
         return {k: 0.0 for k in keys}
     lib.meaning_error = ''
+    announce_meaning_state(lib)
     idx = [(k, rows.get(k, [])) for k in keys]
     flat = [i for _, r in idx for i in r]
     # Scored in blocks: V[flat].astype('float32') over every passage of the library made two full temporary copies
@@ -340,14 +396,23 @@ def meaning(lib, query, keys):
     return {k: max((sims[i] for i in r), default=0.0) for k, r in idx}
 
 def hybrid(lib, query_text, pages, extra_tokens=()):
-    """0.5 x normalised BM25 (whole words + RV term families) + 0.5 x normalised meaning similarity. {key: score in [0, 1]}."""
+    """Normalised BM25 (whole words + RV term families) in [0, 1]. When meaning search is on and the model loaded,
+    0.5 x BM25 + 0.5 x normalised meaning. When meaning is off or the model failed, word-match only — never a 0.5
+    blend toward zeros, and the model and passage vectors are not loaded."""
     key = lambda p: (p['doc_id'], p['pdf_sheet'])
     if not pages: return {}
     bm = bm25(query_terms(query_text, extra_tokens), [(key(p), p['tf'], p['len']) for p in pages])
-    em = meaning(lib, query_text, [key(p) for p in pages])
     bmax = max(bm.values()) or 1.0
+    words = {k: bm[k] / bmax for k in bm}
+    if not MEANING_ON:
+        return words
+    em = meaning(lib, query_text, [key(p) for p in pages])
+    if getattr(lib, 'meaning_error', ''):
+        return words
     lo, hi = min(em.values()), max(em.values())
-    return {k: 0.5 * bm[k] / bmax + 0.5 * ((em[k] - lo) / (hi - lo) if hi > lo else 0.0) for k in bm}
+    if hi <= lo:
+        return words
+    return {k: 0.5 * words[k] + 0.5 * ((em[k] - lo) / (hi - lo)) for k in words}
 
 def _phrase(text):
     """'Coleman-Mach' / 'coleman mach' -> 'coleman mach' (lowercase words joined by one space)."""

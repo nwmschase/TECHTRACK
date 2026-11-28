@@ -11,7 +11,7 @@ fpdf2==2.8.9
 reportlab==5.0.1
 extra-streamlit-components==0.1.81
 itsdangerous==2.2.0
-# page-finder (hybrid keyword + meaning search; the ~64 MB model downloads once into the cache on first start)
+# page-finder (word-match search by default; meaning search and the ~64 MB model stay off unless TT_PAGEFINDER_MEANING=on)
 fastembed==0.9.0
 numpy==2.5.4
 onnxruntime==1.31.0

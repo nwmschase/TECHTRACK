@@ -189,6 +189,7 @@ class LibraryTools:
         self.last_read = {}
         self._label_tf = None
         self.last_dropped = []
+        self.last_search_pages = False
 
     @classmethod
     def for_finder(cls, finder, web_fetch=None):
@@ -366,6 +367,7 @@ class LibraryTools:
 
     # -- search_pages
     def search_pages(self, words, doc_ids=None, brand=None, unit_type=None, limit=None):
+        self.last_search_pages = True
         limit = int(limit or DEFAULT_HITS)
         words = (words or "").strip()
         if not words:
@@ -549,7 +551,6 @@ class StubLibrary:
     def __init__(self, docs, pages):
         from pagefinder import search as _s
         self.docs, self._pages, self._doc_tf = {}, collections.defaultdict(list), None
-        self.meaning_error = ""
         for m in docs:
             d = {"doc_id": str(m["doc_id"]), "title": m.get("title") or str(m["doc_id"]), "brand": m.get("brand") or "",
                  "unit_type": m.get("unit_type") or "", "doc_type": m.get("doc_type") or "", "models": json.dumps(m.get("models") or []),

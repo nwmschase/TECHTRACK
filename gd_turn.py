@@ -79,6 +79,7 @@ T_STORY = "STORY_WRITTEN"                          # the state block carried a t
 T_WEB_GATE_OPENED = "WEB_GATE_OPENED"              # v4.20.7: the web tools were offered for the first time in this job
 T_CITED_NOT_OPENED = "CITED_NOT_OPENED"            # v4.20.7: Grok cited a library page it never opened (dropped)
 T_APP_PICTURE_PAGE = "APP_OPENED_PICTURE_PAGE"     # v4.20.7: a picture was asked for, Grok opened no page, the app opened one
+T_MEANING_OFF = "MEANING_SEARCH_OFF"               # v4.20.8: search_pages ran with meaning search off or failed (once per job)
 
 # v4.20.7 web gate (Chase 2026-11-28 t1713u; test8: Grok asked for the library and the web in the same round, xAI ran the web
 # search inside that call, and Grok answered from the web before it saw the library list). The web tools are left out of
@@ -92,7 +93,7 @@ WEB_GATE_CLOSED_RESULT = {"error": "open_web_document is not available yet: sear
 LIBRARY_LOOKUPS = ("find_documents", "table_of_contents", "search_pages", "read_pages")
 TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
             T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_STORY, T_WEB_GATE_OPENED,
-            T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE)
+            T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE, T_MEANING_OFF)
 FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community", "facebook", "groups.", "quora", "boards.")
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
 USD_PER_TICK = 1e-10
@@ -146,6 +147,29 @@ def web_allowed(gate, picture_request=False, library_looked_this_turn=False):
     if picture_request and not library_looked_this_turn and not gate.get("library_empty"):
         return False
     return True
+
+
+def meaning_status(library=None):
+    """('on'|'off_by_setting'|'failed', error-or-empty) from the page-finder, without touching the model."""
+    try:
+        s = getattr(library, "s", None) if library is not None else None
+        if s is None:
+            from pagefinder import search as s
+        lib = getattr(library, "lib", None) if library is not None else None
+        return s.meaning_status(lib)
+    except Exception:
+        return "off_by_setting", ""
+
+
+def _note_meaning_off(case, library, triggers, trig):
+    """Log MEANING_SEARCH_OFF at most once per job, when a page search ran with meaning off or failed."""
+    if case.get("meaning_off_logged"):
+        return
+    state, err = meaning_status(library)
+    if state == "on":
+        return
+    trig(T_MEANING_OFF, state=state, reason=err or state)
+    case["meaning_off_logged"] = True
 
 
 def library_empty_reason(name, args, out):
@@ -519,6 +543,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             elif _empty(c["name"], out):
                 trig(T_TOOL_EMPTY, tool=c["name"], args=c["arguments"])
             items.append({"type": "function_call_output", "call_id": c["call_id"], "output": out})
+            if c["name"] == "search_pages":
+                _note_meaning_off(case, library, triggers, trig)
             if c["name"] == "find_documents" and not err:
                 case["found_docs"] = list(dict.fromkeys(_found_doc_ids(out) + case["found_docs"]))[:12]
             if not gate["open"] and not err:
@@ -597,6 +623,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         except Exception as exc:
             problems.append(f"app picture page failed: {exc}")
             app_page = None
+        if getattr(library, "last_search_pages", False):
+            _note_meaning_off(case, library, triggers, trig)
         if app_page is not None:
             _remember_pages(case, [app_page])
             turn_pages.append(app_page)
@@ -665,6 +693,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     usage["page_images_skipped"] = len(images_skipped)
     if usage.get("cost_in_usd_ticks"):
         usage["cost_usd"] = round(usage["cost_in_usd_ticks"] * USD_PER_TICK, 6)
+    state, _err = meaning_status(library)
+    usage["meaning"] = {"off_by_setting": "off", "failed": "failed", "on": "on"}.get(state, state)
     cited = _cited_with_pages(case["state"].get("cited") or [], case)
     lib_read = [p for p in _read_pages(case) if p.source != "web"]
     mode = "closed" if case["state"].get("closed") else ("walk" if lib_read else ("web" if case["web_sources"] else "no_manual"))

@@ -12,7 +12,7 @@ import io
 import re
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.7"
+MODULE_REVISION = "v4.20.8"
 
 PAGE_DPI = 150
 _ZOOM = PAGE_DPI / 72.0

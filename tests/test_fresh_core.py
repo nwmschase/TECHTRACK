@@ -420,9 +420,11 @@ class TestRealLibraryWiring(unittest.TestCase):
         finally:
             pf.MEANING_ON = saved_on
 
-    def test_app_reads_the_meaning_switch_from_secrets(self):
+    def test_app_does_not_read_the_meaning_switch_from_secrets(self):
+        # v4.20.8: default is off in code; an old Streamlit secret must not turn it back on.
         src = (ROOT / "rv_techtrack.py").read_text()
-        self.assertIn('_secret("TT_PAGEFINDER_MEANING")', src)
+        self.assertNotIn('_secret("TT_PAGEFINDER_MEANING")', src)
+        self.assertNotIn('_secret(\'TT_PAGEFINDER_MEANING\')', src)
 
     def test_added_docs_are_embedded_in_small_batches(self):
         from pagefinder import search as pf

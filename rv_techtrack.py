@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.7
+RV TechTrack v4.20.8
+- v4.20.8: Meaning (smart) search off by default (Chase 2026-11-28 t1725u). The page search Grok uses is word-match only; the embedding model and passage vectors are never loaded, so there is no download, no ~300 MB, and nothing to fail. TT_PAGEFINDER_MEANING=on still turns it back on (environment only; the app no longer reads a Streamlit secret for this, so an old "on" secret cannot switch it back). When off or when the model fails, hybrid() is word-match only (no 0.5 blend toward zeros), so a page search with no matching words comes back empty and the v4.20.7 web gate can open. One tagged SMART_SEARCH_OFF line is printed to the Streamlit log at startup or when the state changes (never per query); the GD turn log records MEANING_SEARCH_OFF once per job and usage.meaning is on/off/failed. Manager Tools shows the same state. The index vectors stay in place. No new primer rule.
 - v4.20.7: GD library-first in code, temperature, remnant cleanup (Chase 2026-11-28 t1713u; test8). (1) Web gate: the web tools (web_search with image search, open_web_document) are left out of Grok's tool list until a library page has been opened in the job or the library comes back with nothing for the unit (decided from the app's own tool records); on a picture request they also wait until the library was looked at that turn. (2) Picture request: when Grok opens no library page, the app opens the best picture-labelled page of the manuals found for the unit and shows that one page; no library picture = Grok's reply only. (3) Cited is this turn's list only (a state block that leaves it out clears it; it no longer carries over) and only pages opened in the job stay cited; others are dropped and logged CITED_NOT_OPENED. The log-only WEB_BEFORE_LIBRARY_SEARCH trigger is replaced by the gate. (4) The GD answer call runs at temperature 0.7 (was 0.2); reasoning effort unchanged. (5) Retired: the old text/figure picture path (resolve_requested_library_pages and its seed/page parsers, render_on_demand_library_pages, render_library_page_image, ask_auto_show, _stored_figure_matches, step figures, figure_render_honesty_note and its Level-Up/AC/water-heater boilerplate, library_figure_backfill offers_for_turn / gd_figures_under_step and their helpers, the regex picture-ask checks wants_library_page_shown / tech_asked_for_manual_figure (now gd_picture.is_picture_request), reading page numbers out of Grok's reply text, and every old figure helper left with no caller in gd_library_coach, manual_figures and library_figure_backfill); primer lines that contradicted the gate (web photos, several lookups in one round).
 - v4.20.6: GD test7b fixes (Chase 2026-11-27 pt1664u). (1) Picture: when the tech asks for a photo or diagram the reply shows the one page that best shows it, picked from the pages Grok opened this turn (gd_picture: the page Grok names for that item, then its cited pages, then the page label and text), drawn the same way as the page images Grok was given (only the page reference is kept in the session, no image bytes); the old figure lookups and the long 'could not load' note are gone from this path ('That page didn't load; tap Open PDF.' + Open PDF only when nothing could be drawn). (2) No <state> block: the pages Grok opened this turn fill cited, so the page buttons and story sources stay. (3) The REPLY FORMAT reminder (same words) is the last item of every model round, after the tool results. (4) Double send: server-side guard (gd_sends) keyed by tech + turn + message + photo, 10-minute TTL; the reply is put in the chat and the database as soon as Grok returns; a kept reply no screen drew is shown on the next run. (5) Meaning search: pagefinder/build_index sets HF_HUB_OFFLINE only in its own main(), so the live app can download the model again.
 - v4.20.5: GD test7 fixes (Chase 2026-11-27 t1653u). (1) pagefinder Library.doc_tf (and gd_tools label / stub caches) built whole and published under the lock: two runs on a cold library read a half-built cache, KeyError 'L166', and turn 1 fell to the web. (2) Primer: Grok describes only pages it opened in this job; a contents-page listing is not a read. (3) Primer: before giving a test, reading or picture Grok opens the page that has it, searching the library again (other manuals for the unit) before the web. Rules 2 and 3 approved by Chase. (4) Double-send guard: a repeat Send while Grok is answering waits for and reuses that reply (gd_send_key / gd_wait_for_kept_reply). Web search stays on.
@@ -223,7 +224,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.7"
+_GDC_REQUIRED_REVISION = "v4.20.8"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -3037,12 +3038,11 @@ def _gd_page_finder():
 
         import index_fetch
 
-        flag = str(_secret("TT_PAGEFINDER_MEANING") or "on").strip().lower()
         # v4.20.0: the index is the build pinned in pagefinder/INDEX_MANIFEST.json, fetched from R2 and verified
         # (index_fetch). Raises index_fetch.IndexLoading / IndexUnavailable instead of running on a wrong library.
+        # v4.20.8: meaning search follows TT_PAGEFINDER_MEANING (default off). Not a Streamlit secret.
         index_dir = index_fetch.ready_dir(get_r2_client, _index_bucket())
-        _gd_finder = gd_pages.LibraryPageFinder(index_dir=index_dir, app_db=os.path.abspath(DB_PATH),
-                                                meaning=flag not in ("0", "off", "false", "no"))
+        _gd_finder = gd_pages.LibraryPageFinder(index_dir=index_dir, app_db=os.path.abspath(DB_PATH))
     return _gd_finder
 
 
@@ -3059,6 +3059,12 @@ def _start_index_fetch():
         import index_fetch
 
         index_fetch.start(get_r2_client, _index_bucket())
+    except Exception:
+        pass
+    try:
+        from pagefinder import search as _pf
+        if not _pf.MEANING_ON:
+            _pf.announce_meaning_state(force=True)
     except Exception:
         pass
 
@@ -4254,6 +4260,17 @@ if is_manager and tab_mgr is not None:
 
             _ix_note = index_fetch.status_note()
             (st.error if index_fetch.STATE.status == "failed" else st.caption)(_ix_note)
+        except Exception:
+            pass
+        try:
+            from pagefinder import search as _pf
+            _ms, _merr = _pf.meaning_status()
+            if _ms == "failed":
+                st.error("Smart search: OFF (" + (_merr or "model could not load") + "; using word match only)")
+            elif _ms == "off_by_setting":
+                st.caption("Smart search: OFF (word match only)")
+            else:
+                st.caption("Smart search: on")
         except Exception:
             pass
 
