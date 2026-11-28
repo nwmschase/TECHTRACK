@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.12
+RV TechTrack v4.20.13
+- v4.20.13: Repair complete switches a diag-complete job to repair complete (one short line, no second access question); the web gate also opens on an empty library search narrowed to the unit (tagged turn-log line WEB_GATE_OPENED_EMPTY_NARROWED); the smart (meaning/embedding) search, fastembed, onnxruntime and the passage vector files are removed (word-match search only); a repair field Grok leaves out keeps its value (Chase 2026-11-28 t1741u).
 - v4.20.12: Second audit fixes (Chase 2026-11-28 t1741u). Opening a saved job brings back its own category and model and drops the previous job's help choice; Open also clears the per-tech double-send store, so a short reply kept from the job before it is never reused; a web document opened with open_web_document stays cited when Grok cites its address; TT_STARTUP prints again when the version or commit changes (hot reload after a push), once per change; a skipped public-fetch test now calls the fetch that is still in the code, with a guard so a skipped test cannot point at deleted code; unused fpdf2 removed from requirements.
 - v4.20.11: Audit fixes, no product change (Chase 2026-11-28 t1741u). Calls Grok still asks for on the last (tools off) round are not run, so a page Grok never saw is not counted as opened or cited; a crash in the app's picture-page lookup or in a library tool prints a GD_FALLBACK line and lands in the turn log; the app's own failed-turn line stays in the chat but is no longer sent to Grok as if Grok said it; the turn log is published after the reply-findings and cited-ledger steps so their fallbacks land in the same turn; the never-filled notes_next field is deleted; the state format now says what the code does (a left-out field keeps its value, except cited); stale comments and README fixed; an order-dependent test fixed.
 - v4.20.10: Request order for xAI's prompt cache (Chase 2026-11-28 t1732u). Grok gets the same text; the order is primer, pages read, history, the tech's new message, then the rest of the job context (unit, lookups, state, summary) last; each job sends a prompt_cache_key; the GD turn log shows tokens_cached and cached_share.
@@ -230,7 +231,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.12"
+_GDC_REQUIRED_REVISION = "v4.20.13"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -2637,7 +2638,6 @@ def _gd_page_finder():
 
         # v4.20.0: the index is the build pinned in pagefinder/INDEX_MANIFEST.json, fetched from R2 and verified
         # (index_fetch). Raises index_fetch.IndexLoading / IndexUnavailable instead of running on a wrong library.
-        # v4.20.8: meaning search follows TT_PAGEFINDER_MEANING (default off). Not a Streamlit secret.
         index_dir = index_fetch.ready_dir(get_r2_client, _index_bucket())
         _gd_finder = gd_pages.LibraryPageFinder(index_dir=index_dir, app_db=os.path.abspath(DB_PATH))
     return _gd_finder
@@ -2659,12 +2659,6 @@ def _start_index_fetch():
         index_fetch.start(get_r2_client, _index_bucket())
     except Exception as e:
         _gd_fb("index_fetch_start", "the library index download did not start", exc=e)
-    try:
-        from pagefinder import search as _pf
-        if not _pf.MEANING_ON:
-            _pf.announce_meaning_state(force=True)
-    except Exception as e:
-        _gd_fb("smart_search_announce", "the smart-search state line was not printed", exc=e)
 
 
 _start_index_fetch()
@@ -2707,7 +2701,7 @@ def _git_commit_cheap() -> str:
 
 def _print_startup_line():
     """v4.20.9 (Chase t1727u): the TT_STARTUP line on stdout (Manage app logs): version, commit, model, GD temperature,
-    reasoning effort, smart search, web gate, round limit. Streamlit re-runs this script on every click, so the last
+    reasoning effort, smart search (removed in v4.20.13), web gate, round limit. Streamlit re-runs this script on every click, so the last
     printed version+commit lives in sys.modules. v4.20.12: keyed on version+commit, not once per process, so a hot reload
     after a push (Streamlit "Updated app!") prints one new line with the new version and commit; a plain rerun prints none."""
     holder = "_techtrack_startup_printed"
@@ -3013,6 +3007,8 @@ def _gd_commit_send(entry, user_id, persist=True, story=True):
             # GD-4 (11/24): the access question comes first; a story GD wrote in this reply is cut off (the story
             # comes from the Write warranty story button)
             reply = _story.wrapup_reply(reply, _kind)
+        elif _story.repair_switch_due(_rec, msg):
+            _rec["state"]["wrapup"] = _story.WRAPUP_REPAIR   # v4.20.13: diag complete -> repair complete, no second access question
     stored_msg = entry.get("stored_msg") or _photos.history_user_text(
         msg, bool(entry.get("photo")), entry.get("photo_review"), asked=entry.get("asked") or "")
     picture = _gd_turn_picture(msg, reply, entry) if entry.get("asked_image") and not _gd_reply_is_failure(reply) else None
@@ -3053,10 +3049,19 @@ GD_CLOSE_REPAIR_BUTTON = "✅ Repair complete"
 
 def _gd_close_job(kind, user_id, category="", model=""):
     """The tech's close button (v4.20.9, audit H2): log the job as diag / repair complete and ask the access question, with
-    no AI call. False when the access question was already asked or answered for this job."""
+    no AI call. v4.20.13: Repair complete on a job already logged diag complete switches it to repair complete without a
+    second access question. False when the job is already logged that way (or the access question was already asked)."""
     import gd_story as _story
 
     rec = _gd_record()
+    if _story.repair_switch_due(rec, "", close_action=kind):
+        # v4.20.13 (Chase t1741u): Repair complete after Diagnosis complete switches the record, with one short line and no
+        # second access question
+        rec["state"]["wrapup"] = _story.WRAPUP_REPAIR
+        _gd_commit_send({"key": None, "msg": "Repair complete.", "stored_msg": "Repair complete.",
+                         "reply": _story.REPAIR_SWITCH_LINE, "cited": [], "category": category, "model": model},
+                        user_id, story=False)
+        return True
     if _story.wrapup_due(rec, "", close_action=kind) != kind:
         return False
     rec["state"]["access_asked"] = True
@@ -3640,7 +3645,7 @@ with tab_ask:
             if _gd_close_job(_close, user["id"], category_name, ask_model or ""):
                 st.session_state["ask_reset_input"] = True
                 st.rerun()
-            st.info("The access question was already asked for this job.")
+            st.info("This job is already logged that way.")
     w1, w2 = st.columns([2, 1])
     with w1:
         st.text_input("Work order # (optional)", key="ask_wo_number", placeholder="WO number for this job")
@@ -3998,17 +4003,7 @@ if is_manager and tab_mgr is not None:
             (st.error if index_fetch.STATE.status == "failed" else st.caption)(_ix_note)
         except Exception:
             pass
-        try:
-            from pagefinder import search as _pf
-            _ms, _merr = _pf.meaning_status()
-            if _ms == "failed":
-                st.error("Smart search: OFF (" + (_merr or "model could not load") + "; using word match only)")
-            elif _ms == "off_by_setting":
-                st.caption("Smart search: OFF (word match only)")
-            else:
-                st.caption("Smart search: on")
-        except Exception:
-            pass
+        st.caption("Library search: word match only (the smart search was removed in v4.20.13).")
 
         try:
             _bulk_open = library_bulk_import.latest_open_job(session)

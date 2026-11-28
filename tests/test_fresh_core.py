@@ -10,9 +10,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import gd_pages  # noqa: E402
-from pagefinder import search as _pf_search  # noqa: E402
-
-_REAL_MEANING = _pf_search.meaning   # keep before any test swaps in a keyword-only stub
 import gd_prompt  # noqa: E402
 import gd_state  # noqa: E402
 import gd_story  # noqa: E402
@@ -290,7 +287,7 @@ class TestRealLibraryWiring(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+        cls.f = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
 
     # v4.20.9: the old picker (pick_manual / fetch_part / toc_pages / apply_budget) is deleted. The wiring is checked
     # through the tools Grok uses: Grok names the maker, find_documents lists that maker's manuals for the unit.
@@ -362,7 +359,7 @@ class TestRealLibraryWiring(unittest.TestCase):
         shutil.copy(APP_DB, db)
         saved = pf._L
         try:
-            f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=db)
+            f = gd_pages.LibraryPageFinder(INDEX, app_db=db)
             self.assertEqual(self.docs("Leveling", "Power Gear 140-1230", "x", f=f)[0]["doc_id"], "L370")
             c = sqlite3.connect(db)
             c.execute("delete from doc_chunks where document_id=370"); c.execute("delete from documents where id=370"); c.commit(); c.close()
@@ -375,67 +372,22 @@ class TestRealLibraryWiring(unittest.TestCase):
         self.assertEqual(self.f.doc_title("L370"), self.f.lib.docs["L370"]["title"])
         self.assertEqual(self.f.doc_title("no-such-doc"), "no-such-doc")
 
-    def test_one_library_and_model_per_process_across_reruns(self):
-        # the app builds a finder on every script rerun; the Library (and its model/vectors) must be reused, not rebuilt
+    def test_one_library_per_process_across_reruns(self):
+        # the app builds a finder on every script rerun; the Library must be reused, not rebuilt
         from pagefinder import search as pf
         saved = pf._L
         try:
-            a = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
-            b = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+            a = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
+            b = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
             self.assertIs(a.lib, b.lib)
-            self.assertIs(pf.shared_base_vectors(INDEX), pf.shared_base_vectors(INDEX))
-            self.assertFalse(pf.shared_base_vectors(INDEX)[0].flags.writeable)
         finally:
             pf._L = saved
 
-    def test_model_that_cannot_load_falls_back_to_whole_words_and_retries_later(self):
-        from unittest import mock
+    def test_word_match_search_on_the_real_library(self):
         from pagefinder import search as pf
-        saved_l, saved_fail, saved_models, saved_meaning = pf._L, dict(pf._MODEL_FAIL), dict(pf._MODELS), pf.meaning
-        saved_on = pf.MEANING_ON
-        calls = []
-        try:
-            pf.MEANING_ON = True
-            pf._MODELS.clear(); pf._MODEL_FAIL.clear()
-            lib = pf.Library(os.path.join(INDEX, "index.sqlite"), INDEX, app_db=APP_DB)
-            def boom(*a, **k):
-                calls.append(1); raise OSError("no network")
-            with mock.patch.object(pf, "embedding_model", boom):
-                keys = [("L370", 1)]
-                out = _REAL_MEANING(lib, "jacks will not extend", keys)
-                self.assertEqual(out, {("L370", 1): 0.0})
-                self.assertIn("no network", lib.meaning_error)
-                _REAL_MEANING(lib, "again", keys)
-                self.assertEqual(len(calls), 1, "a failed model load is not retried on every click")
-        finally:
-            pf._L = saved_l; pf._MODEL_FAIL.clear(); pf._MODEL_FAIL.update(saved_fail)
-            pf._MODELS.clear(); pf._MODELS.update(saved_models); pf.meaning = saved_meaning; pf.MEANING_ON = saved_on
-
-    def test_meaning_off_never_loads_the_model(self):
-        from unittest import mock
-        from pagefinder import search as pf
-        saved_on = pf.MEANING_ON
-        try:
-            pf.MEANING_ON = False
-            lib = pf.Library(os.path.join(INDEX, "index.sqlite"), INDEX, app_db=APP_DB)
-            with mock.patch.object(pf, "shared_embedding_model", side_effect=AssertionError("model loaded")), \
-                 mock.patch.object(pf, "shared_base_vectors", side_effect=AssertionError("vectors loaded")):
-                self.assertEqual(_REAL_MEANING(lib, "q", [("L370", 1)]), {("L370", 1): 0.0})
-                import gd_tools
-                self.assertTrue(gd_tools.LibraryTools(lib).search_pages("jacks will not extend", brand="Power Gear")["hits"])
-        finally:
-            pf.MEANING_ON = saved_on
-
-    def test_app_does_not_read_the_meaning_switch_from_secrets(self):
-        # v4.20.8: default is off in code; an old Streamlit secret must not turn it back on.
-        src = (ROOT / "rv_techtrack.py").read_text()
-        self.assertNotIn('_secret("TT_PAGEFINDER_MEANING")', src)
-        self.assertNotIn('_secret(\'TT_PAGEFINDER_MEANING\')', src)
-
-    def test_added_docs_are_embedded_in_small_batches(self):
-        from pagefinder import search as pf
-        self.assertLessEqual(pf.EMBED_BATCH, 4)
-        self.assertIn("batch_size=EMBED_BATCH", (ROOT / "pagefinder" / "search.py").read_text())
+        lib = pf.Library(os.path.join(INDEX, "index.sqlite"), app_db=APP_DB)
+        import gd_tools
+        self.assertTrue(gd_tools.LibraryTools(lib).search_pages("jacks will not extend", brand="Power Gear")["hits"])
 
     def test_full_turn_on_real_library(self):
         chat = FakeRespond([[("find_documents", {"brand": "Suburban", "model": "SW6DE", "unit_type": "Water Heaters"})],

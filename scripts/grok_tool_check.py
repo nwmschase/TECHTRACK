@@ -76,7 +76,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json")
     a = ap.parse_args()
-    f = gd_pages.LibraryPageFinder(app_db=os.environ.get("APPDB", ""), meaning=os.environ.get("MEANING", "off") == "on")
+    f = gd_pages.LibraryPageFinder(app_db=os.environ.get("APPDB", ""))
     rows, summary = run(gd_tools.LibraryTools.for_finder(f))
     for r in rows:
         print(f"{r['id']} {r['unit']} | {r['ask']}\n   find_documents -> {r['find_documents']} (gold found: {r['find_ok']})"

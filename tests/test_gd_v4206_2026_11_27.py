@@ -1,5 +1,5 @@
 """v4.20.6 (Chase go pt1664u, test7b): one picture from the pages Grok opened, cited pages when the state block is missing,
-the old fallback note replaced, and the meaning-search model download no longer switched off by an import."""
+the old fallback note replaced."""
 import os, subprocess, sys, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -102,27 +102,6 @@ class TestFallbackNote(unittest.TestCase):
         body = SRC[SRC.index("def _render_gd_picture("):SRC.index("def _gd_commit_send(")]
         self.assertIn("gd_picture.FAIL_NOTE", body)
         self.assertIn("Open PDF", body)
-
-
-class TestMeaningSearchDownload(unittest.TestCase):
-    def test_import_does_not_turn_downloads_off(self):
-        code = ("import os, sys; sys.path.insert(0, %r); os.environ.pop('HF_HUB_OFFLINE', None)\n"
-                "import pagefinder.build_index\n"
-                "print(os.environ.get('HF_HUB_OFFLINE', 'unset'))") % ROOT
-        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, cwd=ROOT)
-        self.assertEqual(out.returncode, 0, out.stderr[-1500:])
-        self.assertEqual(out.stdout.strip().splitlines()[-1], "unset")
-
-    def test_standalone_build_still_offline(self):
-        src = open(os.path.join(ROOT, "pagefinder", "build_index.py"), encoding="utf-8").read()
-        main = src[src.index("def main(argv=None):"):]
-        self.assertIn("os.environ.setdefault('HF_HUB_OFFLINE', '1')", main[:300])
-
-    def test_uncached_model_may_download(self):
-        import pagefinder.search as s
-        src = open(s.__file__, encoding="utf-8").read()
-        body = src[src.index("def embedding_model("):src.index("from fastembed import TextEmbedding")]
-        self.assertIn("os.environ.pop('HF_HUB_OFFLINE', None)", body)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Build the page-finder index FROM THE APP LIBRARY (the app DB's documents table is the single source of truth).
 
     python -m pagefinder.build_index --app-db <rv_techtrack_v4.db> --sources <sources.json> --out pagefinder/index
-        [--page-cache <pages.jsonl> --page-cache-manifest <manifest.csv>] [--no-embed]
+        [--page-cache <pages.jsonl> --page-cache-manifest <manifest.csv>]
 
 - One index doc per app document (doc_id 'L<documents.id>'). Title, brand, category (= unit type), models and doc number
   come from the app library fields that the library cleanup curated. Nothing is guessed from a hardcoded brand or
@@ -11,12 +11,10 @@
   doc_chunks text, merged per page.
 - Page tags (contents / cover / safety / parts / fault-code table / troubleshooting / wiring), codes and printed page
   numbers: pagefinder.pagetext (same rules as the fresh-library build).
-- Vectors: bge-small-en-v1.5 passages (120 words, step 90), float16, L2-normalised -> passages.npy + passages.json.
+- v4.20.13: no vectors (the meaning/embedding search is deleted); the index is index.sqlite only.
 sources.json: {"<app doc id>": {"src": "<pdf path>", "sha": "<sha256>"}}.
-No network (HF_HUB_OFFLINE=1), no API calls."""
+No network, no API calls."""
 import argparse, collections, csv, hashlib, json, os, re, sqlite3, sys, time
-# v4.20.6: HF_HUB_OFFLINE=1 is set in main() only. Set here at import, it also turned model downloads off for the live app
-# (search.Library.sync_with_app imports this module), so a fresh server could never fetch the meaning-search model.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pagefinder import pagetext as PT
 from pagefinder import doc_fixes as DF
@@ -94,8 +92,7 @@ def doc_record(app, pgs, text_source):
 
 
 def apply_fixes_in_place(index_db):
-    """Re-apply the reviewed fixes (model_tag_fixes.tsv + doc_fixes.tsv) to a built index without re-extracting or
-    re-embedding: page text and vectors do not change. Adds the source_type / doc_note / duplicate_of / also_unit_types columns to an older
+    """Re-apply the reviewed fixes (model_tag_fixes.tsv + doc_fixes.tsv) to a built index without re-extracting: page text does not change. Adds the source_type / doc_note / duplicate_of / also_unit_types columns to an older
     index. Returns {doc_id: [changed fields]}."""
     db = sqlite3.connect(index_db); db.row_factory = sqlite3.Row
     have = {r[1] for r in db.execute('pragma table_info(docs)')}
@@ -127,7 +124,7 @@ def apply_fixes_in_place(index_db):
 
 def remark_covers_in_place(index_db):
     """Re-mark is_cover on a built index with the current rule (pagetext.is_cover_page) from the stored page text, without
-    re-extracting or re-embedding. Only sheet 1 can change. Returns {doc_id: (old, new)} for the changed sheets."""
+    re-extracting. Only sheet 1 can change. Returns {doc_id: (old, new)} for the changed sheets."""
     db = sqlite3.connect(index_db); db.row_factory = sqlite3.Row
     n_pages = {r['doc_id']: r['n_pages'] for r in db.execute('select doc_id, n_pages from docs')}
     changed = {}
@@ -159,31 +156,11 @@ def app_documents(conn):
     return [dict(r) for r in rows]
 
 
-def passages(text, n=120, step=90):
-    ws = text.split()
-    return [' '.join(ws[i:i + n]) for i in range(0, max(1, len(ws) - (n - step)), step)] if ws else []
-
-
-def embed_texts(texts, model_dir, threads=None):
-    import numpy as np
-    from pagefinder.search import embedding_model
-    m = embedding_model(model_dir, threads=threads)
-    out = []
-    t0 = time.time()
-    for i, v in enumerate(m.embed(texts, batch_size=64)):
-        out.append(v)
-        if i and i % 5000 == 0: print(i, f'{time.time() - t0:.0f}s', flush=True)
-    V = np.asarray(out, dtype=np.float32).reshape(-1, 384)
-    V /= np.linalg.norm(V, axis=1, keepdims=True) + 1e-9
-    return V.astype(np.float16)
-
-
 def main(argv=None):
-    os.environ.setdefault('HF_HUB_OFFLINE', '1')   # the standalone index build runs with no network
     ap = argparse.ArgumentParser()
     ap.add_argument('--app-db', required=True); ap.add_argument('--sources'); ap.add_argument('--out', required=True)
-    ap.add_argument('--page-cache'); ap.add_argument('--page-cache-manifest'); ap.add_argument('--no-embed', action='store_true')
-    ap.add_argument('--model-dir'); ap.add_argument('--workers', type=int, default=6)
+    ap.add_argument('--page-cache'); ap.add_argument('--page-cache-manifest')
+    ap.add_argument('--workers', type=int, default=6)
     ap.add_argument('--ocr-copies', help='manifest CSV of checked OCR copies (pagefinder/ocr_copies.py): read the copy instead of the scanned original')
     if argv is None: argv = sys.argv[1:]
     if argv[:1] == ['--apply-fixes']:   # python -m pagefinder.build_index --apply-fixes pagefinder/index/index.sqlite
@@ -247,39 +224,26 @@ def main(argv=None):
                                                    ('ocr_copies', f'{os.path.abspath(a.ocr_copies)} ({len(how_of)} used)' if a.ocr_copies else '')])
     db.commit()
     print(dict(counts), 'pages', db.execute('select count(*) from pages').fetchone()[0], flush=True)
-    if not a.no_embed:
-        import numpy as np
-        rows = db.execute("select p.doc_id, p.pdf_sheet, p.text from pages p join docs d using(doc_id) where d.status='active' order by 1,2").fetchall()
-        keys, texts = [], []
-        for d, s, t in rows:
-            for ps in passages(t): keys.append([d, s]); texts.append(ps)
-        print(len(rows), 'pages ->', len(texts), 'passages', flush=True)
-        V = embed_texts(texts, a.model_dir)
-        np.save(os.path.join(a.out, 'passages.npy'), V); json.dump(keys, open(os.path.join(a.out, 'passages.json'), 'w'))
-        print('vectors', V.shape, flush=True)
 
 
 def write_manifest(index_dir, build_id, out=None):
     """Stamp build_id into the index meta and write the pinned INDEX_MANIFEST.json (index_fetch.py, v4.20.0): one
-    build_id ties the 3 files together; each file carries its R2 key, size and sha256. Default out:
+    build_id names the index file; it carries its R2 key, size and sha256. Default out:
     pagefinder/INDEX_MANIFEST.json next to this module."""
-    import numpy as np
     if not re.fullmatch(r'[A-Za-z0-9._-]+', build_id): raise SystemExit('build_id: letters, digits, . _ - only')
     db = sqlite3.connect(os.path.join(index_dir, 'index.sqlite'))
     db.execute("INSERT OR REPLACE INTO meta VALUES('build_id', ?)", (build_id,)); db.commit()
     meta = dict(db.execute('select key, value from meta').fetchall())
     n_pages = db.execute('select count(*) from pages').fetchone()[0]
     db.execute('VACUUM'); db.close()
-    n_pass = int(np.load(os.path.join(index_dir, 'passages.npy'), mmap_mode='r').shape[0])
-    if n_pass != len(json.load(open(os.path.join(index_dir, 'passages.json')))): raise SystemExit('passages.npy / passages.json counts differ')
     files = {}
-    for f in ('index.sqlite', 'passages.npy', 'passages.json'):
+    for f in ('index.sqlite',):
         path = os.path.join(index_dir, f); h = hashlib.sha256()
         with open(path, 'rb') as fh:
             for chunk in iter(lambda: fh.read(1 << 20), b''): h.update(chunk)
         files[f] = dict(key=f'pagefinder-index/{build_id}/{f}', size=os.path.getsize(path), sha256=h.hexdigest())
     man = dict(build_id=build_id, built_at=meta.get('built_at', ''), library_fingerprint=meta.get('library_fingerprint', ''),
-               n_docs=int(meta.get('n_docs') or 0), n_pages=n_pages, n_passages=n_pass, files=files)
+               n_docs=int(meta.get('n_docs') or 0), n_pages=n_pages, files=files)
     out = out or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'INDEX_MANIFEST.json')
     with open(out, 'w') as fh: json.dump(man, fh, indent=2); fh.write('\n')
     return man

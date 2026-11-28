@@ -50,7 +50,7 @@ class TestOcrCopies(unittest.TestCase):
         out = os.path.join(self.t.name, 'idx' + str(len(extra)))
         # its own process, as the build really runs (a Pool inside pytest would re-import whatever __main__ other tests set)
         p = subprocess.run([sys.executable, '-m', 'pagefinder.build_index', '--app-db', self.app, '--sources', self.sources, '--out', out,
-                            '--no-embed', '--workers', '1', *extra], cwd=str(ROOT), capture_output=True, text=True)
+                            '--workers', '1', *extra], cwd=str(ROOT), capture_output=True, text=True)
         if p.returncode:
             raise OC.OcrCopyError(p.stderr[-2000:]) if 'OcrCopyError' in p.stderr else AssertionError(p.stderr[-2000:])
         db = sqlite3.connect(os.path.join(out, 'index.sqlite'))

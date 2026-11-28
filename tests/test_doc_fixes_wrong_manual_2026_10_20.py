@@ -71,7 +71,7 @@ class TestFields(unittest.TestCase):
 class TestLibrary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+        cls.f = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
         cls.lib = cls.f.lib
 
     def ids(self, unit_type, model, words):

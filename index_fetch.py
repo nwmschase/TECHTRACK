@@ -1,16 +1,16 @@
 """Download-at-start of the page-finder index from R2 (INDEX-DOWNLOAD-PLAN.md, 2026-10-31; built 2026-11-03, v4.20.0).
 
-The 3 index files (index.sqlite, passages.npy, passages.json) are too big for git once the full library is loaded. The
-build that the code expects is PINNED in git: pagefinder/INDEX_MANIFEST.json lists build_id, built_at,
-library_fingerprint, n_docs, n_pages, n_passages and, per file, its R2 key, size and sha256. Rollback = revert that file.
+The index file (index.sqlite) is too big to rebuild on every start. The build that the code expects is PINNED in git:
+pagefinder/INDEX_MANIFEST.json lists build_id, built_at, library_fingerprint, n_docs, n_pages and the file's R2 key, size
+and sha256. Rollback = revert that file. (v4.20.13: the passage-vector files passages.npy / passages.json went with the
+deleted meaning search; they are no longer fetched or checked.)
 
-At app start a background thread makes ~/.cache/techtrack-index/<build_id>/ hold all 3 files:
-  1. a cached folder whose files match the manifest is used as is (0 downloads);
-  2. else the in-git pagefinder/index is used only if all 3 files match the SAME manifest shas (never an older build);
-  3. else each file streams to <file>.part (1 MB chunks), its size and sha256 are checked, then it is renamed in place.
+At app start a background thread makes ~/.cache/techtrack-index/<build_id>/ hold the index file:
+  1. a cached folder whose file matches the manifest is used as is (0 downloads);
+  2. else the in-git pagefinder/index is used only if its file matches the SAME manifest sha (never an older build);
+  3. else the file streams to <file>.part (1 MB chunks), its size and sha256 are checked, then it is renamed in place.
      Each file is tried 4 times (waits 2 s / 5 s / 15 s) on top of boto3's own retries.
-Then the folder is gated: meta.build_id and meta.library_fingerprint equal the manifest; passages.npy rows ==
-len(passages.json) == n_passages. Only a folder that passes is handed to the page-finder. A failure leaves a clear
+Then the folder is gated: meta.build_id and meta.library_fingerprint equal the manifest. Only a folder that passes is handed to the page-finder. A failure leaves a clear
 "manual library could not load" state (never an empty, half or silent keyword-only library) and is retried every 10 min.
 
 TT_PAGEFINDER_DIR set (tests, dev, offline tools) = use that folder; no fetch. No secret value is read or logged here:
@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "pagefinder" / "INDEX_MANIFEST.json"
 IN_GIT_DIR = HERE / "pagefinder" / "index"
 CACHE_ROOT = Path(os.environ.get("TT_INDEX_CACHE", Path.home() / ".cache" / "techtrack-index"))
-FILES = ("index.sqlite", "passages.npy", "passages.json")
+FILES = ("index.sqlite",)
 BACKOFF = (2, 5, 15)
 RETRY_SEC = 600
 CHUNK = 1024 * 1024
@@ -58,7 +58,7 @@ class ManifestError(ValueError):
 def load_manifest(path=MANIFEST) -> dict:
     with open(path, encoding="utf-8") as fh:
         man = json.load(fh)
-    need = ("build_id", "built_at", "library_fingerprint", "n_docs", "n_pages", "n_passages", "files")
+    need = ("build_id", "built_at", "library_fingerprint", "n_docs", "n_pages", "files")
     miss = [k for k in need if k not in man]
     if miss:
         raise ManifestError(f"manifest missing {', '.join(miss)}")
@@ -93,7 +93,7 @@ def file_ok(path: Path, entry: dict) -> tuple[bool, str]:
 
 
 def gate(folder: Path, man: dict) -> tuple[bool, str]:
-    """All 3 files present with the manifest's size+sha256, and the content agrees with the manifest."""
+    """The index file present with the manifest's size+sha256, and its content agrees with the manifest."""
     folder = Path(folder)
     for f in FILES:
         ok, why = file_ok(folder / f, man["files"][f])
@@ -109,14 +109,6 @@ def gate(folder: Path, man: dict) -> tuple[bool, str]:
         return False, f"index.sqlite build_id {meta.get('build_id')} != manifest {man['build_id']}"
     if meta.get("library_fingerprint") != man["library_fingerprint"]:
         return False, "index.sqlite library_fingerprint differs from the manifest"
-    try:
-        import numpy as np
-        rows = np.load(folder / "passages.npy", mmap_mode="r").shape[0]
-        n_json = len(json.load(open(folder / "passages.json", encoding="utf-8")))
-    except Exception as exc:
-        return False, f"passages files unreadable ({type(exc).__name__})"
-    if not (rows == n_json == int(man["n_passages"])):
-        return False, f"passages count mismatch: npy {rows}, json {n_json}, manifest {man['n_passages']}"
     return True, ""
 
 

@@ -379,6 +379,26 @@ def access_question(kind: str) -> str:
     return head + " " + ACCESS_ASK
 
 
+REPAIR_SWITCH_LINE = ("Logged as repair complete (it was diag complete). The access question was already asked for this job, "
+                      "so I am not asking it again.")
+
+
+def repair_switch_due(case: dict, tech_msg: str = "", close_action: str = "") -> bool:
+    """v4.20.13 (Chase t1741u, 2026-11-28): a job logged as diag complete (waiting on approval or a part) is switched to
+    repair complete when the repair then really ends: the Repair complete button, Grok's state saying the repair was
+    verified or the job closed, or the tech plainly stating it. Only diag -> repair; a repair complete record is never
+    taken back to diag, and the access question is not asked a second time."""
+    st = (case or {}).get("state") or {}
+    if st.get("wrapup") != WRAPUP_DIAG:
+        return False
+    if close_action == WRAPUP_REPAIR:
+        return True
+    rep = st.get("repair") or {}
+    if rep.get("verified") or st.get("closed"):
+        return True
+    return tech_close_statement(tech_msg) == WRAPUP_REPAIR
+
+
 def wrapup_due(case: dict, tech_msg: str = "", close_action: str = "") -> str:
     """'repair' / 'diag' when the job really reached its end and the access question has not been asked, else ''.
     close_action is the tech's close button; the record counts when Grok's state block says the repair was verified or

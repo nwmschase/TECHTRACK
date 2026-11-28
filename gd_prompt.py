@@ -26,7 +26,7 @@ STATE_FORMAT = """**State block (response format).** A reply ends with one state
 "next_part_to_fetch": "", "web_lookup": "", "order_part": "", "cause": "",
 "repair": {"done": false, "verified": false, "what": "", "quote": ""},
 "cited": [{"doc_id": "", "page": ""}], "summary": "", "closed": false}</state>
-Every field is optional: a field that is left out keeps its stored value, except `cited`, which holds this turn's citations (left out = nothing cited this turn).
+Every field is optional, and so is each part of `repair`: a field (or part) that is left out keeps its stored value, except `cited`, which holds this turn's citations (left out = nothing cited this turn).
 `quote` fields hold the tech's exact words. `next_part_to_fetch` holds the words of the latest library search and `web_lookup` the words of the
 latest internet search (a record for the job; the searches themselves run through the tools), `order_part` is a part the reply
 tells the tech to order or replace this turn, and `cited` lists the document and page of each source the reply used (a web

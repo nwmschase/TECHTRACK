@@ -4,22 +4,11 @@
   "library_fingerprint": "b9f2ac5d703efb5e054ef8c36145d8dc2f0d59e3cd175add3839f6fa49f498ec",
   "n_docs": 3694,
   "n_pages": 35642,
-  "n_passages": 104836,
   "files": {
     "index.sqlite": {
       "key": "pagefinder-index/v4.20.0-20261103/index.sqlite",
       "size": 80748544,
       "sha256": "1e6579b47cd6273249121df8d2dde6d0e597ec1214ccce70c9a7e48dbac51d1a"
-    },
-    "passages.npy": {
-      "key": "pagefinder-index/v4.20.0-20261103/passages.npy",
-      "size": 80514176,
-      "sha256": "32e786ad9c8c5b3903d532bacf9f988207e289d2527487d0211f6c2c7f9dc269"
-    },
-    "passages.json": {
-      "key": "pagefinder-index/v4.20.0-20261103/passages.json",
-      "size": 1485214,
-      "sha256": "37dafec37c1d109bee9abf056a02c8b17039c3c7254ba90f23a64a3316347f7e"
     }
   }
 }

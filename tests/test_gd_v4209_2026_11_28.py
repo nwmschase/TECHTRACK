@@ -244,13 +244,6 @@ class TestNoSilentFallbacks(unittest.TestCase):
         self.assertIn("state_block", wheres)
         self.assertIn("photo_read", wheres)
 
-    def test_meaning_status_failure_is_not_reported_as_off_by_setting(self):
-        broken = types.SimpleNamespace(s=types.SimpleNamespace(meaning_status=lambda lib: 1 / 0), lib=None)
-        with contextlib.redirect_stdout(io.StringIO()):
-            state, err = gd_turn.meaning_status(broken)
-        self.assertEqual(state, "failed")
-        gd_errors.take_fallbacks()
-
     def test_gd_path_has_no_quiet_except_left(self):
         """Every except in the GD path either logs (gd_errors / _gd_fb / emit), re-raises, reports the error back, or is
         one of the listed parse / lookup helpers whose default IS the answer (bad JSON -> no hits, no secret -> '')."""
@@ -366,7 +359,7 @@ class TestStartupLineAndModel(unittest.TestCase):
         self.assertEqual(f["model"], "grok-4.3")                    # the model that runs is unchanged
         self.assertEqual(f["gd_temperature"], gd_llm.GD_RESPOND_TEMPERATURE)
         self.assertEqual(f["round_limit"], gd_turn.SAFETY_CEILING_CALLS)
-        self.assertIn(f["smart_search"], ("on", "off"))
+        self.assertEqual(f["smart_search"], "removed (word-match only)")   # v4.20.13
         self.assertEqual(f["web_gate"], "on")
         for k in ("version", "commit", "reasoning_effort"):
             self.assertIn(k, f)

@@ -17,7 +17,7 @@ library DB that gd_pages uses), so they cost nothing per call.
 The internet search itself is xAI's built-in web_search tool, which runs inside Grok's own call (gd_llm.respond); it is
 listed in TOOL_SPECS so the Responses API runs it server-side.
 
-Matching reuses the page-finder's own word normalisation, RV term families, BM25 and (when on) the meaning vectors
+Matching reuses the page-finder's own word normalisation, RV term families, BM25 (whole words)
 (pagefinder/search.py: hybrid, bm25, model_score, covers_unit). Page topics and picture labels are part of each page's
 searchable words (search.Library._page_row). Contents and cover pages count 0.3 in search_pages, the same weight the
 page-finder gives them, since table_of_contents returns them directly.
@@ -189,7 +189,6 @@ class LibraryTools:
         self.last_read = {}
         self._label_tf = None
         self.last_dropped = []
-        self.last_search_pages = False
 
     @classmethod
     def for_finder(cls, finder, web_fetch=None):
@@ -369,7 +368,6 @@ class LibraryTools:
 
     # -- search_pages
     def search_pages(self, words, doc_ids=None, brand=None, unit_type=None, limit=None):
-        self.last_search_pages = True
         limit = int(limit or DEFAULT_HITS)
         words = (words or "").strip()
         if not words:

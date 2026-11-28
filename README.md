@@ -4,13 +4,13 @@ Shop app for Tacoma RV Center (`streamlit run rv_techtrack.py`). Guided Diagnost
 
 ## Live app version
 
-The sidebar caption starts with the version on the first line of `rv_techtrack.py` (currently `v4.20.12`). After a push to `main`, that caption should show the new version within a few minutes. That is the check that Community Cloud followed the commit. The shop word list has to stay plain text (`bay_words.txt`) in the repo root. A root-level `.gz` makes the GitHub sync skip the redeploy until someone reboots the app from the dashboard.
+The sidebar caption starts with the version on the first line of `rv_techtrack.py` (currently `v4.20.13`). After a push to `main`, that caption should show the new version within a few minutes. That is the check that Community Cloud followed the commit. The shop word list has to stay plain text (`bay_words.txt`) in the repo root. A root-level `.gz` makes the GitHub sync skip the redeploy until someone reboots the app from the dashboard.
 
 ## Startup line (since v4.20.9)
 
 Each app process prints one line to the Streamlit log when it starts:
 
-`TT_STARTUP {"version": ..., "commit": ..., "model": ..., "gd_temperature": ..., "reasoning_effort": ..., "smart_search": ..., "web_gate": "on", "round_limit": ...}`
+`TT_STARTUP {"version": ..., "commit": ..., "model": ..., "gd_temperature": ..., "reasoning_effort": ..., "smart_search": "removed (word-match only)", "web_gate": "on", "round_limit": ...}`
 
 That line is the check for what is actually running. No key value is ever printed.
 

@@ -115,12 +115,11 @@ class RemarkIndex(unittest.TestCase):
         import gd_tools
         rows = [('L1', 2, LABELED_ASSEMBLY, 1), ('L2', 3, OWNERS_COVER, 1)]
         path = self._index(rows)
-        with mock.patch.object(S, 'MEANING_ON', False):
-            lib = S.Library(db=path, app_db='')
-            before = gd_tools.LibraryTools(lib).search_pages('gear rack drive shaft')
-            B.remark_covers_in_place(path)
-            lib2 = S.Library(db=path, app_db='')
-            after = gd_tools.LibraryTools(lib2).search_pages('gear rack drive shaft')
+        lib = S.Library(db=path, app_db='')
+        before = gd_tools.LibraryTools(lib).search_pages('gear rack drive shaft')
+        B.remark_covers_in_place(path)
+        lib2 = S.Library(db=path, app_db='')
+        after = gd_tools.LibraryTools(lib2).search_pages('gear rack drive shaft')
         top_b = next(h for h in before['hits'] if h['doc_id'] == 'L1' and h['sheet'] == 1)
         top_a = next(h for h in after['hits'] if h['doc_id'] == 'L1' and h['sheet'] == 1)
         self.assertIn('cover', top_b.get('marks', []))
@@ -146,7 +145,7 @@ class AcceptedF10(unittest.TestCase):
         # v4.20.9: the old picker (pick_manual / fetch_by_part) is deleted; the page search Grok uses is checked instead.
         import gd_pages
         import gd_tools
-        f = gd_pages.LibraryPageFinder(_INDEX, meaning=False, app_db=_APP_DB)
+        f = gd_pages.LibraryPageFinder(_INDEX, app_db=_APP_DB)
         T = gd_tools.LibraryTools.for_finder(f)
         docs = T.find_documents(brand="Coleman-Mach", model="2111-0001", unit_type="Air Conditioning",
                                 words="Ran about 2 minutes then dead / no response.")["documents"]

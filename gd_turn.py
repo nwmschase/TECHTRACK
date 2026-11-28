@@ -81,12 +81,12 @@ T_STATE_BROKEN = "STATE_BLOCK_BROKEN"
 T_WEB_GATE_OPENED = "WEB_GATE_OPENED"              # v4.20.7: the web tools were offered for the first time in this job
 T_CITED_NOT_OPENED = "CITED_NOT_OPENED"            # v4.20.7: Grok cited a library page it never opened (dropped)
 T_APP_PICTURE_PAGE = "APP_OPENED_PICTURE_PAGE"     # v4.20.7: a picture was asked for, Grok opened no page, the app opened one
-T_MEANING_OFF = "MEANING_SEARCH_OFF"               # v4.20.8: search_pages ran with meaning search off or failed (once per job)
+T_WEB_GATE_NARROWED = "WEB_GATE_OPENED_EMPTY_NARROWED"   # v4.20.13: the gate opened on an empty search inside the unit's own manuals / maker / type
 
 # v4.20.7 web gate (Chase 2026-11-28 t1713u; test8: Grok asked for the library and the web in the same round, xAI ran the web
 # search inside that call, and Grok answered from the web before it saw the library list). The web tools are left out of
 # the tool list until the job has a library page opened, or the library came back with nothing for the unit (an empty
-# document list, a document list that had to be widened past the unit, or a whole-library page search with no hits). On a
+# document list, a document list that had to be widened past the unit, or a page search with no hits, whole-library or narrowed to the unit's maker, unit type or manuals). On a
 # picture request the web tools also wait until the library was looked at in that turn. Decided from the app's own tool
 # records, never from Grok's text.
 WEB_TOOL_TYPES = ("web_search", "x_search")
@@ -94,7 +94,7 @@ WEB_FUNCTION_NAMES = ("open_web_document",)
 WEB_GATE_CLOSED_RESULT = {"error": "open_web_document is not available yet: search the library and open a page first"}
 TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
             T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_WEB_GATE_OPENED,
-            T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE, T_MEANING_OFF)
+            T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE, T_WEB_GATE_NARROWED)
 FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community", "facebook", "groups.", "quora", "boards.")
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
 USD_PER_TICK = 1e-10
@@ -146,28 +146,7 @@ def web_allowed(gate, picture_request=False, library_looked_this_turn=False):
     return True
 
 
-def meaning_status(library=None):
-    """('on'|'off_by_setting'|'failed', error-or-empty) from the page-finder, without touching the model."""
-    try:
-        s = getattr(library, "s", None) if library is not None else None
-        if s is None:
-            from pagefinder import search as s
-        lib = getattr(library, "lib", None) if library is not None else None
-        return s.meaning_status(lib)
-    except Exception as e:   # v4.20.9: never reported as "off by setting" when the check itself broke
-        gd_errors.fallback("meaning_status", "could not read the meaning-search state", exc=e)
-        return "failed", f"{type(e).__name__}: {e}"
-
-
-def _note_meaning_off(case, library, triggers, trig):
-    """Log MEANING_SEARCH_OFF at most once per job, when a page search ran with meaning off or failed."""
-    if case.get("meaning_off_logged"):
-        return
-    state, err = meaning_status(library)
-    if state == "on":
-        return
-    trig(T_MEANING_OFF, state=state, reason=err or state)
-    case["meaning_off_logged"] = True
+WHY_NARROWED_EMPTY = "search_pages found no page inside the unit's own manuals"
 
 
 def library_empty_reason(name, args, out):
@@ -186,8 +165,12 @@ def library_empty_reason(name, args, out):
             return f"find_documents: {widened}"
     if name == "search_pages" and not d.get("hits"):
         a = args if isinstance(args, dict) else {}
-        if not a.get("doc_ids") and not a.get("brand") and not a.get("unit_type"):
+        narrowed = [k for k in ("doc_ids", "brand", "unit_type") if a.get(k)]
+        if not narrowed:
             return "search_pages found no page in the whole library"
+        # v4.20.13 (Chase t1741u): an empty search narrowed to the unit (its maker, unit type or manuals) also means the
+        # library has nothing for it; matches the primer ("once the library search finds nothing for the unit")
+        return f"{WHY_NARROWED_EMPTY} (narrowed by {', '.join(narrowed)})"
     return ""
 
 
@@ -561,8 +544,6 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             elif _empty(c["name"], out):
                 trig(T_TOOL_EMPTY, tool=c["name"], args=c["arguments"])
             items.append({"type": "function_call_output", "call_id": c["call_id"], "output": out})
-            if c["name"] == "search_pages":
-                _note_meaning_off(case, library, triggers, trig)
             if c["name"] == "find_documents" and not err:
                 case["found_docs"] = list(dict.fromkeys(_found_doc_ids(out) + case["found_docs"]))[:12]
             if not gate["open"] and not err:
@@ -575,6 +556,9 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                     if empty_why:
                         gate.update(open=True, why=empty_why, library_empty=True)
                         trig(T_WEB_GATE_OPENED, why=empty_why)
+                        if empty_why.startswith(WHY_NARROWED_EMPTY):
+                            # v4.20.13: its own tagged line in the turn log, with the search that came back empty
+                            trig(T_WEB_GATE_NARROWED, tool=c["name"], args=c["arguments"], why=empty_why)
             _remember_pages(case, pages)
             turn_pages += pages
             if c["name"] == "read_pages":
@@ -637,8 +621,6 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             problems.append(f"app picture page failed: {exc}")
             gd_errors.fallback("picture_page", "the app's picture-page lookup crashed; no picture page opened", exc=exc)
             app_page = None
-        if getattr(library, "last_search_pages", False):
-            _note_meaning_off(case, library, triggers, trig)
         if app_page is not None:
             _remember_pages(case, [app_page])
             turn_pages.append(app_page)
@@ -707,8 +689,6 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     usage["page_images_skipped"] = len(images_skipped)
     if usage.get("cost_in_usd_ticks"):
         usage["cost_usd"] = round(usage["cost_in_usd_ticks"] * USD_PER_TICK, 6)
-    state, _err = meaning_status(library)
-    usage["meaning"] = {"off_by_setting": "off", "failed": "failed", "on": "on"}.get(state, state)
     cited = _cited_with_pages(case["state"].get("cited") or [], case)
     lib_read = [p for p in _read_pages(case) if p.source != "web"]
     mode = "closed" if case["state"].get("closed") else ("walk" if lib_read else ("web" if case["web_sources"] else "no_manual"))
@@ -743,12 +723,12 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
 def startup_fields(version: str, commit: str = "") -> dict:
     """v4.20.9 (Chase t1727u): what this server process runs, read from the code (the one source): app version, git
     commit, the Grok model, the GD answer temperature, the reasoning effort (None = not set, xAI's default for the model),
-    smart (meaning) search on/off, the web gate, and the round limit per turn."""
+    the search kind (word-match only: the smart/meaning search was deleted in v4.20.13), the web gate, and the round limit
+    per turn."""
     import gd_llm
-    from pagefinder import search as _search
 
     return {"version": version, "commit": commit or "unknown", "model": gd_llm.DEFAULT_XAI_MODEL,
             "gd_temperature": gd_llm.GD_RESPOND_TEMPERATURE,
             "reasoning_effort": gd_llm.GD_ASK_REASONING_EFFORT or "not set (xAI default for the model)",
-            "smart_search": "on" if _search.MEANING_ON else "off", "web_gate": "on",
+            "smart_search": "removed (word-match only)", "web_gate": "on",
             "round_limit": SAFETY_CEILING_CALLS}

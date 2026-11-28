@@ -58,23 +58,18 @@ class Page:
 class LibraryPageFinder:
     """Adapter over the in-repo page-finder (pagefinder/search.py) and its index built from the app library.
 
-    index_dir: pagefinder/index (index.sqlite + passages.npy/json) unless TT_PAGEFINDER_DIR says otherwise.
+    index_dir: pagefinder/index (index.sqlite) unless TT_PAGEFINDER_DIR says otherwise.
     app_db: the app's library DB; its documents table is the single source of truth for titles, brands, categories
             and models (docs deleted in the app leave the finder; docs added after the index build are read from the
             app's own page chunks). Default: TT_APP_DB.
-    meaning=None follows the process default (TT_PAGEFINDER_MEANING, off unless set to on). Pass True or False to
-    force it for this process (BM25 on whole words only when off; see search.MEANING_ON)."""
+    Word-match (BM25) search only: the meaning/embedding search was deleted in v4.20.13."""
 
-    def __init__(self, index_dir=None, meaning=None, app_db=None):
+    def __init__(self, index_dir=None, app_db=None):
         from pagefinder import search as _search
         self.search = _search
         if index_dir or app_db is not None:
             d = index_dir or _search.INDEX_DIR
-            _search.use_library(os.path.join(d, "index.sqlite"), d, app_db)
-        if meaning is None:
-            meaning = _search.MEANING_ON
-        self.meaning = bool(meaning)
-        self.search.MEANING_ON = self.meaning
+            _search.use_library(os.path.join(d, "index.sqlite"), app_db)
 
     @property
     def lib(self):

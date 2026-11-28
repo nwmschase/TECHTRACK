@@ -121,7 +121,7 @@ class TestShippedIndex(unittest.TestCase):
 class TestRealLibrary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+        cls.f = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
         cls.lib = cls.f.lib
 
     def test_app_db_still_has_old_values_but_fixes_win(self):

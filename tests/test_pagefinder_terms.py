@@ -101,7 +101,7 @@ class TestRealLibraryVocabulary(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import gd_pages
-        cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
+        cls.f = gd_pages.LibraryPageFinder(INDEX, app_db=APP_DB)
 
     # v4.20.9: the old picker (pick_manual / fetch_part) is deleted; the vocabulary is checked through the tools Grok uses.
     def _call(self, name, **args):

@@ -3,7 +3,6 @@ a dict; no network, no keys."""
 import ast, hashlib, io, json, logging, os, sqlite3, threading, time
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 import index_fetch as IF
@@ -11,15 +10,13 @@ import index_fetch as IF
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def make_index(folder, build_id="b1", fp="fp1", n=5, json_n=None):
+def make_index(folder, build_id="b1", fp="fp1", n=5):
     folder = Path(folder); folder.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(folder / "index.sqlite")
     con.execute("create table meta(key text primary key, value text)"); con.execute("create table pages(doc_id, pdf_sheet)")
     con.executemany("insert into meta values(?,?)", [("build_id", build_id), ("library_fingerprint", fp), ("n_docs", "1"), ("built_at", "now")])
     con.executemany("insert into pages values(?,?)", [("L1", i) for i in range(1, n + 1)])
     con.commit(); con.close()
-    np.save(folder / "passages.npy", np.zeros((n, 4), np.float16))
-    json.dump([["L1", i] for i in range(1, (json_n if json_n is not None else n) + 1)], open(folder / "passages.json", "w"))
     return folder
 
 
@@ -28,7 +25,7 @@ def manifest_for(folder, build_id="b1", fp="fp1", n=5):
     for f in IF.FILES:
         p = Path(folder) / f
         files[f] = dict(key=f"pagefinder-index/{build_id}/{f}", size=p.stat().st_size, sha256=IF.sha256_file(p))
-    return dict(build_id=build_id, built_at="now", library_fingerprint=fp, n_docs=1, n_pages=n, n_passages=n, files=files)
+    return dict(build_id=build_id, built_at="now", library_fingerprint=fp, n_docs=1, n_pages=n, files=files)
 
 
 class FakeBody:
@@ -82,10 +79,10 @@ def test_manifest_schema(tmp_path, built):
     _, man, _ = built
     p = tmp_path / "m.json"; json.dump(man, open(p, "w"))
     assert IF.load_manifest(p)["build_id"] == "b1"
-    bad = dict(man); bad.pop("n_passages"); json.dump(bad, open(p, "w"))
+    bad = dict(man); bad.pop("n_pages"); json.dump(bad, open(p, "w"))
     with pytest.raises(IF.ManifestError):
         IF.load_manifest(p)
-    bad = json.loads(json.dumps(man)); bad["files"]["passages.npy"]["key"] = "other/passages.npy"; json.dump(bad, open(p, "w"))
+    bad = json.loads(json.dumps(man)); bad["files"]["index.sqlite"]["key"] = "other/index.sqlite"; json.dump(bad, open(p, "w"))
     with pytest.raises(IF.ManifestError):
         IF.load_manifest(p)
     bad = dict(man, build_id="../x"); json.dump(bad, open(p, "w"))
@@ -97,7 +94,7 @@ def test_download_verifies_and_renames(tmp_path, built):
     _, man, objs = built
     r2 = FakeR2(objs)
     folder, source = IF.prepare(man, lambda: r2, "bucket", cache_root=tmp_path / "c", in_git=None, sleep=no_sleep)
-    assert source == "r2" and len(r2.calls) == 3
+    assert source == "r2" and len(r2.calls) == 1
     assert not list(folder.glob("*.part"))
     assert IF.gate(folder, man) == (True, "")
 
@@ -113,13 +110,13 @@ def test_cache_hit_downloads_nothing(tmp_path, built):
 
 def test_flipped_byte_retries_then_clear_error_and_no_part(tmp_path, built):
     _, man, objs = built
-    key = man["files"]["passages.npy"]["key"]
+    key = man["files"]["index.sqlite"]["key"]
     r2 = FakeR2(objs, flip={key})
     waits = []
-    with pytest.raises(IF.IndexUnavailable, match="passages.npy: passages.npy.part sha256"):
+    with pytest.raises(IF.IndexUnavailable, match="index.sqlite: index.sqlite.part sha256"):
         IF.prepare(man, lambda: r2, "bucket", cache_root=tmp_path / "c", in_git=None, sleep=waits.append)
     assert waits == [2, 5, 15] and r2.calls.count(key) == 4
-    assert not list((tmp_path / "c").rglob("*.part")) and not (tmp_path / "c" / "b1" / "passages.npy").exists()
+    assert not list((tmp_path / "c").rglob("*.part")) and not (tmp_path / "c" / "b1" / "index.sqlite").exists()
 
 
 def test_truncated_body_is_a_size_mismatch(tmp_path, built):
@@ -131,7 +128,7 @@ def test_truncated_body_is_a_size_mismatch(tmp_path, built):
 
 def test_timeout_then_success(tmp_path, built):
     _, man, objs = built
-    key = man["files"]["passages.json"]["key"]
+    key = man["files"]["index.sqlite"]["key"]
     waits = []
     folder, source = IF.prepare(man, lambda: FakeR2(objs, fail={key: 2}), "bucket", cache_root=tmp_path / "c", in_git=None, sleep=waits.append)
     assert source == "r2" and waits == [2, 5]
@@ -139,14 +136,14 @@ def test_timeout_then_success(tmp_path, built):
 
 def test_missing_key_404(tmp_path, built):
     _, man, objs = built
-    objs.pop(man["files"]["passages.npy"]["key"])
-    with pytest.raises(IF.IndexUnavailable, match="passages.npy: KeyError"):
+    objs.pop(man["files"]["index.sqlite"]["key"])
+    with pytest.raises(IF.IndexUnavailable, match="index.sqlite: KeyError"):
         IF.prepare(man, lambda: FakeR2(objs), "bucket", cache_root=tmp_path / "c", in_git=None, sleep=no_sleep)
 
 
 def test_no_secret_in_logs_or_errors(tmp_path, built, caplog):
     _, man, objs = built
-    key = man["files"]["passages.npy"]["key"]
+    key = man["files"]["index.sqlite"]["key"]
     caplog.set_level(logging.DEBUG)
     with pytest.raises(IF.IndexUnavailable) as e:
         IF.prepare(man, lambda: FakeR2(objs, fail={key: 9}), "bucket", cache_root=tmp_path / "c", in_git=None, sleep=no_sleep)
@@ -170,15 +167,15 @@ def test_fingerprint_and_count_mismatch_refused(tmp_path):
     f = make_index(tmp_path / "a")
     man = manifest_for(f); man["library_fingerprint"] = "other"
     assert IF.gate(f, man)[0] is False and "fingerprint" in IF.gate(f, man)[1]
-    g = make_index(tmp_path / "b", json_n=4)
-    ok, why = IF.gate(g, manifest_for(g))
-    assert not ok and "passages count mismatch" in why
 
 
-def test_missing_npy_is_unavailable_not_keyword_only(tmp_path, built):
-    src, man, _ = built
-    (src / "passages.npy").unlink()
-    assert IF.gate(src, man) == (False, "passages.npy missing")
+def test_manifest_pins_only_the_index_file_and_no_vectors():
+    """v4.20.13: the smart-search vector files are gone from the pinned manifest, the fetch list and the repo."""
+    assert IF.FILES == ("index.sqlite",)
+    man = IF.load_manifest()
+    assert list(man["files"]) == ["index.sqlite"] and "n_passages" not in man
+    assert not (ROOT / "pagefinder" / "index" / "passages.npy").exists()
+    assert not (ROOT / "pagefinder" / "index" / "passages.json").exists()
 
 
 def test_in_git_copy_used_only_when_it_is_the_pinned_build(tmp_path, built):
@@ -206,7 +203,7 @@ def test_two_starters_download_once(tmp_path, built):
     ts = [threading.Thread(target=lambda: out.append(IF.prepare(man, lambda: r2, "b", cache_root=tmp_path / "c", in_git=None, sleep=no_sleep)[1]))
           for _ in range(2)]
     [t.start() for t in ts]; [t.join() for t in ts]
-    assert sorted(out) == ["cache", "r2"] and len(r2.calls) == 3
+    assert sorted(out) == ["cache", "r2"] and len(r2.calls) == 1
 
 
 def test_states_loading_ready_failed_and_retry_window(tmp_path, built, monkeypatch):
@@ -251,7 +248,7 @@ def test_env_dir_skips_fetch(tmp_path, monkeypatch):
 
 def test_pinned_manifest_in_git_is_valid():
     man = IF.load_manifest()
-    assert man["n_docs"] > 0 and man["n_passages"] > 0
+    assert man["n_docs"] > 0 and man["n_pages"] > 0
 
 
 def test_app_hands_the_verified_folder_to_the_finder_and_names_the_library_state():

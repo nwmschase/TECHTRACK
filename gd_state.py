@@ -14,7 +14,7 @@ Fields (all optional in each update; missing = unchanged):
   web_lookup          str     the words of Grok's latest internet search (a record; the search runs in Grok's own call)
   order_part          str     a part the brain tells the tech to order / replace this turn ("" when none)
   cause               str     the brain's current diagnosis, with its doc + page
-  repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words
+  repair              {done: bool, verified: bool, what: str, quote: str}  quote = the tech's words; a sub-field left out keeps its value (v4.20.13)
   cited               [{doc_id, page}]   pages the brain cited this turn (left out = cleared; gd_turn)
   summary             str     running summary of the job so far (sent with the whole chat; it does not replace old turns)
   closed              bool    the brain closed the job (repair verified, incl. adjustments)
@@ -78,8 +78,9 @@ def validate(update) -> tuple:
         if k == "cited":
             v = [c for c in v if isinstance(c, dict) and c.get("doc_id")]
         if k == "repair":
-            v = {"done": bool(v.get("done", False)), "verified": bool(v.get("verified", False)),
-                 "what": str(v.get("what", "") or ""), "quote": str(v.get("quote", "") or "")}
+            # v4.20.13: only the sub-fields Grok wrote; a left-out one keeps its stored value (merge below), as the
+            # reply format says. Before, a block with repair {"what": ...} reset verified and done to false.
+            v = {f: (bool(v[f]) if f in ("done", "verified") else str(v[f] or "")) for f in ("done", "verified", "what", "quote") if f in v}
         clean[k] = v
     return clean, problems
 
@@ -113,6 +114,8 @@ def merge(state: dict, update: dict) -> dict:
                     by_item[f["item"]] = len(facts)
                     facts.append(rec)
             out["facts"] = facts
+        elif k == "repair" and isinstance(v, dict):
+            out["repair"] = {**new_state()["repair"], **(out.get("repair") or {}), **v}
         else:
             out[k] = copy.deepcopy(v)
     return out

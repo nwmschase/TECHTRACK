@@ -10,7 +10,4 @@ pillow==12.3.0
 reportlab==5.0.1
 extra-streamlit-components==0.1.81
 itsdangerous==2.2.0
-# page-finder (word-match search by default; meaning search and the ~64 MB model stay off unless TT_PAGEFINDER_MEANING=on)
-fastembed==0.9.0
 numpy==2.5.4
-onnxruntime==1.31.0
