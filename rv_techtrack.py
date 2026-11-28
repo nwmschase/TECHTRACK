@@ -3504,6 +3504,14 @@ with tab_ask:
                 # The previous job's manual-pages / walkthrough choice does not carry into the opened job (it is not
                 # saved with a chat yet: M8). None = the default walkthrough, same as sending without a pick.
                 st.session_state["gd_help_mode"] = None
+                # The double-send store is keyed by tech + turn count + words, not by chat: a short reply ("ok", "yes")
+                # sent in the opened job at the same turn count as one sent in the job before it (kept up to ~37 min)
+                # would reuse THAT job's reply and job record. New chat already clears it; Open now does the same.
+                try:
+                    import gd_sends
+                    gd_sends.store().clear_user(user["id"])
+                except Exception as e:
+                    _gd_fb("open_chat_sends", "the double-send store was not cleared for the opened chat", exc=e)
                 st.session_state["ask_sources"] = []
                 st.session_state["ask_cited_log"] = []
                 for m in hist:

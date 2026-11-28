@@ -151,6 +151,41 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         self.assertEqual(at.session_state["gd_model_memory"], "FCR10DCGTA")
         self.assertIsNone(at.session_state["gd_help_mode"])
 
+    def test_open_saved_job_never_reuses_the_previous_jobs_reply(self):
+        """v4.20.12 candidate (audit 3): the double-send store is per tech, not per chat. A short reply kept from the job
+        before the Open, at the same turn count and with the same words, must not come back in the opened job."""
+        at = AppTest.from_file(str(APP), default_timeout=60)
+        at.run()
+        at.text_input[0].set_value("manager")
+        at.text_input[1].set_value("manager123")
+        at.button[0].click().run()
+        gd = "💬 Guided Diagnostics"
+        at.radio[0].set_value(gd).run()
+        at.selectbox(key="ask_cat").set_value("Refrigerators")
+        at.text_input(key="ask_model").set_value("FCR10DCGTA")
+        at.text_area(key="ask_input").set_value("FCR10 not cooling, job B for the reuse check")
+        at.button(key="FormSubmitter:gd_send_form-Send").click().run()
+        saved_id = at.session_state["ask_chat_id"]
+        hist_len = len(at.session_state["ask_chat"])
+        at.button(key="ask_new").click().run()
+        # a reply kept from another job (job A) at the same turn count, same words
+        import gd_sends
+        uid = at.session_state["user"]["id"]
+        src = APP.read_text(encoding="utf-8")
+        start = src.index("def gd_send_key(")
+        ns = {}
+        exec(src[start:src.index("\n\n\n", start)], ns)
+        key = ns["gd_send_key"](f"user:{uid}", hist_len, "ok", 0)
+        gd_sends.store().finish(uid, key, msg="ok", reply="JOB A REPLY", cited=[], turn_pages=[], drawn_keys=[],
+                                case=None, chat_id=None, turns=hist_len)
+        at.button(key=f"open_ask_{saved_id}").click().run()
+        self.assertFalse(list(at.exception))
+        at.text_area(key="ask_input").set_value("ok")
+        at.button(key="FormSubmitter:gd_send_form-Send").click().run()
+        self.assertFalse(list(at.exception))
+        replies = [m.get("content") or "" for m in at.session_state["ask_chat"] if m.get("role") == "assistant"]
+        self.assertFalse(any("JOB A REPLY" in r for r in replies), replies)
+
     def test_start_new_chat_drops_the_previous_case_before_the_next_reply(self):
         at = AppTest.from_file(str(APP), default_timeout=60)
         at.run()
