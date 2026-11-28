@@ -268,10 +268,16 @@ def opened_citations(cited, case):
     """(kept, dropped): a library citation stays only when that page was opened in this job; a web citation (an address)
     stays when this job's web search returned it or it was opened."""
     read_keys = set()
+    web = {w.get("url") for w in case.get("web_sources") or [] if w.get("url")}
     for p in _read_pages(case):
         read_keys.add((str(p.doc_id), str(p.page)))
         read_keys.add((str(p.doc_id), f"sheet {p.sheet}"))
-    web = {w.get("url") for w in case.get("web_sources") or [] if w.get("url")}
+        if getattr(p, "url", ""):
+            # v4.20.12 candidate (audit 3): a document opened with open_web_document is stored as doc_id "web:host/file",
+            # which Grok never sees; the state format tells it to cite a web source by its address, so the address of
+            # an opened web page counts as opened (before, it was dropped as CITED_NOT_OPENED unless xAI's own search
+            # had listed that exact address)
+            web.add(p.url)
     kept, dropped = [], []
     for c in cited or []:
         if not isinstance(c, dict):

@@ -89,5 +89,24 @@ class StaleTestReferenceGuard(unittest.TestCase):
         self.assertEqual(bad, [])
 
 
+class OpenedWebCitationTests(unittest.TestCase):
+    """A web document Grok opened with open_web_document stays cited when Grok cites it by its address (the state format
+    says a web source is cited by its address; the stored page's doc_id is the internal web:host/file)."""
+
+    def test_cited_address_of_an_opened_web_page_is_kept(self):
+        sys.path.insert(0, ROOT)
+        import gd_turn
+        from gd_pages import Page
+        url = "https://example-maker.com/manuals/fridge-123.pdf"
+        p = Page(doc_id="web:example-maker.com/fridge-123.pdf", title="Fridge 123", page="3", sheet=3, text="x",
+                 kind="web", reason="web lookup", url=url)
+        case = gd_turn.new_case("Refrigerators", "123", "warm")
+        gd_turn._remember_pages(case, [p])
+        kept, dropped = gd_turn.opened_citations([{"doc_id": url, "page": "3"},
+                                                  {"doc_id": "https://never-opened.example/x.pdf", "page": "1"}], case)
+        self.assertEqual([c["doc_id"] for c in kept], [url])
+        self.assertEqual([c["doc_id"] for c in dropped], ["https://never-opened.example/x.pdf"])
+
+
 if __name__ == "__main__":
     unittest.main()
