@@ -37,11 +37,11 @@ class TestAppModuleReload(unittest.TestCase):
     def test_matching_revision_is_not_replaced(self):
         ns = _loader_namespace()
         current = types.ModuleType("library_figure_backfill")
-        current.MODULE_REVISION = "v4.20.6"
+        current.MODULE_REVISION = "v4.20.7"
         marker = object()
         current.marker = marker
         sys.modules["library_figure_backfill"] = current
-        loaded = ns["_reload_app_module"]("library_figure_backfill", "v4.20.6")
+        loaded = ns["_reload_app_module"]("library_figure_backfill", "v4.20.7")
         self.assertIs(loaded, current)
         self.assertIs(loaded.marker, marker)
 
@@ -60,13 +60,12 @@ class TestAppModuleReload(unittest.TestCase):
         stale.MODULE_REVISION = "v4.19.6"
         sys.modules["library_figure_backfill"] = stale
 
-        ns["_reload_stale_app_modules"]("v4.20.6")
+        ns["_reload_stale_app_modules"]("v4.20.7")
         loaded = sys.modules["library_figure_backfill"]
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.20.6")
-        self.assertTrue(hasattr(loaded, "fits_case"))
-        self.assertTrue(hasattr(loaded, "off_brand_figure"))
-        self.assertTrue(hasattr(loaded, "procedure_how"))
+        self.assertEqual(loaded.MODULE_REVISION, "v4.20.7")
+        self.assertTrue(hasattr(loaded, "fetch_png"))
+        self.assertTrue(hasattr(loaded, "store_pdf_figures"))
 
     def test_stale_manual_figures_reloads_the_coach_and_logs_revisions(self):
         """The lead-jack coach must not keep a module that was loaded earlier."""
@@ -75,21 +74,20 @@ class TestAppModuleReload(unittest.TestCase):
         stale.MODULE_REVISION = "v4.19.6"
         sys.modules["manual_figures"] = stale
         with self.assertLogs("techtrack.modules", level="WARNING") as captured:
-            ns["_reload_stale_app_modules"]("v4.20.6")
+            ns["_reload_stale_app_modules"]("v4.20.7")
         loaded = sys.modules["manual_figures"]
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.20.6")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.20.7")
         coach = sys.modules["gd_library_coach"]
-        self.assertIs(coach._manual_figures, loaded)
-        self.assertEqual(coach.MODULE_REVISION, "v4.20.6")
+        self.assertEqual(coach.MODULE_REVISION, "v4.20.7")
         text = "\n".join(captured.output)
         for name in APP_NAMES:
-            self.assertIn(f"MODULE_REVISION {name}=v4.20.6", text)
+            self.assertIn(f"MODULE_REVISION {name}=v4.20.7", text)
         mismatch = types.ModuleType("gd_step_photo")
         mismatch.MODULE_REVISION = "v4.19.6"
         with self.assertLogs("techtrack.modules", level="ERROR") as bad:
-            ns["_log_loaded_revision"]("gd_step_photo", mismatch, "v4.20.6")
-        self.assertIn("MODULE_REVISION gd_step_photo=v4.19.6 expected v4.20.6", "\n".join(bad.output))
+            ns["_log_loaded_revision"]("gd_step_photo", mismatch, "v4.20.7")
+        self.assertIn("MODULE_REVISION gd_step_photo=v4.19.6 expected v4.20.7", "\n".join(bad.output))
 
 
     def test_missing_revision_is_stale(self):
@@ -97,9 +95,9 @@ class TestAppModuleReload(unittest.TestCase):
         stale = types.ModuleType("gd_llm")
         stale.complete_chat = lambda *a, **k: "STALE"
         sys.modules["gd_llm"] = stale
-        loaded = ns["_reload_app_module"]("gd_llm", "v4.20.6")
+        loaded = ns["_reload_app_module"]("gd_llm", "v4.20.7")
         self.assertIsNot(loaded, stale)
-        self.assertEqual(loaded.MODULE_REVISION, "v4.20.6")
+        self.assertEqual(loaded.MODULE_REVISION, "v4.20.7")
 
 
     def test_required_revision_matches_the_app_header(self):
@@ -107,7 +105,7 @@ class TestAppModuleReload(unittest.TestCase):
         header = re.search(r"RV TechTrack (v\d+\.\d+\.\d+)", src).group(1)
         required = re.search(r'_GDC_REQUIRED_REVISION = "(v[\d.]+)"', src).group(1)
         self.assertEqual(required, header)
-        self.assertEqual(header, "v4.20.6")
+        self.assertEqual(header, "v4.20.7")
         for name in APP_NAMES:
             text = (ROOT / f"{name}.py").read_text(encoding="utf-8")
             self.assertIn(f'MODULE_REVISION = "{header}"' if name != "gd_library_coach" else "MODULE_REVISION = COACH_REVISION", text)
@@ -146,9 +144,9 @@ class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
             def worker():
                 try:
                     bar.wait()
-                    ns["_reload_stale_app_modules"]("v4.20.6")
+                    ns["_reload_stale_app_modules"]("v4.20.7")
                     with ns["_app_module_lock"]():
-                        from library_figure_backfill import complete_figure_rows  # noqa: F401
+                        from library_figure_backfill import fetch_png  # noqa: F401
                 except BaseException as exc:  # noqa: BLE001
                     errs.append(f"{type(exc).__name__}: {exc}")
 
@@ -164,11 +162,11 @@ class TestConcurrentSessionsLoadWholeModules(unittest.TestCase):
 
         ns = _loader_namespace()
         d = Path(tempfile.mkdtemp())
-        (d / "tt_broken_mod.py").write_text("MODULE_REVISION = 'v4.20.6'\nraise RuntimeError('boom')\n")
+        (d / "tt_broken_mod.py").write_text("MODULE_REVISION = 'v4.20.7'\nraise RuntimeError('boom')\n")
         ns["__file__"] = str(d / "rv_techtrack.py")
         exec(compile("Path = __import__('pathlib').Path", "x", "exec"), ns)
         with self.assertRaises(RuntimeError):
-            ns["_reload_app_module"]("tt_broken_mod", "v4.20.6")
+            ns["_reload_app_module"]("tt_broken_mod", "v4.20.7")
         self.assertNotIn("tt_broken_mod", sys.modules)
 
     def test_sibling_modules_have_no_import_cycle(self):

@@ -20,29 +20,36 @@ def _p(page, text="", topics=""):
     return Page(doc_id="L6", title="In-Wall Slide-Out Manual", page=str(page), sheet=int(page), text=text, topics=topics)
 
 
-PAGES = [_p(5, "B version controller LED mode"), _p(6, "C2 controller LED mode button motor connector"),
-         _p(8, "motor harness connector ribs notch"), _p(13, "wiring diagram colors black red brown green blue")]
+PAGES = [_p(5, "B version controller LED mode", "diagram / drawing: B version controller"),
+         _p(6, "C2 controller LED mode button motor connector", "diagram / drawing: C2 controller overview"),
+         _p(8, "motor harness connector ribs notch", "photo / photograph of the actual component: motor and harness connector"),
+         _p(13, "wiring diagram colors black red brown green blue", "wiring diagram: color codes, motor harnesses")]
 
 
 class TestPickPicture(unittest.TestCase):
     def test_one_page_for_the_item_asked(self):
-        pick = lambda q: gd_picture.pick_picture_page(q, REPLY, PAGES).page
-        self.assertEqual(pick("can you show me a picture of the controller"), "6")
+        # v4.20.7: chosen from the page labels and text (no page numbers read out of the reply text)
+        pick = lambda q: gd_picture.pick_picture_page(q, PAGES).page
+        self.assertEqual(pick("can you show me a picture of the C2 controller"), "6")
         self.assertEqual(pick("send a photo of the motor and harness"), "8")
         self.assertEqual(pick("picture of the wiring diagram"), "13")
 
     def test_label_and_text_when_reply_names_no_page(self):
         pages = [_p(3, "slide room overview"), _p(9, "", topics="motor wiring diagram")]
-        self.assertEqual(gd_picture.pick_picture_page("pic of the wiring", "See the diagram.", pages).page, "9")
+        self.assertEqual(gd_picture.pick_picture_page("pic of the wiring", pages).page, "9")
 
     def test_nothing_opened_is_none_and_web_pages_skipped(self):
-        self.assertIsNone(gd_picture.pick_picture_page("photo of the controller", REPLY, []))
+        self.assertIsNone(gd_picture.pick_picture_page("photo of the controller", []))
         web = Page(doc_id="https://x", title="x", page="1", sheet=1, text="controller", source="web")
-        self.assertIsNone(gd_picture.pick_picture_page("photo of the controller", REPLY, [web]))
+        self.assertIsNone(gd_picture.pick_picture_page("photo of the controller", [web]))
 
     def test_dict_pages_work(self):
         d = [{"doc_id": "L6", "page": "8", "sheet": 8, "title": "t"}, {"doc_id": "L6", "page": "13", "sheet": 13}]
-        self.assertEqual(gd_picture.pick_picture_page("wiring colors", REPLY, d)["page"], "13")
+        self.assertEqual(gd_picture.pick_picture_page("wiring colors", d, cited=[{"doc_id": "L6", "page": "13"}])["page"], "13")
+
+    def test_reply_text_page_regex_is_gone(self):
+        self.assertFalse(hasattr(gd_picture, "_PAGE_REF"))
+        self.assertFalse(hasattr(gd_picture, "_reply_scores"))
 
 
 class TestCitedWhenStateMissing(unittest.TestCase):
@@ -77,9 +84,12 @@ class TestCitedWhenStateMissing(unittest.TestCase):
 
 
 class TestFallbackNote(unittest.TestCase):
-    def test_plain_note(self):
+    def test_plain_note_and_old_boilerplate_gone(self):
         import gd_library_coach
-        self.assertEqual(gd_library_coach.figure_render_honesty_note("", True), "That page didn't load; tap Open PDF.")
+        self.assertFalse(hasattr(gd_library_coach, "figure_render_honesty_note"))   # v4.20.7: retired
+        src = open(gd_library_coach.__file__, encoding="utf-8").read()
+        self.assertNotIn("could not load a matching shop-library PDF page", src + SRC)
+        self.assertNotIn("TechTrack could not render that page image this turn", src)
         self.assertEqual(gd_picture.FAIL_NOTE, "That page didn't load; tap Open PDF.")
 
     def test_send_path_has_no_old_lookups(self):
@@ -129,16 +139,14 @@ class TestTurnPicture(unittest.TestCase):
         return ns["_gd_turn_picture"]
 
     def test_one_page_ref_from_the_opened_pages(self):
-        pic = self._fn()("can you show me a picture of the controller", REPLY,
+        pic = self._fn()("can you show me a picture of the C2 controller", REPLY,
                          {"turn_pages": PAGES, "cited": [], "drawn_keys": [("L6", 6), ("L6", 13)]})
         self.assertEqual((pic["ref"]["doc_id"], pic["ref"]["sheet"], pic["ref"]["file_path"]), ("L6", 6, "library/L6.pdf"))
         self.assertTrue(pic["drawn_for_grok"])
         self.assertNotIn("png", pic)
 
-    def test_nothing_opened_uses_cited_then_fails_plainly(self):
+    def test_no_page_opened_this_turn_shows_nothing(self):
+        # v4.20.7: no fallback to pages cited in earlier turns (an unrelated earlier page is not a picture of the ask)
         f = self._fn()
-        pic = f("photo of the wiring", REPLY, {"turn_pages": [], "cited": [{"doc_id": "L6", "page": "13", "sheet": 13,
-                                                                             "title": "t"}]})
-        self.assertEqual(pic["ref"]["sheet"], 13)
-        none = f("photo of the wiring", REPLY, {"turn_pages": [], "cited": []})
-        self.assertEqual(none["ref"], {})
+        self.assertIsNone(f("photo of the wiring", REPLY, {"turn_pages": [], "cited": [{"doc_id": "L6", "page": "13",
+                                                                                         "sheet": 13}]}))

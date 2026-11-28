@@ -125,27 +125,24 @@ _LABEL_ORDER = (
 class TestGdStepLayout(unittest.TestCase):
 
 
-    def test_the_chat_draws_figures_only_when_asked(self):
+    def test_the_chat_draws_one_picture_from_opened_pages(self):
+        # v4.20.7: the old figure path (step figures, kit figure renderer, regex picture asks) is retired
         source = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
             "rv_techtrack.py"
         ).read_text(encoding="utf-8")
-        loop = source.split("for index, m in enumerate(history):", 1)[1].split(
-            "Describe the symptom", 1
-        )[0]
-        self.assertLess(loop.find("st.markdown"), loop.find("_render_gd_figures_under_step"))
-        self.assertNotIn("fb.gd_figures_under_step", loop)
-        # v4.20.6: one picture from the pages Grok opened (gd_picture), not the pre-indexed figure lookup
-        send = source.split('_send_key = gd_send_key(f"user:{_send_user}"', 1)[1].split("st.rerun()", 1)[0]
-        self.assertNotIn("gd_figures_under_step", send)
+        loop = source.split("for index, m in enumerate(history):", 1)[1].split("Describe the symptom", 1)[0]
+        self.assertIn("_render_gd_picture(", loop)
+        import ast
+        tree = ast.parse(source)
+        used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+        used |= {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+        for gone in ("_render_gd_figures_under_step", "gd_figures_under_step", "render_library_page_image",
+                     "tech_asked_for_manual_figure", "wants_library_page_shown", "render_on_demand_library_pages",
+                     "resolve_requested_library_pages", "_stored_figure_matches", "_figures_for_session",
+                     "figure_render_honesty_note", "offers_for_turn"):
+            self.assertNotIn(gone, used)
         self.assertIn('picture = _gd_turn_picture(msg, reply, entry) if entry.get("asked_image") and not _gd_reply_is_failure(reply) else None', source)
-        self.assertIn("tech_asked_for_manual_figure", source)
-        image = source.split("def render_library_page_image", 1)[1].split("\ndef ", 1)[0]
-        self.assertIn("use_container_width=True", image)
-        self.assertIn("gd_caption", image)
-        self.assertFalse(mf.tech_asked_for_manual_figure("Yes. The pedal is off."))
-        self.assertTrue(mf.tech_asked_for_manual_figure("show me"))
-        self.assertTrue(mf.tech_asked_for_manual_figure("where is it"))
-        self.assertTrue(mf.tech_asked_for_manual_figure("what does it look like"))
+        self.assertFalse(hasattr(mf, "tech_asked_for_manual_figure"))
 
 
 def _gd_row(doc_id, title, brand, page, label, *, kind="figure", models="", category="Plumbing / Toilets"):
@@ -163,86 +160,6 @@ def _gd_row(doc_id, title, brand, page, label, *, kind="figure", models="", cate
         "category_name": category,
         "models": models,
     }
-
-
-class TestGdFigureSelection(unittest.TestCase):
-    def test_cited_page_and_brand_win(self):
-        reply = (
-            "**Step 4: Push the filter plate tabs.**\n\n"
-            "Do this:\n1. Push the filter plate tabs.\n"
-            "Good looks like: The tabs are pushed.\n"
-            "Next: Drop the filter plate.\n"
-            "📖 Source: Furrion Chill FACR CCD-0008666, page 19"
-        )
-        rows = [
-            _gd_row(1, "Furrion Chill FACR CCD-0008666", "Furrion", 19, "Fig. 28", category="Air Conditioning"),
-            _gd_row(1, "Furrion Chill FACR CCD-0008666", "Furrion", 4, "Fig. 2", category="Air Conditioning"),
-            _gd_row(2, "Dometic thermostat", "Dometic", 19, "Fig. 28", category="Air Conditioning"),
-            _gd_row(3, "Power Gear tip sheet", "Power Gear", 1, "Fig. 1", category="Leveling"),
-        ]
-        offers = fb.gd_figures_under_step(
-            rows, reply, "yes", "Air Conditioning", "Furrion FACR08HESA2-PS"
-        )
-        self.assertEqual(len(offers), 1)
-        self.assertEqual(offers[0]["page"], 19)
-        self.assertIn("Furrion", offers[0]["title"])
-        self.assertIn("CCD-0008666", offers[0]["gd_caption"])
-        self.assertIn("page 19", offers[0]["gd_caption"])
-        self.assertNotIn("Dometic", offers[0]["gd_caption"])
-
-    def test_a_second_figure_on_the_cited_page_is_kept(self):
-        reply = (
-            "**Step 2: Look at both views.**\n\n"
-            "Do this:\n1. Look at both views.\n"
-            "Fig. 1 and Fig. 2.\n"
-            "📖 Source: Thetford Water Valve Kit 42109, page 1"
-        )
-        rows = [
-            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 1, "Fig. 1 PEDAL REMOVED"),
-            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 1, "Fig. 2 INSERTING"),
-            _gd_row(4, "Thetford Water Valve Kit 42109", "Thetford", 7, "Fig. 9 parts"),
-        ]
-        offers = fb.gd_figures_under_step(
-            rows, reply, "show the figures", "Plumbing / Toilets", "Thetford 42070"
-        )
-        labels = " ".join(item["label"] for item in offers)
-        self.assertIn("Fig. 1", labels)
-        self.assertIn("Fig. 2", labels)
-        self.assertNotIn("Fig. 9", labels)
-        self.assertTrue(all(int(item["page"]) == 1 for item in offers))
-        self.assertTrue(all("page 1" in item["gd_caption"] for item in offers))
-
-    def test_wrong_page_and_wrong_model_show_nothing(self):
-        reply = "📖 Source: Thetford Style II OM Permanent RV Toilet 42088, page 3"
-        wrong_page = _gd_row(9, "Thetford Style II OM Permanent RV Toilet 42088", "Thetford", 7, "parts")
-        self.assertEqual(
-            fb.gd_figures_under_step([wrong_page], reply, "show me", "Plumbing / Toilets", "Thetford 42070"),
-            [],
-        )
-        wrong_model = _gd_row(
-            9,
-            "Thetford Style II OM Permanent RV Toilet 42088",
-            "Thetford",
-            3,
-            "page",
-            kind="page",
-            models="99999-OTHER",
-        )
-        self.assertEqual(
-            fb.gd_figures_under_step(
-                [wrong_model], reply, "show me", "Plumbing / Toilets", "Thetford 42070"
-            ),
-            [],
-        )
-
-    def test_a_missing_figure_does_not_raise(self):
-        self.assertEqual(fb.gd_figures_under_step(None, None, None, None, None), [])
-        self.assertEqual(fb.gd_figures_under_step("nope", "Step 1: Look.", "", "", ""), [])
-        broken = [{"kind": "figure", "title": "Thetford 42109", "page": "nope"}]
-        self.assertEqual(
-            fb.gd_figures_under_step(broken, "Source: Thetford 42109, page 1", "yes", "Plumbing / Toilets", "42070"),
-            [],
-        )
 
 
 if __name__ == "__main__":

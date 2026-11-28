@@ -58,7 +58,6 @@ MAX_PAGES_READ_PER_TURN = 30
 # no image here (Grok's own web search can view and show web images). None turns a cap off; image_fn=None sends none.
 MAX_PAGE_IMAGES_PER_READ = 6
 MAX_PAGE_IMAGES_PER_TURN = 12
-PICTURE_LABEL_WORDS = ("diagram / drawing", "photo / photograph", "wiring diagram", "schematic", "figure")
 # Turn log (Chase 2026-10-24, "log triggers galore"): one JSON line per turn, app-side, never shown to Grok. run_turn writes
 # to log_path; log_path=None (the default) means GD_TURN_LOG from the environment, else this file in the temp dir.
 DEFAULT_LOG_PATH = os.environ.get("GD_TURN_LOG") or os.path.join(tempfile.gettempdir(), "techtrack-gd-turns.jsonl")
@@ -69,7 +68,6 @@ T_SAFETY_CEILING = "SAFETY_CEILING_HIT"            # the last allowed call was m
 T_PAGE_BACKSTOP = "PAGE_BACKSTOP_HIT"              # MAX_PAGES_READ_PER_TURN left pages out (only when it is set)
 T_PAGE_RANGE_LIMIT = "PAGE_RANGE_LIMIT_HIT"        # one read_pages request asked for more than gd_tools.READ_MAX_PAGES
 T_OTHER_BRAND = "OTHER_BRAND_PAGE_READ"            # Grok opened a page of a doc whose maker is not the maker the tech typed
-T_WEB_BEFORE_LIBRARY = "WEB_BEFORE_LIBRARY_SEARCH"  # a web search / web document this turn before any library tool this turn
 T_REPEAT = "REPEATED_SEARCH"                       # the same tool with the same arguments ran earlier in this job
 T_TOOL_ERROR = "TOOL_ERROR"                        # a library tool returned an error
 T_TOOL_EMPTY = "TOOL_EMPTY_RESULT"                 # a library tool returned nothing (no documents, hits or pages)
@@ -78,8 +76,23 @@ T_FORUM = "FORUM_SOURCE_USED"                      # a web source on a forum hos
 T_STATE_MISSING = "STATE_BLOCK_MISSING"
 T_STATE_BROKEN = "STATE_BLOCK_BROKEN"
 T_STORY = "STORY_WRITTEN"                          # the state block carried a technician story this turn
-TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_WEB_BEFORE_LIBRARY, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
-            T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_STORY)
+T_WEB_GATE_OPENED = "WEB_GATE_OPENED"              # v4.20.7: the web tools were offered for the first time in this job
+T_CITED_NOT_OPENED = "CITED_NOT_OPENED"            # v4.20.7: Grok cited a library page it never opened (dropped)
+T_APP_PICTURE_PAGE = "APP_OPENED_PICTURE_PAGE"     # v4.20.7: a picture was asked for, Grok opened no page, the app opened one
+
+# v4.20.7 web gate (Chase 2026-11-28 t1713u; test8: Grok asked for the library and the web in the same round, xAI ran the web
+# search inside that call, and Grok answered from the web before it saw the library list). The web tools are left out of
+# the tool list until the job has a library page opened, or the library came back with nothing for the unit (an empty
+# document list, a document list that had to be widened past the unit, or a whole-library page search with no hits). On a
+# picture request the web tools also wait until the library was looked at in that turn. Decided from the app's own tool
+# records, never from Grok's text.
+WEB_TOOL_TYPES = ("web_search", "x_search")
+WEB_FUNCTION_NAMES = ("open_web_document",)
+WEB_GATE_CLOSED_RESULT = {"error": "open_web_document is not available yet: search the library and open a page first"}
+LIBRARY_LOOKUPS = ("find_documents", "table_of_contents", "search_pages", "read_pages")
+TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
+            T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_STORY, T_WEB_GATE_OPENED,
+            T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE)
 FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community", "facebook", "groups.", "quora", "boards.")
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
 USD_PER_TICK = 1e-10
@@ -108,7 +121,60 @@ def _read_limit():
 def new_case(category, model_text, complaint):
     return {"unit": {"category": category or "", "model_text": model_text or ""}, "complaint": complaint or "",
             "read": {}, "read_order": [], "web_sources": [], "searches": [],
-            "state": gd_state.new_state(), "turns": 0, "problems": [], "notes_next": []}
+            "state": gd_state.new_state(), "turns": 0, "problems": [], "notes_next": [],
+            "web_gate": new_web_gate(), "found_docs": []}
+
+
+def new_web_gate():
+    return {"open": False, "why": "", "library_empty": False}
+
+
+def is_web_tool(spec) -> bool:
+    return spec.get("type") in WEB_TOOL_TYPES or (spec.get("type") == "function" and spec.get("name") in WEB_FUNCTION_NAMES)
+
+
+def offered_tools(tool_specs, web_ok):
+    """The tool list for one model round: every library tool, and the web tools only when web_ok."""
+    return [t for t in tool_specs if web_ok or not is_web_tool(t)]
+
+
+def web_allowed(gate, picture_request=False, library_looked_this_turn=False):
+    """Web tools on this round? The job's gate is open, and on a picture request the library was looked at this turn
+    (unless the library has nothing for the unit)."""
+    if not gate.get("open"):
+        return False
+    if picture_request and not library_looked_this_turn and not gate.get("library_empty"):
+        return False
+    return True
+
+
+def library_empty_reason(name, args, out):
+    """Why this library result means the library has nothing for the unit, or "" (it has something)."""
+    try:
+        d = json.loads(out)
+    except (TypeError, ValueError):
+        return ""
+    if not isinstance(d, dict) or d.get("error"):
+        return ""
+    if name == "find_documents":
+        if not d.get("documents"):
+            return "find_documents found no document"
+        widened = d.get("filters_widened") or ""
+        if "whole library" in widened or "listed by words instead" in widened:
+            return f"find_documents: {widened}"
+    if name == "search_pages" and not d.get("hits"):
+        a = args if isinstance(args, dict) else {}
+        if not a.get("doc_ids") and not a.get("brand") and not a.get("unit_type"):
+            return "search_pages found no page in the whole library"
+    return ""
+
+
+def _found_doc_ids(out):
+    try:
+        d = json.loads(out)
+    except (TypeError, ValueError):
+        return []
+    return [x.get("doc_id") for x in (d.get("documents") or []) if isinstance(x, dict) and x.get("doc_id")] if isinstance(d, dict) else []
 
 
 def _key(p: Page) -> str:
@@ -177,6 +243,63 @@ def _cited_with_pages(cited, case):
 MAX_CITED_FROM_OPENED = 8
 
 
+def opened_citations(cited, case):
+    """(kept, dropped): a library citation stays only when that page was opened in this job; a web citation (an address)
+    stays when this job's web search returned it or it was opened."""
+    read_keys = set()
+    for p in _read_pages(case):
+        read_keys.add((str(p.doc_id), str(p.page)))
+        read_keys.add((str(p.doc_id), f"sheet {p.sheet}"))
+    web = {w.get("url") for w in case.get("web_sources") or [] if w.get("url")}
+    kept, dropped = [], []
+    for c in cited or []:
+        if not isinstance(c, dict):
+            continue
+        did, page = str(c.get("doc_id") or ""), str(c.get("page") or "")
+        if (did, page) in read_keys or (did.startswith(("http://", "https://")) and did in web):
+            kept.append({"doc_id": did, "page": page} if not did.startswith("http") else dict(c))
+        else:
+            dropped.append(dict(c))
+    return kept, dropped
+
+
+def app_open_picture_page(case, library, user_msg):
+    """The best picture-labelled page of the manuals found for this unit (pages read in the job, then find_documents
+    results; a unit search when neither), opened with read_pages. None when no such page exists."""
+    import gd_picture
+
+    docs = [p.doc_id for p in _read_pages(case) if p.source != "web"] + list(case.get("found_docs") or [])
+    if not docs:
+        unit = case.get("unit") or {}
+        a = {k: v for k, v in (("unit_type", unit.get("category")), ("words", unit.get("model_text") or case.get("complaint")))
+             if v}
+        if a:
+            out, _, err = library.call("find_documents", a)
+            if not err and not library_empty_reason("find_documents", a, out):
+                docs = _found_doc_ids(out)
+    docs = list(dict.fromkeys(str(d) for d in docs if d))[:8]
+    if not docs:
+        return None
+    words = " ".join(sorted(gd_picture.subject_words(user_msg))) + " picture diagram photo"
+    out, _, err = library.call("search_pages", {"words": words.strip(), "doc_ids": docs, "limit": 12})
+    if err:
+        return None
+    try:
+        hits = json.loads(out).get("hits") or []
+    except (TypeError, ValueError, AttributeError):
+        return None
+    pic = [dict(h, text=h.get("snippet") or "") for h in hits
+           if gd_picture.has_picture_label(h.get("topics"))]
+    if not pic:
+        return None
+    best = gd_picture.pick_picture_page(user_msg, pic)
+    if best is None:
+        return None
+    _out, pages, err = library.call("read_pages", {"doc_id": best["doc_id"], "sheets": [int(best["sheet"])]}, max_pages=1)
+    pages = [p for p in pages or [] if p.source != "web"]
+    return pages[0] if pages and not err else None
+
+
 def cited_from_opened(pages, limit=MAX_CITED_FROM_OPENED):
     """[{doc_id, page}] for the library pages opened this turn, in the order read (each once; web pages left out)."""
     out, seen = [], set()
@@ -193,8 +316,8 @@ def cited_from_opened(pages, limit=MAX_CITED_FROM_OPENED):
 
 
 def _has_picture_label(p: Page) -> bool:
-    t = (p.topics or "").lower()
-    return any(w in t for w in PICTURE_LABEL_WORDS)
+    import gd_picture
+    return gd_picture.has_picture_label(p.topics)
 
 
 def page_image_order(pages):
@@ -255,6 +378,14 @@ def _empty(name, out):
     return False
 
 
+def _args(arguments):
+    try:
+        a = json.loads(arguments) if isinstance(arguments, str) else dict(arguments or {})
+    except (TypeError, ValueError):
+        return {}
+    return a if isinstance(a, dict) else {}
+
+
 def _web_query(action):
     if isinstance(action, dict):
         return action.get("query") or action.get("url") or action.get("pattern") or ""
@@ -262,7 +393,8 @@ def _web_query(action):
 
 
 def run_turn(user_msg, category, model_text, history, *, store, finder=None, library=None, chat_fn=None, respond_fn=None,
-             usage_fn=None, web_fetch=None, log_path=None, tools=None, help_mode=None, page_image_fn=None, **_old):
+             usage_fn=None, web_fetch=None, log_path=None, tools=None, help_mode=None, page_image_fn=None,
+             picture_request=False, **_old):
     """One turn. library: a gd_tools.LibraryTools (default: built over finder's library). respond_fn(items, tools,
     tool_choice) -> gd_llm.respond()-shaped dict or a plain reply string; chat_fn(messages, max_tokens, effort) -> str is the
     older text-only form (no tool calls). log_path: JSON-lines turn log ("" = off, None = DEFAULT_LOG_PATH).
@@ -284,7 +416,14 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         # The tech changed the unit fields: the pages read for the old unit go; what the tech already reported stays.
         case["unit"] = {"category": category or "", "model_text": model_text or ""}
         case["read"], case["read_order"], case["web_sources"], case["searches"] = {}, [], [], []
+        case["web_gate"], case["found_docs"] = new_web_gate(), []
     case.setdefault("notes_next", []); case.setdefault("log", [])
+    case.setdefault("web_gate", new_web_gate()); case.setdefault("found_docs", [])
+    gate = case["web_gate"]
+    if not gate["open"] and any(p.source != "web" for p in _read_pages(case)):
+        gate.update(open=True, why="a library page was opened earlier in this job")
+    if library is None and not gate["open"]:
+        gate.update(open=True, why="the library is not loaded", library_empty=True)
     notes = list(case["notes_next"]); case["notes_next"] = []
     # The tech's up-front choice (Chase 2026-11-24): manual pages or a walkthrough. Stored in the job state and passed as
     # one plain line of session context; the primer is unchanged. A later choice (e.g. "Walk me through it") replaces it.
@@ -310,12 +449,14 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     while True:
         last = calls + 1 >= SAFETY_CEILING_CALLS
         tc = time.time()
-        got = _as_result(respond_fn(items + [gd_prompt.reminder_item()], tool_specs, "none" if last else None))
+        web_ok = web_allowed(gate, picture_request, library_used_this_turn)
+        round_specs = offered_tools(tool_specs, web_ok)
+        got = _as_result(respond_fn(items + [gd_prompt.reminder_item()], round_specs, "none" if last else None))
         calls += 1
         if usage_fn and not got["usage"]:
             got["usage"] = usage_fn() or {}
         usage = _add_usage(usage, got["usage"])
-        rounds.append({"call": calls, "seconds": round(time.time() - tc, 3), "tools_off": last,
+        rounds.append({"call": calls, "seconds": round(time.time() - tc, 3), "tools_off": last, "web_offered": web_ok,
                        "function_calls": [c["name"] for c in got["calls"]], "server_tools": len(got["server_tools"]),
                        "usage": got["usage"], "text_chars": len(got["text"] or "")})
         text = got["text"] or text
@@ -330,8 +471,6 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
                 trig(T_WEB_ERROR, query=q, status=status)
             web_log.append(ent)
             tool_log.append({"tool": s.get("type"), "args": s.get("action") or {}, "side": "xai", "call": calls})
-            if not library_used_this_turn:
-                trig(T_WEB_BEFORE_LIBRARY, tool=s.get("type"), query=q)
         new_urls = []
         for w in got["web_sources"]:
             if w.get("url") and w["url"] not in {x["url"] for x in case["web_sources"]}:
@@ -353,13 +492,13 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             if sig in seen_searches:
                 trig(T_REPEAT, tool=c["name"], args=c["arguments"])
             seen_searches.add(sig)
-            if c["name"] == "open_web_document":
-                if not library_used_this_turn:
-                    trig(T_WEB_BEFORE_LIBRARY, tool=c["name"], args=c["arguments"])
-            else:
+            if c["name"] not in WEB_FUNCTION_NAMES:
                 library_used_this_turn = True
             dropped, tt = [], time.time()
-            if library is None:
+            if c["name"] in WEB_FUNCTION_NAMES and not web_ok:
+                # not offered this round (web gate): never run, whatever Grok asked for
+                out, pages, err = json.dumps(WEB_GATE_CLOSED_RESULT), [], "web gate closed"
+            elif library is None:
                 out, pages, err = json.dumps({"error": "the library is not loaded"}), [], "no library"
             else:
                 out, pages, err = library.call(c["name"], c["arguments"], max_pages=room)
@@ -380,6 +519,18 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             elif _empty(c["name"], out):
                 trig(T_TOOL_EMPTY, tool=c["name"], args=c["arguments"])
             items.append({"type": "function_call_output", "call_id": c["call_id"], "output": out})
+            if c["name"] == "find_documents" and not err:
+                case["found_docs"] = list(dict.fromkeys(_found_doc_ids(out) + case["found_docs"]))[:12]
+            if not gate["open"] and not err:
+                if c["name"] == "read_pages" and any(p.source != "web" for p in pages):
+                    gate.update(open=True, why="a library page was opened")
+                    trig(T_WEB_GATE_OPENED, why=gate["why"])
+                else:
+                    empty_why = library_empty_reason(c["name"], c["arguments"] if isinstance(c["arguments"], dict)
+                                                     else _args(c["arguments"]), out)
+                    if empty_why:
+                        gate.update(open=True, why=empty_why, library_empty=True)
+                        trig(T_WEB_GATE_OPENED, why=empty_why)
             _remember_pages(case, pages)
             turn_pages += pages
             if c["name"] == "read_pages":
@@ -437,6 +588,27 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         trig(T_SAFETY_CEILING, calls=calls)
     if not text.strip():
         text = CEILING_REPLY
+    app_page = None
+    if picture_request and library is not None and not any(p.source != "web" for p in turn_pages):
+        # v4.20.7 (Chase t1713u): a picture was asked for and Grok opened no library page: the app opens the best
+        # picture-labelled page of the manuals already found for the unit. None (no library picture) leaves Grok's reply.
+        try:
+            app_page = app_open_picture_page(case, library, user_msg)
+        except Exception as exc:
+            problems.append(f"app picture page failed: {exc}")
+            app_page = None
+        if app_page is not None:
+            _remember_pages(case, [app_page])
+            turn_pages.append(app_page)
+            opened.append({"doc_id": app_page.doc_id, "title": app_page.title, "page": app_page.page, "sheet": app_page.sheet,
+                           "brand": library.doc_brand(app_page.doc_id), "chars": len(app_page.text or ""), "url": "",
+                           "call": calls, "topics": app_page.topics or "", "opened_by": "app"})
+            tool_log.append({"tool": "read_pages", "side": "app", "args": {"doc_id": app_page.doc_id, "sheets": [app_page.sheet]},
+                             "call": calls, "opened": [app_page.label()]})
+            trig(T_APP_PICTURE_PAGE, doc_id=app_page.doc_id, page=app_page.page, sheet=app_page.sheet)
+            if not gate["open"]:
+                gate.update(open=True, why="a library page was opened (picture)")
+                trig(T_WEB_GATE_OPENED, why=gate["why"])
     prose, update, probs = gd_state.parse(text)
     problems += probs
     state_missing = any(p == "no <state> block in reply" for p in probs)
@@ -454,13 +626,27 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
         if opened_cited:
             update["cited"] = opened_cited
             problems.append(f"cited filled from {len(opened_cited)} page(s) opened this turn (no <state> block)")
+    # v4.20.7 (audit M2): cited is this turn's list only; a block that leaves it out clears it (gd_state.merge keeps any
+    # field left out, which carried the previous turn's pages). The opened-pages filter below runs on this list.
+    update.setdefault("cited", [])
+    if app_page is not None:
+        ref = {"doc_id": str(app_page.doc_id), "page": str(app_page.page)}
+        base = update.get("cited") if "cited" in update else []
+        update["cited"] = [c for c in (base or []) if c != ref] + [ref]
     if update:
         update.setdefault("order_part", "")   # per turn field: an order is not carried into a later turn
     case["state"] = gd_state.merge(case["state"], update)
+    # v4.20.7 (test8: "L6 error code chart" cited, never opened): only pages opened in this job stay cited; a web source
+    # stays when it came back from this job's web search or was opened.
+    kept, not_opened = opened_citations(case["state"].get("cited") or [], case)
+    if not_opened:
+        trig(T_CITED_NOT_OPENED, cited=not_opened)
+        problems.append(f"cited but never opened (dropped): {', '.join(str(c.get('doc_id')) + ' ' + str(c.get('page')) for c in not_opened)}")
+    case["state"]["cited"] = kept
     case["turns"] += 1
     case["problems"] = (case["problems"] + problems)[-50:]
     case["searches"] = case["searches"][-40:]
-    lib_calls = [t for t in tool_log if t.get("side") != "xai"]
+    lib_calls = [t for t in tool_log if t.get("side") not in ("xai", "app")]
     usage["model_calls"] = calls
     usage["tool_calls"] = len(lib_calls)
     usage["tool_calls_by_name"] = {n: sum(1 for t in lib_calls if t["tool"] == n) for n in sorted({t["tool"] for t in lib_calls})}
@@ -488,6 +674,7 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
            "pages_served": usage["pages_served"], "pages_backstop": MAX_PAGES_READ_PER_TURN, "context_chars": ctx, "tool_calls": tool_log, "pages_opened": opened,
            "web": web_log, "triggers": triggers, "problems": problems, "usage": usage,
            "page_images": {"sent": images_sent, "failed": images_failed, "skipped": images_skipped},
+           "web_gate": dict(gate), "picture_request": bool(picture_request),
            "tokens_in": usage.get("prompt_tokens", 0), "tokens_out": usage.get("completion_tokens", 0),
            "cost_usd": usage.get("cost_usd"), "cited": cited, "pages_used": [p.label() for p in _read_pages(case)],
            "web_sources": [w["url"] for w in case["web_sources"]], "seconds": round(time.time() - t0, 3)}

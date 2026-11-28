@@ -17,7 +17,7 @@ import re
 HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.20.6"
+COACH_REVISION = "v4.20.7"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -207,79 +207,8 @@ def _norm(text: str) -> str:
     return t
 
 
-def wants_library_figures(text: str) -> bool:
-    """Detect that the tech wants a shop-library illustration / figure / page shown."""
-    t = _norm(text)
-    return any(k in t for k in FIGURE_HINTS)
-
-
-def wants_board_or_terminal_figure(text: str) -> bool:
-    """True when the tech wants labeled terminals / PCB / inverter board / pinout / wiring."""
-    raw = (text or "").strip()
-    if not raw:
-        return False
-    t = _norm(raw)
-    if any(k in t for k in BOARD_FIGURE_ASK_HINTS):
-        return True
-    if "terminal" in t and any(
-        k in t for k in ("pcb", "inverter", "board", "label", "diagram", "figure", "layout", "show")
-    ):
-        return True
-    if "inverter" in t and any(k in t for k in ("show", "page", "figure", "diagram", "layout", "label")):
-        return True
-    return False
-
-
-def wants_library_page_shown(text: str) -> bool:
-    """Show the shop-library PDF page: figure phrasing or a board/terminal ask."""
-    return wants_library_figures(text) or wants_board_or_terminal_figure(text)
-
-
-def is_furrion_ccd_0008122(text: str) -> bool:
-    t = _norm(text)
-    return "ccd-0008122" in t or "ccd0008122" in t or (
-        "furrion" in t and ("fcr08" in t or "fcr10" in t) and " sm" in f" {t} "
-    )
-
-
 def _blob(*texts: str) -> str:
     return _norm(" ".join(t or "" for t in texts))
-
-
-def is_unity_board_manual(text: str) -> bool:
-    """True for OneControl Unity M-Series awning/slide reversing board manuals."""
-    t = _norm(text)
-    if not t:
-        return False
-    if "x270" in t:
-        return True
-    unityish = "unity" in t or "onecontrol" in t or "one control" in t
-    if not unityish:
-        return False
-    if any(k in t for k in ("awning", "reversing", "m series", "m-series", "x270")):
-        return True
-    if "unity board" in t or "onecontrol unity" in t or "one control unity" in t:
-        return True
-    return False
-
-
-def is_ground_control_manual(text: str) -> bool:
-    t = _norm(text)
-    return "ground control" in t or "ground-control" in t
-
-
-def is_level_up_library_title(title: str) -> bool:
-    """Catalog titles that are Level-Up / OCTP / TI leveling docs — not Unity, not Ground Control."""
-    t = _norm(title)
-    if not t or is_unity_board_manual(t) or is_ground_control_manual(t):
-        return False
-    if any(p in t for p in LEVEL_UP_PARTS):
-        return True
-    if any(m in t for m in LEVEL_UP_DOC_MARKERS):
-        return True
-    if re.search(r"\blevel[\s-]*up\b", t) and "leveling" in t:
-        return True
-    return False
 
 
 _LEAD_JACK_DRIFT_RE = re.compile(
@@ -287,126 +216,6 @@ _LEAD_JACK_DRIFT_RE = re.compile(
     r"front[-\s]*left jack|lead[-\s]*jack|cartridge valve|\b177094\b",
     re.I,
 )
-
-
-def is_level_up_lead_jack_drift_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """Front jacks drift after a jack swap when another circuit pressurizes.
-
-    This is the lead-jack cartridge. It is not Manual Mode flash-home and not
-    Ground Control or a stabilizer jack.
-    """
-    blob = _blob(category_name, model_text, symptom)
-    if not blob or not _LEAD_JACK_DRIFT_RE.search(blob):
-        return False
-    if _has_manual_mode_dump_marker(blob):
-        return False
-    if is_ground_control_manual(blob) and not re.search(r"level[\s-]*up", blob):
-        return False
-    if re.search(r"\bstabilizer\b|\bpsx1\b|\broll pin\b", blob) and not re.search(
-        r"level[\s-]*up|lead[-\s]*jack|cartridge", blob
-    ):
-        return False
-    level_up = bool(re.search(r"level[\s-]*up|levelup|\boctp\b", blob))
-    hydraulic = "hydraulic" in blob and "level" in blob
-    leveling = "leveling" in _norm(category_name) and (
-        "lippert" in blob or "jack" in blob or level_up
-    )
-    return bool(level_up or hydraulic or leveling)
-
-
-def is_level_up_advantage_context(
-    category_name: str = "",
-    model_text: str = "",
-    symptom: str = "",
-) -> bool:
-    """
-    Hydraulic Level Up Advantage / 807662 / OCTP / leveling Manual Mode.
-    Ground Control electric alone is a different product.
-    A drifting lead jack is a cartridge job, not this Manual Mode path.
-    """
-    if is_level_up_lead_jack_drift_context(category_name, model_text, symptom):
-        return False
-    blob = _blob(category_name, model_text, symptom)
-    if not blob:
-        return False
-    if is_ground_control_manual(blob) and not any(
-        k in blob for k in (*LEVEL_UP_PARTS, "octp", "level-up", "level up", "levelup", "advantage")
-    ):
-        return False
-    if any(p in blob for p in LEVEL_UP_PARTS):
-        return True
-    if "octp" in blob:
-        return True
-    if re.search(r"\blevel[\s-]*up\s+advantage\b", blob):
-        return True
-    if re.search(r"\blevel[\s-]*up\b", blob):
-        return True
-    if "hydraulic" in blob and "level" in blob and any(
-        k in blob for k in ("leveling", "controller", "manual mode", "slide output")
-    ):
-        return True
-    if "leveling" in blob and "manual mode" in blob:
-        return True
-    if "leveling" in blob and "slide output" in blob and "controller" in blob:
-        return True
-    cat = _norm(category_name)
-    if "leveling" in cat and any(k in blob for k in ("touch pad", "touchpad", "lcd wiring", "pump")):
-        if "controller" in blob or "807662" in blob or "level" in blob:
-            return True
-    return False
-
-
-def _has_manual_mode_dump_marker(blob: str) -> bool:
-    """Manual Mode flashes / dumps / won't stay / returns to home on a Level Up pad."""
-    t = _norm(blob)
-    if not t:
-        return False
-    manual = bool(
-        re.search(r"\bmanual\s+mode\b", t)
-        or (
-            re.search(r"\bmanual\b", t)
-            and any(
-                k in t
-                for k in (
-                    "level up",
-                    "level-up",
-                    "levelup",
-                    "leveling",
-                    "807662",
-                    "octp",
-                    "advantage",
-                )
-            )
-        )
-    )
-    dump = bool(
-        re.search(
-            r"\b("
-            r"flash(?:es|ing|ed)?|"
-            r"dumps?|dumped|"
-            r"won'?t\s+stay|will\s+not\s+stay|wont\s+stay|"
-            r"returns?\s+(?:to\s+)?(?:home|first\s+screen)|"
-            r"kicks?\s+(?:back|home|to\s+home)|"
-            r"drops?\s+(?:to\s+)?home|"
-            r"goes?\s+(?:back\s+)?(?:to\s+)?home|"
-            r"home\s+screen"
-            r")\b",
-            t,
-        )
-        or "flash home" in t
-        or "flash-home" in t
-        or "flash then home" in t
-    )
-    return bool(manual and dump)
-
-
-def _compact_ccd(text: str) -> str:
-    """ccd-0007990 / CCD 0007990 → ccd0007990 for title matching."""
-    return re.sub(r"[^a-z0-9]", "", _norm(text))
 
 
 def _looks_like_furrion_fcr_fridge(text: str) -> bool:
@@ -505,24 +314,6 @@ def is_air_conditioning_context(
     return False
 
 
-def is_ac_library_title(title: str) -> bool:
-    """Catalog titles that are rooftop AC / FACT / FACR / Brisk / ADB — not Unity."""
-    t = _norm(title)
-    if not t or is_unity_board_manual(t):
-        return False
-    if any(m in t for m in AC_MODELS) or re.search(r"\bfact\d", t) or FACR_MODEL_RE.search(t):
-        return True
-    if any(p in t for p in AC_DOC_MARKERS):
-        return True
-    if is_facr_freeze_library_title(title):
-        return True
-    if "furrion" in t and any(k in t for k in ("fact", "facr", "chill", "air condition", "rooftop", "a/c", "hvac")):
-        return True
-    if "dometic" in t and any(k in t for k in ("brisk", "penguin", "air condition", "rooftop", "b57915", "adb")):
-        return True
-    return False
-
-
 def looks_like_facr_rooftop(
     category_name: str = "",
     model_text: str = "",
@@ -588,29 +379,6 @@ def is_facr_rooftop_freeze_context(
     if not looks_like_facr_rooftop(category_name, model_text, symptom):
         return False
     return looks_like_rooftop_freeze_complaint(blob)
-
-
-def is_facr_freeze_library_title(title: str) -> bool:
-    """Existing shop titles for CCD-0007990 and CCD-0008666 — no invented names."""
-    t = _norm(title)
-    if not t:
-        return False
-    compact = _compact_ccd(t)
-    if "ccd0007990" in compact or "ccd0008666" in compact:
-        return True
-    if any(p in t for p in FACR_FREEZE_DOC_MARKERS):
-        return True
-    if "furrion" in t and "rooftop" in t and "hvac" in t and any(
-        k in t for k in ("troubleshoot", "service")
-    ):
-        return True
-    if "furrion" in t and "chill" in t and any(
-        k in t for k in ("facr", "rooftop", "air condition")
-    ):
-        return True
-    if FACR_MODEL_RE.search(t) and any(k in t for k in ("rooftop", "air condition", "hvac", "chill")):
-        return True
-    return False
 
 
 # FACR freeze + interior leak: once drain / fan-filter / freeze sensor are proved,
@@ -793,32 +561,6 @@ _PRIMARY_OEM_BRANDS = frozenset({
 })
 
 
-def _model_query_is_specific(query: str) -> bool:
-    text = query or ""
-    if re.search(r"\d", text):
-        return True
-    tokens = re.findall(r"[a-z0-9]+", text.lower())
-    return any(len(tok) >= 4 and tok not in _PRIMARY_OEM_BRANDS for tok in tokens)
-
-
-def model_list_allows(models, query: str) -> bool:
-    """True when this page's model list does not rule out the tech's model.
-
-    An empty list never excludes an older document. A brand-only query such as
-    "Lippert" does not exclude a listed model. A specific model must hit the list.
-    """
-    from library_bulk_import import listed_models_match, split_semicolon_list
-
-    if not split_semicolon_list(models):
-        return True
-    if not (query or "").strip():
-        return True
-    if not _model_query_is_specific(query):
-        return True
-    return listed_models_match(models, query)
-
-
-import manual_figures as _manual_figures
 
 
 def _fridge_blob_not_water_heater(blob: str) -> bool:
@@ -864,24 +606,6 @@ def is_water_heater_context(
     if re.search(r"\be\s*8\b", blob) and any(
         k in blob for k in ("water", "heater", "girard", "gswh", "petit", "air pressure", "tankless")
     ):
-        return True
-    return False
-
-
-def is_water_heater_library_title(title: str) -> bool:
-    """Catalog titles that are Girard / GSWH / Water Heaters — not Unity, not FCR fridge."""
-    t = _norm(title)
-    if not t or is_unity_board_manual(t):
-        return False
-    if "ccd-0008122" in t or "ccd0008122" in t:
-        return False
-    if any(m in t for m in WATER_HEATER_MODELS) or "gswh" in t:
-        return True
-    if "ccd-0009390" in t or "ccd0009390" in t:
-        return True
-    if "girard" in t and any(k in t for k in ("water", "heater", "tankless", "gswh", "troubleshoot")):
-        return True
-    if "water heater" in t or "water-heater" in t or "tankless water" in t:
         return True
     return False
 
@@ -1139,204 +863,6 @@ def is_stabilizer_override_pin_context(
     if any(p in blob for p in LEVEL_UP_PARTS) or "octp" in blob or re.search(r"\blevel[\s-]*up\b", blob):
         return False
     return _has_override_pin_marker(blob)
-
-
-def figure_render_honesty_note(manual_title: str = "", render_failed: bool = False) -> str:
-    """Shop-floor line when a library figure page did not display."""
-    if not render_failed:
-        return ""
-    title = (manual_title or "").strip()
-    if title and is_level_up_library_title(title):
-        return (
-            f"The figure is in the shop Document Library PDF ({title}). "
-            "TechTrack could not render that page image this turn. "
-            "Download that PDF or ask a manager to re-index it — "
-            "do not treat this as a missing Level Up procedure, and do not use the Unity board SM."
-        )
-    if title and is_ac_library_title(title):
-        return (
-            f"The figure is in the shop Document Library PDF ({title}). "
-            "TechTrack could not render that page image this turn. "
-            "Download that PDF or ask a manager to re-index it — "
-            "do not treat this as a missing Air Conditioning procedure, and do not use the Unity board SM."
-        )
-    if title and is_water_heater_library_title(title):
-        return (
-            f"The figure is in the shop Document Library PDF ({title}). "
-            "TechTrack could not render that page image this turn. "
-            "Download that PDF or ask a manager to re-index it — "
-            "do not treat this as a missing Girard GSWH-2 / water heater procedure, "
-            "and do not use the Unity board SM."
-        )
-    if title and is_unity_board_manual(title):
-        return (
-            "That Unity / OneControl awning-slide board manual is the wrong book for "
-            "rooftop Air Conditioning (Furrion FACT / Dometic Brisk), for "
-            "Level Up Advantage / 807662, and for Girard GSWH-2 water heaters. "
-            "The AC figure is in a Furrion/Dometic rooftop AC PDF; the leveling figure "
-            "is in a Level-Up / OCTP / TI-005 PDF; the water heater figure is in a "
-            "Girard GSWH-2 / CCD-0009390 PDF. "
-            "If the page image did not render, download that OEM PDF or ask for a reindex."
-        )
-    # v4.20.6 (Chase, test7b): one plain line; the reply's Open PDF button sits under it.
-    return "That page didn't load; tap Open PDF."
-
-
-def _page_text_blob(page) -> str:
-    if isinstance(page, dict):
-        return " ".join(
-            str(page.get(k) or "")
-            for k in ("chunk_text", "excerpt", "text", "title", "keywords")
-        )
-    return " ".join(
-        str(getattr(page, k, "") or "")
-        for k in ("title", "keywords", "chunk_text")
-    )
-
-
-def _page_number(page) -> int:
-    try:
-        if isinstance(page, dict):
-            return int(page.get("page") or 0)
-        return int(getattr(page, "page", 0) or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _page_title(page) -> str:
-    if isinstance(page, dict):
-        return str(page.get("title") or "")
-    return str(getattr(page, "title", "") or "")
-
-
-def page_has_figure_or_terminal_layout(text: str) -> bool:
-    """True when page text looks like a board / wiring / terminal figure, not Quick Notes."""
-    raw = text or ""
-    t = _norm(raw)
-    if not t:
-        return False
-    if FIG_CAPTION_RE.search(raw):
-        return True
-    if "wiring diagram" in t or "housing label" in t:
-        return True
-    if F_PLUS_MINUS_RE.search(raw) and any(k in t for k in ("inverter", "pcb", "terminal", "fan")):
-        return True
-    if "inverter pcb" in t and ("terminal" in t or "fig" in t or "board" in t):
-        return True
-    return False
-
-
-def page_is_text_only_notes(text: str) -> bool:
-    """Quick Notes / Nominal voltage / troubleshooting prose with no figure layout."""
-    raw = text or ""
-    t = _norm(raw)
-    if not t or page_has_figure_or_terminal_layout(raw):
-        return False
-    return any(
-        s in t
-        for s in ("quick notes", "nominal voltage", "troubleshooting instructions")
-    )
-
-
-def score_figure_page(page, query: str = "") -> int:
-    """
-    Higher = more likely a real board/terminal figure page.
-    Penalize CCD-0008122 Quick Notes page 13 and other text-only notes.
-    """
-    raw = _page_text_blob(page)
-    t = _norm(raw)
-    q = _norm(query)
-    title = _page_title(page)
-    page_no = _page_number(page)
-    score = 0
-
-    fig_hits = len(FIG_CAPTION_RE.findall(raw))
-    score += min(fig_hits * 8, 24)
-    if "inverter pcb" in t or "inverter board" in t:
-        score += 10
-    if F_PLUS_MINUS_RE.search(raw):
-        score += 10
-    if "wiring diagram" in t:
-        score += 8
-    if "housing label" in t:
-        score += 8
-    if "terminal" in t and ("label" in t or fig_hits):
-        score += 6
-    if "d/" in t or ("terminal d" in t) or re.search(r"\bd\s*[+/]", t):
-        score += 4
-
-    if any(w in q for w in ("fan", "f+", "f-")) and F_PLUS_MINUS_RE.search(raw):
-        score += 6
-    if any(w in q for w in ("housing", "label")) and "housing" in t:
-        score += 4
-    if "wiring" in q and "wiring" in t:
-        score += 4
-    if any(w in q for w in ("pcb", "inverter", "board", "terminal")) and (
-        "inverter" in t or "pcb" in t or "terminal" in t
-    ):
-        score += 6
-
-    if page_is_text_only_notes(raw):
-        score -= 20
-    if "nominal voltage" in t and not page_has_figure_or_terminal_layout(raw):
-        score -= 12
-    if "quick notes" in t and not page_has_figure_or_terminal_layout(raw):
-        score -= 16
-
-    furrion = is_furrion_ccd_0008122(title) or is_furrion_ccd_0008122(q)
-    if furrion and page_no in FURRION_FCR_BOARD_FIGURE_PAGES:
-        score += 15
-    if furrion and page_no in FURRION_FCR_TEXT_ONLY_PAGES and not page_has_figure_or_terminal_layout(raw):
-        score -= 20
-    return score
-
-
-def rank_chunks_for_figure_ask(chunks, query: str, limit: int = 8) -> list:
-    """Prefer figure/terminal-layout pages; drop Quick Notes when a real figure page exists."""
-    scored = [(score_figure_page(ch, query), ch) for ch in (chunks or [])]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    has_fig = any(
-        sc > 0 and page_has_figure_or_terminal_layout(_page_text_blob(ch))
-        for sc, ch in scored
-    )
-    out = []
-    for _sc, ch in scored:
-        text = _page_text_blob(ch)
-        if has_fig and page_is_text_only_notes(text):
-            continue
-        out.append(ch)
-        if len(out) >= limit:
-            break
-    return out or [ch for _sc, ch in scored[:limit]]
-
-
-def pick_diagram_page_numbers(candidates, query: str, manual_title: str = "") -> list:
-    """
-    Page numbers to show for a board/terminal figure ask.
-    Never returns a text-only Quick Notes page when a diagram candidate exists.
-    Falls back to CCD-0008122 board-figure pages when the SM is Furrion and nothing else qualifies.
-    """
-    ranked = rank_chunks_for_figure_ask(candidates, query, limit=8)
-    pages = []
-    title_blob = manual_title or ""
-    for ch in ranked:
-        title_blob = title_blob or _page_title(ch)
-        text = _page_text_blob(ch)
-        page_no = _page_number(ch)
-        if not page_no:
-            continue
-        hint_ok = (
-            is_furrion_ccd_0008122(_page_title(ch) or manual_title)
-            and page_no in FURRION_FCR_BOARD_FIGURE_PAGES
-        )
-        if page_has_figure_or_terminal_layout(text) or hint_ok:
-            if page_no not in pages:
-                pages.append(page_no)
-        if len(pages) >= 3:
-            break
-    if not pages and is_furrion_ccd_0008122(manual_title or title_blob) and wants_board_or_terminal_figure(query):
-        pages = list(FURRION_FCR_BOARD_FIGURE_PAGES[:3])
-    return pages[:3]
 
 
 COACH_EXCERPT_CHAR_CAP = 700

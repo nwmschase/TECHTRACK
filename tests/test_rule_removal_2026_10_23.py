@@ -105,12 +105,13 @@ class TestNoRuleStringsLeft(unittest.TestCase):
         self.assertEqual(r["state"]["order_part"], "freezer fan motor")
         self.assertEqual(r["problems"], [])
 
-    def test_any_cited_page_is_recorded(self):
+    def test_unopened_cited_pages_are_dropped(self):
+        # v4.20.7 (test8 "L6 error code chart"): a cited page that was never opened in the job is not kept
         f, store = finder(), {}
         r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, store=store, chat_fn=FakeChat(
             ["x\n" + block(cited=[{"doc_id": "L1", "page": "25"}, {"doc_id": "web:irv2.com/t", "page": "1"}], summary="a")]))
-        self.assertEqual(len(r["cited"]), 2)
-        self.assertEqual(r["problems"], [])
+        self.assertEqual(r["cited"], [])
+        self.assertTrue(any(t["trigger"] == gd_turn.T_CITED_NOT_OPENED for t in r["triggers"]))
 
 
 class TestNoCaps(unittest.TestCase):
@@ -266,15 +267,17 @@ class TestWebTool(unittest.TestCase):
         def fetch(url, words):
             calls.append((url, words))
             return web_pages
-        chat = FakeRespond([[("open_web_document", {"url": "https://www.dometic.com/m.pdf", "words": "fan spec"})],
+        # v4.20.7: the web document tool is offered once the library has had its turn (here: a page read first)
+        chat = FakeRespond([[("read_pages", {"doc_id": "L1", "pages": ["25"]})],
+                            [("open_web_document", {"url": "https://www.dometic.com/m.pdf", "words": "fan spec"})],
                             "ok [forum]\n" + block(summary="b")])
         r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=f, respond_fn=chat, store=store, web_fetch=fetch, log_path="")
-        out = outputs(chat.seen[1][0])[0]
+        out = outputs(chat.seen[2][0])[1]
         self.assertEqual(calls, [("https://www.dometic.com/m.pdf", "fan spec")])
         self.assertEqual([p["text"] for p in out["pages"]], ["FORUM TEXT", "MAKER TEXT"])
         self.assertEqual(out["pages"][0]["host"], "www.irv2.com")
         self.assertEqual(out["pages"][1]["revision"], "Rev 04/12/23")
-        self.assertEqual(r["calls"], 2)
+        self.assertEqual(r["calls"], 3)
         # next turn: the web pages read come along with their source lines
         chat2 = FakeChat(["ok\n" + block(summary="c")])
         gd_turn.run_turn("next", "Refrigerators", "Acme X1", [], finder=f, chat_fn=chat2, store=store, log_path="")

@@ -7,9 +7,6 @@ from gd_library_coach import (
     HARD_TREE_EXCLUSIVE_CHAT,
     groq_vision_model_candidates,
     is_fcr_e2_fan_fault_context,
-    wants_board_or_terminal_figure,
-    wants_library_figures,
-    wants_library_page_shown,
     xai_vision_model_candidates,
 )
 
@@ -31,17 +28,9 @@ BAD_REASK = (
 
 
 class TestFigureAsks(unittest.TestCase):
+    pass
 
-    def test_plain_result_is_not_a_figure_ask(self):
-        self.assertFalse(wants_library_figures("paper moved left suck right blow"))
 
-    def test_chase_terminal_ask_shows_library_page(self):
-        for msg in (
-            "show me the page with output terminals labeled",
-            "inverter PCB terminals",
-        ):
-            self.assertTrue(wants_board_or_terminal_figure(msg), msg)
-            self.assertTrue(wants_library_page_shown(msg), msg)
 
 
 class TestVisionModels(unittest.TestCase):
@@ -75,10 +64,10 @@ class TestProductSource(unittest.TestCase):
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()
-        self.assertIn("wants_library_page_shown", src)
-        self.assertIn("pick_diagram_page_numbers", src)
+        code = src.split('"""', 2)[2]   # past the changelog docstring
+        self.assertNotIn("wants_library_page_shown", code)   # v4.20.7: gd_picture.is_picture_request is the one check
+        self.assertNotIn("pick_diagram_page_numbers", code)   # v4.20.7: old figure path retired
         self.assertIn("is_fcr_e2_fan_fault_context", src)
-        self.assertIn("is_water_heater_context", src)
         self.assertIn("is_cooktop_pan_on_flameout_context", src)
         self.assertIn("is_stabilizer_override_pin_context", src)
         self.assertIn("complete_chat_with_payload_retry", src)

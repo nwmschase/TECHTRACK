@@ -42,21 +42,13 @@ def _sources_only(page: str) -> bool:
 
 class TestInstructionTextStaysOffTheReply(unittest.TestCase):
 
-    def test_an_empty_library_shows_no_bundled_caption(self):
-        offers = fb.offers_for_turn(
-            [],
-            "Pull the pedal off.\n📖 Source: Thetford Water Valve Kit 42109, page 1",
-            "show me the figure",
-            "Plumbing / Toilets",
-            "Thetford 42070",
-        )
-        self.assertTrue(offers)
-        self.assertTrue(offers[0].get("png"))
-        self.assertNotIn("will display the shop", (offers[0].get("caption") or "").lower())
+    def test_no_bundled_kit_caption(self):
+        # v4.20.7: offers_for_turn (the old figure offers) is retired; the bundled-sheet caption must not come back
         backfill = __import__("pathlib").Path(__file__).resolve().parents[1].joinpath(
             "library_figure_backfill.py"
         ).read_text(encoding="utf-8")
         self.assertNotIn("Bundled kit sheet", backfill)
+        self.assertFalse(hasattr(fb, "offers_for_turn"))
 
 
 S01_LIVE = [

@@ -72,11 +72,12 @@ class TestCoachModuleLoads(unittest.TestCase):
             "gd_category_select_options",
             "library_category_picker_names",
             "complete_chat_with_payload_retry",
-            "wants_library_page_shown",
-            "pick_diagram_page_numbers",
-            "is_water_heater_context",
         ):
             self.assertIn(name, names)
+        # v4.20.7: the old figure path that read these is retired, so they are no longer bound
+        for name in ("pick_diagram_page_numbers", "is_water_heater_context", "figure_render_honesty_note",
+                     "wants_library_page_shown"):
+            self.assertNotIn(name, names)
         spec = importlib.util.spec_from_file_location(
             "gd_library_coach_check", ROOT / "gd_library_coach.py"
         )
@@ -132,7 +133,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.6")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.7")
 
     def test_loader_reloads_when_revision_is_old_even_if_names_exist(self):
         """v4.19.4 kept the v4.19.3 coach: every old name existed, so the fan-only detector stayed."""
@@ -153,7 +154,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             ns,
         )
         loaded = ns["_gdc"]
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.6")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.7")
         self.assertIsNot(loaded, stale)
         self.assertTrue(
             loaded.is_fcr_e2_fan_fault_context(
@@ -183,6 +184,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             "hard_tree_yields_to_coach",
             "pick_working_vision_model",
             "tech_wants_open_coach",
+            "wants_library_figures",   # v4.20.7: old regex figure ask, retired with the old figure path
         }
         missing = [n for n in imported if not hasattr(coach, n) and n not in retired]
         self.assertEqual(missing, [])

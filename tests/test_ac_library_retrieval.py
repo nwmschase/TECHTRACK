@@ -4,12 +4,8 @@ import unittest
 from gd_library_coach import (
     AC_SEARCH_BOOST,
     FACR_FREEZE_SEARCH_BOOST,
-    figure_render_honesty_note,
-    is_ac_library_title,
     is_air_conditioning_context,
-    is_facr_freeze_library_title,
     is_facr_rooftop_freeze_context,
-    is_unity_board_manual,
 )
 
 CHASE_MODEL = "Furrion FACT12SA2 rooftop air conditioner"
@@ -97,28 +93,11 @@ class TestAcDetect(unittest.TestCase):
 
 
 class TestAcRanking(unittest.TestCase):
+    pass
 
 
-    def test_title_helpers(self):
-        self.assertTrue(is_ac_library_title(FACT["title"]))
-        self.assertTrue(is_ac_library_title(BRISK["title"]))
-        self.assertTrue(is_ac_library_title(ADB["title"]))
-        self.assertFalse(is_ac_library_title(UNITY["title"]))
-        self.assertFalse(is_ac_library_title(FRIDGE["title"]))
-        self.assertTrue(is_unity_board_manual(UNITY["title"]))
 
 
-class TestAcHonesty(unittest.TestCase):
-
-
-    def test_figure_render_fail_names_ac_not_missing_library(self):
-        note = figure_render_honesty_note(FACT["title"], True)
-        self.assertIn("FACT12SA2", note)
-        self.assertIn("could not render", note.lower())
-        self.assertNotIn("lacks the procedure", note.lower())
-        unity_note = figure_render_honesty_note(UNITY["title"], True)
-        self.assertIn("wrong book", unity_note.lower())
-        self.assertIn("air condition", unity_note.lower())
 
 
 class TestFacrFreezeRetrieval(unittest.TestCase):

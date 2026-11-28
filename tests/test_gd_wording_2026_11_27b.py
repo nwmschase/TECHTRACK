@@ -27,7 +27,7 @@ class TestPrimerWording(unittest.TestCase):
 
     def test_web_address_sentence_removed_library_kept(self):
         self.assertNotIn("a cited web address opens the whole document", self.p)
-        self.assertIn("A cited library page shows the tech that exact page.", self.p)
+        self.assertIn("A cited library page shows the tech that exact page.", self.p)   # v4.20.7
 
     def test_built_on_not_led_by(self):
         self.assertNotIn("is led by that manual's pages", self.p)

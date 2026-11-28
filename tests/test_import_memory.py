@@ -156,7 +156,7 @@ class TestNoPngCache(unittest.TestCase):
     def test_page_png_bytes_are_not_cached_in_session_or_st_cache(self):
         source = Path(__file__).resolve().parents[1].joinpath("rv_techtrack.py").read_text()
         self.assertNotIn("st.cache", source)
-        self.assertIn("def _figures_for_session", source)
+        self.assertNotIn("def _figures_for_session", source)   # v4.20.7: retired with the old figure path
         # v4.20.6: the GD send path no longer fills ask_auto_show; its picture is a page reference drawn on each run
         self.assertEqual(source.count('st.session_state["ask_auto_show"] = _figures_for_session('), 0)
         pic = source[source.index("def _gd_turn_picture("):source.index("def _render_gd_picture(")]

@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.6
+RV TechTrack v4.20.7
+- v4.20.7: GD library-first in code, temperature, remnant cleanup (Chase 2026-11-28 t1713u; test8). (1) Web gate: the web tools (web_search with image search, open_web_document) are left out of Grok's tool list until a library page has been opened in the job or the library comes back with nothing for the unit (decided from the app's own tool records); on a picture request they also wait until the library was looked at that turn. (2) Picture request: when Grok opens no library page, the app opens the best picture-labelled page of the manuals found for the unit and shows that one page; no library picture = Grok's reply only. (3) Cited is this turn's list only (a state block that leaves it out clears it; it no longer carries over) and only pages opened in the job stay cited; others are dropped and logged CITED_NOT_OPENED. The log-only WEB_BEFORE_LIBRARY_SEARCH trigger is replaced by the gate. (4) The GD answer call runs at temperature 0.7 (was 0.2); reasoning effort unchanged. (5) Retired: the old text/figure picture path (resolve_requested_library_pages and its seed/page parsers, render_on_demand_library_pages, render_library_page_image, ask_auto_show, _stored_figure_matches, step figures, figure_render_honesty_note and its Level-Up/AC/water-heater boilerplate, library_figure_backfill offers_for_turn / gd_figures_under_step and their helpers, the regex picture-ask checks wants_library_page_shown / tech_asked_for_manual_figure (now gd_picture.is_picture_request), reading page numbers out of Grok's reply text, and every old figure helper left with no caller in gd_library_coach, manual_figures and library_figure_backfill); primer lines that contradicted the gate (web photos, several lookups in one round).
 - v4.20.6: GD test7b fixes (Chase 2026-11-27 pt1664u). (1) Picture: when the tech asks for a photo or diagram the reply shows the one page that best shows it, picked from the pages Grok opened this turn (gd_picture: the page Grok names for that item, then its cited pages, then the page label and text), drawn the same way as the page images Grok was given (only the page reference is kept in the session, no image bytes); the old figure lookups and the long 'could not load' note are gone from this path ('That page didn't load; tap Open PDF.' + Open PDF only when nothing could be drawn). (2) No <state> block: the pages Grok opened this turn fill cited, so the page buttons and story sources stay. (3) The REPLY FORMAT reminder (same words) is the last item of every model round, after the tool results. (4) Double send: server-side guard (gd_sends) keyed by tech + turn + message + photo, 10-minute TTL; the reply is put in the chat and the database as soon as Grok returns; a kept reply no screen drew is shown on the next run. (5) Meaning search: pagefinder/build_index sets HF_HUB_OFFLINE only in its own main(), so the live app can download the model again.
 - v4.20.5: GD test7 fixes (Chase 2026-11-27 t1653u). (1) pagefinder Library.doc_tf (and gd_tools label / stub caches) built whole and published under the lock: two runs on a cold library read a half-built cache, KeyError 'L166', and turn 1 fell to the web. (2) Primer: Grok describes only pages it opened in this job; a contents-page listing is not a read. (3) Primer: before giving a test, reading or picture Grok opens the page that has it, searching the library again (other manuals for the unit) before the web. Rules 2 and 3 approved by Chase. (4) Double-send guard: a repeat Send while Grok is answering waits for and reuses that reply (gd_send_key / gd_wait_for_kept_reply). Web search stays on.
 - v4.20.4: Guided Diagnostics library first (Chase 2026-11-27, test6: Grok went straight to the web with the library tools offered). Primer: "Each job starts in the library: a document or page search for the unit comes before any web search; the web is for what the library does not have." and "then, when the library has nothing that fits, goes to the internet". One new rule, approved by Chase.
@@ -222,7 +223,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.6"
+_GDC_REQUIRED_REVISION = "v4.20.7"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -423,30 +424,12 @@ _drop_changed_gd_modules()
 # Import after the reload so this script binds the new function objects.
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
-AC_HINT_TITLES = _gdc.AC_HINT_TITLES
-FURRION_FCR_BOARD_FIGURE_PAGES = _gdc.FURRION_FCR_BOARD_FIGURE_PAGES
 HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
-LEVEL_UP_ADVANTAGE_HINT_TITLES = _gdc.LEVEL_UP_ADVANTAGE_HINT_TITLES
-WATER_HEATER_HINT_TITLES = _gdc.WATER_HEATER_HINT_TITLES
 DEFAULT_LIBRARY_CATEGORIES = _gdc.DEFAULT_LIBRARY_CATEGORIES
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
-figure_render_honesty_note = _gdc.figure_render_honesty_note
 groq_vision_model_candidates = _gdc.groq_vision_model_candidates
-is_ac_library_title = _gdc.is_ac_library_title
-is_air_conditioning_context = _gdc.is_air_conditioning_context
-is_furrion_ccd_0008122 = _gdc.is_furrion_ccd_0008122
-is_level_up_advantage_context = _gdc.is_level_up_advantage_context
-is_level_up_library_title = _gdc.is_level_up_library_title
-is_unity_board_manual = _gdc.is_unity_board_manual
-is_water_heater_context = _gdc.is_water_heater_context
-is_water_heater_library_title = _gdc.is_water_heater_library_title
-page_has_figure_or_terminal_layout = _gdc.page_has_figure_or_terminal_layout
-page_is_text_only_notes = _gdc.page_is_text_only_notes
-pick_diagram_page_numbers = _gdc.pick_diagram_page_numbers
 complete_chat_with_payload_retry = _gdc.complete_chat_with_payload_retry
-wants_board_or_terminal_figure = _gdc.wants_board_or_terminal_figure
-wants_library_page_shown = _gdc.wants_library_page_shown
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
 # ---------------- SHOP BRANDING ----------------
@@ -2206,13 +2189,6 @@ PAGE_OF_MANUAL_RE = re.compile(
     re.I,
 )
 
-EXPLICIT_PAGE_RE = re.compile(r"\bpage\s*(\d+)\b", re.I)
-
-FIGURE_REQ_RE = re.compile(
-    r"\b(?:fig(?:ure)?\.?|illustration)\s*([0-9]+[a-z]?)\b",
-    re.I,
-)
-
 
 def parse_cited_pages_from_text(assistant_text: str) -> list:
     """Pull manual title + page from coach 📖 Source lines and 'page N of TITLE' phrases."""
@@ -2374,407 +2350,6 @@ def record_cited_pages(assistant_text: str):
     return cited
 
 
-def resolve_level_up_document_seed():
-    """First catalog Level-Up / OCTP / TI PDF. Never a Unity board SM."""
-    for hint in LEVEL_UP_ADVANTAGE_HINT_TITLES:
-        seed = resolve_document_by_title(hint)
-        if seed and not is_unity_board_manual(seed.get("title") or ""):
-            return seed
-    try:
-        docs = session.query(Document).all()
-    except Exception:
-        return None
-    best = None
-    for d in docs:
-        title = d.title or ""
-        if not is_level_up_library_title(title) or not d.file_path:
-            continue
-        row = {
-            "document_id": d.id,
-            "title": title,
-            "page": 1,
-            "file_path": d.file_path,
-            "file_type": d.file_type or "pdf",
-            "excerpt": "",
-            "indexed": bool(d.indexed),
-        }
-        t = title.lower()
-        if "ti-005" in t or "electronic leveling" in t:
-            return row
-        if best is None:
-            best = row
-    return best
-
-
-def resolve_ac_document_seed():
-    """First catalog rooftop AC / FACT / Brisk / ADB PDF. Never a Unity board SM."""
-    for hint in AC_HINT_TITLES:
-        seed = resolve_document_by_title(hint)
-        if seed and not is_unity_board_manual(seed.get("title") or "") and is_ac_library_title(
-            seed.get("title") or ""
-        ):
-            return seed
-    try:
-        docs = session.query(Document).all()
-    except Exception:
-        return None
-    best = None
-    for d in docs:
-        title = d.title or ""
-        if not is_ac_library_title(title) or not d.file_path:
-            continue
-        row = {
-            "document_id": d.id,
-            "title": title,
-            "page": 1,
-            "file_path": d.file_path,
-            "file_type": d.file_type or "pdf",
-            "excerpt": "",
-            "indexed": bool(d.indexed),
-        }
-        t = title.lower()
-        if "fact" in t or "b57915" in t or "brisk" in t:
-            return row
-        if best is None:
-            best = row
-    return best
-
-
-def resolve_water_heater_document_seed():
-    """First catalog Girard GSWH-2 / Water Heaters PDF. Never a Unity board SM."""
-    for hint in WATER_HEATER_HINT_TITLES:
-        seed = resolve_document_by_title(hint)
-        if seed and not is_unity_board_manual(seed.get("title") or "") and is_water_heater_library_title(
-            seed.get("title") or ""
-        ):
-            return seed
-    try:
-        docs = session.query(Document).all()
-    except Exception:
-        return None
-    best = None
-    for d in docs:
-        title = d.title or ""
-        if not is_water_heater_library_title(title) or not d.file_path:
-            continue
-        row = {
-            "document_id": d.id,
-            "title": title,
-            "page": 1,
-            "file_path": d.file_path,
-            "file_type": d.file_type or "pdf",
-            "excerpt": "",
-            "indexed": bool(d.indexed),
-        }
-        t = title.lower()
-        if "gswh" in t or "ccd-0009390" in t or "girard" in t:
-            return row
-        if best is None:
-            best = row
-    return best
-
-
-def parse_figure_requests(user_msg: str) -> list:
-    """Pull Fig./Figure N requests from the tech message."""
-    out = []
-    seen = set()
-    for m in FIGURE_REQ_RE.finditer(user_msg or ""):
-        tok = m.group(1).upper()
-        if tok not in seen:
-            seen.add(tok)
-            out.append(tok)
-    return out
-
-
-def parse_library_page_targets(user_msg: str, coach_text: str = "", prior_cited: list = None) -> dict:
-    """
-    Parse illustration/page targets from tech msg + coach reply + prior Source lines.
-    Returns figures, explicit/cited pages, and the title-locked manual name.
-    """
-    coach_text = coach_text or ""
-    user_msg = user_msg or ""
-    prior_cited = list(prior_cited or [])
-
-    cited = parse_cited_pages_from_text(coach_text)
-    if not cited:
-        cited = list(prior_cited)
-
-    figures = parse_figure_requests(user_msg)
-
-    # Explicit "page N" in the tech message (title filled later from locked manual)
-    explicit_pages = []
-    for m in EXPLICIT_PAGE_RE.finditer(user_msg):
-        # Skip "page N of TITLE" — those already carry a title via parse_cited_pages_from_text
-        span_end = m.end()
-        tail = user_msg[span_end:span_end + 12].lower()
-        if tail.lstrip().startswith("of "):
-            continue
-        try:
-            explicit_pages.append(int(m.group(1)))
-        except Exception:
-            pass
-
-    # Also accept page-of-title phrases from the tech message
-    for c in parse_cited_pages_from_text(user_msg):
-        if c not in cited:
-            cited.append(c)
-
-    manual_title = ""
-    if cited:
-        manual_title = (cited[-1].get("title") or "").strip()
-    elif prior_cited:
-        manual_title = (prior_cited[-1].get("title") or "").strip()
-
-    return {
-        "figures": figures[:3],
-        "cited": cited,
-        "explicit_pages": explicit_pages[:3],
-        "manual_title": manual_title,
-    }
-
-
-def resolve_document_by_title(title: str):
-    """
-    Resolve a Document row by title compatibility.
-    Returns a page-ref seed with document_id + file_path, or None.
-    Never cross-book: caller must pass the cited manual title.
-    """
-    title = (title or "").strip()
-    if not title:
-        return None
-    try:
-        docs = session.query(Document).all()
-    except Exception:
-        return None
-    best = None
-    best_score = 0
-    for d in docs:
-        dt = d.title or ""
-        if not _titles_compatible(title, dt):
-            continue
-        ct_toks = {t for t in re.findall(r"[a-z0-9]+", title.lower()) if len(t) > 3}
-        st_toks = {t for t in re.findall(r"[a-z0-9]+", dt.lower()) if len(t) > 3}
-        score = len(ct_toks & st_toks)
-        if title.lower() in dt.lower() or dt.lower() in title.lower():
-            score += 5
-        if score > best_score and d.file_path:
-            best_score = score
-            best = {
-                "document_id": d.id,
-                "title": d.title,
-                "page": 1,
-                "file_path": d.file_path,
-                "file_type": d.file_type or "pdf",
-                "excerpt": "",
-            }
-    return best
-
-
-def find_figure_page_in_document(document_id, figure_token: str) -> int:
-    """Locate Fig. N inside ONE document's indexed DocChunks. Returns page or 0."""
-    if not document_id or not figure_token:
-        return 0
-    fig = figure_token.lower().lstrip("0") or figure_token.lower()
-    patterns = [
-        re.compile(rf"\bfig(?:ure)?\.?\s*0*{re.escape(fig)}\b", re.I),
-        re.compile(rf"\bfig(?:ure)?\s*0*{re.escape(fig)}\b", re.I),
-    ]
-    try:
-        chunks = (
-            session.query(DocChunk)
-            .filter_by(document_id=int(document_id))
-            .order_by(DocChunk.page)
-            .all()
-        )
-    except Exception:
-        return 0
-    for ch in chunks:
-        blob = ch.chunk_text or ""
-        for pat in patterns:
-            if pat.search(blob):
-                try:
-                    return int(ch.page or 0)
-                except Exception:
-                    return 0
-    return 0
-
-
-def _page_ref(seed: dict, page: int, title_fallback: str = "") -> dict:
-    """Build a renderable page dict. Document title + page + file_path is enough."""
-    return {
-        "document_id": seed.get("document_id"),
-        "title": seed.get("title") or title_fallback or "Manual",
-        "page": int(page),
-        "file_path": seed.get("file_path"),
-        "file_type": seed.get("file_type") or "pdf",
-        "excerpt": seed.get("excerpt") or "",
-    }
-
-
-def resolve_requested_library_pages(user_msg: str, assistant_text: str = "") -> list:
-    """
-    Clean page pipeline (display path):
-      detect (caller) → parse targets → resolve Document (title-locked) → resolve page → list of page refs.
-    Silent ask_sources ledger is NOT required for display; Document.title + page + file_path is enough.
-    Never cross-book.
-    """
-    prior = list(st.session_state.get("ask_cited_log") or [])
-    targets = parse_library_page_targets(user_msg or "", assistant_text or "", prior_cited=prior)
-    manual_title = (targets.get("manual_title") or "").strip()
-    cited = list(targets.get("cited") or [])
-    figures = list(targets.get("figures") or [])
-    explicit_pages = list(targets.get("explicit_pages") or [])
-
-    level_up_ask = is_level_up_advantage_context("", "", f"{user_msg} {assistant_text} {manual_title}")
-    ac_ask = is_air_conditioning_context("", "", f"{user_msg} {assistant_text} {manual_title}")
-    wh_ask = is_water_heater_context("", "", f"{user_msg} {assistant_text} {manual_title}")
-    if level_up_ask and (not manual_title or is_unity_board_manual(manual_title)):
-        seed_lu = resolve_level_up_document_seed()
-        if seed_lu and seed_lu.get("file_path"):
-            manual_title = seed_lu.get("title") or manual_title
-    elif ac_ask and (not manual_title or is_unity_board_manual(manual_title)):
-        seed_ac = resolve_ac_document_seed()
-        if seed_ac and seed_ac.get("file_path"):
-            manual_title = seed_ac.get("title") or manual_title
-    elif wh_ask and (not manual_title or is_unity_board_manual(manual_title)):
-        seed_wh = resolve_water_heater_document_seed()
-        if seed_wh and seed_wh.get("file_path"):
-            manual_title = seed_wh.get("title") or manual_title
-
-    if not manual_title:
-        # No cited shop manual — refuse to guess across books
-        return []
-
-    seed = resolve_document_by_title(manual_title)
-    if (not seed or not seed.get("file_path")) and level_up_ask:
-        seed = resolve_level_up_document_seed()
-        if seed:
-            manual_title = seed.get("title") or manual_title
-    if (not seed or not seed.get("file_path")) and ac_ask:
-        seed = resolve_ac_document_seed()
-        if seed:
-            manual_title = seed.get("title") or manual_title
-    if (not seed or not seed.get("file_path")) and wh_ask:
-        seed = resolve_water_heater_document_seed()
-        if seed:
-            manual_title = seed.get("title") or manual_title
-    if not seed or not seed.get("file_path"):
-        return []
-
-    out = []
-    seen_pages = set()
-
-    def _add_page(page_num: int):
-        try:
-            page_num = int(page_num)
-        except Exception:
-            return
-        if not page_num or page_num in seen_pages:
-            return
-        seen_pages.add(page_num)
-        out.append(_page_ref(seed, page_num, manual_title))
-
-    # 1) Fig./Figure N → search ONLY this document's DocChunks
-    for fig in figures:
-        page = find_figure_page_in_document(seed.get("document_id"), fig)
-        if not page:
-            # Fall back to last cited Source page from this same title
-            for c in reversed(cited):
-                if _titles_compatible(manual_title, c.get("title") or ""):
-                    try:
-                        page = int(c.get("page") or 0)
-                    except Exception:
-                        page = 0
-                    break
-        if page:
-            _add_page(page)
-
-    # 2) Explicit "page N" in the tech message (title-locked to cited manual)
-    for p in explicit_pages:
-        _add_page(p)
-
-    ledger = list(st.session_state.get("ask_sources") or [])
-    same_book = [
-        s for s in ledger
-        if _titles_compatible(manual_title, s.get("title") or "")
-    ]
-
-    # 3) Board / terminal / PCB figure ask — pick real diagram pages, not Quick Notes
-    if not out and wants_board_or_terminal_figure(user_msg):
-        picked = pick_diagram_page_numbers(same_book, user_msg, manual_title)
-        for p in picked:
-            _add_page(p)
-        if not out and is_furrion_ccd_0008122(manual_title):
-            for p in FURRION_FCR_BOARD_FIGURE_PAGES:
-                _add_page(p)
-                if len(out) >= 2:
-                    break
-        if not out and level_up_ask and is_level_up_library_title(manual_title):
-            try:
-                lu_chunks = (
-                    session.query(DocChunk)
-                    .filter(DocChunk.document_id == int(seed.get("document_id") or 0))
-                    .all()
-                    if seed.get("document_id") else []
-                )
-            except Exception:
-                lu_chunks = []
-            for p in pick_diagram_page_numbers(lu_chunks, user_msg, manual_title):
-                _add_page(p)
-        if not out and ac_ask and is_ac_library_title(manual_title):
-            try:
-                ac_chunks = (
-                    session.query(DocChunk)
-                    .filter(DocChunk.document_id == int(seed.get("document_id") or 0))
-                    .all()
-                    if seed.get("document_id") else []
-                )
-            except Exception:
-                ac_chunks = []
-            for p in pick_diagram_page_numbers(ac_chunks, user_msg, manual_title):
-                _add_page(p)
-
-    # 4) Cited Source pages — skip text-only notes on a figure ask
-    if not out:
-        for c in cited:
-            if not _titles_compatible(manual_title, c.get("title") or manual_title):
-                continue
-            try:
-                p = int(c.get("page") or 0)
-            except Exception:
-                p = 0
-            if not p:
-                continue
-            excerpt = ""
-            for s in same_book:
-                try:
-                    if int(s.get("page") or 0) == p:
-                        excerpt = s.get("excerpt") or ""
-                        break
-                except Exception:
-                    continue
-            if (
-                wants_library_page_shown(user_msg)
-                and excerpt
-                and page_is_text_only_notes(excerpt)
-                and not page_has_figure_or_terminal_layout(excerpt)
-            ):
-                continue
-            _add_page(p)
-
-    return out[:3]
-
-
-def _figures_for_session(offers) -> list:
-    """Figure metadata for the next rerun. PNG bytes stay in R2, not in session_state."""
-    kept = []
-    for item in offers or []:
-        if not isinstance(item, dict):
-            continue
-        kept.append({key: value for key, value in item.items() if key != "png"})
-    return kept
-
-
 def _gd_doc_file_path(doc_id) -> str:
     """Storage key of a library doc's PDF (Document.file_path) for a page-finder id L<Document.id>; "" when unknown."""
     m = re.match(r"^L(\d+)$", str(doc_id or "").strip())
@@ -2872,7 +2447,7 @@ def _gd_page_image_fn():
 
 
 def _render_cited_sheet(doc_id, sheet: int, file_path: str, caption: str) -> bool:
-    """Draw exactly the cited PDF sheet (_gd_sheet_png). Unlike render_library_page_image this never swaps in a bundled kit
+    """Draw exactly the cited PDF sheet (_gd_sheet_png). It never swaps in a bundled kit
     figure, so the tech always sees the page that was cited."""
     png = _gd_sheet_png(doc_id, sheet, file_path)
     if png:
@@ -2934,76 +2509,9 @@ def _render_gd_page_links(pages, key_prefix: str) -> None:
             c3.caption("Page not found in the index; the PDF opens at page 1.")
 
 
-def _render_gd_figures_under_step(figures, key_prefix: str) -> None:
-    """Full-width figures directly under this step. A missing file stays blank."""
-    import library_figure_backfill as fb
-
-    for index, src in enumerate(figures or []):
-        if not isinstance(src, dict):
-            continue
-        shown = dict(src)
-        try:
-            shown["caption"] = shown.get("gd_caption") or fb.gd_figure_caption(shown)
-        except Exception:
-            shown["caption"] = shown.get("caption") or ""
-        try:
-            render_library_page_image(shown, f"{key_prefix}_{index}")
-        except Exception:
-            continue
-
-
-def render_on_demand_library_pages(pages: list):
-    """Show only the requested shop-library page(s). No source-menu forest."""
-    st.markdown("#### Shop library page")
-    st.caption("From the shop Document Library - not uploaded by the technician.")
-    if not pages:
-        st.info("No matching shop-library page was found for that request.")
-        ledger = list(st.session_state.get("ask_sources") or [])
-        best = next((s for s in reversed(ledger) if s.get("file_path")), None)
-        if best and best.get("file_path"):
-            data = r2_download_bytes(best["file_path"])
-            if data:
-                st.download_button(
-                    "⬇️ Download best matching library PDF",
-                    data=data,
-                    file_name=f"{(best.get('title') or 'manual')[:40]}.pdf",
-                    key="ask_ondemand_best_dl",
-                )
-        return
-    shown_pdf = set()
-    for i, src in enumerate(pages[:3]):
-        rendered = render_library_page_image(src, f"ondemand_{i}")
-        excerpt = (src.get("excerpt") or "").strip()
-        if excerpt:
-            with st.expander("Text from this page", expanded=False):
-                st.text(excerpt[:1800])
-        fpath = src.get("file_path")
-        if fpath and fpath not in shown_pdf and rendered:
-            shown_pdf.add(fpath)
-            local = Path(str(fpath))
-            data = None
-            if local.is_file():
-                try:
-                    data = local.read_bytes()
-                except Exception:
-                    data = None
-            else:
-                data = r2_download_bytes(fpath)
-            if data:
-                st.download_button(
-                    "⬇️ Download this PDF",
-                    data=data,
-                    file_name=f"{(src.get('title') or 'manual')[:40]}.pdf",
-                    key=f"ask_ondemand_dl_{i}",
-                )
-
-
 def clear_ask_source_state():
     st.session_state["ask_sources"] = []
     st.session_state.pop("ask_sources_json", None)
-    st.session_state.pop("ask_auto_show", None)
-    st.session_state.pop("ask_auto_show_failed", None)
-    st.session_state.pop("ask_auto_show_fail_note", None)
     st.session_state.pop("ask_cited_log", None)
     st.session_state.pop("ask_flow", None)
 
@@ -3040,55 +2548,6 @@ def reset_guided_diagnostics_session():
     st.session_state.pop("gd_case_chat_id", None)
     st.session_state.pop("gd_access_prompt", None)
     st.session_state.pop("gd_access_text", None)
-
-
-def render_library_page_image(src: dict, key_suffix: str):
-    """Stored crop or R2 page → st.image. No markdown image embeds."""
-    import manual_figures as mf
-
-    title = src.get("title") or "Manual"
-    try:
-        page = int(src.get("page") or 1)
-    except Exception:
-        page = 1
-    label = src.get("label") or ""
-    caption = src.get("gd_caption") or src.get("caption") or mf.display_caption(title, page, label or "page")
-    def _usable(blob) -> bool:
-        if not blob:
-            return False
-        try:
-            return not mf.png_is_blank(blob)
-        except Exception:
-            return False
-
-    png = src.get("png")
-    if not _usable(png) and src.get("image_path"):
-        import library_figure_backfill as fb
-
-        png = fb.fetch_png(src.get("image_path") or "", download=r2_download_bytes)
-    if not _usable(png):
-        # R2 missed the crop. A bundled kit sheet or a real local file can still draw.
-        # A miss stays blank. The tech does not see a failed-download caption.
-        png = mf.png_for_library_offer(src)
-    if _usable(png):
-        st.image(png, caption=caption, use_container_width=True)
-        return True
-    fpath = src.get("file_path")
-    local = Path(str(fpath or ""))
-    data = None
-    if fpath and local.is_file():
-        try:
-            data = local.read_bytes()
-        except Exception:
-            data = None
-    elif fpath:
-        data = r2_download_bytes(fpath)
-    if data:
-        png = render_pdf_page_png(data, page)
-        if png and not mf.png_is_blank(png):
-            st.image(png, caption=caption, use_container_width=True)
-            return True
-    return False
 
 
 FURNACE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
@@ -3503,29 +2962,6 @@ def binary_button_labels(node: dict):
     return None
 
 
-def _stored_figure_matches(reply: str, user_msg: str, category_name: str, model_text: str):
-    """Figure crops for this job from the library. Any brand.
-
-    PNG bytes load only for the rows that matched. A bundled Thetford kit
-    sheet is the last resort, and its caption says so.
-    """
-    import library_figure_backfill as fb
-
-    try:
-        rows = fb.meta_rows(session)
-    except Exception:
-        rows = []
-    offers = fb.offers_for_turn(rows, reply, user_msg, category_name, model_text)
-    if not offers:
-        return []
-    if not offers[0].get("bundled"):
-        try:
-            fb.attach_pngs(session, offers, read_local=True, download=r2_download_bytes)
-        except Exception:
-            pass
-    return [item for item in offers if item.get("png")]
-
-
 # ---------------- GD OFFICIAL METHOD (Chase approved 2026-10-16) ----------------
 GD_OFFICIAL_METHOD = True
 GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
@@ -3677,7 +3113,15 @@ def _gd_publish_turn_log(log, user_msg=None, reply=None):
         pass
 
 
-def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None, help_mode=None):
+def _gd_is_picture_request(msg) -> bool:
+    """The tech asked to see a photo, picture or diagram (v4.20.7: the one check, gd_picture.is_picture_request; the old
+    coach / manual_figures regex detectors are retired)."""
+    import gd_picture
+
+    return gd_picture.is_picture_request(msg)
+
+
+def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=None, help_mode=None, picture_request=False):
     """One GD turn on the fresh core (gd_turn). The brain decides; this wrapper only wires the app to it."""
     import gd_turn
 
@@ -3720,6 +3164,7 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             log_path=GD_USAGE_LOG or None,   # None = gd_turn.DEFAULT_LOG_PATH (GD_TURN_LOG or the temp dir)
             help_mode=help_mode,
             page_image_fn=page_image_fn,
+            picture_request=bool(picture_request),   # v4.20.7: web waits for the library on a picture turn
         )
     except Exception:
         # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
@@ -3786,23 +3231,19 @@ def _gd_restore_case(entry):
 
 
 def _gd_turn_picture(msg, reply, entry):
-    """The one page shown when the tech asked for a picture (v4.20.6): gd_picture picks it from the pages Grok opened this
-    turn (else the pages it cited earlier). Only the page reference is stored on the reply (no PNG bytes in the session,
-    see TestNoPngCache); it is drawn by _render_gd_picture with the same sheet drawing Grok was given.
-    {ref, label, drawn_for_grok}; ref is {} when no page was opened or cited."""
+    """The one page shown when the tech asked for a picture: gd_picture picks it from the library pages opened this turn
+    (Grok's reads, or the picture page the app opened when Grok opened none; gd_turn.app_open_picture_page). Only the page
+    reference is stored on the reply (no PNG bytes in the session, see TestNoPngCache); _render_gd_picture draws it.
+    None when no library page was opened this turn (no library picture: nothing is drawn and no note is shown)."""
     import gd_picture
 
-    cited = list((entry or {}).get("cited") or [])
     pages = list((entry or {}).get("turn_pages") or [])
-    if not pages:
-        pages = [c for c in cited if isinstance(c, dict) and c.get("sheet")]
     try:
-        pick = gd_picture.pick_picture_page(msg, reply, pages, cited)
+        pick = gd_picture.pick_picture_page(msg, pages, list((entry or {}).get("cited") or []))
     except Exception:
         pick = None
     if pick is None:
-        refs = _gd_cited_page_refs(cited)
-        return {"ref": dict(refs[0], sheet=None) if refs else {}, "label": "", "drawn_for_grok": False}
+        return None
     get = (lambda k: pick.get(k)) if isinstance(pick, dict) else (lambda k: getattr(pick, k, None))
     doc_id, sheet = str(get("doc_id") or ""), int(get("sheet") or 0)
     title, page = get("title") or "", get("page") or sheet
@@ -3873,7 +3314,6 @@ def _gd_commit_send(entry, user_id, persist=True, story=True):
     history.append({
         "role": "assistant",
         "content": reply,
-        "figures": [],
         "pages": _gd_cited_page_refs(entry.get("cited")),
         "picture": picture,
         "send_key": key,
@@ -3942,6 +3382,7 @@ def guided_diagnostics_reply(
     photo_review: dict | None = None,
     pin_store: dict | None = None,
     help_mode: str | None = None,
+    picture_request: bool | None = None,
 ):
     """Guided Diagnostics on the fresh core. Returns (reply_text, None).
 
@@ -3960,7 +3401,10 @@ def guided_diagnostics_reply(
     sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
     if sees:
         official_msg = (user_msg + "\n" if user_msg else "") + f"Label/photo shows: {sees}"
-    return _gd_official_reply(official_msg, category_name, model_text, history, pin_store, help_mode=help_mode), None
+    if picture_request is None:
+        picture_request = _gd_is_picture_request(user_msg)   # the tech's own words, not the photo reading added above
+    return _gd_official_reply(official_msg, category_name, model_text, history, pin_store, help_mode=help_mode,
+                              picture_request=picture_request), None
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
@@ -4318,7 +3762,6 @@ with tab_ask:
                 st.session_state["ask_sources"] = []
                 st.session_state["ask_cited_log"] = []
                 st.session_state["ask_flow"] = None
-                st.session_state.pop("ask_auto_show", None)
                 for m in hist:
                     if (m.get("role") or "") == "assistant":
                         record_cited_pages(m.get("content") or "")
@@ -4388,10 +3831,6 @@ with tab_ask:
                 st.markdown(re.sub(r"<!--\s*gd-step:\d+\s*-->", "", content).strip())
                 if role == "user":
                     continue
-                # Figures render only when this turn stored them. A step reply
-                # does not pull a manual image until the tech asks.
-                step_figs = (m.get("figures") or []) if isinstance(m, dict) else []
-                _render_gd_figures_under_step(step_figs, f"gd_step_{index}")
                 # 2026-11-25: the pages this reply cited, as a compact clickable row (nothing when none were cited).
                 # v4.20.6: the one page that shows what the tech asked a picture of (gd_picture), right under the reply.
                 _render_gd_picture(m.get("picture") if isinstance(m, dict) else None, f"gd_pic_{index}")
@@ -4401,15 +3840,6 @@ with tab_ask:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
         st.session_state["ask_input"] = ""
-
-    _last_message = history[-1] if history else {}
-    _last_has_figures = bool(isinstance(_last_message, dict) and _last_message.get("figures"))
-    auto_pages = st.session_state.get("ask_auto_show") or []
-    if auto_pages and not _last_has_figures:
-        render_on_demand_library_pages(auto_pages)
-    elif st.session_state.pop("ask_auto_show_failed", None):
-        fail_note = st.session_state.pop("ask_auto_show_fail_note", None) or figure_render_honesty_note("", True)
-        st.warning(fail_note)
 
     # Hard-tree Yes/No buttons are off on the open-coach product path.
     if HARD_TREE_EXCLUSIVE_CHAT:
@@ -4544,12 +3974,7 @@ with tab_ask:
                 _story.record_access_answer(_rec, msg, history)
                 reply = _story.access_logged_reply(_rec)
                 new_flow = st.session_state.get("ask_flow")
-            _asked_image = False
-            try:
-                import manual_figures as _mf
-                _asked_image = bool(wants_library_page_shown(msg) or _mf.tech_asked_for_manual_figure(msg))
-            except Exception:
-                _asked_image = False
+            _asked_image = _gd_is_picture_request(msg)
             _entry = {"key": None, "msg": msg, "photo": bool(photo_bytes), "photo_review": photo_review, "asked": asked,
                       "category": category_name, "model": ask_model or "", "turns": len(history or []),
                       "asked_image": _asked_image}
@@ -4588,6 +4013,7 @@ with tab_ask:
                                 photo_review=photo_review,
                                 pin_store=st.session_state.setdefault("gd_pin_store", {}),
                                 help_mode=st.session_state.get("gd_help_mode") or None,
+                                picture_request=_asked_image,
                             )
                             _done = _sends.finish(
                                 _send_user, _send_key, **{k: v for k, v in _entry.items() if k != "key"}, reply=reply, flow=new_flow,
@@ -4603,11 +4029,6 @@ with tab_ask:
                     finally:
                         _sends.abandon(_send_user, _send_key)
             st.session_state["ask_photo_gen"] = _photo_gen + 1
-            # v4.20.6: the old figure lookups (pre-indexed figures, stored figure offers, "Source: ... page N" text) are gone
-            # from this path; the picture is chosen from the pages Grok opened and stored on the reply (_gd_turn_picture).
-            st.session_state.pop("ask_auto_show", None)
-            st.session_state.pop("ask_auto_show_failed", None)
-            st.session_state.pop("ask_auto_show_fail_note", None)
             st.session_state["ask_reset_input"] = True
             st.rerun()
 

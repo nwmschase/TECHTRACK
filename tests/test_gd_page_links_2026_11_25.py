@@ -148,8 +148,9 @@ class TestCitedPagesReachHistory(unittest.TestCase):
         exec(compile(code, "rv_slice", "exec"), ns)
         reply = ns["_gd_official_reply"]("fridge fan not running", "Refrigerators", "Acme X1", [], {})
         self.assertIn("page 19", reply)
-        self.assertEqual(fake_st.session_state["gd_last_cited"][0]["doc_id"], "L1")
-        refs = ns["_gd_cited_page_refs"](fake_st.session_state.pop("gd_last_cited"))
+        # v4.20.7: page 19 was cited but never opened in this job, so it is not kept (no button that leads nowhere)
+        self.assertEqual(fake_st.session_state["gd_last_cited"], [])
+        refs = ns["_gd_cited_page_refs"]([{"doc_id": "L1", "page": "19"}])
         self.assertEqual(len(refs), 1)
         self.assertEqual(refs[0]["sheet"], 21)                       # printed p.19 is PDF sheet 21
         self.assertEqual(refs[0]["file_path"], "documents/L1.pdf")
@@ -175,7 +176,7 @@ class TestCitedPagesReachHistory(unittest.TestCase):
         self.assertIn('cited=list(st.session_state.pop("gd_last_cited", None) or [])', src)
         self.assertIn('_render_gd_page_links((m.get("pages") or []) if isinstance(m, dict) else [], f"gd_pages_{index}")', src)
         self.assertIn('"gd_page_links", "gd_picture", "gd_sends")', src)                       # reloaded with the GD stack on a redeploy
-        row = _slice(src, "def _render_gd_page_links(", "\ndef _render_gd_figures_under_step(")
+        row = _slice(src, "def _render_gd_page_links(", "\ndef clear_ask_source_state(")
         self.assertNotIn("st.expander", row)                          # Aug 20: no dropdowns
         self.assertIn("gd_page_links.pdf_link(get_r2_client(), st.secrets[\"R2_BUCKET_NAME\"], key, sheet)", row)
         self.assertIn('"📄 Open PDF"', row)

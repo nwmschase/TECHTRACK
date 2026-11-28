@@ -124,8 +124,11 @@ class TestImageSearchAndPrimer(unittest.TestCase):
         p = gd_prompt.PRIMER
         self.assertNotIn("The text of a page is what can be read here", p)
         self.assertIn("read_pages also sends each page's image", p)
-        self.assertIn("a web photo may be a different model, and the library pages are the trusted source", p)
-        self.assertIn("A cited library page shows the tech that exact page.", p)   # v4.20.2: web-address half removed (test2)
+        # v4.20.7: the web-photo sentence pointed Grok to the web for pictures (test8); the web gate sentence replaces it
+        self.assertNotIn("Web search can also show photos", p)
+        self.assertIn("Web search joins the tools once a library page has been opened in this job, or once the library "
+                      "search finds nothing for the unit.", p)
+        self.assertIn("A cited library page shows the tech that exact page.", p)
 
     def test_read_pages_spec_mentions_images(self):
         spec = next(t for t in gd_tools.FUNCTION_SPECS if t["name"] == "read_pages")

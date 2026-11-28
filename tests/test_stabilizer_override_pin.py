@@ -2,7 +2,6 @@
 import unittest
 
 from gd_library_coach import (
-    is_level_up_advantage_context,
     is_stabilizer_override_pin_context,
 )
 
@@ -65,21 +64,6 @@ class TestStabilizerDetect(unittest.TestCase):
             )
         )
 
-    def test_level_up_advantage_is_not_stabilizer_pin(self):
-        self.assertFalse(
-            is_stabilizer_override_pin_context(
-                "Leveling",
-                "Lippert Level Up Advantage 807662",
-                "Manual Mode flashes then returns home",
-            )
-        )
-        self.assertTrue(
-            is_level_up_advantage_context(
-                "Leveling",
-                "Lippert Level Up Advantage 807662",
-                "Manual Mode flashes then returns home",
-            )
-        )
 
     def test_power_only_without_manual_fail_is_not_pin_path(self):
         self.assertFalse(

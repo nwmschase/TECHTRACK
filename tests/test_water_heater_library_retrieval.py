@@ -4,12 +4,9 @@ import unittest
 from pathlib import Path
 
 from gd_library_coach import (
-    figure_render_honesty_note,
     is_air_conditioning_context,
     is_fcr_e2_fan_fault_context,
-    is_unity_board_manual,
     is_water_heater_context,
-    is_water_heater_library_title,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,27 +71,11 @@ class TestWaterHeaterDetect(unittest.TestCase):
 
 
 class TestWaterHeaterRanking(unittest.TestCase):
+    pass
 
 
-    def test_title_helpers(self):
-        self.assertTrue(is_water_heater_library_title(GSWH["title"]))
-        self.assertFalse(is_water_heater_library_title(UNITY["title"]))
-        self.assertFalse(is_water_heater_library_title(FRIDGE["title"]))
-        self.assertFalse(is_water_heater_library_title(FACT["title"]))
-        self.assertTrue(is_unity_board_manual(UNITY["title"]))
 
 
-class TestWaterHeaterHonesty(unittest.TestCase):
-
-
-    def test_figure_render_fail_names_gswh_not_missing_library(self):
-        note = figure_render_honesty_note(GSWH["title"], True)
-        self.assertIn("CCD-0009390", note)
-        self.assertIn("could not render", note.lower())
-        self.assertNotIn("lacks the procedure", note.lower())
-        unity_note = figure_render_honesty_note(UNITY["title"], True)
-        self.assertIn("wrong book", unity_note.lower())
-        self.assertIn("gswh", unity_note.lower())
 
 
 if __name__ == "__main__":

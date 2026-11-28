@@ -18,7 +18,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.6"
+MODULE_REVISION = "v4.20.7"
 
 # Guided Diagnostics ask turns: no token cap and no reasoning-effort setting (None = the provider's own defaults).
 GD_ASK_MAX_TOKENS = None
@@ -531,8 +531,13 @@ def parse_response(response) -> dict:
             "id": data.get("id") or ""}
 
 
+# v4.20.7 (Chase 2026-11-28 t1713u): the Guided Diagnostics answer call runs at xAI's recommended temperature (0.7; xAI's
+# best-practices page says quality usually drops far from it). Reasoning effort is still the provider default (not set).
+GD_RESPOND_TEMPERATURE = 0.7
+
+
 def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_factory=None, model=None,
-            temperature: float = 0.2) -> dict:
+            temperature: float = GD_RESPOND_TEMPERATURE) -> dict:
     """One Grok call on the xAI Responses API with our function tools + built-in web search. Returns parse_response().
     No token cap and no reasoning-effort setting (the provider's defaults). xAI only: Groq has no built-in web search."""
     global _last_provider, _last_usage

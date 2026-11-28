@@ -16,7 +16,7 @@ import threading
 import time
 import types
 
-MODULE_REVISION = "v4.20.6"
+MODULE_REVISION = "v4.20.7"
 TTL_SECONDS = 600
 WAIT_SECONDS = 240
 

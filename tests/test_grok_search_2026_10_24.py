@@ -124,10 +124,13 @@ class TestFullTurnLibraryThenWeb(unittest.TestCase):
         r, x, fetched, store = self.run_case(replies, log=log)
         self.assertEqual(r["calls"], 4)
         self.assertTrue(r["reply"].startswith("The fan should draw about 0.3 A"))
-        # every request: our five function tools + the built-in web search, inline citations off
-        for req in x.requests:
+        # v4.20.7 web gate: the library tools only until a library page is open (round 3 on), then + the web tools
+        for i, req in enumerate(x.requests):
             kinds = [t.get("name") or t["type"] for t in req["tools"]]
-            self.assertEqual(kinds, list(gd_tools.FUNCTION_NAMES) + ["web_search"])
+            if i < 2:
+                self.assertEqual(kinds, ["find_documents", "table_of_contents", "search_pages", "read_pages"])
+            else:
+                self.assertEqual(kinds, list(gd_tools.FUNCTION_NAMES) + ["web_search"])
             self.assertIn("no_inline_citations", req["include"])
             self.assertEqual(req["model"], "grok-4.3")
             self.assertNotIn("max_output_tokens", req)
@@ -151,7 +154,7 @@ class TestFullTurnLibraryThenWeb(unittest.TestCase):
         self.assertEqual(r["usage"]["web_search_calls"], 1)
         self.assertEqual(r["usage"]["pages_opened"], 3)
         self.assertAlmostEqual(r["usage"]["cost_usd"], 4 * 12_000_000 * gd_turn.USD_PER_TICK)
-        self.assertEqual(names(r), [])
+        self.assertEqual(names(r), ["WEB_GATE_OPENED"])   # v4.20.7: the web tools opened after the page read
         # the JSON-lines turn log
         rec = json.loads(open(log).read().strip().splitlines()[-1])
         for k in ("model_calls", "rounds", "tool_calls", "pages_opened", "web", "triggers", "tokens_in", "tokens_out", "cost_usd", "seconds"):
@@ -312,17 +315,15 @@ class TestTriggers(unittest.TestCase):
         r = self.turn([[("read_pages", {"doc_id": "L1", "pages": ["29"]})], "ok\n" + block(summary="s")])
         self.assertNotIn(gd_turn.T_OTHER_BRAND, names(r))
 
-    def test_web_before_any_library_search_this_turn(self):
-        def respond(items, tools, tool_choice=None):
-            return {"text": "ok\n" + block(summary="s"), "server_tools": [{"type": "web_search_call", "action": {"query": "acme fan"}}]}
-        r = gd_turn.run_turn("E2", "Refrigerators", "Acme X1", [], finder=lib_finder(), respond_fn=respond, store={}, log_path="")
-        self.assertIn(gd_turn.T_WEB_BEFORE_LIBRARY, names(r))
+    def test_web_gate_replaced_the_log_only_trigger(self):
+        # v4.20.7: WEB_BEFORE_LIBRARY_SEARCH only logged; the gate stops it instead (it must not come back)
+        self.assertFalse(hasattr(gd_turn, "T_WEB_BEFORE_LIBRARY"))
+        self.assertNotIn("WEB_BEFORE_LIBRARY_SEARCH", open(gd_turn.__file__, encoding="utf-8").read())
+        fetched = []
         r = self.turn([[("open_web_document", {"url": "https://x.example/a.pdf"})], "ok\n" + block(summary="s")],
-                      web_fetch=lambda u, w: [])
-        self.assertIn(gd_turn.T_WEB_BEFORE_LIBRARY, names(r))
-        r = self.turn([[("search_pages", {"words": "fan"})], [("open_web_document", {"url": "https://x.example/a.pdf"})],
-                       "ok\n" + block(summary="s")], web_fetch=lambda u, w: [])
-        self.assertNotIn(gd_turn.T_WEB_BEFORE_LIBRARY, names(r))
+                      web_fetch=lambda u, w: fetched.append(u) or [])
+        self.assertEqual(fetched, [])                       # asked for before the library: never run
+        self.assertIn(gd_turn.T_TOOL_ERROR, names(r))
 
     def test_repeated_search_in_the_turn_and_across_turns(self):
         store = {}
