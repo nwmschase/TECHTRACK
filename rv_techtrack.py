@@ -2680,19 +2680,49 @@ def _git_commit() -> str:
         return ""
 
 
+def _git_commit_cheap() -> str:
+    """The deployed commit (short) read straight from .git (HEAD, its ref file or packed-refs): no subprocess, so it is cheap
+    enough for every Streamlit rerun. "" when it cannot be read (then _git_commit's subprocess is the fallback)."""
+    try:
+        g = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".git")
+        with open(os.path.join(g, "HEAD"), encoding="utf-8") as fh:
+            head = fh.read().strip()
+        if not head.startswith("ref:"):
+            return head[:7]
+        ref = head[4:].strip()
+        rp = os.path.join(g, *ref.split("/"))
+        if os.path.exists(rp):
+            with open(rp, encoding="utf-8") as fh:
+                return fh.read().strip()[:7]
+        with open(os.path.join(g, "packed-refs"), encoding="utf-8") as fh:
+            for ln in fh:
+                parts = ln.split()
+                if len(parts) == 2 and parts[1] == ref:
+                    return parts[0][:7]
+    except OSError:
+        return ""
+    return ""
+
+
 def _print_startup_line():
-    """v4.20.9 (Chase t1727u): ONE TT_STARTUP line per server process on stdout (Manage app logs): version, commit, model,
-    GD temperature, reasoning effort, smart search, web gate, round limit. Streamlit re-runs this script on every click,
-    so the "printed" mark lives in sys.modules."""
+    """v4.20.9 (Chase t1727u): the TT_STARTUP line on stdout (Manage app logs): version, commit, model, GD temperature,
+    reasoning effort, smart search, web gate, round limit. Streamlit re-runs this script on every click, so the last
+    printed version+commit lives in sys.modules. v4.20.12: keyed on version+commit, not once per process, so a hot reload
+    after a push (Streamlit "Updated app!") prints one new line with the new version and commit; a plain rerun prints none."""
     holder = "_techtrack_startup_printed"
-    if sys.modules.get(holder) is not None:
+    commit = _git_commit_cheap() or _git_commit()
+    key = f"{APP_VERSION}@{commit or 'unknown'}"
+    mod = sys.modules.get(holder)
+    if mod is not None and getattr(mod, "key", None) == key:
         return
     import types
     import gd_errors
     import gd_turn
 
-    sys.modules[holder] = types.ModuleType(holder)
-    gd_errors.emit(gd_errors.TAG_STARTUP, **gd_turn.startup_fields(APP_VERSION, _git_commit()))
+    mod = types.ModuleType(holder)
+    mod.key = key
+    sys.modules[holder] = mod
+    gd_errors.emit(gd_errors.TAG_STARTUP, **gd_turn.startup_fields(APP_VERSION, commit))
 
 
 _print_startup_line()
@@ -3463,6 +3493,17 @@ with tab_ask:
                 _gs.clear_job_session(st.session_state)
                 st.session_state["ask_chat_id"] = ch.id
                 st.session_state["ask_chat"] = hist
+                # v4.20.12 candidate (audit 3): the unit boxes come back with the opened job's own category and model.
+                # Before, they kept whatever was typed for the previous job (or nothing after New chat), so the opened
+                # job's next turn told Grok the wrong unit and saved that wrong model over the job's own. The widget keys
+                # are dropped here (before the widgets are drawn) and _restore_widget refills them from the memory keys.
+                st.session_state.pop("ask_cat", None)
+                st.session_state.pop("ask_model", None)
+                st.session_state["gd_category_memory"] = (ch.category_name or "").strip() or "(any)"
+                st.session_state["gd_model_memory"] = (ch.model_text or "").strip()
+                # The previous job's manual-pages / walkthrough choice does not carry into the opened job (it is not
+                # saved with a chat yet: M8). None = the default walkthrough, same as sending without a pick.
+                st.session_state["gd_help_mode"] = None
                 st.session_state["ask_sources"] = []
                 st.session_state["ask_cited_log"] = []
                 for m in hist:

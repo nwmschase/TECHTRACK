@@ -7,7 +7,6 @@ boto3==1.43.113
 pypdf==6.21.0
 pymupdf==1.28.2
 pillow==12.3.0
-fpdf2==2.8.9
 reportlab==5.0.1
 extra-streamlit-components==0.1.81
 itsdangerous==2.2.0

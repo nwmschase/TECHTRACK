@@ -193,7 +193,7 @@ class TestWebTool(unittest.TestCase):
         # stays for open_web_document, its make_web_fn / xai_search are no longer wired into GD.
         src = (ROOT / "rv_techtrack.py").read_text()
         self.assertNotIn("_gd_web_tool()", src)
-        self.assertNotIn("gd_official.make_web_fn(secret_fn=_secret)", src)
+        self.assertNotIn("gd_official.fetch_pages(secret_fn=_secret)", src)
         import gd_tools
         self.assertIn({"type": "web_search", "enable_image_search": True, "enable_image_understanding": True},
                       gd_tools.TOOL_SPECS)   # 2026-11-27: image search on (test1)
@@ -296,8 +296,10 @@ class TestLabelsAndHelpersKept(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("TT_LIVE_PUBLIC_FETCH") == "1", "set TT_LIVE_PUBLIC_FETCH=1 for the one real public-PDF fetch (plain HTTP, free)")
 class TestRealPublicFetch(unittest.TestCase):
     def test_lippert_public_pdf(self):
-        web = gd_official.make_web_fn(secret_fn=lambda k: None)
-        pages = web("https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0002117.pdf troubleshooting")
+        # v4.20.12 candidate: make_web_fn was deleted with the old app-side web search (v4.20.9); this skipped test still
+        # called it. It now checks the fetch open_web_document really uses (gd_tools -> gd_official.fetch_pages).
+        pages = gd_official.fetch_pages("https://lci-support-doc.s3.amazonaws.com/manuals/electronics/onecontrol/ccd-0002117.pdf",
+                                        query="troubleshooting")
         self.assertTrue(pages)
         self.assertEqual(pages[0].host, "lci-support-doc.s3.amazonaws.com")
         self.assertTrue(pages[0].revision)

@@ -122,6 +122,35 @@ class TestGdNavSurvivesSend(unittest.TestCase):
         self.assertEqual(at.selectbox(key="ask_cat").value, "(any)")
         self.assertEqual(at.session_state["gd_category_memory"], "(any)")
 
+    def test_open_saved_job_brings_back_its_own_unit(self):
+        """v4.20.12 candidate (audit 3): Open fills Category and Model from the saved job, not from the job before it."""
+        at = AppTest.from_file(str(APP), default_timeout=60)
+        at.run()
+        at.text_input[0].set_value("manager")
+        at.text_input[1].set_value("manager123")
+        at.button[0].click().run()
+        gd = "💬 Guided Diagnostics"
+        at.radio[0].set_value(gd).run()
+        at.selectbox(key="ask_cat").set_value("Refrigerators")
+        at.text_input(key="ask_model").set_value("FCR10DCGTA")
+        at.text_area(key="ask_input").set_value("FCR10 not cooling, saved job for the Open check")
+        at.button(key="FormSubmitter:gd_send_form-Send").click().run()
+        self.assertFalse(list(at.exception))
+        saved_id = at.session_state["ask_chat_id"]
+        self.assertTrue(saved_id)
+        at.button(key="ask_new").click().run()
+        at.selectbox(key="ask_cat").set_value("(any)")
+        at.text_input(key="ask_model").set_value("SOMETHING ELSE 123")
+        at.run()
+        at.session_state["gd_help_mode"] = "pages"   # the job before the Open picked manual pages
+        at.button(key=f"open_ask_{saved_id}").click().run()
+        self.assertFalse(list(at.exception))
+        self.assertEqual(at.session_state["ask_chat_id"], saved_id)
+        self.assertEqual(at.selectbox(key="ask_cat").value, "Refrigerators")
+        self.assertEqual(at.text_input(key="ask_model").value, "FCR10DCGTA")
+        self.assertEqual(at.session_state["gd_model_memory"], "FCR10DCGTA")
+        self.assertIsNone(at.session_state["gd_help_mode"])
+
     def test_start_new_chat_drops_the_previous_case_before_the_next_reply(self):
         at = AppTest.from_file(str(APP), default_timeout=60)
         at.run()
