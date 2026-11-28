@@ -12,7 +12,7 @@ import io
 import re
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.8"
+MODULE_REVISION = "v4.20.9"
 
 PAGE_DPI = 150
 _ZOOM = PAGE_DPI / 72.0
@@ -26,42 +26,6 @@ _STEP_RE = re.compile(r"^(?:step\s+)?(\d+)[\.\)]\s+\S", re.I)
 _INSTALL_BAN_RE = re.compile(
     r"\b(?:disconnect|connect)\b.{0,80}\bwater supply\b",
     re.I,
-)
-_TOOL_WORD_RE = re.compile(
-    r"\b(?:towels?|pliers|phillips(?:-head)? screwdriver|screwdrivers?|"
-    r"needle[-\s]?nose(?: pliers)?|wrenches?|\d/\d-inch wrench|"
-    r"multimeters?|torque wrench|plastic trash bags?|protective gloves)\b",
-    re.I,
-)
-_METER_RE = re.compile(
-    r"\b(?:continuity|ohms?|volts?(?:\s+AC|\s+DC)?|VAC|VDC|kΩ|millivolts?)\b",
-    re.I,
-)
-_PIN_RE = re.compile(
-    r"\b(?:clamp\s+[A-C]|pin\s+[A-Z0-9]{1,3}\b|connector\s+[A-Z0-9]{1,4}\b|"
-    r"terminal\s+[A-Z0-9]{1,4}\b|drive pin|pocket\s+[A-B])\b",
-    re.I,
-)
-_READING_RE = re.compile(
-    r"\b\d+(?:\.\d+)?\s*(?:V|VAC|VDC|ohm|ohms|Ω|kΩ|psi|in-?lb|ft-?lb|N·m|Nm)\b",
-    re.I,
-)
-_TORQUE_RE = re.compile(
-    r"(?:do not overtighten|torque[^.]{0,60}|in-?lb|ft-?lb|N·m)",
-    re.I,
-)
-_BRANDS = (
-    "thetford",
-    "coleman",
-    "dometic",
-    "furrion",
-    "suburban",
-    "girard",
-    "happijac",
-    "happi jac",
-    "lippert",
-    "norcold",
-    "bal",
 )
 
 ASSET_DDL = """
@@ -522,5 +486,4 @@ def asset_path(document_id: int, page: int, kind: str, label: str) -> str:
     return f"library-pages/{int(document_id)}/p{int(page)}-{slug}.png"
 
 
-_THETFORD_DEMO_PACKETS = None
 

@@ -20,7 +20,7 @@ from sqlalchemy import text
 import manual_figures as mf
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.8"
+MODULE_REVISION = "v4.20.9"
 
 # Measured at 150 dpi from the two kit fixtures (42109 one page, 34123 two
 # pages). Mean page PNG 519584 bytes. Mean of five crops 82040 bytes.
@@ -916,55 +916,10 @@ def _words(value: str) -> set[str]:
     }
 
 
-# Product lines are narrower than the maker. Power Gear is not Level Up,
-# and a pump-seal tip sheet is not a toilet kit or a rooftop air conditioner.
-_LINE_RES = (
-    ("power_gear", re.compile(
-        r"power\s*gear|tip\s*sheet\s*#?\s*216|\bmotor\s*brake\b|\bpump\s*seal\b|\bpump\s+replacement\b",
-        re.I,
-    )),
-    ("level_up", re.compile(r"level[\s-]*up|\b807662\b", re.I)),
-    ("ground_control", re.compile(r"ground\s*control|\b343633\b", re.I)),
-    ("psx1", re.compile(r"\bpsx1\b", re.I)),
-    ("schwintek", re.compile(r"\bschwintek\b", re.I)),
-    # Same maker is not the same system. A tongue jack is not a PSX1 stabilizer,
-    # and a Titan bracket is not Level Up.
-    ("tongue_jack", re.compile(r"tongue\s*jack|bevel\s*gear", re.I)),
-    ("titan", re.compile(r"\btitan\b|\bti[\s-]*489\b", re.I)),
-    ("happijac", re.compile(r"happi\s*jac", re.I)),
-    ("ac", re.compile(r"air\s*condition|\brooftop\b|\bhvac\b|\bb57915\b|\bbrisk\b", re.I)),
-    ("plastic_tank", re.compile(r"plastic\s+tank", re.I)),
-    ("toilet", re.compile(
-        r"\b(?:toilet|thetford|42070|42109|42049|34122|34123|flush\s+lever)\b",
-        re.I,
-    )),
-)
-
-
-_BRAND_WORDS = {
-    "lippert", "dometic", "thetford", "furrion", "atwood", "coleman",
-    "girard", "suburban", "norcold", "happijac",
-}
-# Shared family words are not a topic. "Level" does not make a slide motor
-# relevant to a Manual Mode flash, and it does not make a HappiJac crop a PSX1.
-_GENERIC_TOPIC = {
-    "level", "mode", "auto", "home", "manual", "advantage", "system",
-    "repair", "check", "unit", "model", "works", "still", "flash",
-    "flashes", "dumps", "back", "page", "figure",
-}
-
-
-_DOC_TOKEN_RE = re.compile(
-    r"CCD-0*(\d{4,})|\b(42088|42109|42110|42049|34122|34123)\b",
-    re.I,
-)
-
-
 # ---- Live-data repairs for figure rows (v4.19.58) ---------------------------
 # The library extractor sometimes keeps only the first line of a wrapped figure
 # caption ("FIGURE 3 - WATER" / "VALVE CLOSED" / "POSITION") and crops the image
 # through that first line. These helpers rebuild the full caption from the page
 # text and trim the stray caption text off the crop. They never write to the library.
 
-_FIG_LABEL_HEAD_RE = re.compile(r"^\s*fig(?:ure)?\.?\s*(\d+)\b\s*[-:]?\s*(.*)$", re.I)
 

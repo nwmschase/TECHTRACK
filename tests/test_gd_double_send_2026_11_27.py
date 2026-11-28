@@ -61,7 +61,7 @@ class TestSendStore(unittest.TestCase):
         self.assertEqual(self.s.claim(2, "k")[0], "ask")           # another tech never gets this reply
         self.now[0] += 601
         self.assertEqual(self.s.claim(1, "k")[0], "ask")
-        self.assertEqual(gd_sends.TTL_SECONDS, 600)
+        self.assertEqual(gd_sends.TTL_SECONDS, gd_sends.WAIT_SECONDS + 600)   # v4.20.9: whole turn + 10 min kept
 
     def test_commit_once_and_unseen(self):
         self.s.claim(1, "k"); self.s.finish(1, "k", reply="R", turns=0)
@@ -79,7 +79,7 @@ class TestSendStore(unittest.TestCase):
         self.assertIn("if _gd_reply_is_failure(reply):\n                                _sends.forget(_send_user, _send_key)",
                       SRC[i:i + 400])
         body = SRC[SRC.index("def _gd_reply_is_failure("):SRC.index("def _gd_case_copy(")]
-        for name in ("GD_UNAVAILABLE_LINE", "GD_OFFLINE_LINE", "index_fetch.LOADING_LINE", "index_fetch.UNAVAILABLE_LINE"):
+        for name in ("gd_errors.is_error_line(reply)", "GD_OFFLINE_LINE", "index_fetch.LOADING_LINE", "index_fetch.UNAVAILABLE_LINE"):
             self.assertIn(name, body)
 
     def test_clear_user(self):

@@ -91,7 +91,7 @@ class BulkCase(unittest.TestCase):
         manifest_bytes = None
         if isinstance(manifest, str):
             manifest_bytes = manifest.encode("utf-8")
-        return bulk.stage_zip_bytes(
+        return bulk.stage_zip_source(
             self.session,
             blob,
             zip_name=name,
@@ -771,7 +771,7 @@ class TestBulkImport(BulkCase):
         self.assertEqual(len(self.uploads), 1)
 
     def test_a_file_that_is_not_a_zip_is_refused(self):
-        result = bulk.stage_zip_bytes(
+        result = bulk.stage_zip_source(
             self.session,
             b"hello",
             zip_name="nope.zip",

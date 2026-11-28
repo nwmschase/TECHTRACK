@@ -13,11 +13,9 @@ from __future__ import annotations
 
 import re
 
-# Product path: hard tree is never exclusive GD chat.
-HARD_TREE_EXCLUSIVE_CHAT = False
 # Bump with the app version. rv_techtrack reloads a cached module whose
 # revision is missing or is not this stamp, even when every old name exists.
-COACH_REVISION = "v4.20.8"
+COACH_REVISION = "v4.20.9"
 MODULE_REVISION = COACH_REVISION
 
 # Document Library names. GD chat / Jobs / library pickers and seed_data share this list.
@@ -74,81 +72,21 @@ DEFAULT_XAI_VISION_MODELS = (
 )
 
 
-FIGURE_HINTS = (
-    "illustration", "illustrations", "figure", "fig.", " fig ",
-    "drawing", "diagram", "show me that page", "show that page",
-    "show the page", "show page", "show me the page", "show the figure",
-    "show the illustration", "associated illustrations", "associated illustration",
-    "source page", "that page", "this page", "show me fig",
-    "picture of", "pictures", "photo of", "pcb layout",
-    "where are they", "where they are", "where is it", "where it is",
-    "show me where", "show where", "label the", "labeled",
-    "the diagram", "show diagram", "show the drawing", "show the diagram",
-    "can i see the page", "can i see the figure", "can i see that page",
-    "pull up the page", "display the page", "let me see the figure",
-    "let me see the page", "show that figure", "show that diagram",
-    "show me the diagram", "show me the drawing", "show me the figure/page",
-)
 
 
-# Board / terminal / PCB figure asks (Chase live: "show me labeled output terminals").
-BOARD_FIGURE_ASK_HINTS = (
-    "pcb", "inverter board", "board layout", "pinout", "pin-out", "pin out",
-    "output terminal", "terminals labeled", "labeled terminal", "terminal label",
-    "housing label", "wiring diagram", "inverter pcb", "inverter terminal",
-    "fan terminal", "labeled pcb", "label the terminal", "label the board",
-    "where are the terminal", "where is the terminal", "f+", "f-", "f–", "f−",
-    "d/+", "silkscreen",
-)
-
-
-# CCD-0008122 shop SM pages that actually show board / terminal figures.
-# ~11 wiring, ~16–17 Fig. 2–4 inverter + D/+, ~27 Fig. 21 F+/F−, ~45–46 Fig. 68–69 housing.
-FURRION_FCR_BOARD_FIGURE_PAGES = (16, 17, 27, 11, 45, 46)
-FURRION_FCR_TEXT_ONLY_PAGES = (13,)  # Troubleshooting Instructions / Quick Notes
-
-FIG_CAPTION_RE = re.compile(r"\bfig(?:ure)?\.?\s*\d+", re.I)
 F_PLUS_MINUS_RE = re.compile(r"\bf\s*[+\-–−]", re.I)
 
 
 # Lippert Level Up Advantage hydraulic leveling controller (807662 / 25499 / 24999).
 # NOT Ground Control electric. NOT OneControl Unity M-Series awning/slide reversing.
 LEVEL_UP_PARTS = ("807662", "25499", "24999")
-LEVEL_UP_DOC_MARKERS = (
-    "ti-005", "ti 005", "ti005",
-    "ti-170", "ti 170", "ti170",
-    "qr-092", "qr 092", "qr092",
-    "qr-059", "qr 059", "qr059",
-    "octp",
-    "level-up", "level up", "levelup",
-    "electronic leveling troubleshooting",
-)
 
-# Thin title hints (no invented page numbers) — same idea as Furrion board-figure pages.
-LEVEL_UP_ADVANTAGE_HINT_TITLES = (
-    "TI-005 Electronic Leveling Troubleshooting Guide",
-    "TI-170",
-    "QR-092 Level-Up OCTP wiring",
-    "QR-059 ID guide",
-)
 
 
 # Rooftop Air Conditioning (Furrion FACT*, Furrion FACR* / Chill, Dometic B57915 / Brisk, ADB).
 # NOT Lippert OneControl Unity M-Series awning/slide reversing — unless the tech
 # explicitly names OneControl / Unity / CAN multiplex for the AC controls.
 AC_MODELS = ("fact12sa2", "fact12", "facr08hesa2", "facr08", "facr13", "facr15", "b57915")
-AC_DOC_MARKERS = (
-    "fact12", "furrion fact",
-    "facr08", "furrion facr", "furrion chill",
-    "ccd-0007990", "ccd0007990",
-    "ccd-0008666", "ccd0008666",
-    "rooftop hvac",
-    "b57915", "brisk",
-    "rooftop ac", "roof top ac", "roof ac",
-    "air condition", "air-condition",
-    "air distribution", "adb",
-    "penguin",
-)
 AC_SEARCH_BOOST = (
     "Furrion FACT rooftop air conditioner FACT12SA2 FACT12 "
     "Furrion FACR Chill rooftop HVAC "
@@ -159,26 +97,9 @@ AC_FIGURE_SEARCH_BOOST = (
     "Furrion FACT FACR Chill Dometic Brisk rooftop AC ADB "
     "air distribution box wiring diagram Fig. figure"
 )
-AC_HINT_TITLES = (
-    "Furrion FACT12SA2",
-    "Furrion FACT rooftop air conditioner",
-    "Furrion Rooftop HVAC Troubleshooting & Service Manual",
-    "CCD-0007990",
-    "CCD-0008666",
-    "Furrion Chill FACR",
-    "Dometic Brisk B57915",
-    "Dometic Brisk rooftop AC",
-)
 # Furrion FACR* rooftop freeze / condensate / base-pan / ice (live HIT 2026-09-18
 # cited CCD-0008666 only). Prefer existing 7990 + 8666 titles — do not invent OEM text.
 FACR_MODEL_RE = re.compile(r"\bfacr\d", re.I)
-FACR_FREEZE_DOC_MARKERS = (
-    "ccd-0007990", "ccd0007990",
-    "ccd-0008666", "ccd0008666",
-    "furrion rooftop hvac",
-    "rooftop hvac troubleshooting",
-    "furrion chill",
-)
 FACR_FREEZE_SEARCH_BOOST = (
     "CCD-0007990 Furrion Rooftop HVAC Troubleshooting & Service Manual "
     "CCD-0008666 Furrion Chill FACR rooftop air conditioner "
@@ -193,11 +114,6 @@ FACR_FREEZE_FIGURE_SEARCH_BOOST = (
 # Live library: Water Heaters / Girard GSWH-2 Troubleshooting Manual, 109 chunks.
 # Do not invent blink LEDs or OEM page numbers.
 WATER_HEATER_MODELS = ("gswh-2", "gswh2", "gswh 2")
-WATER_HEATER_HINT_TITLES = (
-    "Girard GSWH-2 Troubleshooting Manual",
-    "CCD-0009390",
-    "GSWH-2",
-)
 
 
 def _norm(text: str) -> str:
@@ -211,11 +127,6 @@ def _blob(*texts: str) -> str:
     return _norm(" ".join(t or "" for t in texts))
 
 
-_LEAD_JACK_DRIFT_RE = re.compile(
-    r"\bdrift(?:s|ing)?\b|move on (?:their|its) own|pressuriz|"
-    r"front[-\s]*left jack|lead[-\s]*jack|cartridge valve|\b177094\b",
-    re.I,
-)
 
 
 def _looks_like_furrion_fcr_fridge(text: str) -> bool:
@@ -555,10 +466,6 @@ def chunk_matches_asked_brand(
 
 # Brand words alone are not a model. "Lippert" does not exclude a model list.
 # "Schwintek" is a product, so "Lippert Schwintek" is model-specific.
-_PRIMARY_OEM_BRANDS = frozenset({
-    "furrion", "norcold", "dometic", "suburban", "atwood", "lippert", "lci",
-    "bal", "coleman", "airxcel", "thetford", "girard",
-})
 
 
 

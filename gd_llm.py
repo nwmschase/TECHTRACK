@@ -1,13 +1,14 @@
 """Shared LLM provider for Guided Diagnostics chat, warranty story, and plate photos.
 
-Primary is xAI (OpenAI-compatible). Groq is one automatic fallback with the same
+Guided Diagnostics turns use ``respond`` (xAI Responses API, xAI only, no Groq fallback, 240 s a round).
+The story and plate photos use ``complete_chat``: xAI first, Groq one automatic fallback with the same
 messages. No OEM / FACR / Coleman text lives here.
 
 Secrets (Streamlit ``st.secrets`` or environment; never log the values):
 
 - ``XAI_API_KEY`` - primary key
-- ``GROQ_API_KEY`` - fallback key
-- ``XAI_MODEL`` - default ``grok-4.3``
+- ``GROQ_API_KEY`` - story / plate fallback key
+- The model is set in code only: ``DEFAULT_XAI_MODEL`` (grok-4.3). v4.20.9: the ``XAI_MODEL`` secret is no longer read.
 - ``XAI_BASE_URL`` - default ``https://api.x.ai/v1``
 - ``GD_LLM_PRIMARY`` - ``xai`` (default) or ``groq``
 """
@@ -18,7 +19,7 @@ import re
 import threading
 
 # rv_techtrack reloads this file when the stamp is not the app version.
-MODULE_REVISION = "v4.20.8"
+MODULE_REVISION = "v4.20.9"
 
 # Guided Diagnostics ask turns: no token cap and no reasoning-effort setting (None = the provider's own defaults).
 GD_ASK_MAX_TOKENS = None
@@ -39,12 +40,13 @@ SDK_MODULE = {
     PROVIDER_GROQ: "groq",
 }
 
-DEFAULT_XAI_MODEL = "grok-4.3"  # Chase: Grok 4.3 at go-live (readiness #34); XAI_MODEL secret still overrides
+DEFAULT_XAI_MODEL = "grok-4.3"  # Chase: Grok 4.3 at go-live (readiness #34). v4.20.9: the ONE source of the model; the
+# XAI_MODEL secret is not read (live GD turn logs 11/27 all show grok-4.3, so nothing changes). Printed in TT_STARTUP.
 DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
 # Live Groq chat model. Vision plate reads pass their own Groq vision ids.
 DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
 
-# Healthy grok-4.6 turns on this app finish in about 21–100s. The OpenAI SDK
+# Healthy GD turns on this app finish in about 21–100s. The OpenAI SDK
 # default is 600s with 2 retries (about 30 minutes) and Groq's default is 60s
 # with 2 retries. A stuck socket then never reaches the fallback, and the
 # Streamlit script stays on "Running" / Stop until the tech reloads.
@@ -82,11 +84,17 @@ _NOT_FOUND_RE = re.compile(r"\b404\b|model_not_found|model not found", re.I)
 _LOCAL_BUGS = (TypeError, ValueError, KeyError, UnicodeEncodeError, UnicodeDecodeError)
 
 # Set on a successful completion. Not shown to the bay tech.
-_last_provider = ""
 
 
 class LLMProviderError(RuntimeError):
-    """User-facing provider failure. ``str(exc)`` is already prefixed and redacted."""
+    """User-facing provider failure. ``str(exc)`` is already prefixed and redacted.
+    v4.20.9: ``kind`` ("timeout" / "xai_error" / "no_key") and ``status`` (the HTTP status code or None) say what failed,
+    so the app can tell the tech the real reason (gd_errors)."""
+
+    def __init__(self, message="", kind="xai_error", status=None):
+        super().__init__(message)
+        self.kind = kind
+        self.status = status
 
 
 class LLMTimeoutError(TimeoutError):
@@ -124,9 +132,6 @@ def last_usage() -> dict:
     return dict(_last_usage)
 
 
-def last_provider() -> str:
-    """``xai`` or ``groq`` after the last successful completion; empty before that."""
-    return _last_provider
 
 
 def _clean(val) -> str:
@@ -246,7 +251,7 @@ def _models_for(provider: str, models: dict | None, secret_fn) -> list[str]:
     if supplied:
         return supplied
     if provider == PROVIDER_XAI:
-        return [_lookup("XAI_MODEL", secret_fn) or DEFAULT_XAI_MODEL]
+        return [DEFAULT_XAI_MODEL]     # v4.20.9: the code is the one source of the model (no XAI_MODEL secret)
     return [DEFAULT_GROQ_MODEL]
 
 
@@ -372,7 +377,7 @@ def complete_chat(
     """Chat completion. Try the primary provider, then the other one once.
 
     ``models`` replaces the single default model for a provider (vision plate
-    reads pass xAI grok-4.6 first, then the current Groq vision ids). A 404
+    reads pass the xAI vision ids first, then the current Groq vision ids). A 404
     tries the next model on that provider. Rate limit, auth, 5xx, timeout, and
     transport skip the rest of that provider and retry the same messages on
     the fallback. ``providers`` limits the attempt list. Step photos pass
@@ -381,7 +386,6 @@ def complete_chat(
     retries off, so a stuck call falls through or raises instead of hanging
     the Streamlit run. The bay sees an error only when both providers fail.
     """
-    global _last_provider
 
     order = list(providers) if providers else provider_order(secret_fn)
     redact = [
@@ -448,7 +452,6 @@ def complete_chat(
             if empty_is_failure and not text:
                 notes.append(f"{model}: empty vision response")
                 continue
-            _last_provider = provider
             return text
         if notes:
             errors.append(f"{label}: " + "; ".join(notes))
@@ -540,18 +543,18 @@ def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_fact
             temperature: float = GD_RESPOND_TEMPERATURE) -> dict:
     """One Grok call on the xAI Responses API with our function tools + built-in web search. Returns parse_response().
     No token cap and no reasoning-effort setting (the provider's defaults). xAI only: Groq has no built-in web search."""
-    global _last_provider, _last_usage
+    global _last_usage
     key = _lookup("XAI_API_KEY", secret_fn)
     if not key:
-        raise LLMProviderError(NO_KEY_MESSAGE)
+        raise LLMProviderError(NO_KEY_MESSAGE, kind="no_key")
     redact = [key]
     base_url = _lookup("XAI_BASE_URL", secret_fn) or DEFAULT_XAI_BASE_URL
-    model = model or _lookup("XAI_MODEL", secret_fn) or DEFAULT_XAI_MODEL
+    model = model or DEFAULT_XAI_MODEL     # v4.20.9: the code is the one source of the model (no XAI_MODEL secret)
     factory = client_factory or default_client_factory
     try:
         client = factory(PROVIDER_XAI, api_key=key, base_url=base_url)
     except Exception as exc:
-        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}") from None
+        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}", status=_status_code(exc)) from None
     kwargs = {"model": model, "input": list(input_items), "tools": list(tools or []), "temperature": temperature,
               "include": list(RESPONSES_INCLUDE)}
     if tool_choice:
@@ -562,9 +565,11 @@ def respond(input_items, tools, *, tool_choice=None, secret_fn=None, client_fact
     try:
         response = _run_with_deadline(_call, float(TOOL_REQUEST_TIMEOUT_SEC) + float(DEADLINE_SLACK_SEC))
     except LLMTimeoutError:
-        raise LLMProviderError(f"xAI: timed out after {int(TOOL_REQUEST_TIMEOUT_SEC)}s. " + TIMEOUT_RETRY_SENTENCE) from None
+        raise LLMProviderError(f"xAI: timed out after {int(TOOL_REQUEST_TIMEOUT_SEC)}s. " + TIMEOUT_RETRY_SENTENCE,
+                               kind="timeout") from None
     except Exception as exc:
-        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}") from None
+        kind = "timeout" if "timeout" in type(exc).__name__.lower() else "xai_error"
+        raise LLMProviderError(f"xAI: {_redact(_detail(exc), redact)}", kind=kind, status=_status_code(exc)) from None
     got = parse_response(response)
-    _last_provider, _last_usage = PROVIDER_XAI, dict(got["usage"])
+    _last_usage = dict(got["usage"])
     return got

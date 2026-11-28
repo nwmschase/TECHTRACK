@@ -1,5 +1,6 @@
 """
-RV TechTrack v4.20.8
+RV TechTrack v4.20.9
+- v4.20.9: Code cleanup and real errors (Chase 2026-11-28 t1727u / t1729u; audit 2026-11-28). (1) New chat and Open clear the whole GD job record (gd_state.clear_job_session): no cause, closed flag, access answer, cited pages or found manuals carry into the next job. (2) The wrap-up and the access question come only at a real end of job: the new Diagnosis complete / Repair complete buttons, Grok's repair.verified or closed (not done alone), or a plain close statement from the tech; questions, 'not working now' and conditional phrases never trigger it, and the next message is taken as the access answer only when the app asked and the reply answers it. The old substring phrase triggers are deleted. (3) A failed GD turn names its cause to the tech (took too long / xAI error with status / app bug / no key), always writes a turn log with the error type and a short traceback, and prints GD_ERROR. (4) Every fallback on the GD path (photo read, plate read, story, state block, picture not drawn, page links, page search) prints GD_FALLBACK and lands in that turn's log. (5) The double-send guard holds for the whole turn (6 rounds x 245 s + margin) and the paid photo read runs after the guard. (6) Deleted: legacy_selector.py, rv_techtrackpr4, scripts/picker_sweep.py, the manual pickers (gd_pages pick_manual/fetch_part/entry_pages/toc_pages, search pick_manual/fetch_by_part), the hard procedure trees, gd_official's old web search, the story state field, and every def or constant left with no caller. (7) Guardrails: tests/test_dead_code_guard.py fails on code with no caller; one TT_STARTUP line at start; the model is set in code only (grok-4.3, XAI_MODEL no longer read; the running model is unchanged).
 - v4.20.8: Meaning (smart) search off by default (Chase 2026-11-28 t1725u). The page search Grok uses is word-match only; the embedding model and passage vectors are never loaded, so there is no download, no ~300 MB, and nothing to fail. TT_PAGEFINDER_MEANING=on still turns it back on (environment only; the app no longer reads a Streamlit secret for this, so an old "on" secret cannot switch it back). When off or when the model fails, hybrid() is word-match only (no 0.5 blend toward zeros), so a page search with no matching words comes back empty and the v4.20.7 web gate can open. One tagged SMART_SEARCH_OFF line is printed to the Streamlit log at startup or when the state changes (never per query); the GD turn log records MEANING_SEARCH_OFF once per job and usage.meaning is on/off/failed. Manager Tools shows the same state. The index vectors stay in place. No new primer rule.
 - v4.20.7: GD library-first in code, temperature, remnant cleanup (Chase 2026-11-28 t1713u; test8). (1) Web gate: the web tools (web_search with image search, open_web_document) are left out of Grok's tool list until a library page has been opened in the job or the library comes back with nothing for the unit (decided from the app's own tool records); on a picture request they also wait until the library was looked at that turn. (2) Picture request: when Grok opens no library page, the app opens the best picture-labelled page of the manuals found for the unit and shows that one page; no library picture = Grok's reply only. (3) Cited is this turn's list only (a state block that leaves it out clears it; it no longer carries over) and only pages opened in the job stay cited; others are dropped and logged CITED_NOT_OPENED. The log-only WEB_BEFORE_LIBRARY_SEARCH trigger is replaced by the gate. (4) The GD answer call runs at temperature 0.7 (was 0.2); reasoning effort unchanged. (5) Retired: the old text/figure picture path (resolve_requested_library_pages and its seed/page parsers, render_on_demand_library_pages, render_library_page_image, ask_auto_show, _stored_figure_matches, step figures, figure_render_honesty_note and its Level-Up/AC/water-heater boilerplate, library_figure_backfill offers_for_turn / gd_figures_under_step and their helpers, the regex picture-ask checks wants_library_page_shown / tech_asked_for_manual_figure (now gd_picture.is_picture_request), reading page numbers out of Grok's reply text, and every old figure helper left with no caller in gd_library_coach, manual_figures and library_figure_backfill); primer lines that contradicted the gate (web photos, several lookups in one round).
 - v4.20.6: GD test7b fixes (Chase 2026-11-27 pt1664u). (1) Picture: when the tech asks for a photo or diagram the reply shows the one page that best shows it, picked from the pages Grok opened this turn (gd_picture: the page Grok names for that item, then its cited pages, then the page label and text), drawn the same way as the page images Grok was given (only the page reference is kept in the session, no image bytes); the old figure lookups and the long 'could not load' note are gone from this path ('That page didn't load; tap Open PDF.' + Open PDF only when nothing could be drawn). (2) No <state> block: the pages Grok opened this turn fill cited, so the page buttons and story sources stay. (3) The REPLY FORMAT reminder (same words) is the last item of every model round, after the tool results. (4) Double send: server-side guard (gd_sends) keyed by tech + turn + message + photo, 10-minute TTL; the reply is put in the chat and the database as soon as Grok returns; a kept reply no screen drew is shown on the next run. (5) Meaning search: pagefinder/build_index sets HF_HUB_OFFLINE only in its own main(), so the live app can download the model again.
@@ -144,6 +145,8 @@ from sqlalchemy.sql import func
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
+import subprocess
+import sys
 import shutil
 import hashlib
 import secrets
@@ -224,7 +227,7 @@ _GDC_STALE_GUARD_ATTRS = (
 # A cached module is dropped when the stamp is missing or not this revision,
 # even if every older function name is still present. Equality, not sort order:
 # "v4.19.10" is not older than "v4.19.9" as text.
-_GDC_REQUIRED_REVISION = "v4.20.8"
+_GDC_REQUIRED_REVISION = "v4.20.9"
 # Import order. gd_llm and the photo helper have no app import at load time.
 # manual_figures is next because the coach and the figure bank import it while
 # they load. The coach is before the figure bank, which imports it.
@@ -382,7 +385,7 @@ def _reload_stale_app_modules_locked(required_revision):
 # content hash with the one last loaded in this process and, when any changed, drops the whole stack from sys.modules so
 # the next import executes the files that shipped with this deploy (together, so none keeps an older sibling).
 _GD_PLAIN_MODULES = ("gd_state", "gd_pages", "gd_prompt", "gd_official", "gd_tools", "gd_turn", "gd_story",
-                     "gd_work_orders", "gd_page_links", "gd_picture", "gd_sends")
+                     "gd_work_orders", "gd_page_links", "gd_picture", "gd_sends", "gd_errors")
 
 
 def _drop_changed_gd_modules():
@@ -425,7 +428,19 @@ _drop_changed_gd_modules()
 # Import after the reload so this script binds the new function objects.
 # Streamlit Cloud does not always start with the repo root on sys.path.
 import gd_llm
-HARD_TREE_EXCLUSIVE_CHAT = _gdc.HARD_TREE_EXCLUSIVE_CHAT
+
+
+def _gd_fb(where, why, exc=None, **fields):
+    """v4.20.9 ("no silent fallbacks"): a GD place that carries on without something prints a GD_FALLBACK line to the Manage
+    app logs and goes into the next GD turn log (gd_errors). Key values are masked; logging never breaks the app."""
+    try:
+        import gd_errors
+
+        gd_errors.fallback(where, why, exc=exc, secrets=_gd_secret_values(), **fields)
+    except Exception as e:   # the logger itself failed: one plain stdout line, then carry on
+        print(f"GD_FALLBACK_LOGGER_FAILED {where} {type(e).__name__}", flush=True)
+
+
 DEFAULT_LIBRARY_CATEGORIES = _gdc.DEFAULT_LIBRARY_CATEGORIES
 gd_category_select_options = _gdc.gd_category_select_options
 library_category_picker_names = _gdc.library_category_picker_names
@@ -434,10 +449,6 @@ complete_chat_with_payload_retry = _gdc.complete_chat_with_payload_retry
 xai_vision_model_candidates = _gdc.xai_vision_model_candidates
 
 # ---------------- SHOP BRANDING ----------------
-HEADER_GREEN = "#038944"
-DEALER_RED = "#DF1F26"
-NAVY = "#01147C"
-DARKER_GREEN = "#02763A"
 
 
 def shop_logo_path():
@@ -1770,7 +1781,7 @@ def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> 
             ],
         }
     ]
-    # llama-4-scout stays off the Groq list (HTTP 404). grok-4.6 accepts the image.
+    # llama-4-scout stays off the Groq list (HTTP 404). grok-4.3 accepts the image.
     try:
         raw = gd_llm.complete_chat(
             messages,
@@ -1780,13 +1791,15 @@ def read_data_plate_from_image(image_bytes: bytes, mime: str = "image/jpeg") -> 
             models={
                 "xai": xai_vision_model_candidates(
                     preferred_vision=_secret("XAI_VISION_MODEL") or "",
-                    preferred_chat=_secret("XAI_MODEL") or "",
+                    preferred_chat=gd_llm.DEFAULT_XAI_MODEL,   # v4.20.9: the code is the one source of the model
                 ),
                 "groq": groq_vision_model_candidates(_secret("GROQ_VISION_MODEL") or ""),
             },
             empty_is_failure=True,
         )
     except Exception as e:
+        _gd_fb("plate_read", "the data-plate photo could not be read; the tech types the model", exc=e)
+        _gd_publish_turn_log({"event": "plate_read_failed"})
         return {
             "ok": False,
             "error": str(e) or "Could not read the plate photo.",
@@ -1972,6 +1985,7 @@ Write the document now."""
             max_tokens=1600,
         )
     except Exception as e:
+        _gd_fb("story_old_writer", "the old story writer could not reach the AI; the tech sees the error text", exc=e)
         return f"Error contacting AI: {e}\n\nConcern: {concern}\nNotes: {tech_notes}"
 
 
@@ -2127,25 +2141,11 @@ def index_document_from_r2(doc: Document):
     return index_document_from_bytes(doc, data)
 
 # ---------------- MANUAL SEARCH + INDEX EXPANSION ----------------
-FAULT_CODE_TOKEN_RE = re.compile(r"^[a-z]\d{1,3}$")
 
 
-PAGE_REF_RE = re.compile(r"page\s*0*(\d+)", re.I)
-
-PROCEDURE_TOPIC_TERMS = [
-    "ventilation", "leveling", "level", "ambient", "air leak", "thermistor",
-    "cooling unit", "heating element", "heater", "igniter", "electrode",
-    "high voltage", "solenoid", "orifice", "flue baffle", "flue tube", "burner",
-    "upper circuit board", "lower circuit board", "control board", "fuse",
-    "wiring", "dc volt", "ac volt", "lp gas", "propane", "manual gas",
-    "door seal", "frame heater", "climate control", "diagnostic mode",
-    "error code", "fault code", "sequence of operation", "ohms", "voltage",
-    "sail switch", "sail", "limit switch", "high limit", "thermostat bypass",
-    "blower", "airflow",
-]
 
 
-SHOP_BRANDS = tuple(_gdc.SHOP_BRAND_TOKENS)
+
 
 
 def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
@@ -2161,7 +2161,8 @@ def render_pdf_page_png(file_bytes: bytes, page_num: int, zoom: float = 1.6):
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
         return pix.tobytes("png")
-    except Exception:
+    except Exception as e:
+        _gd_fb("render_pdf_page", "a PDF page could not be drawn", exc=e, page=page_num)
         return None
     finally:
         if pix is not None:
@@ -2358,7 +2359,8 @@ def _gd_doc_file_path(doc_id) -> str:
         return ""
     try:
         d = session.get(Document, int(m.group(1)))
-    except Exception:
+    except Exception as e:
+        _gd_fb("doc_file_path", "library document lookup failed; its page row has no PDF", exc=e, doc_id=str(doc_id))
         return ""
     return (d.file_path or "") if d is not None else ""
 
@@ -2376,11 +2378,12 @@ def _gd_cited_page_refs(cited) -> list:
         lib = getattr(finder, "lib", None)
         pages_fn = getattr(lib, "pages", None)
         title_fn = finder.doc_title
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("cited_page_refs", "page finder not ready; page buttons built without sheet / title lookup", exc=e)
     try:
         return gd_page_links.page_refs(cited, pages_fn=pages_fn, file_fn=_gd_doc_file_path, title_fn=title_fn)
-    except Exception:
+    except Exception as e:
+        _gd_fb("cited_page_refs", "no page buttons for this reply", exc=e)
         return []
 
 
@@ -2390,7 +2393,8 @@ def _gd_pdf_in_storage(key: str) -> bool:
 
     try:
         bucket = st.secrets["R2_BUCKET_NAME"]
-    except Exception:
+    except Exception as e:
+        _gd_fb("pdf_in_storage", "R2 bucket not set up; cited PDFs show as not in storage", exc=e)
         return False
     return gd_page_links.object_exists_cached(get_r2_client, bucket, key)
 
@@ -2408,7 +2412,9 @@ def _gd_sheet_png(doc_id, sheet: int, file_path: str, pdf_cache: dict | None = N
             import library_figure_backfill as fb
 
             png = fb.fetch_png(mf.asset_path(int(m.group(1)), int(sheet), "page", "page"), download=r2_download_bytes)
-        except Exception:
+        except Exception as e:
+            _gd_fb("sheet_png", "stored page image not read; drawing the page from the PDF", exc=e, doc_id=str(doc_id),
+                   sheet=sheet)
             png = None
     if not png or mf.png_is_blank(png):
         local = Path(str(file_path or ""))
@@ -2418,7 +2424,8 @@ def _gd_sheet_png(doc_id, sheet: int, file_path: str, pdf_cache: dict | None = N
         elif file_path and local.is_file():
             try:
                 data = local.read_bytes()
-            except Exception:
+            except Exception as e:
+                _gd_fb("sheet_png", "local PDF not readable; page not drawn", exc=e, doc_id=str(doc_id), sheet=sheet)
                 data = None
         elif file_path:
             data = r2_download_bytes(file_path)
@@ -2487,7 +2494,8 @@ def _render_gd_page_links(pages, key_prefix: str) -> None:
         if not local:
             try:
                 url = gd_page_links.pdf_link(get_r2_client(), st.secrets["R2_BUCKET_NAME"], key, sheet)
-            except Exception:
+            except Exception as e:
+                _gd_fb("page_link", "no Open PDF link for a cited page", exc=e)
                 url = ""
         if url:
             c2.link_button("📄 Open PDF", url, use_container_width=True)
@@ -2502,7 +2510,8 @@ def _render_gd_page_links(pages, key_prefix: str) -> None:
             if shown:
                 try:
                     ok = _render_cited_sheet(ref.get("doc_id"), int(sheet), key, label)
-                except Exception:
+                except Exception as e:
+                    _gd_fb("show_page", "a cited page could not be drawn", exc=e, doc_id=str(ref.get("doc_id")), sheet=sheet)
                     ok = False
                 if not ok:
                     st.caption("Couldn't draw that page here. Use Open PDF.")
@@ -2514,7 +2523,6 @@ def clear_ask_source_state():
     st.session_state["ask_sources"] = []
     st.session_state.pop("ask_sources_json", None)
     st.session_state.pop("ask_cited_log", None)
-    st.session_state.pop("ask_flow", None)
 
 
 def reset_guided_diagnostics_session():
@@ -2537,7 +2545,6 @@ def reset_guided_diagnostics_session():
     st.session_state.pop("ask_pending_answer", None)
     st.session_state.pop("ask_force_send", None)
     st.session_state["gd_help_mode"] = None       # the next job asks again: manual pages or a walkthrough
-    st.session_state.pop("gd_help_choice", None)
     st.session_state["ask_model"] = ""
     st.session_state["gd_model_memory"] = ""
     st.session_state["ask_cat"] = "(any)"
@@ -2546,427 +2553,15 @@ def reset_guided_diagnostics_session():
     st.session_state.pop("ask_plate_upload", None)
     st.session_state.pop("ask_plate_read_btn", None)
     st.session_state["ask_wo_number"] = ""
-    st.session_state.pop("gd_case_chat_id", None)
-    st.session_state.pop("gd_access_prompt", None)
-    st.session_state.pop("gd_access_text", None)
-
-
-FURNACE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-FRIDGE_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-DIAG_LED_HONESTY = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-UNITY_OEM_ORDER = ""  # prompt rule text removed 2026-10-23 (Chase order); original in drafts/REMOVED-RULES-2026-10-23
-
-
-# ---------------- GUIDED FLOW ENGINE (v4.10.0, soft-disabled in GD chat v4.13.0) ----------------
-# Tree data is leftover citation material only. GD chat is the open library coach.
-# Do not encode this Furrion tree as GD UX (wrong fan-replacement leaf vs SM diamond).
-
-FURRION_FCR_SM_TITLE = "Furrion FCR08/FCR10 SM CCD-0008122"
-
-# First hard tree: Furrion FCR08/FCR10 / FCR10DCGTA / CCD-0008122
-# Encoded from shop SM: Sec1 Fuse p.19 → Gen TS dial/battery p.12 → Sec3 paper p.33 →
-# operating? diamond → Fan Replacement OR Not Cooling p.34.
-# Fan F+/F- supply volts live on Fan Fault flash-code path (p.27) ONLY — never after paper test.
-PROCEDURE_FURRION_FCR_CCD_0008122 = {
-    "id": "furrion_fcr_ccd_0008122",
-    "title": FURRION_FCR_SM_TITLE,
-    "models": ("fcr08", "fcr10", "fcr10dcgta", "fcr08dcgta", "ccd-0008122", "ccd0008122"),
-    "categories": ("refrigerat", "fridge"),
-    "nodes": {
-        "fuse_front_vent": {
-            "id": "fuse_front_vent",
-            "type": "multi",
-            "prompt": (
-                "DISCONNECT POWER. Pull the front vent cover off the bottom of the refrigerator. "
-                "Locate the fuse in the top left section of the front vent cavity (Fig. 7A) — "
-                "15A ATC blade / cartridge. Visually check the fuse, confirm with continuity, "
-                "check fitment in the holder, replace if blown, then reapply power.\n\n"
-                "Report fuse result: blown / replaced / good."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 19,
-            "edges": {
-                "blown": "cavity_light_after_fuse",
-                "replaced": "cavity_light_after_fuse",
-                "good": "cavity_light_check",
-            },
-        },
-        "cavity_light_check": {
-            "id": "cavity_light_check",
-            "type": "binary",
-            "prompt": (
-                "Open the door. Does the refrigerator cavity light come on?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 19,
-            "edges": {
-                "yes": "dial_on_4_5",
-                "no": "fuse_front_vent",
-            },
-        },
-        "cavity_light_after_fuse": {
-            "id": "cavity_light_after_fuse",
-            "type": "multi",
-            "prompt": (
-                "After the fuse check/replace and power reapplied: does the refrigerator cavity "
-                "light come on when opening the door? Also say if it is cooling or not cooling."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 19,
-            "edges": {
-                "light_on_cooling": "resolved_power",
-                "light_on_not_cooling": "dial_on_4_5",
-                "yes": "dial_on_4_5",
-                "light_on": "dial_on_4_5",
-                "no": "power_continuity_voltage",
-                "no_light": "power_continuity_voltage",
-            },
-        },
-        "resolved_power": {
-            "id": "resolved_power",
-            "type": "end",
-            "prompt": (
-                "Power issue resolved. Confirm the refrigerator performs. "
-                "No further action is required on the No-Power path."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 19,
-            "edges": {},
-        },
-        "power_continuity_voltage": {
-            "id": "power_continuity_voltage",
-            "type": "binary",
-            "prompt": (
-                "Slide the unit out to access power connections. Measure and record voltage at the "
-                "appliance connection (Fig. 8 / Fig. 9). Is the voltage between 12V–15V?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 20,
-            "edges": {
-                "yes": "dial_on_4_5",
-                "no": "external_power_issue",
-            },
-        },
-        "external_power_issue": {
-            "id": "external_power_issue",
-            "type": "end",
-            "prompt": (
-                "Insufficient RV supply voltage. Correct power supply: connect shore power, check "
-                "converter, check wiring and switches, charge batteries. Document as "
-                "\"external power issue.\" Contact RV manufacturer for additional troubleshooting."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 20,
-            "edges": {},
-        },
-        "dial_on_4_5": {
-            "id": "dial_on_4_5",
-            "type": "binary",
-            "prompt": (
-                "Open the door and locate the temperature dial. Confirm the dial is ON — not OFF — "
-                "set to position 4 or 5 (Fig. 17 / Fig. 32).\n\n"
-                "Is the dial ON at 4 or 5?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 23,
-            "edges": {
-                "yes": "battery_under_load",
-                "no": "set_dial_then_battery",
-                "off": "set_dial_then_battery",
-            },
-        },
-        "set_dial_then_battery": {
-            "id": "set_dial_then_battery",
-            "type": "gate",
-            "prompt": (
-                "Turn the refrigerator ON to dial position 4 or 5. Then check battery voltage under "
-                "load (General Troubleshooting: ≥10.5V under load).\n\n"
-                "Report when dial is set to 4–5 and the under-load voltage reading."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 12,
-            "edges": {
-                "pass": "paper_test",
-                "yes": "paper_test",
-                "ok": "paper_test",
-                "set": "paper_test",
-                "fail": "external_power_issue",
-                "low": "external_power_issue",
-                "no": "external_power_issue",
-            },
-        },
-        "battery_under_load": {
-            "id": "battery_under_load",
-            "type": "binary",
-            "prompt": (
-                "Per General Troubleshooting: check battery voltage for 10.5V under load "
-                "(operating range). Is battery voltage ≥10.5V under load?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 12,
-            "edges": {
-                "yes": "paper_test",
-                "pass": "paper_test",
-                "no": "external_power_issue",
-                "fail": "external_power_issue",
-            },
-        },
-        "paper_test": {
-            "id": "paper_test",
-            "type": "binary",
-            "prompt": (
-                "Insufficient Temperature — paper test for cooling-fan airflow (air in/out):\n"
-                "1. Open the door.\n"
-                "2. Droop a piece of paper over the edge of the cavity so it hangs over the front of the vent.\n"
-                "3. Facing the unit, left side of the vent cover should SUCK the paper in (Fig. 33).\n"
-                "4. Facing the unit, right side of the vent cover should BLOW the paper out (Fig. 34).\n\n"
-                "Does the paper move correctly (left suck / right blow)?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 33,
-            "edges": {
-                "yes": "not_cooling_current",
-                "pass": "not_cooling_current",
-                "no": "is_operating_diamond",
-                "fail": "is_operating_diamond",
-            },
-        },
-        "is_operating_diamond": {
-            "id": "is_operating_diamond",
-            "type": "binary",
-            "prompt": (
-                "Is the refrigerator operating? (Compressor working/running — it may not be cold yet. "
-                "Amperage should be greater than 1 amp to indicate it is working.)"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 33,
-            "edges": {
-                "no": "fan_replacement",
-                "yes": "not_cooling_current",
-            },
-        },
-        "fan_replacement": {
-            "id": "fan_replacement",
-            "type": "end",
-            "prompt": (
-                "Potential air blockage or bad fan. Proceed to Fan Replacement in Repair Section 2 "
-                "for further information. Do not meter fan supply voltage on this path; "
-                "that check belongs only on the Fan Fault / flash-code diagnostics, not after the paper test."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 33,
-            "edges": {},
-        },
-        "not_cooling_current": {
-            "id": "not_cooling_current",
-            "type": "binary",
-            "prompt": (
-                "Not Cooling Diagnostics: Pull the unit out to measure current. Run the refrigerator "
-                "for at least 1 hour before proceeding. Use a DC clamp meter to measure and record "
-                "current.\n\n"
-                "Is current <3 amps?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {
-                "yes": "oily_substance_check",
-                "no": "dial_max_one_hour",
-            },
-        },
-        "oily_substance_check": {
-            "id": "oily_substance_check",
-            "type": "binary",
-            "prompt": (
-                "Shut off the refrigerator and let sit for 1 hour. Remove the back cover and touch "
-                "the inlet and outlet tubes with fingers to check for oily substance.\n\n"
-                "Is there an oily substance present?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {
-                "yes": "replace_unit_coolant",
-                "no": "replace_unit_return",
-            },
-        },
-        "dial_max_one_hour": {
-            "id": "dial_max_one_hour",
-            "type": "binary",
-            "prompt": (
-                "Turn dial up to max setting and run for 1 hour.\n\n"
-                "Is the refrigerator operating correctly?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {
-                "yes": "replace_thermostat",
-                "no": "compressor_running_constant",
-            },
-        },
-        "compressor_running_constant": {
-            "id": "compressor_running_constant",
-            "type": "binary",
-            "prompt": "Is the compressor running constantly?",
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {
-                "yes": "replace_unit_coolant",
-                "no": "replace_thermostat",
-            },
-        },
-        "replace_thermostat": {
-            "id": "replace_thermostat",
-            "type": "end",
-            "prompt": (
-                "Replace the thermostat to recalibrate the unit. Proceed to Thermostat Replacement "
-                "in Repair Section 2. If issues persist, replace unit."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {},
-        },
-        "replace_unit_coolant": {
-            "id": "replace_unit_coolant",
-            "type": "end",
-            "prompt": (
-                "Likely a coolant leak. Replace unit and determine if unit needs to be returned."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {},
-        },
-        "replace_unit_return": {
-            "id": "replace_unit_return",
-            "type": "end",
-            "prompt": (
-                "Replace unit and determine if unit needs to be returned."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 34,
-            "edges": {},
-        },
-        # Flash-code Fan Fault path ONLY (p.27) — F+/F− volts live here, not after paper test.
-        "fan_fault_f_terminal_volts": {
-            "id": "fan_fault_f_terminal_volts",
-            "type": "binary",
-            "prompt": (
-                "Error Code — Fan Fault Diagnostics: Connect power, locate the inverter PCB. "
-                "Measure and record voltage at the F+ and F− terminals on the inverter PCB.\n\n"
-                "Is the nominal voltage 12V?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 27,
-            "edges": {
-                "yes": "fan_fault_connections",
-                "no": "replace_inverter_pcb",
-            },
-        },
-        "fan_fault_connections": {
-            "id": "fan_fault_connections",
-            "type": "binary",
-            "prompt": (
-                "Check connections: fan into inverter PCB F+/F− terminals, and fan quick connection "
-                "to harness. Reset power.\n\n"
-                "Did the error code go away after resetting power?"
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 27,
-            "edges": {
-                "yes": "resolved_power",
-                "no": "replace_inverter_and_fan",
-            },
-        },
-        "replace_inverter_pcb": {
-            "id": "replace_inverter_pcb",
-            "type": "end",
-            "prompt": (
-                "Replace the inverter PCB. Proceed to Compressor Inverter PCB Replacement in "
-                "Repair Section 2."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 27,
-            "edges": {},
-        },
-        "replace_inverter_and_fan": {
-            "id": "replace_inverter_and_fan",
-            "type": "end",
-            "prompt": (
-                "Replace the inverter PCB and fan. Proceed to Compressor Inverter PCB Replacement "
-                "and Fan Replacement in Repair Section 2."
-            ),
-            "source_title": FURRION_FCR_SM_TITLE,
-            "source_page": 27,
-            "edges": {},
-        },
-    },
-}
-
-PROCEDURE_TREES = {
-    PROCEDURE_FURRION_FCR_CCD_0008122["id"]: PROCEDURE_FURRION_FCR_CCD_0008122,
-}
-
-
-def get_procedure_node(procedure: dict, node_id: str):
-    if not procedure:
-        return None
-    return (procedure.get("nodes") or {}).get(node_id)
-
-
-# Ordered alias lists: first matching key wins for ambiguous text.
-_ANSWER_ALIAS_GROUPS = [
-    ("light_on_not_cooling", [
-        "light on not cooling", "light on, not cooling", "has power not cooling",
-        "power on not cooling", "light works not cooling", "light on but not cool",
-        "cavity light on not cooling", "powered but not cooling",
-    ]),
-    ("light_on_cooling", [
-        "light on cooling", "light on and cooling", "power restored cooling",
-        "working now", "cools now", "issue resolved",
-    ]),
-    ("replaced", ["fuse replaced", "replaced fuse", "replaced the fuse", "new fuse installed", "swapped fuse"]),
-    ("blown", ["fuse blown", "blown fuse", "fuse is blown", "was blown"]),
-    ("good", ["fuse good", "fuse ok", "fuse fine", "fuse intact", "continuity good", "not blown"]),
-    ("pass", ["pass", "passed", "paper moves", "sucks and blows", "left suck", "right blow", "airflow good"]),
-    ("fail", [
-        "fail", "failed", "no paper", "paper no", "no movement", "no paper movement",
-        "doesn't move", "does not move", "no suck", "no blow", "paper fails",
-    ]),
-    ("off", ["dial off", "set to off", "was off", "in off"]),
-    ("yes", [
-        "yes", "y", "yeah", "yep", "affirmative", "correct", "confirmed",
-        "light on", "it is on", "dial is on", "on 4", "on 5", "position 4", "position 5",
-        "operating", "compressor running", "running", "amps >1", "greater than 1",
-        "12v", "12 v", "between 12", "ok", "good", "voltage good", ">=10.5", "10.5", "11v", "13v", "14v",
-    ]),
-    ("no", [
-        "no", "n", "nope", "negative", "not operating", "not running", "dead compressor",
-        "no light", "still dark", "below 10.5", "low voltage", "9v", "under 11",
-        "current <3", "less than 3", "<3",
-    ]),
-]
-
-
-def binary_button_labels(node: dict):
-    """Optional Pass/Fail or Yes/No labels when node is binary."""
-    if not node or (node.get("type") or "") != "binary":
-        return None
-    edges = node.get("edges") or {}
-    if "pass" in edges and "fail" in edges:
-        return ("Pass", "pass", "Fail", "fail")
-    if "yes" in edges and "no" in edges:
-        return ("Yes", "yes", "No", "no")
-    return None
+    # v4.20.9 (audit H1): the whole job record goes too (cause, closed, access answer, complaint, unit, pages read, web gate,
+    # found documents, cited, order_part, ...). Before this, nothing cleared gd_pin_store after v4.19.39.
+    import gd_state as _gs
+    _gs.clear_job_session(st.session_state)
 
 
 # ---------------- GD OFFICIAL METHOD (Chase approved 2026-10-16) ----------------
 GD_OFFICIAL_METHOD = True
 GD_USAGE_LOG = os.environ.get("GD_USAGE_LOG", "")
-REDUCED_MODE_LINE = "Reduced mode (fallback model, short manual excerpts only):"
 # Test hooks: replay tests set these to stay offline. None = live xAI call with the library tools + built-in web search.
 # _gd_official_chat(messages, max_tokens, effort) -> str is a text-only fake; _gd_official_respond(items, tools, tool_choice)
 # -> gd_llm.respond()-shaped dict is a fake that can make tool calls.
@@ -3025,7 +2620,6 @@ GD_HELP_QUESTION = "How do you want help on this job?"
 GD_HELP_OPTIONS = {"📖 Pull up the manual pages": "pages", "🧭 Walk me through the repair": "walkthrough"}
 GD_WALK_ME_BUTTON = "🧭 Walk me through it"
 GD_WALK_ME_MESSAGE = "I'm stuck. Walk me through it from here."
-GD_UNAVAILABLE_LINE = "Guided Diagnostics could not reach the AI right now. Nothing was guessed. Send the same message again in a minute."
 GD_OFFLINE_LINE = "The AI is offline, so Guided Diagnostics cannot answer. Nothing was guessed."
 
 
@@ -3049,7 +2643,8 @@ def _gd_page_finder():
 def _index_bucket():
     try:
         return st.secrets["R2_BUCKET_NAME"] if r2_configured() else None
-    except Exception:
+    except Exception as e:
+        _gd_fb("index_bucket", "R2 bucket name not readable; the library index cannot be fetched from R2", exc=e)
         return None
 
 
@@ -3059,17 +2654,46 @@ def _start_index_fetch():
         import index_fetch
 
         index_fetch.start(get_r2_client, _index_bucket())
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("index_fetch_start", "the library index download did not start", exc=e)
     try:
         from pagefinder import search as _pf
         if not _pf.MEANING_ON:
             _pf.announce_meaning_state(force=True)
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("smart_search_announce", "the smart-search state line was not printed", exc=e)
 
 
 _start_index_fetch()
+
+
+def _git_commit() -> str:
+    """The deployed commit (short), or "" when git or the .git folder is not there."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception as e:
+        _gd_fb("startup_commit", "git commit not read for TT_STARTUP", exc=e)
+        return ""
+
+
+def _print_startup_line():
+    """v4.20.9 (Chase t1727u): ONE TT_STARTUP line per server process on stdout (Manage app logs): version, commit, model,
+    GD temperature, reasoning effort, smart search, web gate, round limit. Streamlit re-runs this script on every click,
+    so the "printed" mark lives in sys.modules."""
+    holder = "_techtrack_startup_printed"
+    if sys.modules.get(holder) is not None:
+        return
+    import types
+    import gd_errors
+    import gd_turn
+
+    sys.modules[holder] = types.ModuleType(holder)
+    gd_errors.emit(gd_errors.TAG_STARTUP, **gd_turn.startup_fields(APP_VERSION, _git_commit()))
+
+
+_print_startup_line()
 
 
 GD_TURN_LOG_TEXT_CAP = 8192   # bytes per text field in the published turn log (tech message, Grok reply)
@@ -3091,32 +2715,40 @@ def _gd_publish_turn_log(log, user_msg=None, reply=None):
     test job can be read after the fact. Since v4.20.3 (Chase "yes", 2026-11-27) it also carries the tech's message and
     Grok's reply for the turn (tech_message / reply, each capped near 8 KB with a cut marker). No secrets. A failure here
     never touches the turn."""
+    import gd_errors
+
     if not log:
-        return
+        log = {"event": "turn_without_log"}
     try:
         log = dict(log)
+        fb = gd_errors.take_fallbacks()   # v4.20.9: every quiet fallback of this run goes into the turn log
+        if fb:
+            log["fallbacks"] = fb
         if user_msg is not None:
             log["tech_message"] = _gd_log_text(user_msg)
         if reply is not None:
             log["reply"] = _gd_log_text(reply)
         line = json.dumps(log, default=str)
-    except Exception:
+    except Exception as e:
+        gd_errors.emit(gd_errors.TAG_ERROR, **gd_errors.error_record(e, "turn_log_json"))
         return
     try:
         print("GD_TURN " + line, flush=True)
-    except Exception:
+    except Exception:   # stdout closed; the R2 copy below still goes
         pass
     try:
         now = time.gmtime()
         try:
             chat = st.session_state.get("ask_chat_id") or "new"
-        except Exception:
+        except Exception:   # no Streamlit session (offline / tests): the key just says "new"
             chat = "new"
         key = (f"gd-turn-logs/{time.strftime('%Y-%m-%d', now)}/"
                f"{time.strftime('%Y%m%dT%H%M%SZ', now)}-{int(time.time() * 1000) % 1000:03d}-{chat}.json")
-        r2_put_bytes(line.encode("utf-8"), key, "application/json")
-    except Exception:
-        pass
+        if not r2_put_bytes(line.encode("utf-8"), key, "application/json"):
+            gd_errors.emit(gd_errors.TAG_FALLBACK, where="turn_log_r2", why="turn log not saved to R2 (R2 not set up or "
+                           "the upload failed); the GD_TURN line above is the only copy")
+    except Exception as e:
+        gd_errors.emit(gd_errors.TAG_ERROR, **gd_errors.error_record(e, "turn_log_r2", secrets=_gd_secret_values()))
 
 
 def _gd_is_picture_request(msg) -> bool:
@@ -3138,7 +2770,8 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
     if pin_store is None:
         try:
             pin_store = st.session_state.setdefault("gd_pin_store", {})
-        except Exception:
+        except Exception as e:
+            _gd_fb("pin_store", "no session store; this turn's job record is not kept", exc=e)
             pin_store = {}
 
     def respond_fn(items, tools, tool_choice=None):
@@ -3148,20 +2781,28 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             return _gd_official_chat(items, None, None)
         return gd_llm.respond(items, tools, tool_choice=tool_choice, secret_fn=_secret)
 
+    import gd_errors
     import index_fetch
 
     try:
         finder = _gd_page_finder()
     except index_fetch.IndexLoading:
+        gd_errors.fallback("page_finder", "library index still loading; the turn did not run")
+        _gd_publish_turn_log({"event": "turn_not_run", "why": "index_loading"}, user_msg, index_fetch.LOADING_LINE)
         return index_fetch.LOADING_LINE
-    except Exception:
+    except Exception as e:
         # Not "could not reach the AI": the manual library itself is not ready (named reason on the manager page).
+        rec = gd_errors.error_record(e, "page_finder", secrets=_gd_secret_values())
+        gd_errors.emit(gd_errors.TAG_ERROR, **rec)
+        _gd_publish_turn_log({"event": "turn_failed", "error": rec}, user_msg, index_fetch.UNAVAILABLE_LINE)
         return index_fetch.UNAVAILABLE_LINE
     try:
         # 2026-11-27 (test1): Grok sees the library pages it opens, not only their text. A failure here costs the images,
-        # never the turn.
+        # never the turn (v4.20.9: and it is logged).
         page_image_fn = _gd_page_image_fn()
-    except Exception:
+    except Exception as e:
+        gd_errors.fallback("page_images", "page pictures off for this turn; Grok gets page text only", exc=e,
+                           secrets=_gd_secret_values())
         page_image_fn = None
     try:
         result = gd_turn.run_turn(
@@ -3172,27 +2813,32 @@ def _gd_official_reply(user_msg, category_name, model_text, history, pin_store=N
             page_image_fn=page_image_fn,
             picture_request=bool(picture_request),   # v4.20.7: web waits for the library on a picture turn
         )
-    except Exception:
-        # No silent fallback to the old keyword coach: say plainly that the turn did not happen.
-        return GD_UNAVAILABLE_LINE
-    try:
-        _gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))   # Manage app logs + R2 gd-turn-logs/ (never breaks the turn)
-    except Exception:
-        pass
+    except Exception as e:
+        # v4.20.9 (audit H3): no generic "could not reach the AI". The tech gets the real reason in one plain line
+        # (timeout / xAI error with its status code / a bug in the app), stdout gets a GD_ERROR line and the GD turn log
+        # (Manage app logs + R2 gd-turn-logs/) gets the failed turn with the error type and a traceback summary.
+        rec = gd_errors.error_record(e, "run_turn", secrets=_gd_secret_values())
+        line = gd_errors.tech_line(rec["type"], rec["status"], e)
+        gd_errors.emit(gd_errors.TAG_ERROR, **rec)
+        _gd_publish_turn_log({"event": "turn_failed", "error": rec,
+                              "unit": {"category": category_name or "", "model_text": model_text or ""}}, user_msg, line)
+        return line
+    _gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))   # Manage app logs + R2 gd-turn-logs/
     try:
         # 2026-11-24 (M1066): a reply that confirms a cause or a recommendation puts it in the job record even when the
         # state block did not carry it, so the work order and the warranty story have it.
         import gd_story
         gd_story.record_reply_findings(pin_store.get(gd_turn.STORE_KEY), result.get("reply") or "")
-    except Exception:
-        pass
+    except Exception as e:
+        gd_errors.fallback("reply_findings", "cause / recommendation from the reply not recorded", exc=e)
     for c in result.get("cited") or []:
         try:
             # The warranty story and source ledger are keyed by manual TITLE (parse_cited_pages_from_text), so the
             # cited doc id is turned into its library title here; an unknown id stays as the id.
             record_cited_pages(f"📖 Source: {_gd_page_finder().doc_title(c.get('doc_id'))} - page {c.get('page')}")
-        except Exception:
-            pass
+        except Exception as e:
+            gd_errors.fallback("cited_ledger", "a cited page was left out of the source ledger", exc=e,
+                               doc_id=str(c.get("doc_id")), page=str(c.get("page")))
     st.session_state["gd_last_cited"] = list(result.get("cited") or [])
     st.session_state["gd_last_turn_pages"] = list(result.get("turn_pages") or [])   # v4.20.6: for the tech's picture
     st.session_state["gd_last_drawn"] = list(getattr(page_image_fn, "drawn", None) or ())   # (doc_id, sheet) keys only
@@ -3206,15 +2852,32 @@ def gd_send_key(chat_id, turns, msg, photo_len=0):
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
+def _gd_secret_values():
+    """The key values to mask in error text (never printed themselves)."""
+    out = []
+    for name in ("XAI_API_KEY", "GROQ_API_KEY", "R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID"):
+        try:
+            v = _secret(name)
+        except Exception:   # a missing secret is simply nothing to mask
+            v = ""
+        if v:
+            out.append(v)
+    return out
+
+
 def _gd_reply_is_failure(reply) -> bool:
-    """The turn did not happen (AI offline / unreachable, library loading or unavailable): never kept for reuse."""
-    lines = {GD_UNAVAILABLE_LINE, GD_OFFLINE_LINE}
+    """The turn did not happen (AI offline, an error line from gd_errors, library loading or unavailable): never kept for
+    reuse."""
+    import gd_errors
+    if gd_errors.is_error_line(reply):
+        return True
+    lines = {GD_OFFLINE_LINE}
     try:
         import index_fetch
 
         lines |= {index_fetch.LOADING_LINE, index_fetch.UNAVAILABLE_LINE}
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("reply_is_failure", "index_fetch lines not loaded for the failure check", exc=e)
     return (reply or "").strip() in {x.strip() for x in lines if x}
 
 
@@ -3223,7 +2886,8 @@ def _gd_case_copy():
     import copy
     try:
         return copy.deepcopy((st.session_state.get("gd_pin_store") or {}).get("gd_case"))
-    except Exception:
+    except Exception as e:
+        _gd_fb("case_copy", "the job record was not kept with the send (a reload starts without it)", exc=e)
         return None
 
 
@@ -3246,7 +2910,8 @@ def _gd_turn_picture(msg, reply, entry):
     pages = list((entry or {}).get("turn_pages") or [])
     try:
         pick = gd_picture.pick_picture_page(msg, pages, list((entry or {}).get("cited") or []))
-    except Exception:
+    except Exception as e:
+        _gd_fb("picture_pick", "the asked-for picture was not picked; no picture shown", exc=e)
         pick = None
     if pick is None:
         return None
@@ -3270,8 +2935,8 @@ def _render_gd_picture(pic, key_prefix: str) -> None:
         try:
             if _render_cited_sheet(ref["doc_id"], int(ref["sheet"]), ref.get("file_path") or "", pic.get("label") or ""):
                 return
-        except Exception:
-            pass
+        except Exception as e:
+            _gd_fb("picture_draw", "the picture page was not drawn; the tech gets the fail note and Open PDF", exc=e)
     import gd_picture
 
     st.caption(gd_picture.FAIL_NOTE)
@@ -3281,7 +2946,8 @@ def _render_gd_picture(pic, key_prefix: str) -> None:
             import gd_page_links
 
             url = gd_page_links.pdf_link(get_r2_client(), st.secrets["R2_BUCKET_NAME"], ref["file_path"], ref.get("sheet"))
-        except Exception:
+        except Exception as e:
+            _gd_fb("picture_link", "no Open PDF link under the picture", exc=e)
             url = ""
     if url:
         st.link_button("📄 Open PDF", url, use_container_width=False)
@@ -3312,7 +2978,6 @@ def _gd_commit_send(entry, user_id, persist=True, story=True):
             # GD-4 (11/24): the access question comes first; a story GD wrote in this reply is cut off (the story
             # comes from the Write warranty story button)
             reply = _story.wrapup_reply(reply, _kind)
-    st.session_state["ask_flow"] = entry.get("flow")
     stored_msg = entry.get("stored_msg") or _photos.history_user_text(
         msg, bool(entry.get("photo")), entry.get("photo_review"), asked=entry.get("asked") or "")
     picture = _gd_turn_picture(msg, reply, entry) if entry.get("asked_image") and not _gd_reply_is_failure(reply) else None
@@ -3347,6 +3012,27 @@ def _gd_commit_send(entry, user_id, persist=True, story=True):
     return history
 
 
+GD_CLOSE_DIAG_BUTTON = "✅ Diagnosis complete"
+GD_CLOSE_REPAIR_BUTTON = "✅ Repair complete"
+
+
+def _gd_close_job(kind, user_id, category="", model=""):
+    """The tech's close button (v4.20.9, audit H2): log the job as diag / repair complete and ask the access question, with
+    no AI call. False when the access question was already asked or answered for this job."""
+    import gd_story as _story
+
+    rec = _gd_record()
+    if _story.wrapup_due(rec, "", close_action=kind) != kind:
+        return False
+    rec["state"]["access_asked"] = True
+    rec["state"]["wrapup"] = kind
+    said = "Repair complete." if kind == "repair" else "Diagnosis complete."
+    _gd_commit_send({"key": None, "msg": said, "stored_msg": said, "reply": _story.access_question(kind),
+                     "cited": [], "category": category, "model": model},
+                    user_id, story=False)
+    return True
+
+
 def _gd_show_unseen_replies(user_id):
     """v4.20.6 (1c): a reply kept on the server that no screen has drawn (its run was stopped, or the page reloaded) goes
     into this chat when it belongs here: same saved chat, or this session is at the same turn of a fresh chat."""
@@ -3373,8 +3059,8 @@ def _gd_mark_seen(user_id, history):
         for m in history or []:
             if isinstance(m, dict) and m.get("send_key"):
                 store.mark_seen(user_id, m["send_key"])
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("mark_seen", "kept replies not marked as shown; one may be drawn again", exc=e)
 
 
 def guided_diagnostics_reply(
@@ -3382,27 +3068,28 @@ def guided_diagnostics_reply(
     category_name: str,
     model_text: str,
     history: list,
-    unity_gate: str = "",
-    ask_flow: dict = None,
     photo: tuple | None = None,
     photo_review: dict | None = None,
     pin_store: dict | None = None,
     help_mode: str | None = None,
     picture_request: bool | None = None,
 ):
-    """Guided Diagnostics on the fresh core. Returns (reply_text, None).
-
-    unity_gate and ask_flow are accepted for old callers and ignored (the Unity selector and hard trees are gone).
+    """Guided Diagnostics on the fresh core. Returns the reply text (v4.20.9: the old flow slot and the ignored
+    gate and flow arguments of the hard trees are deleted).
     A step photo is read by the vision model and its reading is added to the tech's message, marked as such.
     """
     if not ai_available():
-        return GD_OFFLINE_LINE, None
+        import gd_errors
+        gd_errors.emit(gd_errors.TAG_ERROR, type="no_key", where="ai_available", message="no AI key configured")
+        _gd_publish_turn_log({"event": "turn_not_run", "why": "ai_offline"}, user_msg, GD_OFFLINE_LINE)
+        return GD_OFFLINE_LINE
     official_msg = user_msg
     if photo_review is None and photo and photo[0]:
         try:
             import gd_step_photo as _photos
             photo_review = _photos.review_step_photo(photo[0], photo[1] if len(photo) > 1 else "image/jpeg", "", user_msg)
-        except Exception:
+        except Exception as e:
+            _gd_fb("photo_read", "the tech's photo was not read; Grok gets the typed text only", exc=e)
             photo_review = None
     sees = (photo_review or {}).get("sees") if isinstance(photo_review, dict) else ""
     if sees:
@@ -3410,14 +3097,13 @@ def guided_diagnostics_reply(
     if picture_request is None:
         picture_request = _gd_is_picture_request(user_msg)   # the tech's own words, not the photo reading added above
     return _gd_official_reply(official_msg, category_name, model_text, history, pin_store, help_mode=help_mode,
-                              picture_request=picture_request), None
+                              picture_request=picture_request)
 
 
 # ---------------- END GUIDED FLOW ENGINE ----------------
 
 
 # ---------------- ASK TECHTRACK (chat diagnose) ----------------
-ASK_TECHTRACK_SYSTEM = ""  # removed 2026-10-23 (Chase order): the Ask prompt is now the primer (gd_prompt.PRIMER); original in drafts/REMOVED-RULES-2026-10-23
 
 
 def ask_chat_to_warranty_story(history: list, category_name: str = "", model_text: str = "") -> str:
@@ -3443,12 +3129,18 @@ def ask_chat_to_warranty_story(history: list, category_name: str = "", model_tex
             try:
                 _refs = gd_story.procedure_references(_case, history, st.session_state.get("ask_cited_log") or [],
                                                       page_lookup=_gd_page_lookup)
-            except Exception:
+            except Exception as e:
+                _gd_fb("story_references", "the story has no procedure references", exc=e)
                 _refs = []
             _chat = (lambda msgs: ai_chat(msgs, temperature=0.2, max_tokens=3000)) if ai_available() else None
-            return gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat, references=_refs)
-        except Exception:
-            pass
+            _story_text = gd_story.write_warranty_story(_case, history, model_text, chat_fn=_chat, references=_refs)
+            import gd_errors
+            if gd_errors.pending():   # a story fallback (template story, missing references) goes to the GD turn log now
+                _gd_publish_turn_log({"event": "story_fallback"})
+            return _story_text
+        except Exception as e:
+            _gd_fb("story", "the GD story writer failed; falling back to the old improve_tech_story writer", exc=e)
+            _gd_publish_turn_log({"event": "story_fallback"})
     """Feed Guided Diagnostics tech lines into improve_tech_story. Coach lines are recommendations only."""
     tech_lines = []
     coach_lines = []
@@ -3743,8 +3435,6 @@ with tab_ask:
         st.session_state["ask_sources"] = []
     if "ask_cited_log" not in st.session_state:
         st.session_state["ask_cited_log"] = []
-    if "ask_flow" not in st.session_state:
-        st.session_state["ask_flow"] = None
 
     with st.expander("Recent chats (saved 30 days)", expanded=False):
         qch = session.query(AskChat)
@@ -3763,11 +3453,14 @@ with tab_ask:
             cols[0].write(label)
             if cols[1].button("Open", key=f"open_ask_{ch.id}"):
                 loaded, hist = load_ask_chat(ch.id)
+                # v4.20.9 (audit H1): an opened chat starts from a clean job record (rebuilt from its own chat by
+                # _gd_record), never the job that was open before it
+                import gd_state as _gs
+                _gs.clear_job_session(st.session_state)
                 st.session_state["ask_chat_id"] = ch.id
                 st.session_state["ask_chat"] = hist
                 st.session_state["ask_sources"] = []
                 st.session_state["ask_cited_log"] = []
-                st.session_state["ask_flow"] = None
                 for m in hist:
                     if (m.get("role") or "") == "assistant":
                         record_cited_pages(m.get("content") or "")
@@ -3785,13 +3478,6 @@ with tab_ask:
     cats = session.query(Category).order_by(Category.name).all()
     cat_names = gd_category_select_options([c.name for c in cats])
     _restore_widget("ask_cat", "gd_category_memory", cat_names)
-    if st.session_state.pop("ask_clear_cat", False):
-        st.session_state["ask_cat"] = "(any)"
-        st.session_state["gd_category_memory"] = "(any)"
-    if st.session_state.pop("ask_clear_model", False):
-        st.session_state["ask_model"] = ""
-        st.session_state["gd_model_memory"] = ""
-        st.session_state.pop("gd_pin_store", None)
     apply_pending_plate_read("ask_model", "gd_model_memory")
     _restore_widget("ask_model", "gd_model_memory")
     c1, c2 = st.columns(2)
@@ -3816,15 +3502,14 @@ with tab_ask:
         if plate_img is not None:
             st.image(plate_img, caption="Plate photo", width=280)
             apply_plate_read_to_model_key("ask_model", plate_img, "ask_plate_read_btn")
-    unity_gate = ""  # Unity selector removed (fresh-core): the tech names the controller in chat if it matters
     _remember_widget("ask_cat", "gd_category_memory")
     _remember_widget("ask_model", "gd_model_memory")
     category_name = "" if ask_cat == "(any)" else ask_cat
 
     try:
         _gd_show_unseen_replies(user["id"])   # v4.20.6: a reply kept on the server whose run was stopped before drawing it
-    except Exception:
-        pass
+    except Exception as e:
+        _gd_fb("unseen_replies", "a kept reply was not restored into the chat", exc=e)
     history = st.session_state.get("ask_chat") or []
     if history:
         st.markdown("#### Conversation")
@@ -3846,27 +3531,6 @@ with tab_ask:
         st.info("Describe the symptom, what you have already checked, or paste an error code.")
     if st.session_state.pop("ask_reset_input", False):
         st.session_state["ask_input"] = ""
-
-    # Hard-tree Yes/No buttons are off on the open-coach product path.
-    if HARD_TREE_EXCLUSIVE_CHAT:
-        _flow_now = st.session_state.get("ask_flow") or {}
-        _proc_now = None
-        _node_now = None
-        if _flow_now.get("procedure_id") and _flow_now.get("node_id"):
-            _proc_now = PROCEDURE_TREES.get(_flow_now.get("procedure_id"))
-            _node_now = get_procedure_node(_proc_now, _flow_now.get("node_id")) if _proc_now else None
-        _bin = binary_button_labels(_node_now) if _node_now else None
-        if _bin:
-            _bl, _bk, _br, _brk = _bin
-            bb1, bb2 = st.columns(2)
-            if bb1.button(_bl, key="ask_flow_yes", use_container_width=True):
-                st.session_state["ask_pending_answer"] = _bk
-                st.session_state["ask_force_send"] = True
-                st.rerun()
-            if bb2.button(_br, key="ask_flow_no", use_container_width=True):
-                st.session_state["ask_pending_answer"] = _brk
-                st.session_state["ask_force_send"] = True
-                st.rerun()
 
     # Up-front choice (Chase 2026-11-24): manual pages or a full walkthrough. Stored in the job state (gd_turn, help_mode)
     # and told to Grok as session context. In pages mode the tech can switch to a walkthrough any time, by the button or by
@@ -3910,6 +3574,19 @@ with tab_ask:
         new_chat = st.button("Start new chat", key="ask_new", use_container_width=True)
     with b3:
         write_story = st.button("Write warranty story", key="ask_story", use_container_width=True)
+    if history:
+        # v4.20.9 (audit H2): the tech's own close buttons, the structured end-of-job signal (no AI call)
+        c1b, c2b = st.columns(2)
+        _close = ""
+        if c1b.button(GD_CLOSE_DIAG_BUTTON, key="gd_close_diag", use_container_width=True):
+            _close = "diag"
+        if c2b.button(GD_CLOSE_REPAIR_BUTTON, key="gd_close_repair", use_container_width=True):
+            _close = "repair"
+        if _close:
+            if _gd_close_job(_close, user["id"], category_name, ask_model or ""):
+                st.session_state["ask_reset_input"] = True
+                st.rerun()
+            st.info("The access question was already asked for this job.")
     w1, w2 = st.columns([2, 1])
     with w1:
         st.text_input("Work order # (optional)", key="ask_wo_number", placeholder="WO number for this job")
@@ -3939,8 +3616,8 @@ with tab_ask:
         try:
             import gd_sends
             gd_sends.store().clear_user(user["id"])   # a new chat never reuses the last chat's reply
-        except Exception:
-            pass
+        except Exception as e:
+            _gd_fb("new_chat_sends", "the double-send store was not cleared for the new chat", exc=e)
         st.session_state["gd_model_memory"] = ""
         st.session_state["gd_category_memory"] = "(any)"
         st.session_state["gd_help_mode"] = None
@@ -3966,26 +3643,27 @@ with tab_ask:
                 if (message.get("role") or "") == "assistant" and (message.get("content") or "").strip():
                     asked = message.get("content") or ""
                     break
-            if photo_bytes:
-                with st.spinner("Reading the photo…"):
-                    photo_review = _photos.review_step_photo(
-                        photo_bytes, photo_mime, asked, msg
-                    )
             import gd_story as _story
             _rst = ((st.session_state.get("gd_pin_store") or {}).get("gd_case") or {}).get("state") or {}
-            _access_turn = bool(history and _rst.get("access_asked") and not _rst.get("access_answer"))
+            # v4.20.9 (audit H2): the message is the access answer only when the app's own access question is the last
+            # GD reply AND the message plausibly answers it; anything else (a question, "the fan is not working now")
+            # goes to Grok
+            _access_open = bool(history and _rst.get("access_asked") and not _rst.get("access_answer"))
+            _access_turn = _access_open and not photo_bytes and _story.answers_access(msg, history)
+            if _access_open and not _access_turn:
+                print("GD_ACCESS_NOT_ANSWER " + json.dumps({"why": "not a plausible access answer or the question was not "
+                                                            "the last reply", "chars": len(msg)}), flush=True)
             if _access_turn:
                 _rec = _gd_record()
                 # the tech's answer to the end-of-job access question goes into the job record (no AI call)
                 _story.record_access_answer(_rec, msg, history)
                 reply = _story.access_logged_reply(_rec)
-                new_flow = st.session_state.get("ask_flow")
             _asked_image = _gd_is_picture_request(msg)
             _entry = {"key": None, "msg": msg, "photo": bool(photo_bytes), "photo_review": photo_review, "asked": asked,
                       "category": category_name, "model": ask_model or "", "turns": len(history or []),
                       "asked_image": _asked_image}
             if _access_turn:
-                _gd_commit_send({**_entry, "reply": reply, "flow": new_flow, "cited": []}, user["id"], story=False)
+                _gd_commit_send({**_entry, "reply": reply, "cited": []}, user["id"], story=False)
             else:
                 # v4.20.6 (test7b, Chase go pt1664u): the double-send guard lives on the server (gd_sends), keyed by the
                 # tech, the turns before this one, the message and the photo size. A second press, a second tab or a page
@@ -4006,23 +3684,27 @@ with tab_ask:
                     _gd_commit_send(_kept, _send_user, persist=_sends.take_commit(_send_user, _send_key))
                 else:
                     try:
+                        if photo_bytes:
+                            # v4.20.9 (audit M6): the paid photo read runs only in the run that holds the send guard, so
+                            # a double press never pays for the same photo twice
+                            with st.spinner("Reading the photo…"):
+                                photo_review = _photos.review_step_photo(photo_bytes, photo_mime, asked, msg)
+                            _entry["photo_review"] = photo_review
                         with st.spinner("Searching manuals and thinking…"):
                             st.session_state.pop("gd_last_turn_pages", None)
                             st.session_state.pop("gd_last_drawn", None)
-                            reply, new_flow = guided_diagnostics_reply(
+                            reply = guided_diagnostics_reply(
                                 msg,
                                 category_name,
                                 ask_model or "",
                                 history,
-                                unity_gate=unity_gate,
-                                ask_flow=st.session_state.get("ask_flow"),
                                 photo_review=photo_review,
                                 pin_store=st.session_state.setdefault("gd_pin_store", {}),
                                 help_mode=st.session_state.get("gd_help_mode") or None,
                                 picture_request=_asked_image,
                             )
                             _done = _sends.finish(
-                                _send_user, _send_key, **{k: v for k, v in _entry.items() if k != "key"}, reply=reply, flow=new_flow,
+                                _send_user, _send_key, **{k: v for k, v in _entry.items() if k != "key"}, reply=reply,
                                 cited=list(st.session_state.pop("gd_last_cited", None) or []),
                                 turn_pages=list(st.session_state.pop("gd_last_turn_pages", None) or []),
                                 drawn_keys=list(st.session_state.pop("gd_last_drawn", None) or ()),

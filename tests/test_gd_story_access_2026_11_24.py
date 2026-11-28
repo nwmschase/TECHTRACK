@@ -113,7 +113,9 @@ class TestWrapupTrigger(unittest.TestCase):
         self.assertEqual(gd_story.wrapup_due(c, "no 12 v on that wire from thermostat"), "")
 
     def test_repair_complete(self):
-        self.assertEqual(gd_story.wrapup_due({"state": {"repair": {"done": True}}}, "replaced it, heats now"), "repair")
+        # v4.20.9: Grok's "done" alone is not the end of the job; the tech's verification (or closed) is
+        self.assertEqual(gd_story.wrapup_due({"state": {"repair": {"done": True}}}, "replaced it, heats now"), "")
+        self.assertEqual(gd_story.wrapup_due({"state": {"repair": {"done": True, "verified": True}}}, "ok"), "repair")
         self.assertEqual(gd_story.wrapup_due({"state": {"closed": True}}, "ok"), "repair")
         self.assertEqual(gd_story.wrapup_due({"state": {}}, "repair complete, furnace heating"), "repair")
 

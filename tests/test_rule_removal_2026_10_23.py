@@ -16,7 +16,8 @@ import gd_pages  # noqa: E402
 import gd_prompt  # noqa: E402
 import gd_state  # noqa: E402
 import gd_turn  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 from test_fresh_core import FakeChat, FakeRespond, block, finder, outputs, page, MAN  # noqa: E402
 
 RULE_WORDS = [r"\bRULE \d", r"\bmust\b", r"\bnever\b", r"\bonly\b", r"\balways\b", r"\bdon't\b", r"\bdo not\b", r"\bdo NOT\b",
@@ -115,18 +116,9 @@ class TestNoRuleStringsLeft(unittest.TestCase):
 
 
 class TestNoCaps(unittest.TestCase):
-    def test_all_pages_pass_with_no_cap(self):
-        pages = [page(sheet=i, text="x" * 9000) for i in range(1, 30)] + [page(sheet=1, text="dup")]
-        kept, not_shown = gd_pages.apply_budget(pages)
-        self.assertEqual(len(kept), 29)          # the duplicate (same doc + sheet) is merged, nothing else dropped
-        self.assertEqual(not_shown, [])
-        self.assertEqual(sum(len(p.text) for p in kept), 29 * 9000)
-
-    def test_a_caller_can_still_set_a_budget(self):
-        pages = [page(sheet=i, text="x" * 9000) for i in range(1, 8)]
-        kept, not_shown = gd_pages.apply_budget(pages, max_pages=8, max_chars=40_000)
-        self.assertEqual([p.sheet for p in kept], [1, 2, 3, 4])
-        self.assertEqual(len(not_shown), 3)
+    def test_budget_helper_is_deleted(self):
+        # v4.20.9: apply_budget had no caller left (the turn sends every page read; gd_tools caps one read); deleted
+        self.assertFalse(hasattr(gd_pages, "apply_budget"))
 
     def test_turn_sends_every_page_and_no_token_or_effort_limit(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
@@ -211,14 +203,13 @@ class TestWebTool(unittest.TestCase):
         http = FakeHttp({"https://www.irv2.com/forums/t1": FakeResp(
             text="<html><title>Fridge thermistor</title><body><p>Revised: 03/04/2022</p><p>" + "thermistor 10k ohm at 77F " * 80 + "</p></body></html>",
             headers={"content-type": "text/html", "last-modified": "Tue, 01 Mar 2022 10:00:00 GMT"})})
-        web = gd_official.make_web_fn(http=http, search_fn=lambda q: [{"url": "https://www.irv2.com/forums/t1", "title": "t"}])
-        pages = web("fridge thermistor resistance")
+        # v4.20.9: the old app-side web search (make_web_fn) is deleted; open_web_document uses fetch_pages
+        pages = gd_official.fetch_pages("https://www.irv2.com/forums/t1", http=http, query="fridge thermistor resistance")
         self.assertEqual(len(pages), 1)
         p = pages[0]
         self.assertEqual((p.kind, p.source, p.host, p.url), ("web", "web", "www.irv2.com", "https://www.irv2.com/forums/t1"))
         self.assertIn("03/04/2022", p.revision)
         self.assertIn("thermistor", p.text)
-        self.assertEqual(web.last_errors, [])
 
     def test_pdf_pages_are_ranked_by_the_words_and_carry_revision(self):
         import shutil
@@ -227,34 +218,16 @@ class TestWebTool(unittest.TestCase):
         pdf = _pdf_bytes(["TROUBLESHOOTING GUIDE\nRev: 02/17/25", "Sail switch test\nmeasure 12 V at the sail switch", "Warranty terms and phone numbers"])
         url = "https://lci-support-doc.s3.amazonaws.com/manuals/x/ccd-1.pdf"
         http = FakeHttp({url: FakeResp(content=pdf, headers={"content-type": "application/pdf", "last-modified": "Mon, 17 Feb 2025 16:56:37 GMT"})})
-        web = gd_official.make_web_fn(http=http)
-        pages = web(url + " sail switch")
+        pages = gd_official.fetch_pages(url, http=http, query="sail switch")
         self.assertEqual(pages[0].page, "2")                       # best-matching page first
         self.assertEqual({p.revision for p in pages}, {"Rev 02/17/25"})
         self.assertEqual(pages[0].host, "lci-support-doc.s3.amazonaws.com")
         self.assertEqual(len(http.calls), 1)
-        web(url + " sail switch")                                  # same URL and words: served from the tool's cache
-        self.assertEqual(len(http.calls), 1)
 
-    def test_xai_search_is_used_when_a_key_exists_and_is_mocked_here(self):
-        calls = []
-
-        class Http(FakeHttp):
-            def post(self, url, json=None, **kw):
-                calls.append((url, json))
-                body = {"output": [{"content": [{"type": "output_text", "text": '{"sources": [{"url": "https://www.dometic.com/a", "title": "A", "kind": "maker"}]}'}]}]}
-
-                class R:
-                    def json(_):
-                        return body
-                return R()
-        http = Http({"https://www.dometic.com/a": FakeResp(text="<html><title>A</title><body>" + "service " * 400 + "</body></html>",
-                                                           headers={"content-type": "text/html"})})
-        web = gd_official.make_web_fn(secret_fn=lambda k: "KEY" if k == "XAI_API_KEY" else None, http=http)
-        pages = web("dometic furnace sail switch")
-        self.assertEqual(calls[0][0], gd_official.XAI_RESPONSES_URL)
-        self.assertEqual(calls[0][1]["tools"], [{"type": "web_search"}])        # no allowed_domains filter
-        self.assertEqual(pages[0].host, "www.dometic.com")
+    def test_old_app_side_web_search_is_deleted(self):
+        # v4.20.9: Grok searches the web itself (xAI built-in web_search); the app's own search had no caller left
+        for name in ("make_web_fn", "xai_search", "http_search", "XAI_RESPONSES_URL", "DEFAULT_SEARCH_MODEL"):
+            self.assertFalse(hasattr(gd_official, name), name)
 
     def test_web_documents_from_any_site_come_back_with_source_lines(self):
         f, store = finder(), {}

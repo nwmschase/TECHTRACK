@@ -52,7 +52,7 @@ class TestPrimerWording(unittest.TestCase):
 
 def _ns_publish():
     tree = ast.parse(SRC)
-    keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in ("_gd_publish_turn_log", "_gd_log_text"))
+    keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in ("_gd_publish_turn_log", "_gd_log_text", "_gd_secret_values"))
             or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "GD_TURN_LOG_TEXT_CAP" for t in n.targets))]
     puts = []
 
@@ -86,20 +86,22 @@ class TestTurnLogPublished(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             fn({"turn": 2})
 
-    def test_empty_log_does_nothing(self):
+    def test_empty_log_is_still_published(self):
+        # v4.20.9 (audit H3): every turn leaves a log line, even one that produced no record
         fn, puts = _ns_publish()
         buf = io.StringIO()
         with redirect_stdout(buf):
             fn(None)
-        self.assertEqual(buf.getvalue(), "")
-        self.assertEqual(puts, [])
+        self.assertEqual(json.loads(buf.getvalue()[len("GD_TURN "):])["event"], "turn_without_log")
+        self.assertEqual(len(puts), 1)
 
     def test_wired_after_run_turn_and_guarded(self):
         body = SRC.split("def _gd_official_reply(", 1)[1].split("\ndef ", 1)[0]
         call = '_gd_publish_turn_log(result.get("log"), user_msg, result.get("reply"))'
         self.assertLess(body.index("gd_turn.run_turn("), body.index(call))
-        seg = body[body.index(call) - 40:]
-        self.assertIn("try:", seg[:60])
+        # v4.20.9: the publisher guards itself (JSON, stdout and R2 each in their own try) and never raises into the turn
+        pub = SRC.split("def _gd_publish_turn_log(", 1)[1].split("\ndef ", 1)[0]
+        self.assertGreaterEqual(pub.count("try:"), 3)
 
     def test_no_secret_names_in_publisher(self):
         fn_src = SRC.split("def _gd_log_text(", 1)[1].split("\ndef _gd_official_reply", 1)[0]

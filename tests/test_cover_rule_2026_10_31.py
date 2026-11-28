@@ -143,14 +143,14 @@ F10_GOLD = {"L241", "L236", "L242", "L244", "L246"}
 @unittest.skipUnless(os.path.exists(os.path.join(_INDEX, "index.sqlite")) and os.path.exists(_APP_DB), "index / app DB not on this box")
 class AcceptedF10(unittest.TestCase):
     def test_capacitor_rating_page_in_top3(self):
+        # v4.20.9: the old picker (pick_manual / fetch_by_part) is deleted; the page search Grok uses is checked instead.
         import gd_pages
+        import gd_tools
         f = gd_pages.LibraryPageFinder(_INDEX, meaning=False, app_db=_APP_DB)
-        p = f.pick_manual("Air Conditioning", "Coleman-Mach 2111-0001", "Ran about 2 minutes then dead / no response.")
-        self.assertTrue(p.manuals)
-        brands = {(m.get("brand") or "").lower() for m in p.manuals}
-        full = S.fetch_by_part("fan run capacitor rating", {"manuals": p.manuals}, k=10000)
-        full = [x for x in full if (f.lib.docs.get(x["doc_id"], {}).get("brand") or "").lower() in brands]
-        top = full[:3]
-        self.assertTrue(any(x["doc_id"] in F10_GOLD and re.search(r"MFD|µF|uF|microfarad", x["text"], re.I) for x in top),
-                        [(x["doc_id"], x["pdf_sheet"]) for x in top])
+        T = gd_tools.LibraryTools.for_finder(f)
+        docs = T.find_documents(brand="Coleman-Mach", model="2111-0001", unit_type="Air Conditioning",
+                                words="Ran about 2 minutes then dead / no response.")["documents"]
+        self.assertTrue(docs)
+        top = T.search_pages("fan run capacitor rating", brand="Coleman-Mach")["hits"][:3]
+        self.assertTrue(all(x["doc_id"] in F10_GOLD for x in top), [(x["doc_id"], x["sheet"]) for x in top])
         self.assertTrue({"L244", "L246"} & {x["doc_id"] for x in top}, "the accepted one-page capacitor sheets rank in the top 3")

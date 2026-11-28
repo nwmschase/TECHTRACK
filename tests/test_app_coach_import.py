@@ -37,7 +37,6 @@ class TestCoachModuleLoads(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         for name in (
-            "AC_HINT_TITLES",
             "is_air_conditioning_context",
             "is_fcr_e2_fan_fault_context",
             "is_water_heater_context",
@@ -133,7 +132,7 @@ class TestCoachModuleLoads(unittest.TestCase):
         self.assertTrue(hasattr(loaded, "AIR_CONDITIONING_CATEGORY"))
         self.assertTrue(hasattr(loaded, "DEFAULT_LIBRARY_CATEGORIES"))
         self.assertEqual(loaded.AIR_CONDITIONING_CATEGORY, "Air Conditioning")
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.8")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.9")
 
     def test_loader_reloads_when_revision_is_old_even_if_names_exist(self):
         """v4.19.4 kept the v4.19.3 coach: every old name existed, so the fan-only detector stayed."""
@@ -154,7 +153,7 @@ class TestCoachModuleLoads(unittest.TestCase):
             ns,
         )
         loaded = ns["_gdc"]
-        self.assertEqual(loaded.COACH_REVISION, "v4.20.8")
+        self.assertEqual(loaded.COACH_REVISION, "v4.20.9")
         self.assertIsNot(loaded, stale)
         self.assertTrue(
             loaded.is_fcr_e2_fan_fault_context(
@@ -162,32 +161,9 @@ class TestCoachModuleLoads(unittest.TestCase):
             )
         )
 
-    def test_legacy_pr4_does_not_import_removed_hint(self):
-        src = (ROOT / "rv_techtrackpr4").read_text()
-        tree = ast.parse(src)
-        imported = []
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom) and node.module == "gd_library_coach":
-                imported.extend(a.name for a in node.names)
-        self.assertNotIn("format_procedure_library_hint", imported)
-        spec = importlib.util.spec_from_file_location(
-            "gd_library_coach_pr4", ROOT / "gd_library_coach.py"
-        )
-        coach = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(coach)
-        # rv_techtrackpr4 is an archived v4.12.0 copy that nothing runs. Its old
-        # imports (OPEN_LIBRARY_COACH_RULE, hard_tree_yields_to_coach,
-        # pick_working_vision_model, tech_wants_open_coach) were dead code and
-        # were removed from the coach on 2026-10-24.
-        retired = {
-            "OPEN_LIBRARY_COACH_RULE",
-            "hard_tree_yields_to_coach",
-            "pick_working_vision_model",
-            "tech_wants_open_coach",
-            "wants_library_figures",   # v4.20.7: old regex figure ask, retired with the old figure path
-        }
-        missing = [n for n in imported if not hasattr(coach, n) and n not in retired]
-        self.assertEqual(missing, [])
+    def test_legacy_pr4_copy_is_deleted(self):
+        # v4.20.9 (Chase t1729u "delete"): the archived v4.12.0 copy rv_techtrackpr4 is gone and stays gone
+        self.assertFalse((ROOT / "rv_techtrackpr4").exists())
 
 
 if __name__ == "__main__":

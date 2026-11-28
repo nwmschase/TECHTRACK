@@ -212,9 +212,6 @@ def fix_page_row(row, file_path, path=DOC_FIXES):
     return row
 
 
-def duplicates_into(target_doc_id, path=DOC_FIXES):
-    """Titles of the docs marked duplicate_of target (they stay findable by title through the kept doc)."""
-    return [e for e in load(path).values() if e['doc'].get('duplicate_of') == target_doc_id]
 
 
 def source_label(source_type):
@@ -226,11 +223,3 @@ def display_title(title, source_type):
     lab = source_label(source_type)
     return f'{lab}: {title}' if lab else title
 
-
-def bay_title(title, source_type):
-    """The Bay PDF citation: 'Shop sheet: ...' instead of a maker name for our own write-ups."""
-    lab = SOURCE_LABELS.get(source_type or OEM, ('', ''))[1]
-    if not lab:
-        return title
-    t = re.sub(r'\s*[—–-]+\s*shop\s*write-?\s*up\s*$', '', title or '', flags=re.I).strip()
-    return f'{lab}: {t}'

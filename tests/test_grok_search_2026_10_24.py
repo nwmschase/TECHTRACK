@@ -17,7 +17,8 @@ import gd_llm  # noqa: E402
 import gd_prompt  # noqa: E402
 import gd_tools  # noqa: E402
 import gd_turn  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 from test_fresh_core import FakeChat, FakeRespond, block, outputs, page, MAN  # noqa: E402
 
 OTHER = {"doc_id": "L9", "title": "Other Maker Fridge Sheet", "brand": "Othermaker", "unit_type": "refrigerator", "doc_type": "tech-sheet"}
@@ -347,11 +348,13 @@ class TestTriggers(unittest.TestCase):
         forum = [t for t in r["triggers"] if t["trigger"] == gd_turn.T_FORUM]
         self.assertEqual([t["url"] for t in forum], ["https://www.irv2.com/forums/threads/123"])
 
-    def test_state_block_missing_broken_and_story_written(self):
+    def test_state_block_missing_and_broken(self):
         self.assertIn(gd_turn.T_STATE_MISSING, names(self.turn(FakeChat(["no block here"]))))
         self.assertIn(gd_turn.T_STATE_BROKEN, names(self.turn(FakeChat(["x <state>{not json}</state>"]))))
+        # v4.20.9: the story field and its STORY_WRITTEN trigger are deleted; a stray story is ignored, never stored
+        self.assertFalse(hasattr(gd_turn, "T_STORY"))
         r = self.turn(FakeChat(["Done.\n" + block(story="Complaint: E2. Cause: fan. Correction: replaced fan.", summary="s")]))
-        self.assertIn(gd_turn.T_STORY, names(r))
+        self.assertNotIn("story", r["state"])
 
     def test_safety_ceiling_trigger(self):
         r = self.turn([[("search_pages", {"words": f"w{i}"})] for i in range(6)])

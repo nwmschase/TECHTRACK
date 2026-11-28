@@ -935,30 +935,6 @@ def abandon_job(session, job_id: int) -> None:
     session.expire_all()
 
 
-def stage_zip_bytes(
-    session,
-    zip_bytes: bytes,
-    *,
-    zip_name: str,
-    manifest_bytes: bytes | None = None,
-    manifest_name: str = "",
-    uploaded_by: int | None = None,
-    batch_size: int = DEFAULT_BATCH,
-    staging_dir="bulk_imports",
-    upload_staging=None,
-) -> dict:
-    """Write the ZIP locally, record one row per PDF, and keep an open job resumable."""
-    return stage_zip_source(
-        session,
-        zip_bytes,
-        zip_name=zip_name,
-        manifest_bytes=manifest_bytes,
-        manifest_name=manifest_name,
-        uploaded_by=uploaded_by,
-        batch_size=batch_size,
-        staging_dir=staging_dir,
-        upload_staging=upload_staging,
-    )
 
 
 def stage_zip_source(

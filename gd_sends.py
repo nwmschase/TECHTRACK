@@ -4,7 +4,8 @@ v4.20.5 kept the double-send guard in the browser session. In test7b the page re
 went to Grok again; the first reply, already paid for, never reached the screen because its run was stopped before it
 saved the reply. Now, per process and shared by every session:
 - claim(): the first send of (user, key) asks Grok; a repeat while it is in flight waits for it; a repeat after it
-  finished reuses its reply (no second Grok call). Entries live TTL_SECONDS (10 minutes).
+  finished reuses its reply (no second Grok call). v4.20.9: an in-flight send is held for the whole turn
+  (WAIT_SECONDS = the longest possible turn); a finished one is kept KEEP_DONE_SECONDS after that.
 - finish(): the reply is kept the moment Grok returns, before anything is drawn.
 - take_commit(): exactly one run appends that reply to the chat and saves it to the database.
 - unseen(): a finished reply the screen has not drawn yet (its run was stopped), so the next run shows it.
@@ -16,9 +17,27 @@ import threading
 import time
 import types
 
-MODULE_REVISION = "v4.20.8"
-TTL_SECONDS = 600
-WAIT_SECONDS = 240
+MODULE_REVISION = "v4.20.9"
+
+# v4.20.9 (audit M6, Chase t1727u): the guard covers the WHOLE turn. A turn is up to gd_turn.SAFETY_CEILING_CALLS model
+# calls, each up to gd_llm.TOOL_REQUEST_TIMEOUT_SEC + DEADLINE_SLACK_SEC, plus the photo read and the library tools
+# (TURN_MARGIN_SECONDS). Before, the guard gave up after 240 s, so a press after 4 minutes asked (and paid) Grok twice.
+# An in-flight send is held until the asking run finishes or abandons it (never pruned while in flight), and a repeat
+# waits that long. A finished reply is kept KEEP_DONE_SECONDS for reuse.
+TURN_MARGIN_SECONDS = 180
+KEEP_DONE_SECONDS = 600
+
+
+def max_turn_seconds() -> float:
+    import gd_llm
+    import gd_turn
+
+    return gd_turn.SAFETY_CEILING_CALLS * (float(gd_llm.TOOL_REQUEST_TIMEOUT_SEC) + float(gd_llm.DEADLINE_SLACK_SEC)) \
+        + TURN_MARGIN_SECONDS
+
+
+WAIT_SECONDS = max_turn_seconds()
+TTL_SECONDS = WAIT_SECONDS + KEEP_DONE_SECONDS
 
 _HOLDER = "_techtrack_gd_sends_store"   # kept in sys.modules: survives app reruns and module reloads
 
@@ -31,7 +50,10 @@ class SendStore:
         self.entries = {}
 
     def _prune(self, now):
-        for k in [k for k, e in self.entries.items() if now - e["t"] > self.ttl]:
+        """Finished entries go after ttl; an in-flight one only after the longest possible turn (WAIT_SECONDS) plus ttl,
+        so a send is never forgotten while its turn can still be running."""
+        for k in [k for k, e in self.entries.items()
+                  if now - e["t"] > (self.ttl if e.get("done") else max(self.ttl, WAIT_SECONDS))]:
             self.entries.pop(k, None)
 
     def claim(self, user, key, wait_s=WAIT_SECONDS):

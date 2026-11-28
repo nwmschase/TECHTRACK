@@ -7,7 +7,6 @@ import pymupdf
 pymupdf.TOOLS.mupdf_display_errors(False)
 
 NUM = re.compile(r'^(?:page|pg\.?|p\.)?\s*[-–(]?\s*(\d{1,3})\s*[-–)]?(?:\s*(?:of|/)\s*\d{1,3})?$', re.I)
-SECNUM = re.compile(r'^(\d{1,2})\s*[-–.]\s*(\d{1,3})$')   # "3-12" section-page style: recorded, not used for offset
 
 def hf_candidates(lines_top, lines_bot):
     out = []

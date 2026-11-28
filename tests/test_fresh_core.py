@@ -17,7 +17,8 @@ import gd_prompt  # noqa: E402
 import gd_state  # noqa: E402
 import gd_story  # noqa: E402
 import gd_turn  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 
 MAN = [{"doc_id": "L1", "title": "Acme Fridge Service Manual", "brand": "Acme", "unit_type": "refrigerator", "doc_type": "service-manual"}]
 
@@ -150,7 +151,8 @@ class TestNoBannedLeftovers(unittest.TestCase):
         self.assertNotIn("_gd_web_tool()", gd)      # the app-side web search is retired from the GD path
         # the Bay PDF path is gone (cleanup 2026-10-24): the backburnered finder has no caller anywhere in the app
         for name in ("pick_manual", "fetch_part", "entry_pages", "toc_pages"):
-            self.assertNotIn(name, src, f"{name} called from the app")
+            self.assertIsNone(re.search(rf"\b{name}\s*\(", src), f"{name} called from the app")
+            self.assertFalse(hasattr(gd_pages.LibraryPageFinder, name), f"{name} is back (v4.20.9 deleted it)")
 
     def test_core_never_regex_reads_prose(self):
         for f in ("gd_turn.py", "gd_state.py", "gd_story.py"):
@@ -257,13 +259,10 @@ class TestTurnFlowAndRetrieval(unittest.TestCase):
 
 
 class TestPageBudget(unittest.TestCase):
-    """The old 8-page / 40k-char cap (R6) is gone; apply_budget only merges duplicates unless a caller sets a budget."""
+    """The old 8-page / 40k-char cap (R6) is gone; v4.20.9 deleted apply_budget (no caller left)."""
 
-    def test_no_cap_by_default_and_duplicates_merged(self):
-        pages = [page(sheet=i, text="x" * 9000) for i in range(1, 8)] + [page(sheet=1, text="dup")]
-        kept, not_shown = gd_pages.apply_budget(pages)
-        self.assertEqual([p.sheet for p in kept], [1, 2, 3, 4, 5, 6, 7])
-        self.assertEqual(not_shown, [])
+    def test_budget_helper_is_deleted(self):
+        self.assertFalse(hasattr(gd_pages, "apply_budget"))
 
     def test_turn_sends_every_page_read(self):
         big = StubPageFinder(manuals=MAN, pages=[page(sheet=i, kind="entry" if i < 3 else "support", text="y" * 12000) for i in range(1, 12)])
@@ -292,61 +291,67 @@ class TestRealLibraryWiring(unittest.TestCase):
     def setUpClass(cls):
         cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
 
+    # v4.20.9: the old picker (pick_manual / fetch_part / toc_pages / apply_budget) is deleted. The wiring is checked
+    # through the tools Grok uses: Grok names the maker, find_documents lists that maker's manuals for the unit.
+    def tools(self, f=None):
+        import gd_tools
+        return gd_tools.LibraryTools.for_finder(f or self.f)
+
+    def docs(self, unit, model, words, brand=None, f=None):
+        args = {"model": model, "unit_type": unit, "words": words}
+        if brand:
+            args["brand"] = brand
+        return json.loads(self.tools(f).call("find_documents", args)[0]).get("documents", [])
+
     def check(self, cat, model, complaint, brand, part):
-        p = self.f.pick_manual(cat, model, complaint)
-        self.assertTrue(p.manuals, model)
-        self.assertEqual(p.manuals[0]["brand"].lower(), brand.lower())
-        self.assertEqual(p.manuals[0]["unit_type"], cat)
-        self.assertTrue(p.entry and all(x.kind == "entry" for x in p.entry))
-        self.assertTrue(all(x.text and x.page for x in p.pages))
-        parts = self.f.fetch_part(part, p)
-        self.assertTrue(all(x.text and x.page for x in parts))   # the search returns whatever it found, unfiltered by maker
-        kept, _ = gd_pages.apply_budget(p.pages + parts)
-        self.assertTrue(kept)
-        return p
+        docs = self.docs(cat, model, complaint, brand=brand)
+        self.assertTrue(docs, model)
+        self.assertEqual(docs[0]["brand"].lower(), brand.lower())
+        self.assertEqual(docs[0]["unit_type"], cat)
+        hits = json.loads(self.tools().call("search_pages", {"words": part, "doc_ids": [d["doc_id"] for d in docs]})[0])["hits"]
+        self.assertTrue(hits, part)
+        out, pages, err = self.tools().call("read_pages", {"doc_id": hits[0]["doc_id"], "sheets": [hits[0]["sheet"]]})
+        self.assertFalse(err)
+        self.assertTrue(pages and all(x.text and x.page for x in pages))
+        return docs
 
     def test_furrion_fcr10(self):
-        self.check("Refrigerators", "Furrion FCR10DCGFA", "freezes contents, E2 blinking", "Furrion", "freezer fan motor")
+        self.check("Refrigerators", "FCR10DCGFA", "freezes contents, E2 blinking", "Furrion", "freezer fan motor")
 
     def test_suburban_water_heater(self):
-        self.check("Water Heaters", "Suburban SW6DE water heater", "gas clicks but never lights", "Suburban", "gas valve")
+        self.check("Water Heaters", "SW6DE water heater", "gas clicks but never lights", "Suburban", "gas valve")
 
     def test_suburban_furnace_hyphen_case(self):
-        p = self.check("Furnaces", "Suburban NT-20SEQT furnace", "furnace won't heat", "Suburban", "thermostat")
-        self.assertTrue(self.f.toc_pages(p) is not None)
+        docs = self.check("Furnaces", "NT-20SEQT furnace", "furnace won't heat", "Suburban", "thermostat")
+        self.assertEqual(docs[0]["doc_id"], "L120")
+        self.assertIn("contents_pages", self.tools().table_of_contents("L120"))
 
     def test_brand_known_only_from_data(self):
-        p = self.f.pick_manual("Leveling", "DeWald 140-1179", "jacks won't extend")
-        self.assertTrue(p.manuals)
-        self.assertEqual(p.manuals[0]["brand"].lower(), "dewald")
+        docs = self.docs("Leveling", "DeWald 140-1179", "jacks won't extend")
+        self.assertTrue(docs)
+        self.assertEqual(docs[0]["brand"].lower(), "dewald")
 
     def test_model_tag_beats_title_preference(self):
-        # 3f: a model listed by two docs goes to the doc made for that control first; the wider tip sheet comes second
-        p = self.f.pick_manual("Leveling", "Power Gear 140-1230", "not working")
-        self.assertEqual(p.manuals[0]["doc_id"], "L370")
-        # 140-1227: L802 (the operation manual for touch pad 140-1226 / control box 140-1227, brand fixed to Power Gear on
-        # 2026-10-20) leads; the L555 tip sheet carrying the same tag is the troubleshooting doc added after it
-        p = self.f.pick_manual("Leveling", "Power Gear 140-1227", "not working")
-        self.assertEqual([m["doc_id"] for m in p.manuals][:2], ["L802", "L555"])
+        # a model listed by two docs goes to the doc made for that control first
+        self.assertEqual(self.docs("Leveling", "Power Gear 140-1230", "not working")[0]["doc_id"], "L370")
+        self.assertEqual(sorted(d["doc_id"] for d in self.docs("Leveling", "140-1227", "not working", brand="Power Gear")[:2]),
+                         ["L555", "L802"])
 
     def test_brand_lock_no_other_makers_manual(self):
-        # the search itself (pagefinder Q01) returns no manual for a maker with none in the asked category
-        p = self.f.pick_manual("Leveling", "Furrion FACR13LPSA2-PS", "not cooling")
-        self.assertEqual(p.manuals, [])
+        # Grok names the maker: a widened search (no Furrion leveling manual) still never lists another maker's manual
+        docs = self.docs("Leveling", "FACR13LPSA2-PS", "not cooling", brand="Furrion")
+        self.assertEqual({d["brand"] for d in docs}, {"Furrion"})
+        self.assertNotIn("Leveling", {d["unit_type"] for d in docs})
 
     def test_category_name_never_names_the_maker(self):
-        # 'electronics-onecontrol-...' must not make the maker Lippert (product-line words come only from the typed unit)
-        # (the Power Gear sheets once filed here are leveling sheets, re-filed under Leveling on 2026-10-20: worker 4 flags)
-        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Furrion FOS7HTASM", "no picture")
-        self.assertTrue(p.manuals)
-        self.assertEqual({m["brand"] for m in p.manuals}, {"Furrion"})
-        p = self.f.pick_manual("electronics-onecontrol-tpms-cameras", "Power Gear 140-1224", "not working")
-        self.assertNotIn("Lippert", {m["brand"] for m in p.manuals})
+        docs = self.docs("electronics-onecontrol-tpms-cameras", "FOS7HTASM", "no picture", brand="Furrion")
+        self.assertTrue(docs)
+        self.assertEqual({d["brand"] for d in docs}, {"Furrion"})
 
     def test_whole_unit_maker_owner_manual(self):
-        p = self.f.pick_manual("Air Conditioning", "Brinkley Model Z", "AC not cooling")
-        self.assertTrue(p.manuals)
-        self.assertEqual({m["brand"] for m in p.manuals}, {"Brinkley"})
+        docs = self.docs("Air Conditioning", "Model Z", "AC not cooling", brand="Brinkley")
+        self.assertTrue(docs)
+        self.assertEqual({d["brand"] for d in docs}, {"Brinkley"})
 
     def test_app_library_changes_reach_the_finder_without_restart(self):
         import shutil, sqlite3, tempfile
@@ -357,11 +362,10 @@ class TestRealLibraryWiring(unittest.TestCase):
         saved = pf._L
         try:
             f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=db)
-            self.assertEqual(f.pick_manual("Leveling", "Power Gear 140-1230", "x").manuals[0]["doc_id"], "L370")
+            self.assertEqual(self.docs("Leveling", "Power Gear 140-1230", "x", f=f)[0]["doc_id"], "L370")
             c = sqlite3.connect(db)
             c.execute("delete from doc_chunks where document_id=370"); c.execute("delete from documents where id=370"); c.commit(); c.close()
-            ids = [m["doc_id"] for m in f.pick_manual("Leveling", "Power Gear 140-1230", "x").manuals]
-            self.assertNotIn("L370", ids)
+            self.assertNotIn("L370", [x["doc_id"] for x in self.docs("Leveling", "Power Gear 140-1230", "x", f=f)])
         finally:
             pf._L = saved
 
@@ -416,7 +420,8 @@ class TestRealLibraryWiring(unittest.TestCase):
             with mock.patch.object(pf, "shared_embedding_model", side_effect=AssertionError("model loaded")), \
                  mock.patch.object(pf, "shared_base_vectors", side_effect=AssertionError("vectors loaded")):
                 self.assertEqual(_REAL_MEANING(lib, "q", [("L370", 1)]), {("L370", 1): 0.0})
-                self.assertTrue(pf.pick_manual(lib, unit="Leveling", model="Power Gear 140-1230", complaint="x")[0])
+                import gd_tools
+                self.assertTrue(gd_tools.LibraryTools(lib).search_pages("jacks will not extend", brand="Power Gear")["hits"])
         finally:
             pf.MEANING_ON = saved_on
 
@@ -453,6 +458,7 @@ class TestGrokWrittenStory(unittest.TestCase):
         case = gd_turn.new_case("Refrigerators", "Acme X1", "freezes, E2")
         case["state"] = gd_state.merge(case["state"], {"story": "Complaint: ... Cause: ... Correction: ...",
                                                        "repair": {"done": True, "verified": True, "what": "x", "quote": "y"}})
-        self.assertEqual(case["state"]["story"], "Complaint: ... Cause: ... Correction: ...")     # stored in the state
+        # v4.20.9: the state block has no story field; parse drops one Grok still sends
+        self.assertNotIn("story", gd_state.parse('x <state>{"story": "Complaint: ..."}</state>')[1])
         # GD-4 (11/24): the story comes from the Write warranty story button, built from the whole chat, not GD's text
         self.assertNotEqual(gd_story.warranty_story(case, []), "Complaint: ... Cause: ... Correction: ...")

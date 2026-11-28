@@ -152,8 +152,3 @@ def vocab():
     if _V is None: _V = Vocab()
     return _V
 
-
-def reload():
-    global _V
-    _V = None
-    return vocab()

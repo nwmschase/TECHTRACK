@@ -87,7 +87,7 @@ def _calls(record, provider=None):
 
 class TestGdLlmProvider(unittest.TestCase):
     def setUp(self):
-        gd_llm._last_provider = ""
+        gd_llm._last_usage = {}
 
     def _secrets(self, **extra):
         data = {
@@ -112,7 +112,7 @@ class TestGdLlmProvider(unittest.TestCase):
             client_factory=_factory(outcomes, record),
         )
         self.assertEqual(text, "next prove is rooftop assembly")
-        self.assertEqual(gd_llm.last_provider(), "xai")
+        self.assertEqual(_calls(record)[-1]["provider"], "xai")
         self.assertEqual(len(_calls(record)), 1)
         call = _calls(record, "xai")[0]
         self.assertEqual(call["kwargs"]["model"], "grok-4.3")
@@ -135,7 +135,7 @@ class TestGdLlmProvider(unittest.TestCase):
             client_factory=_factory(outcomes, record),
         )
         self.assertEqual(text, "groq kept the prove moving")
-        self.assertEqual(gd_llm.last_provider(), "groq")
+        self.assertEqual(_calls(record)[-1]["provider"], "groq")
         self.assertEqual([row["provider"] for row in _calls(record)], ["xai", "groq"])
         groq = _calls(record, "groq")[0]
         self.assertEqual(groq["kwargs"]["model"], "openai/gpt-oss-120b")
@@ -198,7 +198,7 @@ class TestGdLlmProvider(unittest.TestCase):
         )
         self.assertEqual(text, "groq only")
         self.assertEqual([row["provider"] for row in _calls(record)], ["groq"])
-        self.assertEqual(gd_llm.last_provider(), "groq")
+        self.assertEqual(_calls(record)[-1]["provider"], "groq")
 
     def test_missing_both_keys_is_a_clear_error_without_a_client(self):
         record = []
@@ -242,7 +242,7 @@ class TestGdLlmProvider(unittest.TestCase):
         )
         self.assertEqual(text, "custom model")
         call = _calls(record, "xai")[0]
-        self.assertEqual(call["kwargs"]["model"], "grok-shop")
+        self.assertEqual(call["kwargs"]["model"], "grok-4.3")   # v4.20.9: XAI_MODEL is not read; the code sets the model
         self.assertEqual(call["base_url"], "https://example.test/v1")
 
     def test_unknown_primary_stays_on_xai(self):
@@ -343,7 +343,7 @@ class TestGdLlmProvider(unittest.TestCase):
                     os.environ[name] = old
         self.assertEqual(text, "from env")
         call = _calls(record, "xai")[0]
-        self.assertEqual(call["kwargs"]["model"], "grok-from-env")
+        self.assertEqual(call["kwargs"]["model"], "grok-4.3")   # v4.20.9: XAI_MODEL in the environment is ignored too
         self.assertEqual(call["base_url"], "https://env.example/v1")
         self.assertNotIn(XAI_KEY, text)
 
@@ -416,7 +416,6 @@ class TestGdLlmProvider(unittest.TestCase):
         )
         elapsed = time.perf_counter() - started
         self.assertEqual(text, "groq answered after the hang")
-        self.assertEqual(gd_llm.last_provider(), "groq")
         self.assertEqual(record, ["xai", "groq"])
         self.assertLess(elapsed, 1.5)
 

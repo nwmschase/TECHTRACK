@@ -143,8 +143,10 @@ class TestCitedPagesReachHistory(unittest.TestCase):
         stub.lib = types.SimpleNamespace(pages=lambda d: ROWS)
         respond = FakeRespond(["Check the fan wiring on page 19. " + block(cited=[{"doc_id": "L1", "page": "19"}])])
         ns = {"st": fake_st, "_gd_official_respond": respond, "_gd_official_chat": None, "_gd_page_finder": lambda: stub,
-              "GD_USAGE_LOG": "", "GD_UNAVAILABLE_LINE": "unavailable", "record_cited_pages": lambda line: None,
-              "gd_llm": None, "_secret": lambda k: None, "_gd_doc_file_path": lambda d: f"documents/{d}.pdf"}
+              "GD_USAGE_LOG": "", "record_cited_pages": lambda line: None,
+              "gd_llm": None, "_secret": lambda k: None, "_gd_doc_file_path": lambda d: f"documents/{d}.pdf",
+              "_gd_page_image_fn": lambda: None, "_gd_publish_turn_log": lambda *a, **k: None,
+              "_gd_secret_values": lambda: [], "_gd_fb": lambda *a, **k: None}
         exec(compile(code, "rv_slice", "exec"), ns)
         reply = ns["_gd_official_reply"]("fridge fan not running", "Refrigerators", "Acme X1", [], {})
         self.assertIn("page 19", reply)
@@ -164,8 +166,9 @@ class TestCitedPagesReachHistory(unittest.TestCase):
         def boom():
             raise index_fetch.IndexLoading("loading")
         ns = {"st": fake_st, "_gd_official_respond": None, "_gd_official_chat": None, "_gd_page_finder": boom,
-              "GD_USAGE_LOG": "", "GD_UNAVAILABLE_LINE": "x", "record_cited_pages": lambda l: None, "gd_llm": None,
-              "_secret": lambda k: None}
+              "GD_USAGE_LOG": "", "record_cited_pages": lambda l: None, "gd_llm": None,
+              "_secret": lambda k: None, "_gd_publish_turn_log": lambda *a, **k: None, "_gd_secret_values": lambda: [],
+              "_gd_fb": lambda *a, **k: None}
         exec(compile(code, "rv_slice", "exec"), ns)
         ns["_gd_official_reply"]("hi", "Refrigerators", "X", [], {})
         self.assertNotIn("gd_last_cited", fake_st.session_state)
@@ -175,7 +178,7 @@ class TestCitedPagesReachHistory(unittest.TestCase):
         self.assertIn('"pages": _gd_cited_page_refs(entry.get("cited")),', src)   # v4.20.6: the send's kept cited pages
         self.assertIn('cited=list(st.session_state.pop("gd_last_cited", None) or [])', src)
         self.assertIn('_render_gd_page_links((m.get("pages") or []) if isinstance(m, dict) else [], f"gd_pages_{index}")', src)
-        self.assertIn('"gd_page_links", "gd_picture", "gd_sends")', src)                       # reloaded with the GD stack on a redeploy
+        self.assertIn('"gd_page_links", "gd_picture", "gd_sends", "gd_errors")', src)                       # reloaded with the GD stack on a redeploy
         row = _slice(src, "def _render_gd_page_links(", "\ndef clear_ask_source_state(")
         self.assertNotIn("st.expander", row)                          # Aug 20: no dropdowns
         self.assertIn("gd_page_links.pdf_link(get_r2_client(), st.secrets[\"R2_BUCKET_NAME\"], key, sheet)", row)

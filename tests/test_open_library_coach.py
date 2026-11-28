@@ -4,7 +4,6 @@ from pathlib import Path
 
 from gd_library_coach import (
     DEFAULT_GROQ_VISION_MODELS,
-    HARD_TREE_EXCLUSIVE_CHAT,
     groq_vision_model_candidates,
     is_fcr_e2_fan_fault_context,
     xai_vision_model_candidates,
@@ -60,7 +59,10 @@ class TestProductSource(unittest.TestCase):
         )
         self.assertIn("_load_gd_library_coach", src)
         self.assertIn("gd_library_coach.py", src)
-        self.assertIn("HARD_TREE_EXCLUSIVE_CHAT", src)
+        # v4.20.9 (Chase t1729u "delete"): the hard trees (PROCEDURE_TREES and the Yes/No tree buttons) are gone
+        for gone in ("HARD_TREE_EXCLUSIVE_CHAT", "PROCEDURE_TREES", "PROCEDURE_FURRION_FCR_CCD_0008122",
+                     "get_procedure_node", "binary_button_labels", "_ANSWER_ALIAS_GROUPS", "REDUCED_MODE_LINE"):
+            self.assertNotIn(gone, src)
 
     def test_figure_honesty_is_wired(self):
         src = (ROOT / "rv_techtrack.py").read_text()

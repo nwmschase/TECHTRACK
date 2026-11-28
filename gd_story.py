@@ -29,7 +29,6 @@ import os
 PHOTO_NOTE = "The file did not count."
 PHOTO_NOTE_LINE = "(The file did not count as a finding.)"
 LABEL_LINE = "Label/photo shows:"
-SECTIONS = ("CONCERN", "CAUSE", "REFERENCES", "CORRECTION", "REQUEST")
 _HEAD_WORDS = (("CONCERN", "CONCERN"), ("COMPLAINT", "CONCERN"), ("CAUSE", "CAUSE"), ("DIAGNOSTIC TEST LOG", "CAUSE"),
                ("MANUFACTURER REFERENCE", "REFERENCES"), ("REFERENCES", "REFERENCES"), ("CORRECTION", "CORRECTION"),
                ("WORK PERFORMED", "CORRECTION"), ("REQUEST", "REQUEST"))
@@ -222,27 +221,28 @@ _REC_LEADS = ("recommend a replacement of ", "recommend replacement of ", "recom
 
 def tech_recommendation(history) -> str:
     """The repair the tech said he recommends ('I will recommend a new thermostat'), newest first, as
-    'Replace the thermostat' / 'Repair the ...' / the tech's words; '' when he did not state one."""
+    'Replace the thermostat' / 'Repair the ...' / the tech's words; '' when he did not state one. v4.20.9: only a plain
+    statement in which the tech recommends counts; a question ('what do you recommend I check next?') never does."""
     for t in reversed(_tech_msgs(history)):
-        low = t.lower()
-        i = low.rfind("recommend")
-        if i < 0:
-            continue
-        tail = t[i:]
-        tl = tail.lower()
-        for lead in _REC_LEADS:
-            if tl.startswith(lead):
-                rest = _sentences(tail[len(lead):])[0].rstrip(".!?, ").strip() if tail[len(lead):].strip() else ""
-                for art in ("the ", "a new ", "a ", "an ", "new "):
-                    if rest.lower().startswith(art):
-                        rest = rest[len(art):]
-                if not rest:
-                    break
-                if lead.startswith(("recommend repair", "recommend a repair")):
-                    return "Repair the " + rest
-                if lead == "recommend " and not tl.startswith(("recommend the ", "recommend a ", "recommend an ")):
-                    return rest[0].upper() + rest[1:]
-                return "Replace the " + rest
+        for clause in reversed(_statements(t)):
+            i = _rec_at(clause)
+            if i < 0:
+                continue
+            tail = clause[i:]
+            tl = tail.lower()
+            for lead in _REC_LEADS:
+                if tl.startswith(lead):
+                    rest = _sentences(tail[len(lead):])[0].rstrip(".!?, ").strip() if tail[len(lead):].strip() else ""
+                    for art in ("the ", "a new ", "a ", "an ", "new "):
+                        if rest.lower().startswith(art):
+                            rest = rest[len(art):]
+                    if not rest:
+                        break
+                    if lead.startswith(("recommend repair", "recommend a repair")):
+                        return "Repair the " + rest
+                    if lead == "recommend " and not tl.startswith(("recommend the ", "recommend a ", "recommend an ")):
+                        return rest[0].upper() + rest[1:]
+                    return "Replace the " + rest
     return ""
 
 
@@ -269,12 +269,102 @@ def record_tech_findings(case: dict, tech_msg: str) -> dict:
 
 
 # ---------------------------------------------------------------- end-of-job access / teardown question (11/24, Chase)
+# v4.20.9 (audit H2, Chase t1727u): the wrap-up starts only on a real end-of-job signal. In order:
+#   1. the tech's close button (Diagnosis complete / Repair complete), passed in as close_action;
+#   2. the job record from Grok's state block: repair.verified or closed (repair.done alone is NOT enough: Grok can call a
+#      repair done before the tech verifies it);
+#   3. the tech TYPING that the diag / repair is complete, or that he recommends a repair, as a plain statement.
+# The old substring phrase lists (the done / repair phrase tuples: "working now" matched "not working now") and the
+# any-"recommend" trigger ("what do you recommend I check next?") are deleted; questions and negated phrases never trigger.
 WRAPUP_DIAG = "diag"
 WRAPUP_REPAIR = "repair"
-_DONE_PHRASES = ("diagnostic complete", "diagnostics complete", "diagnosis complete", "diag complete", "diag is complete",
-                 "diagnosis is complete", "diagnostic is complete", "diag done", "diagnosis done", "done diagnosing")
-_REPAIR_PHRASES = ("repair complete", "repair is complete", "repair done", "repair is done", "job complete", "job is complete",
-                   "repair verified", "fixed and verified", "all fixed", "working now")
+CLOSE_ACTIONS = (WRAPUP_DIAG, WRAPUP_REPAIR)
+_CLOSE_DIAG = ("diagnostic complete", "diagnostics complete", "diagnosis complete", "diag complete", "diag is complete",
+               "diagnosis is complete", "diagnostic is complete", "diag done", "diagnosis done", "done diagnosing")
+_CLOSE_REPAIR = ("repair complete", "repair is complete", "repair done", "repair is done", "job complete", "job is complete",
+                 "repair verified", "fixed and verified", "all fixed", "all working", "working now", "working as designed",
+                 "operating as designed", "verified working", "verified operation")
+_QUESTION_LEADS = ("what ", "what's ", "whats ", "how ", "why ", "where ", "which ", "when ", "who ", "do ", "does ", "did ",
+                   "can ", "could ", "should ", "would ", "will ", "is ", "are ", "was ", "were ", "any ", "anything ")
+_NEGATIONS = ("not", "no", "never", "isn't", "isnt", "wasn't", "wasnt", "aren't", "arent", "doesn't", "doesnt", "didn't",
+              "didnt", "won't", "wont", "still", "nothing", "without", "if", "until", "once", "when", "before")
+_REC_STATEMENT = ("recommend a replacement of ", "recommend replacement of ", "recommend replacing ", "recommend a new ",
+                  "recommend new ", "recommend to replace ", "recommend replace ", "recommend repairing ", "recommend repair of ",
+                  "recommend a repair of ")
+_REC_SUBJECTS = ("", "i ", "we ", "i will ", "i'll ", "ill ", "i would ", "i'd ", "id ", "i want to ", "i wanna ", "we will ",
+                 "i am going to ", "i'm going to ", "im going to ", "i do ", "so i ", "ok i ", "ok so i ", "then i ", "and i ",
+                 "i'm gonna ", "im gonna ", "i am gonna ")
+
+
+def _statements(text: str) -> list:
+    """The tech's message as plain-statement clauses (original case); a sentence that is a question is dropped."""
+    t = (text or "").replace("\n", ". ").replace("!", ". ").replace(";", ". ")
+    parts, cur = [], ""
+    for ch in t:
+        cur += ch
+        if ch in ".?":
+            parts.append(cur)
+            cur = ""
+    if cur.strip():
+        parts.append(cur)
+    out = []
+    for p in parts:
+        p = p.strip()
+        low = p.lower().rstrip(".").strip()
+        if not low or p.endswith("?") or low.startswith(_QUESTION_LEADS):
+            continue
+        out += [c.strip(" .") for c in p.rstrip(".").replace(" then ", ", ").replace(" Then ", ", ").split(",") if c.strip(" .")]
+    return out
+
+
+def _says(clause: str, phrases) -> bool:
+    """A phrase in the clause as whole words, with no negation or condition in the three words before it."""
+    words = [w.strip(".,!:") for w in clause.lower().split()]
+    for ph in phrases:
+        pw = ph.split()
+        for i in range(len(words) - len(pw) + 1):
+            if words[i:i + len(pw)] == pw:
+                if not any(w in _NEGATIONS or w.endswith("n't") for w in words[max(0, i - 3):i]):
+                    return True
+    return False
+
+
+def _rec_at(clause: str) -> int:
+    """Where 'recommend' starts in a clause in which the TECH is the one recommending ('I will recommend ...',
+    'recommend replacing ...'), else -1."""
+    low = clause.lower()
+    i = low.find("recommend")
+    if i < 0:
+        return -1
+    head = low[:i]
+    if head in _REC_SUBJECTS or any(head.endswith(" " + x) for x in _REC_SUBJECTS if x):
+        return i
+    return -1
+
+
+def _stated_recommendation(clauses) -> str:
+    """The clause tail from 'recommend replacing / a new / a repair of ...' when the tech states a repair recommendation."""
+    for c in clauses:
+        i = _rec_at(c)
+        if i < 0:
+            continue
+        tail = c[i:]
+        for lead in _REC_STATEMENT:
+            if tail.lower().startswith(lead) and tail[len(lead):].strip(" .,"):
+                return tail
+    return ""
+
+
+def tech_close_statement(tech_msg: str) -> str:
+    """'repair' / 'diag' when the tech's message STATES the repair or the diagnosis is complete, or states the repair he
+    recommends ('I will recommend a new thermostat'); '' for a question ('what do you recommend I check next?'), a negated
+    phrase ('the fan is not working now') or anything else."""
+    clauses = _statements(tech_msg)
+    if any(_says(c, _CLOSE_REPAIR) for c in clauses):
+        return WRAPUP_REPAIR
+    if any(_says(c, _CLOSE_DIAG) for c in clauses) or _stated_recommendation(clauses):
+        return WRAPUP_DIAG
+    return ""
 
 
 ACCESS_ASK = ("Before I write the warranty story: what did you have to remove or move to get access (for example the fridge "
@@ -289,20 +379,27 @@ def access_question(kind: str) -> str:
     return head + " " + ACCESS_ASK
 
 
-def wrapup_due(case: dict, tech_msg: str = "") -> str:
-    """'repair' / 'diag' when the job just reached its end and the access question has not been asked, else ''.
-    Driven by the job record (repair done / closed, the tech's stated recommendation) and the tech saying the diagnosis or
-    repair is complete; Grok's own wording is not the trigger."""
+def wrapup_due(case: dict, tech_msg: str = "", close_action: str = "") -> str:
+    """'repair' / 'diag' when the job really reached its end and the access question has not been asked, else ''.
+    close_action is the tech's close button; the record counts when Grok's state block says the repair was verified or
+    the job closed; the tech's message counts only as a plain statement (tech_close_statement)."""
     st = (case or {}).get("state") or {}
     if st.get("access_asked") or st.get("access_answer"):
         return ""
-    low = (tech_msg or "").lower()
+    if close_action in CLOSE_ACTIONS:
+        return close_action
     rep = st.get("repair") or {}
-    if rep.get("done") or st.get("closed") or any(p in low for p in _REPAIR_PHRASES):
+    if rep.get("verified") or st.get("closed"):
         return WRAPUP_REPAIR
-    if any(p in low for p in _DONE_PHRASES) or tech_recommendation([{"role": "user", "content": tech_msg or ""}]):
-        return WRAPUP_DIAG
-    return ""
+    return tech_close_statement(tech_msg)
+
+
+def asked_access_last(history) -> bool:
+    """The app's own access question is in the last GD reply of the chat (the app really asked it)."""
+    for m in reversed(history or []):
+        if (m.get("role") or "") == "assistant":
+            return ACCESS_ASK in (m.get("content") or "")
+    return False
 
 
 _NOTHING = ("nothing", "nothing removed", "none", "nothing was removed", "didn't remove anything", "did not remove anything",
@@ -469,6 +566,30 @@ def points_back(text: str) -> bool:
     """The access answer refers to what the tech already said in the chat ('no i cited what was removed already')."""
     low = " " + (text or "").lower() + " "
     return any(w in low for w in _POINT_BACK)
+
+
+_ACCESS_PLAUSIBLE_UNCLEAR = ("idk", "i don't know", "i dont know", "dunno", "not sure", "same", "see above")
+
+
+def answers_access(text: str, history=None) -> bool:
+    """v4.20.9 (audit H2): the tech's message is taken as the access answer (no AI call) only when the app really asked
+    the access question in the last GD reply AND the message plausibly answers it: an explicit none, a point back to the
+    chat, removal / access wording, or a short list with no question in it. Anything else goes to Grok as usual."""
+    if not asked_access_last(history):
+        return False
+    raw = (text or "").strip()
+    low = raw.lower().strip(" .!")
+    if not low or raw.endswith("?") or (low + " ").startswith(_QUESTION_LEADS):
+        return False
+    if low in _NOTHING or low in _ACCESS_PLAUSIBLE_UNCLEAR or points_back(raw):
+        return True
+    padded = " " + low + " "
+    if any(w in padded for w in _ACCESS_WORDS) or any(f" {w} " in padded for w in list(_PAST) + list(_PAST_FORMS)):
+        return True
+    if any(f" {w} " in padded for w in ("off", "out", "panel", "panels", "cover", "covers", "drawer", "drawers", "door",
+                                       "doors", "trim", "shroud", "duct", "ducts", "counter", "cabinet", "access")):
+        return True
+    return False
 
 
 def record_access_answer(case: dict, text: str, history=None) -> dict:
@@ -641,7 +762,10 @@ def procedure_references(case: dict, history=None, cited=(), page_lookup=None) -
         if d is None and page_lookup is not None:
             try:
                 d = page_lookup(doc_id or title, pg)
-            except Exception:
+            except Exception as e:
+                import gd_errors
+                gd_errors.fallback("story_references", "a cited page was not looked up for the story", exc=e,
+                                   doc=str(doc_id or title), page=str(pg))
                 d = None
         if not d or (d.get("source") or "library") != "library":
             continue
@@ -825,7 +949,9 @@ def _english() -> set:
         try:
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "bay_words.txt"), encoding="utf-8") as f:
                 _ENGLISH = {w.strip().lower() for w in f if w.strip()}
-        except OSError:
+        except OSError as e:
+            import gd_errors
+            gd_errors.fallback("story_words", "bay_words.txt not readable; story spelling check has no word list", exc=e)
             _ENGLISH = set()
     return _ENGLISH
 
@@ -1018,7 +1144,7 @@ def _cause_steps(history, skip=()) -> list:
                 low = x.lower()
             if low.startswith(("i ", "i'm ", "im ")) and not _is_work(x):   # remarks to the assistant, not work performed
                 continue
-            if "recommend" in low or any(ph in low for ph in _DONE_PHRASES):   # the wrap-up, not a test (goes to CORRECTION)
+            if "recommend" in low or any(ph in low for ph in _CLOSE_DIAG):   # the wrap-up, not a test (goes to CORRECTION)
                 continue
             if " you " in f" {low} ":                       # drop a clause spoken to the assistant ("everything you asked ...")
                 x = ", ".join(c[4:] if (c.lower().startswith("you ") and _is_work(c)) else c
@@ -1061,20 +1187,6 @@ def _doc_numbers(texts) -> list:
     return out
 
 
-def _correction_lines(st: dict, found: dict, rec_tech: str) -> list:
-    rep = st.get("repair") or {}
-    if rep.get("done"):
-        corr = _sentence(rep.get("what") or "Repair performed")
-        return [corr + (" Repair verified working." if rep.get("verified") else " Recommend verifying proper operation.")]
-    st2 = dict(st)
-    if rec_tech:                       # the tech's own call wins over the assistant's wording (11/24, WO 156231)
-        st2["recommendation"] = rec_tech
-    out = [_recommendation(st2, found)]
-    needed = st.get("access_needed") or []
-    if needed:
-        out.append("Removal and reinstallation the repair will require, as reported by the technician:")
-        out += [f"{n}. Remove and reinstall the {_item_noun(x)}." for n, x in enumerate(needed, 1)]
-    return out
 
 
 # ---------------------------------------------------------------- the story in prose (11/25, Chase: "A STORY IS A WELL
@@ -1635,16 +1747,6 @@ def parse_story(text: str) -> dict:
     return {k: "\n".join(v).strip() for k, v in sec.items()}
 
 
-def _numbered_lines(text: str) -> int:
-    n = 0
-    for ln in (text or "").split("\n"):
-        s = ln.strip()
-        k = 0
-        while k < len(s) and s[k].isdigit():
-            k += 1
-        if k and k < len(s) and s[k] in ".)":
-            n += 1
-    return n
 
 
 def _scrub(t: str) -> str:
@@ -1756,7 +1858,6 @@ def _drop_empty_sections(text: str) -> str:
 def write_warranty_story(case: dict, history: list = None, model_text: str = "", chat_fn=None, references=()) -> str:
     """The Write-warranty-story button. chat_fn(messages) -> text calls Grok; None = Grok not available."""
     case = case or {}
-    st = case.get("state") or {}
     # GD-4 (11/24): the story is written here, from the whole chat, after the access question; a story GD put in its own
     # state block mid-chat is not used.
     if chat_fn is not None and (history or complaint_of(case, history)):
@@ -1764,10 +1865,16 @@ def write_warranty_story(case: dict, history: list = None, model_text: str = "",
         for _ in range(2):
             try:
                 text = chat_fn(story_messages(case, history, model_text, references, problems)) or ""
-            except Exception:
+            except Exception as e:
+                import gd_errors
+                gd_errors.fallback("story", "Grok's story call failed; the template story is used", exc=e)
                 break
             ok = check_story(text, case, history)
             if ok:
                 return ok
             problems = tuple(story_problems(text, case, history))
+        else:
+            import gd_errors
+            gd_errors.fallback("story", "Grok's story failed the checks twice; the template story is used",
+                               problems=list(problems)[:6])
     return warranty_story(case, history, model_text, references)

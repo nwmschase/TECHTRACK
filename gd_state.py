@@ -17,7 +17,10 @@ Fields (all optional in each update; missing = unchanged):
   cited               [{doc_id, page}]   pages the brain cited this turn
   summary             str     running summary of the job so far (replaces old turns in the prompt)
   closed              bool    the brain closed the job (repair verified, incl. adjustments)
-  story               str     the technician story the brain wrote once the tech called the repair verified
+
+v4.20.9: the old `story` field is gone (Grok was asked to write it and nothing read it; the story comes from the Write
+warranty story button). A block that still carries it gets "unknown field 'story' ignored".
+JOB_SESSION_KEYS / clear_job_session: everything one GD job keeps in the Streamlit session, cleared on New chat and Open.
 """
 from __future__ import annotations
 
@@ -29,7 +32,7 @@ OPEN, CLOSE = "<state>", "</state>"
 SCHEMA = {
     "facts": list, "fault_code": str, "pending_test": str, "part_working": str,
     "next_part_to_fetch": str, "web_lookup": str, "order_part": str, "cause": str, "repair": dict,
-    "cited": list, "summary": str, "closed": bool, "story": str,
+    "cited": list, "summary": str, "closed": bool,
 }
 
 
@@ -37,7 +40,7 @@ def new_state() -> dict:
     return {"facts": [],
             "fault_code": "", "pending_test": "", "part_working": "", "next_part_to_fetch": "", "web_lookup": "", "order_part": "",
             "cause": "", "repair": {"done": False, "verified": False, "what": "", "quote": ""}, "cited": [],
-            "summary": "", "closed": False, "story": ""}
+            "summary": "", "closed": False}
 
 
 def split_reply(reply: str):
@@ -120,3 +123,28 @@ def dumps(state: dict) -> str:
 
 def loads(text: str) -> dict:
     return merge(new_state(), validate(json.loads(text))[0])
+
+
+# v4.20.9 (audit H1, Chase t1727u): every Streamlit session key that belongs to ONE Guided Diagnostics job. gd_pin_store holds
+# the job record (gd_case: cause, closed, access answer, complaint, unit, pages read, web gate, found documents, cited,
+# order_part, ...). New chat and Open drop all of them, so the next job never starts with the last job's record.
+JOB_SESSION_KEYS = (
+    "gd_pin_store",        # the job record (gd_turn.STORE_KEY = gd_case) and everything in it
+    "gd_case_chat_id",     # which saved chat the record belongs to
+    "gd_access_prompt",    # the Write warranty story access box is open
+    "gd_access_text",      # what the tech typed in that box
+    "gd_last_cited",       # the last turn's cited pages (page buttons)
+    "gd_last_turn_pages",  # the last turn's opened pages (the tech's picture)
+    "gd_last_drawn",       # the last turn's drawn picture keys
+    "gd_help_choice",      # the manual-pages / walkthrough choice
+)
+
+
+def clear_job_session(session) -> list:
+    """Drop every JOB_SESSION_KEYS entry from a session (Streamlit session_state or a dict). Returns the keys dropped."""
+    dropped = []
+    for k in JOB_SESSION_KEYS:
+        if k in session:
+            session.pop(k, None)
+            dropped.append(k)
+    return dropped

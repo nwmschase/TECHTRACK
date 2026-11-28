@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 import gd_prompt  # noqa: E402
 import gd_tools  # noqa: E402
 import gd_turn  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 from test_fresh_core import FakeRespond, MAN, block, page  # noqa: E402
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 40

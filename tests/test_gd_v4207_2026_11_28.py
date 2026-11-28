@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT / "tests"))
 import gd_llm  # noqa: E402
 import gd_picture  # noqa: E402
 import gd_turn  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 from test_fresh_core import FakeRespond, block, page, MAN  # noqa: E402
 
 PIC = Page(doc_id="L1", title="Acme Fridge Service Manual", page="31", sheet=31, text="Fan motor and harness connector",

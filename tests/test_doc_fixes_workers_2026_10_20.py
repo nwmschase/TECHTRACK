@@ -58,9 +58,14 @@ class TestWorkerFixes(unittest.TestCase):
         cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
         cls.lib = cls.f.lib
 
-    def ids(self, *a):
-        p = self.f.pick_manual(*a)
-        return [m["doc_id"] for m in p.manuals] + [x.doc_id for x in p.pages]
+    # v4.20.9: the old picker (pick_manual) is deleted; the same data is checked through the tools Grok uses.
+    def tools(self):
+        import gd_tools
+        return gd_tools.LibraryTools.for_finder(self.f)
+
+    def ids(self, unit_type, model, words):
+        out = json.loads(self.tools().call("find_documents", {"model": model, "unit_type": unit_type, "words": words})[0])
+        return [d["doc_id"] for d in out.get("documents", [])]
 
     def test_duplicates_and_excluded_never_returned(self):
         for k, keep in RETIRED.items():
@@ -119,8 +124,10 @@ class TestWorkerFixes(unittest.TestCase):
         self.assertIn("My RV Works", self.lib.docs["L149"]["doc_note"])
         for k, sh in (("L809", 4), ("L810", 4), ("L806", 7), ("L819", 7)):
             self.assertEqual([p["is_troubleshooting"] for p in self.lib.pages(k) if p["pdf_sheet"] == sh], [0], k)
-        txt = " ".join(x.text for x in self.f.pick_manual("Refrigerators", "Norcold N7X", "no cooling").pages)
-        self.assertNotIn("courtesy of My RV Works", txt)
+        hits = json.loads(self.tools().call("search_pages", {"words": "no cooling", "brand": "Norcold",
+                                                             "unit_type": "Refrigerators"})[0])["hits"]
+        self.assertTrue(hits)
+        self.assertNotIn("courtesy of My RV Works", json.dumps(hits))
 
     def test_misprints_are_doc_defect_notes_with_the_correct_value(self):
         for k, sh, want in (("L341", 6, "13.8"), ("L870", 39, "0.48 A"), ("L395", 3, "4 minutes"), ("L414", 18, "page 16"),
@@ -130,10 +137,9 @@ class TestWorkerFixes(unittest.TestCase):
             self.assertTrue(note.startswith("DOC DEFECT"), k); self.assertIn(want, note, k)
         db = sqlite3.connect(os.path.join(INDEX, "index.sqlite"))   # maker text is never rewritten
         self.assertIn("12.8", db.execute("select text from pages where doc_id='L341' and pdf_sheet=6").fetchone()[0])
-        p = self.f.pick_manual("Range & Cooktops", "Furrion CF-RV21B", "burner will not light")
-        p6 = [x for x in p.pages if x.doc_id == "L341" and x.sheet == 6]
-        if p6:
-            self.assertIn("PAGE NOTE (reviewed): DOC DEFECT", gd_prompt._pages_block("SELECTED PAGES", p6))
+        _out, p6, err = self.tools().call("read_pages", {"doc_id": "L341", "sheets": [6]})
+        self.assertFalse(err)
+        self.assertIn("PAGE NOTE (reviewed): DOC DEFECT", gd_prompt._pages_block("SELECTED PAGES", p6))
         self.assertIn("DOC DEFECT", gd_prompt.SYSTEM)       # the primer describes the page note
         self.assertIn("third-party document", gd_prompt.SYSTEM)
 
@@ -162,7 +168,7 @@ class TestWorkerFixes(unittest.TestCase):
             self.assertNotIn(k, d)
         for k in ("L536", "L538", "L543"):
             self.assertIn("NEEDS OCR", d[k]["doc_note"])
-        self.assertIn("L724", [m["doc_id"] for m in self.f.pick_manual("Leveling", "Bigfoot", "general maintenance lubrication").manuals])
+        self.assertIn("L724", self.ids("Leveling", "Bigfoot", "general maintenance lubrication"))
 
 
 if __name__ == "__main__":

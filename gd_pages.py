@@ -1,26 +1,17 @@
-"""Page-finder interface for Guided Diagnostics (branch fresh-core).
+"""Page type and the library page-finder adapter for Guided Diagnostics.
 
-The page-finder is the library search tool. GD asks it for:
-  pick_manual(category, model_text, complaint, code) -> Picked   which manual(s), plus the entry pages
-  entry_pages(picked)                                -> [Page]    entry page(s) + best supporting pages
-  toc_pages(picked)                                  -> [Page]    the picked manuals' table-of-contents pages
-  fetch_part(part, picked)                           -> [Page]    best matching pages for a part, fault code, symptom or label words
+Page: one library or web page as Grok's tools hand it over (doc number, revision and page notes included).
+LibraryPageFinder: the adapter over pagefinder/search.py and its index built from the app library. The app uses only
+LibraryPageFinder(...).lib (Grok searches and reads with gd_tools over it) and doc_title().
 
-The real finder is pagefinder/search.py in this repo (from the fresh-library worker's search.py; brands and categories
-now come from the app library data). Its index is built from the app library by pagefinder/build_index.py.
-LibraryPageFinder adapts it. StubPageFinder is for offline tests.
-
-Every page found is handed over whole, with its doc number, revision and page notes. There is no page or character budget.
-
-Branch grok-search (Chase 2026-10-22 / 2026-10-24): Guided Diagnostics no longer calls pick_manual / fetch_part. Grok finds the
-documents and pages itself with gd_tools (over this finder's library, finder.lib). The Bay PDF path is gone (cleanup
-2026-10-24), so pick_manual / fetch_part / entry_pages / toc_pages have no live caller: they are the backburnered finder, kept
-for the library tests and the offline scripts (scripts/picker_sweep.py). The app uses only LibraryPageFinder(...).lib.
+v4.20.9 (Chase t1729u "delete"): the old manual picker (pick_manual / entry_pages / toc_pages / fetch_part, Picked,
+apply_budget, and search.search / search.pick_manual / search.fetch_by_part) had no live caller since grok-search and is
+deleted, with scripts/picker_sweep.py. The offline test finder (StubPageFinder) lives in tests/gd_fixtures.py.
 """
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 
 @dataclass
@@ -62,72 +53,6 @@ class Page:
         return Page(**{k: d[k] for k in Page.__dataclass_fields__ if k in d and d[k] is not None})
 
 
-@dataclass
-class Picked:
-    manuals: list = field(default_factory=list)   # [{doc_id, title, brand, unit_type, doc_type}]
-    entry: list = field(default_factory=list)     # [Page]
-    pages: list = field(default_factory=list)     # [Page] entry + supporting
-    why: list = field(default_factory=list)       # the finder's own trace, shown in logs only
-    code: str = ""
-    raw: dict = field(default_factory=dict)       # the finder's native result (needed by fetch_part)
-
-    @property
-    def found(self) -> bool:
-        return bool(self.manuals)
-
-
-def apply_budget(pages, max_pages=None, max_chars=None):
-    """Merge exact duplicates (same doc + sheet), keeping the given priority order. Returns (kept, not_shown).
-    max_pages / max_chars are off (None) unless a caller sets them; with them off, not_shown is empty."""
-    kept, not_shown, seen, used = [], [], set(), 0
-    for p in pages:
-        if p.key in seen:
-            continue
-        seen.add(p.key)
-        if (max_pages is None or len(kept) < max_pages) and (max_chars is None or used + len(p.text or "") <= max_chars):
-            kept.append(p)
-            used += len(p.text or "")
-        else:
-            not_shown.append(p)
-    return kept, not_shown
-
-
-class StubPageFinder:
-    """Offline finder for tests: a fixed library of Page objects keyed by doc. Records every call."""
-
-    def __init__(self, manuals=None, pages=None, toc=None, parts=None):
-        self.manuals = manuals or []
-        self._pages = pages or []
-        self._toc = toc or []
-        self._parts = parts or {}
-        self.calls = []
-
-    def pick_manual(self, category, model_text, complaint="", code=None) -> Picked:
-        self.calls.append(("pick_manual", category, model_text, complaint, code))
-        entry = [p for p in self._pages if p.kind == "entry"]
-        return Picked(manuals=list(self.manuals), entry=entry, pages=list(self._pages), code=code or "")
-
-    def entry_pages(self, picked: Picked):
-        self.calls.append(("entry_pages",))
-        return list(picked.pages)
-
-    def toc_pages(self, picked: Picked):
-        self.calls.append(("toc_pages",))
-        return list(self._toc)
-
-    def fetch_part(self, part, picked: Picked):
-        self.calls.append(("fetch_part", part))
-        return list(self._parts.get(part, []))
-
-    def doc_title(self, doc_id) -> str:
-        """Title of a library doc for source lines; the doc id itself when unknown."""
-        for m in self.manuals:
-            if str(m.get("doc_id")) == str(doc_id) and m.get("title"):
-                return m["title"]
-        for p in self._pages:
-            if str(p.doc_id) == str(doc_id) and p.title:
-                return p.title
-        return str(doc_id)
 
 
 class LibraryPageFinder:
@@ -155,36 +80,6 @@ class LibraryPageFinder:
     def lib(self):
         return self.search._lib()
 
-    def _page(self, p: dict, kind: str) -> Page:
-        return Page(doc_id=p["doc_id"], title=p["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
-                    sheet=int(p["pdf_sheet"]), text=p.get("text") or "", kind=kind, reason=p.get("reason", ""),
-                    note=p.get("note") or "", topics=p.get("topics") or "",
-                    doc_number=p.get("doc_number") or "", revision=p.get("revision_date") or "")
-
-    def pick_manual(self, category, model_text, complaint="", code=None) -> Picked:
-        r = self.search.search(unit=category or None, model=model_text or None, complaint=complaint or "", code=code or None)
-        n_entry = len(r.get("entry") or [])
-        pages = [self._page(p, "entry" if i < n_entry else "support") for i, p in enumerate(r.get("pages") or [])]
-        return Picked(manuals=r.get("manuals") or [], entry=pages[:n_entry], pages=pages,
-                      why=r.get("why") or [], code=r.get("code") or "", raw={k: v for k, v in r.items() if k != "pages"})
-
-    def entry_pages(self, picked: Picked):
-        return list(picked.pages)
-
-    def toc_pages(self, picked: Picked, max_chars=None):
-        lib = self.lib
-        out, used = [], 0
-        for m in picked.manuals:
-            for p in lib.pages(m["doc_id"]):
-                if p.get("is_toc") and (max_chars is None or used + len(p["text"]) <= max_chars):
-                    out.append(Page(doc_id=m["doc_id"], title=m["title"], page=str(p.get("printed_page") or p["pdf_sheet"]),
-                                    sheet=int(p["pdf_sheet"]), text=p["text"], kind="toc", reason="table of contents"))
-                    used += len(p["text"])
-        return out
-
-    def fetch_part(self, part, picked: Picked):
-        res = self.search.fetch_by_part(part, {"manuals": picked.manuals})
-        return [self._page(p, "part") for p in res]
 
     def doc_title(self, doc_id) -> str:
         """Title of a library doc for source lines; the doc id itself when unknown."""

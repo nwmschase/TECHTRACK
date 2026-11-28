@@ -10,7 +10,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import gd_sim_fresh as sim  # noqa: E402
-from gd_pages import Page, StubPageFinder  # noqa: E402
+from gd_pages import Page  # noqa: E402
+from gd_fixtures import StubPageFinder  # noqa: E402
 
 CASE = """# RC99 - test case
 Unit: Acme fridge X1
@@ -117,7 +118,7 @@ def test_dollar_cap_counts_all_calls_and_stops_early():
             spent["usd"] += 0.30
             return reply
         return f
-    finder = __import__("gd_pages").StubPageFinder()
+    finder = __import__("gd_fixtures").StubPageFinder()
     v, hist, store = s.run_case("Complaint: no heat\nFix: replace board", "Furnaces", "X1", finder=finder,
                                 gd_chat=paid('Check the fuse. [Doc p.1]\n<state>{"summary":"s"}</state>'),
                                 tech_chat=paid("not measured"), referee_chat=paid("{}"), judge_chat=paid("{}"),

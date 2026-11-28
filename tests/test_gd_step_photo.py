@@ -9,8 +9,6 @@ from gd_step_photo import (
     complete_xai_vision,
     history_user_text,
     parse_vision_review,
-    photo_subject,
-    present_photo_review,
     review_step_photo,
 )
 
@@ -30,16 +28,6 @@ def _procedure_history():
     ]
 
 
-class TestPhotoSubjects(unittest.TestCase):
-    def test_subjects_are_tag_leak_connector_meter_and_part(self):
-        self.assertEqual(photo_subject("Read the model tag on the toilet."), "tag")
-        self.assertEqual(photo_subject("Look for a leak under the pedal."), "leak")
-        self.assertEqual(photo_subject("Check the supply line connection."), "connector")
-        self.assertEqual(photo_subject("Read the meter at the connector."), "meter")
-        self.assertEqual(photo_subject("The new valve is the part in the kit."), "part")
-        self.assertEqual(photo_subject("Turn off the water to the RV."), "")
-
-
 class TestVisionParse(unittest.TestCase):
     def test_garbage_and_a_guess_become_unclear(self):
         self.assertEqual(parse_vision_review("not json"), {"verdict": "unclear", "sees": ""})
@@ -51,7 +39,6 @@ class TestVisionParse(unittest.TestCase):
         parsed = parse_vision_review(invented)
         self.assertEqual(parsed["verdict"], "unclear")
         self.assertEqual(parsed["sees"], "")
-        self.assertNotIn("water pouring", present_photo_review("Step 1 of 3.", parsed))
 
     def test_confirm_keeps_only_the_model_sentence(self):
         raw = '{"verdict":"confirm","sees":"The pedal is off."}'

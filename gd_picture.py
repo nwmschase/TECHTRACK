@@ -6,7 +6,7 @@ page; None when nothing was opened. v4.20.7: no page numbers are read out of the
 """
 import re
 
-MODULE_REVISION = "v4.20.8"
+MODULE_REVISION = "v4.20.9"
 FAIL_NOTE = "That page didn't load; tap Open PDF."
 
 # Words of the request itself ("can you send me a picture of the ..."): not what the picture is of.

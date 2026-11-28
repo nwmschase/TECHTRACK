@@ -1,13 +1,8 @@
 """TechTrack page-finder (offline: no API calls; the only model is a small local embedding model on CPU).
 
-Split design: the page-finder never reasons. It finds pages; the brain (an LLM, later) reads them and names the
-next part to check, then asks fetch_by_part() for that part's pages.
-
-    from search import search, fetch_by_part
-    r = search(unit='water heater', brand='Suburban', model='SW6DE', complaint='gas clicks but never lights')
-    r['entry']   -> the entry page(s): fault-code table for a code, troubleshooting / sequence chart for a symptom
-    r['pages']   -> entry pages + the best other pages of the picked manual(s) (3-5 whole pages)
-    f = fetch_by_part('on/off switch', r)   -> that part's test / replacement / component pages
+The page-finder never reasons: Grok searches and reads the library with gd_tools, which calls this module's Library,
+hybrid() ranking, model_score() and kind_weights(). v4.20.9: the old picker (search / pick_manual / fetch_by_part and
+the CLI) is deleted; the numbered notes below describe the ranking rules those tools still share.
 
 1. Pick the manual: unit type -> brand -> model. A model matches a doc's model tags, or (next tier) a model printed
    in the manual's own page text (model lists, rating plates). Ties go to the doc that best matches the complaint.
@@ -21,14 +16,12 @@ next part to check, then asks fetch_by_part() for that part's pages.
    pagefinder/terms/ (terms.py). No boost words, no per-case rules.
 4. fetch_by_part(part): searches the picked manual(s) first, then the same brand's other docs, then other makers'
    tech sheets / service manuals for the same unit type (later tiers weighted 0.85 / 0.7).
-CLI: python3 search.py --unit "water heater" --brand Suburban --model SW6DE "gas clicks never lights" [--part "on/off switch"]
 """
-import hashlib, sqlite3, re, math, json, os, sys, collections, argparse, threading, time, logging
+import hashlib, sqlite3, re, math, json, os, sys, collections, threading, time, logging
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Index built from the app library by pagefinder/build_index.py (index.sqlite + passages.npy/json).
 INDEX_DIR = os.environ.get('TT_PAGEFINDER_DIR', os.path.join(HERE, 'index'))
 DB = os.path.join(INDEX_DIR, 'index.sqlite')
-VEC = INDEX_DIR
 # Embedding model (BAAI/bge-small-en-v1.5, quantized ONNX, ~65 MB). v4.20.8: off by default, so this is never loaded
 # unless TT_PAGEFINDER_MEANING=on. Not in the repo: when on, read from this cache dir, and fetched once from Hugging Face
 # into it when missing. Offline tests point TT_MODEL_DIR at a pre-filled cache.
@@ -121,11 +114,7 @@ def query_terms(text, extra=()):
     """{token: weight} for BM25: the tech's own words 1.0, RV term-family words terms.FAMILY_WEIGHT"""
     return _terms.vocab().query_terms(text, extra)
 def nmodel(s): return re.sub(r'[^A-Z0-9]', '', s.upper())
-def ncode(c):
-    if not c: return ''
-    m = re.search(r'(\d{1,2})\s*(?:flash|blink)|(?:flash|blink)\w*\s*(\d{1,2})', c, re.I)
-    return f'FLASH{m.group(1) or m.group(2)}' if m else re.sub(r'[^A-Z0-9]', '', c.upper())
-def codes_of(c): return [ncode(x) for x in re.split(r'\s*[/,;]\s*|\s+or\s+', c or '') if x.strip()]
+
 
 class Library:
     def __init__(self, db=None, vec_dir=None, app_db=None):
@@ -417,34 +406,11 @@ def hybrid(lib, query_text, pages, extra_tokens=()):
 def _phrase(text):
     """'Coleman-Mach' / 'coleman mach' -> 'coleman mach' (lowercase words joined by one space)."""
     return ' '.join(re.findall(r'[a-z0-9]+', (text or '').lower()))
-def unit_type_of(text, lib=None):
-    """The library category the tech picked (the app's own category list = the index unit types). Data-driven."""
-    if not text: return ''
-    lib = lib or _lib()
-    t = _phrase(text)
-    for u in lib.unit_types:
-        if _phrase(u) == t or _phrase(u).rstrip('s') == t.rstrip('s'): return u
-    return ''
-def brand_of(text, lib=None):
-    """A maker named in the tech's text: any brand (or product line) that the library's own docs carry. Data-driven.
-    Whole words only: 'Coleman Mach' matches 'coleman mach' or 'colemanmach', never part of a longer word."""
-    lib = lib or _lib()
-    words = _phrase(text).split()
-    t = ' ' + ' '.join(words) + ' '
-    for name, brand in lib.brand_names:
-        if f' {name} ' in t or (' ' in name and name.replace(' ', '') in words): return brand
-    return ''
+
 
 REFERENCE_KIND = r'reference|general|\bforms?\b|bulletin|recall|\btsb\b'   # categories named by document kind, not product
-def covers_unit(doc, ut):
-    """The doc is for unit type ut: filed under it, or filed under a document-kind category (Warranty Forms, TSB / Recall,
-    ID & Reference) while its own title names ut and no other unit type (e.g. 'BAL Electric Leveling System Touch Screen
-    Diagnostic Form' is filed under Warranty Forms but is a Leveling doc; a parts book titled 'Furnaces Water Heaters
-    Cooking Appliances' is not one unit's doc). A document-kind category says nothing about the unit."""
-    if not ut: return False
-    if doc['unit_type'] == ut: return True
-    if ut in _fixes.split_list(doc.get('also_unit_types')): return True   # reviewed second category (doc_fixes.tsv also_category)
-    return doc.get('title_units') == {ut}
+
+
 MW = re.compile(r'[a-z0-9]+(?:\.[0-9]+)?')
 def mwords(text):
     """title / model-text words; plain words get the page-finder's normalisation (touchscreen = touch screen)"""
@@ -468,142 +434,6 @@ def model_score(doc, qtokens, qwords):
     tw = mwords(doc['title'] + ' ' + ' '.join(json.loads(doc.get('alt_titles') or '[]')))
     return tag, len(qwords & tw)
 
-def scope_hit(d, jw):
-    """The job names one of the doc's any_brand scope phrases (all words of the phrase, page-finder normalised)."""
-    return any(p <= jw for p in d.get('any_brand_p') or ())
-
-def ruled_out(d, jw):
-    """The job names one of the doc's not_for phrases (e.g. 'hydraulic' for the electric drum brake manual)."""
-    return any(p <= jw for p in d.get('not_for_p') or ())
-
-def pick_manual(lib, unit=None, brand=None, model=None, complaint='', code=None, max_docs=3):
-    ms = {}
-    why = []
-    cand = list(lib.docs.values())
-    ut = unit_type_of(unit or '', lib)
-    if ut:
-        c2 = [d for d in cand if covers_unit(d, ut)]
-        if c2: cand = c2; why.append(f'unit type {ut}: {len(c2)} docs')
-    jw = mwords(f'{unit or ""} {model or ""} {complaint or ""}')
-    out = [d['doc_id'] for d in cand if ruled_out(d, jw)]
-    if out: cand = [d for d in cand if d['doc_id'] not in out]; why.append(f'not for this job (doc_fixes not_for): {out}')
-    # generic manuals (doc_fixes any_brand): e.g. L47 Lippert Electric Brakes fits every maker's electric drum brake
-    generic = [d for d in cand if scope_hit(d, jw)]
-    # a general reference (source_type general_reference, e.g. L28 DC wiring book) is about no one unit type: its scope
-    # phrases bring it in for a job filed under any category
-    ids = {d['doc_id'] for d in cand}
-    refs = [d for d in lib.docs.values() if d['doc_id'] not in ids and d.get('source_type') == 'general_reference'
-            and scope_hit(d, jw) and not ruled_out(d, jw)]
-    if refs: cand = cand + refs; generic += refs
-    if generic: why.append(f'any-brand docs for this job: {[d["doc_id"] for d in generic]}')
-    b = brand or brand_of(model or '', lib)   # the maker comes from what the tech typed, never from the category name
-    coach = []
-    if b:
-        c2 = [d for d in cand if d['brand'].lower() == b.lower() or b.lower() in d.get('also_brands_l', ())]
-        c2 += [d for d in generic if d not in c2]   # R4 brand lock exception: a doc marked any-brand for this kind of unit
-        if c2: cand = c2; why.append(f'brand {b}: {len(c2)} docs' + (' (incl. any-brand docs)' if generic else ''))
-        else:
-            # R4 brand lock: never another maker's manual for this unit. The one exception is a whole-unit maker (an RV
-            # builder): its owner's manuals are filed under a reference-kind category and cover every system of the unit.
-            coach = [d for d in lib.docs.values() if d['brand'].lower() == b.lower() and d['doc_type'] == 'owners-manual'
-                     and is_oem(d) and re.search(REFERENCE_KIND, d['unit_type'] or '', re.I)]
-            if not coach:
-                why.append(f'brand {b}: no {ut or ""} manuals of this maker in the library (brand lock): none picked')
-                return [], why, ''
-            cand = list(coach)
-            why.append(f'brand {b}: no {ut or ""} docs; its whole-unit owner\'s manuals {[d["doc_id"] for d in coach]}')
-    brand_pool = list(cand)
-    q_models = []
-    for t in re.findall(r'[A-Za-z0-9][A-Za-z0-9\-/\.]*', f'{model or ""} {unit or ""}'):
-        n = nmodel(t)
-        if len(n) >= 3 and re.search(r'\d', n): q_models.append(n)
-    q_models = list(dict.fromkeys(q_models))
-    qwords = mwords(model)
-    family = []
-    ms = {d['doc_id']: model_score(d, q_models, qwords) for d in cand}
-    top = max([v[0] for v in ms.values()] or [0]); ttop = max([v[1] for v in ms.values()] or [0])
-    if top > 0:
-        cand = [d for d in cand if ms[d['doc_id']][0] == top]; why.append(f'model tags {q_models}: {len(cand)} docs at match score {top}')
-    elif ttop > 0:
-        floor = ttop
-        family = [d for d in cand if ms[d['doc_id']][1] >= ttop - 1] if ttop >= 2 else []
-        cand = [d for d in cand if ms[d['doc_id']][1] == ttop]; why.append(f'model words {sorted(qwords)} in title (best {ttop}, kept >= {floor}): {len(cand)} docs')
-    else: why.append(f'model {q_models or "-"}: no model match, ranked by complaint text')
-    top_tag = top
-    q = query_terms(complaint or '')
-    dtf = lib.doc_tf()
-    has_code = lambda d, c: any(c in p['codes'] for p in lib.pages(d['doc_id']))
-    cc = ''
-    if code:  # "E2 / 2 flashes": use the first form the brand's manuals actually index
-        alts = codes_of(code)
-        cc = next((c for c in alts if any(has_code(d, c) for d in cand)), '') or next((c for c in alts if any(has_code(d, c) for d in brand_pool)), alts[0] if alts else '')
-        q = dict(q, **{cc.lower(): 1.0})
-    ds = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in cand], b=0.3)  # mild length norm: a whole manual should not lose to a 1-page sheet
-    code_extra = []
-    if cc:
-        has = [d for d in cand if has_code(d, cc)]
-        if has and len(has) < len(cand): cand = has; why.append(f'code {cc} appears in {len(has)} of them')
-        if not has:  # the code is explained in another doc of this brand + unit (e.g. the thermostat manual for an A/C code)
-            wider = [d for d in brand_pool if d not in cand and has_code(d, cc)]
-            if wider:
-                wtf = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in wider], b=0.3)
-                code_extra = sorted(wider, key=lambda d: -wtf.get(d['doc_id'], 0))[:2]
-                why.append(f'code {cc} not in the model manual; added {[d["doc_id"] for d in code_extra]} (same brand + unit docs that list it)')
-    if complaint or code:   # symptom / diagnostic job: diagnosis docs ahead of user, install and spec sheets (KIND_WEIGHT)
-        kw = kind_weights(cand)
-        ds = {k: v * kw.get(k, 1.0) for k, v in ds.items()}
-    cand.sort(key=lambda d: (-ds.get(d['doc_id'], 0), d['doc_id']))
-    pinned = cand[:max_docs]
-    if pinned and ds.get(pinned[0]['doc_id'], 0) > 0:  # drop docs far behind the best complaint match
-        best = ds[pinned[0]['doc_id']]
-        pinned = [d for d in pinned if ds.get(d['doc_id'], 0) >= 0.5 * best]
-    if code_extra: pinned = pinned[:max(1, max_docs - 1 - len(code_extra))] + code_extra
-    # diagnosis needs a troubleshooting / service manual: if the model-matched docs are only owner, install, spec
-    # or form docs, add the best such manual of the same brand + unit (by complaint text)
-    DIAG = ('troubleshooting', 'service-manual')
-    if pinned and not any(d['doc_type'] in DIAG and is_oem(d) for d in pinned):   # a shop sheet is never the OEM manual
-        pool2 = [d for d in brand_pool if d['doc_type'] in DIAG and is_oem(d) and d not in pinned]
-        # closest to what the tech typed first: a diagnosis doc carrying the same model tag (Power Gear 140-1227 gets the
-        # L555 tip sheet with that tag), else one whose title holds 3+ of the tech's model words (Lippert Ground Control 3.0
-        # gets the Ground Control manual L9, not any same-brand doc sharing 'Lippert'), else any doc with some model match
-        tier = max((ms.get(d['doc_id'], (0, 0)) for d in pool2), default=(0, 0))
-        near = ([d for d in pool2 if ms.get(d['doc_id'], (0, 0)) == tier] if tier[0] or tier[1] >= 3 else []) \
-            or [d for d in pool2 if ms.get(d['doc_id'], (0, 0)) != (0, 0)] or pool2
-        if near:
-            ns = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in near], b=0.3)
-            best = max(near, key=lambda d: (ns.get(d['doc_id'], 0), d['doc_id']))
-            if ns.get(best['doc_id'], 0) > 0 or tier[0]:
-                pinned = pinned[:max_docs] + [best]
-                why.append(f'model docs are {sorted({d["doc_type"] for d in pinned[:-1]})} only; added {best["doc_type"]} {best["doc_id"]}')
-                # v4.20.0: the closest-model diagnosis doc can be a broad one (a whole-line training handout); the same
-                # brand + unit diagnosis doc that best matches the complaint words is offered too when it is a different doc
-                ws = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in pool2], b=0.3)
-                alt = max(pool2, key=lambda d: (ws.get(d['doc_id'], 0), d['doc_id']))
-                if alt is not best and ws.get(alt['doc_id'], 0) > 0 and ws[alt['doc_id']] >= ws.get(best['doc_id'], 0):
-                    pinned.append(alt); why.append(f'added {alt["doc_type"]} {alt["doc_id"]} (best complaint match among the brand\'s diagnosis docs)')
-    # best title match is only a 1-2 page sheet: also search the product family (titles missing one model word)
-    if ttop and not top_tag and sum(d['n_pages'] for d in pinned) < 3 and family:
-        more = [d for d in family if d not in pinned]
-        fs = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in more], b=0.3)
-        add = sorted(more, key=lambda d: -fs.get(d['doc_id'], 0))[:max_docs - len(pinned)]
-        if add: pinned += add; why.append(f'best match has < 3 pages; added family docs {[d["doc_id"] for d in add]}')
-    for g in generic:   # a generic manual the job's words name is always offered, after the maker's own manuals
-        if g in brand_pool and g not in pinned: pinned.append(g); why.append(f'any-brand doc {g["doc_id"]} added (scope phrase in the job)')
-    if coach:
-        cs = bm25(q, [(d['doc_id'], dtf[d['doc_id']][0], dtf[d['doc_id']][1]) for d in coach], b=0.3)
-        msc = {d['doc_id']: model_score(d, q_models, qwords) for d in coach}
-        best = max(coach, key=lambda d: (msc[d['doc_id']], cs.get(d['doc_id'], 0), d['doc_id']))
-        if best not in pinned: pinned = [best] + pinned; why.append(f'{b} owner\'s manual covers the unit: added {best["doc_id"]}')
-    # shown, but never ahead of the maker's manual; a general reference (L28 wiring book) keeps its rank when the job
-    # names no maker (a plain "battery bank wiring" question) in its own category: then no maker manual is more on-topic
-    # (filed under another category, e.g. a leveling job's battery cable, it stays after that unit's manuals)
-    front = lambda d: is_oem(d) or (not b and d.get('source_type') == 'general_reference' and d not in refs)
-    if any(not front(d) for d in pinned) and any(front(d) for d in pinned):
-        pinned = [d for d in pinned if front(d)] + [d for d in pinned if not front(d)]
-        why.append('non-OEM docs (shop sheet / internal flow) listed after the maker\'s manuals')
-    return pinned, why, cc
-
-DOWN = ('is_toc', 'is_cover', 'is_safety', 'is_parts')
 
 # v4.20.0 (2026-11-03): with the full Lippert/Furrion load, a maker's user, install and spec sheets for the same unit
 # outscored its troubleshooting / service manual on symptom words (they repeat the product's own vocabulary). For a
@@ -615,6 +445,8 @@ KIND_WEIGHT = {'troubleshooting': 1.0, 'service-manual': 1.0, 'tech-sheet': 1.0,
                'install-manual': float(os.environ.get('TT_KW_INSTALL', '0.5')), 'reference': float(os.environ.get('TT_KW_REF', '0.5')),
                'parts-list': float(os.environ.get('TT_KW_REF', '0.5')), 'other': float(os.environ.get('TT_KW_OTHER', '0.85')),
                'warranty-form': float(os.environ.get('TT_KW_REF', '0.5'))}
+
+
 def kind_weights(docs):
     """doc_id -> weight for a diagnostic ranking of these docs (all 1.0 when none of them is a diagnosis doc)."""
     docs = list(docs)
@@ -628,93 +460,19 @@ def kind_weights(docs):
         for d in docs:
             if d.get('doc_type') in DIAG_KINDS and d not in specific: out[d['doc_id']] = GENERIC_WEIGHT
     return out
+
+
 GENERIC_MODELS = 8
 GENERIC_WEIGHT = float(os.environ.get('TT_KW_GENERIC', '0.7'))
-def code_pattern(cc):
-    if cc.startswith('FLASH'): return re.compile(r'(?<![\d.])' + cc[5:] + r'\s*(?:flash|blink)\w*', re.I)
-    return re.compile(r'(?<![A-Za-z0-9])' + r'\s?-?\s?'.join(re.findall(r'[A-Z]+|\d+', cc)) + r'(?![0-9])', re.I)
 
-def _marks(p): return [m[3:] for m in ('is_toc', 'is_cover', 'is_safety', 'is_parts', 'is_fault_codes', 'is_troubleshooting', 'is_wiring') if p[m]]
-def is_oem(d): return (d.get('source_type') or _fixes.OEM) == _fixes.OEM
+
+
+
 def shown_title(d):
     """The doc title as GD shows it: a shop sheet / unpublished internal flow carries its label in front, so no page of
     it ever reads as the maker's manual (pagefinder/doc_fixes.py)."""
     return _fixes.display_title(d['title'], d.get('source_type'))
-def _out(lib, p, score, reason):
-    d = lib.docs[p['doc_id']]
-    note = _fixes.page_fix(p['doc_id'], d.get('file_path'), p['pdf_sheet']).get('page_note', '')
-    return dict(doc_id=p['doc_id'], title=shown_title(d), pdf_sheet=p['pdf_sheet'], printed_page=p['printed_page'], marks=_marks(p),
-                score=round(score, 3), reason=reason, codes=sorted(p['codes']), chars=len(p['text']), text=p['text'],
-                source_type=d.get('source_type') or _fixes.OEM, note=note, topics=p.get('topics') or '',
-                doc_number=d.get('doc_number') or '', revision_date=d.get('revision_date') or '')
 
-def search(unit=None, brand=None, model=None, complaint='', code=None, k_min=3, k_max=5, n_entry=2, lib=None):
-    """Pick the manual(s), the entry page(s) and the best supporting pages. No reasoning: the brain reads them."""
-    lib = lib or _lib()
-    pinned, why, cc = pick_manual(lib, unit, brand, model, complaint, code)
-    if not pinned: return dict(manuals=[], entry=[], pages=[], why=why + ['no manual found'], chars=0, code=cc)
-    pages = [p for d in pinned for p in lib.pages(d['doc_id']) if p['len']]
-    key = lambda p: (p['doc_id'], p['pdf_sheet'])
-    query = (complaint or '') + (f' {cc}' if cc else '')
-    entry, reasons = [], {}
-    kw = kind_weights(pinned)   # v4.20.0: a diagnosis manual's pages ahead of a user / install / spec sheet's (KIND_WEIGHT)
-    if cc:   # fault code: the code-table page(s) listing it
-        withc = [p for p in pages if cc in p['codes']]
-        fc = sorted([p for p in withc if p['is_fault_codes']], key=lambda p: (-kw.get(p['doc_id'], 1.0), -len(p['codes'])))
-        # v4.20.0: a diagnosis manual's page listing the code comes before a user / install sheet's code table
-        top_w = max((kw.get(p['doc_id'], 1.0) for p in withc), default=1.0)
-        if fc and kw.get(fc[0]['doc_id'], 1.0) < top_w:
-            fc = sorted([p for p in withc if kw.get(p['doc_id'], 1.0) == top_w], key=lambda p: (-p['is_fault_codes'], -len(p['codes']))) + fc
-        for p in (fc or withc)[:n_entry]: entry.append(p); reasons[key(p)] = f'fault-code page listing {cc}'
-        if not withc: why.append(f'code {cc} not found in the pinned manual(s); entry by symptom')
-    if not entry:   # symptom: troubleshooting / sequence-chart pages, ranked by meaning + words
-        ts = [p for p in pages if p['is_troubleshooting']] or pages
-        hs = hybrid(lib, query, ts)
-        hs = {k: v * kw.get(k[0], 1.0) for k, v in hs.items()}
-        for p in sorted(ts, key=lambda p: -hs[key(p)])[:n_entry]:
-            entry.append(p); reasons[key(p)] = f'entry: troubleshooting page (hybrid {hs[key(p)]:.2f})' if p['is_troubleshooting'] else f'entry: no troubleshooting pages flagged; best page (hybrid {hs[key(p)]:.2f})'
-    # supporting pages: hybrid rank over all pinned pages; contents/cover/safety/parts pages count less
-    hs = hybrid(lib, query, pages)
-    sc = {key(p): hs[key(p)] * kw.get(p['doc_id'], 1.0) * (0.3 if any(p[m] for m in DOWN) and not (p['is_troubleshooting'] or p['is_fault_codes']) else 1.0) for p in pages}
-    chosen = list(entry)
-    ranked = sorted(pages, key=lambda p: -sc[key(p)])
-    top = sc[key(ranked[0])] if ranked else 0
-    for p in ranked:
-        if len(chosen) >= k_max: break
-        if p in chosen: continue
-        if len(chosen) >= k_min and sc[key(p)] < 0.6 * top: break
-        chosen.append(p); reasons[key(p)] = f'hybrid {sc[key(p)]:.2f}'
-    out = [_out(lib, p, sc.get(key(p), 0), reasons[key(p)]) for p in chosen]
-    return dict(manuals=[dict(doc_id=d['doc_id'], title=shown_title(d), brand=d['brand'], unit_type=d['unit_type'], doc_type=d['doc_type'],
-                              source_type=d.get('source_type') or _fixes.OEM, note=d.get('doc_note') or '') for d in pinned],
-                entry=out[:len(entry)], pages=out, why=why, chars=sum(p['chars'] for p in out), code=cc)
-
-DIAG_TYPES = ('tech-sheet', 'service-manual', 'troubleshooting', 'install-manual', 'recall-bulletin')
-def fetch_by_part(part, result=None, brand=None, unit=None, k=3, lib=None):
-    """Pages that test / replace / describe one part, for the brain's next step.
-    Tier 1: the manual(s) search() picked. Tier 2: the same brand's other docs in that category.
-    Tier 3: other makers' tech sheets / service / troubleshooting / install docs for the same unit type.
-    One hybrid score over all candidate pages, x1.0 / x0.85 / x0.7 by tier; contents and cover pages x0.3."""
-    lib = lib or _lib()
-    pinned = [m['doc_id'] for m in (result or {}).get('manuals', [])]
-    units = set()
-    for m in (result or {}).get('manuals', []):   # a doc-kind-category doc (e.g. a Leveling warranty form) stands for the unit its title names
-        units |= (lib.docs.get(m['doc_id'], {}).get('title_units') or {m['unit_type']}) if m['unit_type'] else set()
-    units = units or ({unit_type_of(unit, lib)} if unit else set())
-    brands = {m['brand'].lower() for m in (result or {}).get('manuals', [])} | ({brand.lower()} if brand else set())
-    tier = {d: 1.0 for d in pinned}
-    for d in lib.docs.values():
-        if d['doc_id'] in tier: continue
-        for_unit = any(covers_unit(d, u) for u in units)
-        if d['brand'].lower() in brands and for_unit: tier[d['doc_id']] = 0.85
-        elif for_unit and d['doc_type'] in DIAG_TYPES and is_oem(d): tier[d['doc_id']] = 0.7
-    pages = [p for d in tier for p in lib.pages(d) if p['len']]
-    hs = hybrid(lib, part, pages)
-    key = lambda p: (p['doc_id'], p['pdf_sheet'])
-    sc = {key(p): hs[key(p)] * tier[p['doc_id']] * (0.3 if p['is_toc'] or p['is_cover'] else 1.0) for p in pages}
-    best = sorted(pages, key=lambda p: -sc[key(p)])[:k]
-    names = {1.0: 'picked manual', 0.85: 'same brand', 0.7: 'other maker, same unit type'}
-    return [_out(lib, p, sc[key(p)], f'{names[tier[p["doc_id"]]]} (hybrid {hs[key(p)]:.2f})') for p in best]
 
 def app_signature(app_db):
     """Cheap fingerprint of the app library (document metadata + page-chunk count). It changes on every upload, edit,
@@ -730,7 +488,8 @@ def app_signature(app_db):
             return h.hexdigest()
         finally:
             c.close()
-    except sqlite3.Error:
+    except sqlite3.Error as e:   # v4.20.9: logged (no app-DB signature means the library is rebuilt as if it changed)
+        print(f"GD_FALLBACK app_signature {type(e).__name__}: {e}", flush=True)
         return ''
 
 
@@ -757,16 +516,3 @@ def use_library(db, vec_dir, app_db):
             _L = None; import gc; gc.collect()   # let the old one go first (see _lib)
             _L = Library(db, vec_dir, app_db=app_db)
         return _L
-
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser(); ap.add_argument('complaint', nargs='*'); ap.add_argument('--unit'); ap.add_argument('--brand')
-    ap.add_argument('--model'); ap.add_argument('--code'); ap.add_argument('--part'); ap.add_argument('--full', action='store_true')
-    a = ap.parse_args()
-    r = search(a.unit, a.brand, a.model, ' '.join(a.complaint), a.code)
-    print('why:', '; '.join(r['why']))
-    for m in r['manuals']: print('manual:', m['doc_id'], m['title'])
-    show = [('page', p) for p in r['pages']] + ([('part', p) for p in fetch_by_part(a.part, r)] if a.part else [])
-    for kind, p in show:
-        print(f"-- [{kind}] {p['doc_id']} sheet {p['pdf_sheet']} (printed p.{p['printed_page']}) {p['marks']} {p['reason']} {p['chars']} chars")
-        print(p['text'] if a.full else p['text'][:300].replace('\n', ' '))
-    print('total chars', r['chars'])

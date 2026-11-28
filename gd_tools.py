@@ -29,6 +29,7 @@ import json
 import re
 import sqlite3
 
+import gd_errors
 from gd_pages import Page
 
 SNIPPET_CHARS = 320
@@ -37,7 +38,6 @@ LABEL_CHARS = 240          # page-topic labels shown with a search hit or an out
 # One read_pages request opens up to this many pages (Chase 2026-10-24: keep it). Pages asked for past it are not opened;
 # the result tells Grok which ones, so it can ask again in another read. The primer states this number.
 READ_MAX_PAGES = 10
-RANGE_MAX_PAGES = READ_MAX_PAGES   # older name
 RANGE_EXPAND_MAX = 2000    # a range is expanded into page labels up to this span (guards '1-999999'); longer is taken as typed
 # No tool returns a whole document's text: find_documents / table_of_contents / search_pages return titles, labels and
 # short snippets; read_pages and open_web_document return the pages asked for (Chase 2026-10-24).
@@ -221,7 +221,8 @@ class LibraryTools:
     def _title(self, d):
         try:
             return self.s.shown_title(d)
-        except Exception:
+        except Exception as e:
+            gd_errors.fallback("doc_title", "shown title failed; the stored title is used", exc=e, doc_id=d.get("doc_id"))
             return d.get("title") or d["doc_id"]
 
     def _doc_card(self, d, why=""):
@@ -301,7 +302,8 @@ class LibraryTools:
             for d in cand:
                 try:
                     ms[d["doc_id"]] = self.s.model_score(d, q_models, qwords)
-                except Exception:
+                except Exception as e:
+                    gd_errors.fallback("model_score", "a document's model match was scored 0", exc=e, doc_id=d.get("doc_id"))
                     ms[d["doc_id"]] = (0, 0)
         ws = {}
         if words:
@@ -402,7 +404,8 @@ class LibraryTools:
         try:
             from pagefinder import doc_fixes
             return doc_fixes.page_fix(d["doc_id"], d.get("file_path"), p["pdf_sheet"]).get("page_note", "") or ""
-        except Exception:
+        except Exception as e:
+            gd_errors.fallback("page_note", "the page's fix note was not read", exc=e, doc_id=d.get("doc_id"))
             return p.get("note") or ""
 
     # -- read_pages
@@ -508,6 +511,8 @@ class LibraryTools:
         except ValueError as exc:
             return json.dumps({"error": f"bad arguments: {exc}"}), [], f"bad arguments for {name}"
         pages = []
+        if name not in FUNCTION_NAMES:   # v4.20.9: FUNCTION_NAMES (from FUNCTION_SPECS) is the one list of tools
+            return json.dumps({"error": f"unknown tool {name}"}), [], f"unknown tool {name}"
         try:
             if name == "find_documents":
                 res = self.find_documents(**_only(args, "brand", "model", "unit_type", "words", "limit"))
@@ -519,8 +524,8 @@ class LibraryTools:
                 res, pages = self.read_pages(**_only(args, "doc_id", "pages", "sheets"), max_pages=max_pages)
             elif name == "open_web_document":
                 res, pages = self.open_web_document(**_only(args, "url", "words"), max_pages=max_pages)
-            else:
-                return json.dumps({"error": f"unknown tool {name}"}), [], f"unknown tool {name}"
+            else:   # listed in FUNCTION_SPECS but not dispatched here: an app bug
+                return json.dumps({"error": f"tool {name} has no handler"}), [], f"tool {name} has no handler"
         except Exception as exc:   # a tool fault is reported to Grok as what came back, never raised into the turn
             return json.dumps({"error": f"{type(exc).__name__}: {exc}"}), [], f"{name} failed: {exc}"
         return json.dumps(res, ensure_ascii=False, default=str), pages, (res.get("error", "") if isinstance(res, dict) else "")
@@ -540,7 +545,8 @@ def _app_keywords(app_db):
             return {f"L{i}": k or "" for i, k in c.execute("select id, keywords from documents")}
         finally:
             c.close()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        gd_errors.fallback("doc_keywords", "the app DB keywords were not read; label words come from the index only", exc=e)
         return {}
 
 

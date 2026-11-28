@@ -268,7 +268,7 @@ class TestBulkImportFigures(unittest.TestCase):
         with zipfile.ZipFile(buf, "w") as archive:
             for name, data in files.items():
                 archive.writestr(name, data)
-        staged = bulk.stage_zip_bytes(
+        staged = bulk.stage_zip_source(
             self.session,
             buf.getvalue(),
             zip_name="lippert.zip",
@@ -334,7 +334,7 @@ class TestBulkImportFigures(unittest.TestCase):
         fresh = io.BytesIO()
         with zipfile.ZipFile(fresh, "w") as archive:
             archive.writestr("other.pdf", _other_pdf())
-        staged_bad = bulk.stage_zip_bytes(
+        staged_bad = bulk.stage_zip_source(
             self.session,
             fresh.getvalue(),
             zip_name="other.zip",

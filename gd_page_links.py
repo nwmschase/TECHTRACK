@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import re
 
+import gd_errors
+
 MAX_PAGE_LINKS = 4
 LINK_EXPIRES_SEC = 3600
 TITLE_CHARS = 40
@@ -87,7 +89,8 @@ def page_refs(cited, *, pages_fn=None, file_fn=None, title_fn=None, limit: int =
         if sheet is None and pages_fn is not None:
             try:
                 sheet = sheet_for(page, pages_fn(did))
-            except Exception:
+            except Exception as e:
+                gd_errors.fallback("page_refs", "the printed page was not matched to a PDF sheet", exc=e, doc_id=did)
                 sheet = None
         key = (did, sheet if sheet is not None else page)
         if key in seen:
@@ -97,11 +100,12 @@ def page_refs(cited, *, pages_fn=None, file_fn=None, title_fn=None, limit: int =
         if (not title or title == did) and title_fn is not None:
             try:
                 title = title_fn(did) or title
-            except Exception:
-                pass
+            except Exception as e:
+                gd_errors.fallback("page_refs", "the document title was not looked up; the id is shown", exc=e, doc_id=did)
         try:
             fpath = (file_fn(did) if file_fn is not None else "") or ""
-        except Exception:
+        except Exception as e:
+            gd_errors.fallback("page_refs", "the document's PDF path was not looked up", exc=e, doc_id=did)
             fpath = ""
         shown_page = page or (str(sheet) if sheet is not None else "")
         if _SHEET_RE.match(shown_page or ""):
@@ -124,7 +128,8 @@ def pdf_link(client, bucket: str, key: str, sheet=None, expires: int = LINK_EXPI
                     "ResponseContentType": "application/pdf"},
             ExpiresIn=int(expires),
         )
-    except Exception:
+    except Exception as e:
+        gd_errors.fallback("pdf_link", "the PDF link could not be signed; no Open PDF button", exc=e)
         return ""
     if not url:
         return ""
@@ -138,7 +143,10 @@ def object_exists(client, bucket: str, key: str) -> bool:
     try:
         client.head_object(Bucket=bucket, Key=key)
         return True
-    except Exception:
+    except Exception as e:
+        code = str(((getattr(e, "response", None) or {}).get("Error") or {}).get("Code") or "")
+        if code not in ("404", "NoSuchKey", "NotFound"):   # not found is the normal "no"; anything else is logged
+            gd_errors.fallback("object_exists", "storage check failed; the PDF shows as not in storage", exc=e)
         return False
 
 
@@ -157,7 +165,8 @@ def object_exists_cached(client_fn, bucket: str, key: str, ttl: int = EXISTS_TTL
         return hit[0]
     try:
         client = client_fn() if callable(client_fn) else client_fn
-    except Exception:
+    except Exception as e:
+        gd_errors.fallback("object_exists", "no storage client; the PDF shows as not in storage", exc=e)
         client = None
     ok = object_exists(client, bucket, key)
     if client is not None:

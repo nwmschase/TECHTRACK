@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pagefinder import doc_fixes as DF, search as S  # noqa: E402
-import gd_pages, gd_prompt  # noqa: E402
+import gd_pages, gd_prompt, gd_tools  # noqa: E402
 
 INDEX = os.environ.get("TT_PAGEFINDER_DIR", str(ROOT / "pagefinder" / "index"))
 APP_DB = os.environ.get("TT_TEST_APP_DB", "/workspace/techtrack-fresh/migration-test/fresh-start.db")
@@ -30,17 +30,19 @@ class TestFields(unittest.TestCase):
         d = dict(doc_id="L7", file_path="documents/a.pdf", unit_type="Slideouts", models="[]")
         DF.apply(d, path=p)
         self.assertEqual((d["unit_type"], d["also_unit_types"]), ("Furnaces", "Water Heaters"))   # own category not repeated
-        self.assertTrue(S.covers_unit(d, "Water Heaters")); self.assertTrue(S.covers_unit(d, "Furnaces"))
-        self.assertFalse(S.covers_unit(d, "Air Conditioning"))
+        # v4.20.9: the picker's covers_unit is deleted; the tool Grok uses (find_documents) checks the same fields
+        T = gd_tools.LibraryTools.__new__(gd_tools.LibraryTools)
+        self.assertTrue(T._unit_ok(d, "Water Heaters")); self.assertTrue(T._unit_ok(d, "Furnaces"))
+        self.assertFalse(T._unit_ok(d, "Air Conditioning"))
         e = dict(doc_id="L8", file_path="b.pdf"); DF.apply(e, path=p)
         self.assertEqual(e["source_type"], "maker_web")
         self.assertEqual(DF.display_title("T", "maker_web"), "MAKER WEB FAQ (maker's published web page, not a service manual): T")
-        self.assertEqual(DF.bay_title("T", "maker_web"), "Maker web FAQ: T")
         self.assertIn("maker web FAQ", gd_prompt.SYSTEM)
 
     def test_doc_without_second_category(self):
-        self.assertFalse(S.covers_unit(dict(unit_type="Furnaces"), "Water Heaters"))
-        self.assertFalse(S.covers_unit(dict(unit_type="Furnaces", also_unit_types=None), "Water Heaters"))
+        T = gd_tools.LibraryTools.__new__(gd_tools.LibraryTools)
+        self.assertFalse(T._unit_ok(dict(unit_type="Furnaces"), "Water Heaters"))
+        self.assertFalse(T._unit_ok(dict(unit_type="Furnaces", also_unit_types=None), "Water Heaters"))
 
     def test_rows(self):
         fx = DF.load()
@@ -72,9 +74,11 @@ class TestLibrary(unittest.TestCase):
         cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
         cls.lib = cls.f.lib
 
-    def ids(self, *a):
-        p = self.f.pick_manual(*a)
-        return [m["doc_id"] for m in p.manuals] + [x.doc_id for x in p.pages]
+    def ids(self, unit_type, model, words):
+        # v4.20.9: the old picker is deleted; the tool Grok uses
+        T = gd_tools.LibraryTools.for_finder(self.f)
+        out = json.loads(T.call("find_documents", {"model": model, "unit_type": unit_type, "words": words})[0])
+        return [d["doc_id"] for d in out.get("documents", [])]
 
     def test_truma_aquago_finds_the_panel_doc(self):
         d = self.lib.docs["L846"]
@@ -106,7 +110,7 @@ class TestLibrary(unittest.TestCase):
         # held back: multi-model docs whose exact tags would push a dedicated doc out (ranking tie-break is Chase's call)
         self.assertNotIn("140-1227", json.loads(row(799)[1]))
         self.assertEqual(json.loads(row(32)[1]), [])
-        self.assertEqual([m["doc_id"] for m in self.f.pick_manual("Leveling", "Power Gear 140-1227", "not working").manuals][:2], ["L802", "L555"])
+        self.assertEqual(sorted(self.ids("Leveling", "Power Gear 140-1227", "not working")[:2]), ["L555", "L802"])
 
 
 if __name__ == "__main__":

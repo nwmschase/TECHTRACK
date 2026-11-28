@@ -55,7 +55,9 @@ def cited_pages(case, cited_log=()):
         if case:
             for c in gd_turn._cited_with_pages((case.get("state") or {}).get("cited") or [], case):
                 out.append({k: c.get(k) for k in ("doc_id", "title", "page", "sheet", "url") if c.get(k) not in (None, "")})
-    except Exception:
+    except Exception as e:
+        import gd_errors
+        gd_errors.fallback("work_order_cited", "the job record's cited pages were not read; the 📖 log is used", exc=e)
         out = []
     seen = {((c.get("title") or "").lower(), str(c.get("page") or "")) for c in out}
     for c in cited_log or []:
@@ -144,8 +146,10 @@ def purge_old(session, Job, days=None, now=None) -> int:
         if old:
             session.commit()
         return len(old)
-    except Exception:
+    except Exception as exc:
         session.rollback()
+        import gd_errors
+        gd_errors.fallback("work_order_purge", "old work orders were not purged", exc=exc)
         return 0
 
 

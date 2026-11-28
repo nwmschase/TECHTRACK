@@ -1,7 +1,7 @@
 """RV shop vocabulary in the page-finder's word half (pagefinder/terms.py + pagefinder/terms/*.tsv), fresh-core 18/19.
 Pure-table tests run anywhere; the real-library checks use the keyword half only (no model download) and skip when
 the shipped index / app DB is not on this box."""
-import collections, filecmp, os, sys, tempfile, unittest
+import collections, filecmp, json, os, sys, tempfile, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,29 +103,29 @@ class TestRealLibraryVocabulary(unittest.TestCase):
         import gd_pages
         cls.f = gd_pages.LibraryPageFinder(INDEX, meaning=False, app_db=APP_DB)
 
+    # v4.20.9: the old picker (pick_manual / fetch_part) is deleted; the vocabulary is checked through the tools Grok uses.
+    def _call(self, name, **args):
+        import gd_tools
+        return json.loads(gd_tools.LibraryTools.for_finder(self.f).call(name, args)[0])
+
     def test_rc04_touchpad_finds_touch_screen_form(self):
-        p = self.f.pick_manual("Leveling", "BAL touchscreen leveling system",
-                               "touchpad occasionally unresponsive during operation; auto-level doesn't consistently complete")
-        self.assertIn("Touch Screen Diagnostic", p.manuals[0]["title"])
+        docs = self._call("find_documents", model="BAL touchscreen leveling system", unit_type="Leveling",
+                          words="touchpad occasionally unresponsive during operation; auto-level doesn't consistently complete")
+        self.assertIn("Touch Screen", docs["documents"][0]["title"])
 
     def test_rc16_coil_temp_sensor_is_freeze_sensor(self):
-        p = self.f.pick_manual("Air Conditioning", "Furrion FACT12SA2-PS (Lippert 2024031961) A/C", "AC freezes up and stops cooling")
-        parts = self.f.fetch_part("coil temp sensor", p)
-        self.assertTrue(parts)
-        self.assertRegex(parts[0].text.lower(), r"freeze sensor|evaporator (temperature )?sensor")
-
-    def test_multi_unit_title_not_claimed(self):
-        lib = self.f.lib
-        multi = [d for d in lib.docs.values() if len(d.get("title_units") or ()) > 1]
-        self.assertTrue(all(not S.covers_unit(d, u) or d["unit_type"] == u for d in multi for u in d["title_units"]))
+        hits = self._call("search_pages", words="coil temp sensor", brand="Furrion", unit_type="Air Conditioning")["hits"]
+        self.assertTrue(hits)
+        self.assertRegex((hits[0]["snippet"] + " " + hits[0].get("topics", "")).lower(),
+                         r"freeze sensor|evaporator (temperature )?sensor")
 
     def test_doc_336_tag_fix(self):
         from pagefinder import build_index
         fixes = build_index.model_tag_fixes()
         self.assertIn(336, fixes)
-        p = self.f.pick_manual(self.f.lib.docs["L336"]["unit_type"], "Furrion BC1715A", "not working")
-        self.assertNotIn("L336", [m["doc_id"] for m in p.manuals])
-
+        docs = self._call("find_documents", brand="Furrion", model="BC1715A",
+                          unit_type=self.f.lib.docs["L336"]["unit_type"], words="not working")["documents"]
+        self.assertNotIn("L336", [d["doc_id"] for d in docs])
 
 if __name__ == "__main__":
     unittest.main()

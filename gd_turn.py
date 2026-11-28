@@ -30,6 +30,7 @@ import tempfile
 import time
 from urllib.parse import urlparse
 
+import gd_errors
 import gd_prompt
 import gd_state
 import gd_tools
@@ -75,7 +76,6 @@ T_WEB_ERROR = "WEB_SEARCH_ERROR"                   # a server-side web search it
 T_FORUM = "FORUM_SOURCE_USED"                      # a web source on a forum host
 T_STATE_MISSING = "STATE_BLOCK_MISSING"
 T_STATE_BROKEN = "STATE_BLOCK_BROKEN"
-T_STORY = "STORY_WRITTEN"                          # the state block carried a technician story this turn
 T_WEB_GATE_OPENED = "WEB_GATE_OPENED"              # v4.20.7: the web tools were offered for the first time in this job
 T_CITED_NOT_OPENED = "CITED_NOT_OPENED"            # v4.20.7: Grok cited a library page it never opened (dropped)
 T_APP_PICTURE_PAGE = "APP_OPENED_PICTURE_PAGE"     # v4.20.7: a picture was asked for, Grok opened no page, the app opened one
@@ -90,9 +90,8 @@ T_MEANING_OFF = "MEANING_SEARCH_OFF"               # v4.20.8: search_pages ran w
 WEB_TOOL_TYPES = ("web_search", "x_search")
 WEB_FUNCTION_NAMES = ("open_web_document",)
 WEB_GATE_CLOSED_RESULT = {"error": "open_web_document is not available yet: search the library and open a page first"}
-LIBRARY_LOOKUPS = ("find_documents", "table_of_contents", "search_pages", "read_pages")
 TRIGGERS = (T_SAFETY_CEILING, T_PAGE_BACKSTOP, T_PAGE_RANGE_LIMIT, T_OTHER_BRAND, T_REPEAT, T_TOOL_ERROR, T_TOOL_EMPTY,
-            T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_STORY, T_WEB_GATE_OPENED,
+            T_WEB_ERROR, T_FORUM, T_STATE_MISSING, T_STATE_BROKEN, T_WEB_GATE_OPENED,
             T_CITED_NOT_OPENED, T_APP_PICTURE_PAGE, T_MEANING_OFF)
 FORUM_HOST_WORDS = ("forum", "irv2", "reddit", "rvforums", "rv.net", "community", "facebook", "groups.", "quora", "boards.")
 # xAI usage reports cost_in_usd_ticks (billed cost incl. server-side tools); 1 USD = 1e10 ticks (docs.x.ai/developers/cost-tracking)
@@ -112,11 +111,7 @@ CEILING_REPLY = "I ran out of lookups for this message. Send it again and I will
 
 
 def _read_limit():
-    try:
-        import gd_tools
-        return gd_tools.READ_MAX_PAGES
-    except Exception:
-        return None
+    return gd_tools.READ_MAX_PAGES
 
 
 def new_case(category, model_text, complaint):
@@ -157,8 +152,9 @@ def meaning_status(library=None):
             from pagefinder import search as s
         lib = getattr(library, "lib", None) if library is not None else None
         return s.meaning_status(lib)
-    except Exception:
-        return "off_by_setting", ""
+    except Exception as e:   # v4.20.9: never reported as "off by setting" when the check itself broke
+        gd_errors.fallback("meaning_status", "could not read the meaning-search state", exc=e)
+        return "failed", f"{type(e).__name__}: {e}"
 
 
 def _note_meaning_off(case, library, triggers, trig):
@@ -307,10 +303,12 @@ def app_open_picture_page(case, library, user_msg):
     words = " ".join(sorted(gd_picture.subject_words(user_msg))) + " picture diagram photo"
     out, _, err = library.call("search_pages", {"words": words.strip(), "doc_ids": docs, "limit": 12})
     if err:
+        gd_errors.fallback("picture_page", "the app's picture-page search failed; no picture page opened", error=str(err)[:300])
         return None
     try:
         hits = json.loads(out).get("hits") or []
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError, AttributeError) as e:
+        gd_errors.fallback("picture_page", "the picture-page search result was unreadable; no picture page opened", exc=e)
         return None
     pic = [dict(h, text=h.get("snippet") or "") for h in hits
            if gd_picture.has_picture_label(h.get("topics"))]
@@ -366,7 +364,9 @@ def page_image_message(pages, image_fn, limit=None):
             break
         try:
             data = image_fn(p.doc_id, int(p.sheet))
-        except Exception:
+        except Exception as e:
+            gd_errors.fallback("page_image", "a page picture was not drawn; Grok gets that page's text only", exc=e,
+                               page=p.label())
             data = None
         if not data:
             failed.append(p.label())
@@ -468,6 +468,8 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     text = ""
 
     def trig(name, **info):
+        if name not in TRIGGERS:   # v4.20.9: TRIGGERS is the registry; an unlisted name is an app bug, logged, never lost
+            gd_errors.fallback("trigger_name", f"trigger {name} is not in gd_turn.TRIGGERS")
         triggers.append({"trigger": name, "at_call": calls, **info})
 
     while True:
@@ -642,10 +644,10 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
     state_missing = any(p == "no <state> block in reply" for p in probs)
     if state_missing:
         trig(T_STATE_MISSING)
+        gd_errors.fallback("state_block", "Grok's reply had no <state> block; the job record keeps its last values")
     elif probs:
         trig(T_STATE_BROKEN, problems=probs)
-    if (update.get("story") or "").strip():
-        trig(T_STORY, chars=len(update["story"]))
+        gd_errors.fallback("state_block", "Grok's <state> block was broken or partly ignored", problems=probs)
     update = dict(update)
     if state_missing:
         # v4.20.6 (test7b): no block, so no cited list from Grok. The library pages Grok opened this turn stand in, so the
@@ -722,3 +724,17 @@ def run_turn(user_msg, category, model_text, history, *, store, finder=None, lib
             "cited": cited, "tool_calls": tool_log, "web_sources": list(case["web_sources"]), "pages_read": opened,
             "triggers": triggers, "page_images": rec["page_images"], "log": rec,
             "turn_pages": [p for p in turn_pages if p.source != "web"]}   # this turn's opened library pages (not logged)
+
+
+def startup_fields(version: str, commit: str = "") -> dict:
+    """v4.20.9 (Chase t1727u): what this server process runs, read from the code (the one source): app version, git
+    commit, the Grok model, the GD answer temperature, the reasoning effort (None = not set, xAI's default for the model),
+    smart (meaning) search on/off, the web gate, and the round limit per turn."""
+    import gd_llm
+    from pagefinder import search as _search
+
+    return {"version": version, "commit": commit or "unknown", "model": gd_llm.DEFAULT_XAI_MODEL,
+            "gd_temperature": gd_llm.GD_RESPOND_TEMPERATURE,
+            "reasoning_effort": gd_llm.GD_ASK_REASONING_EFFORT or "not set (xAI default for the model)",
+            "smart_search": "on" if _search.MEANING_ON else "off", "web_gate": "on",
+            "round_limit": SAFETY_CEILING_CALLS}
